@@ -26,7 +26,7 @@ public:
 	Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream* state) SMTG_OVERRIDE;
 	Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream* state) SMTG_OVERRIDE;
 	Steinberg::tresult PLUGIN_API setParamNormalized(Steinberg::Vst::ParamID tag,
-                                                      Steinberg::Vst::ParamValue value) SMTG_OVERRIDE;
+                                                     Steinberg::Vst::ParamValue value) SMTG_OVERRIDE;
 	Steinberg::tresult PLUGIN_API getParamStringByValue(Steinberg::Vst::ParamID tag,
                                                         Steinberg::Vst::ParamValue valueNormalized,
                                                         Steinberg::Vst::String128 string) SMTG_OVERRIDE;

@@ -1,0 +1,14 @@
+#pragma once
+
+#include <cstddef>
+#include <string>
+
+namespace tiny {
+
+struct Cmake_defines {
+    static constexpr auto product_name = std::string{"@tiny_product_name@"};
+    static constexpr auto version_string = std::string{"@tiny_version_string@"};
+    static constexpr auto build_number = size_t{@tiny_build_number@};
+};
+
+} // namespace tiny

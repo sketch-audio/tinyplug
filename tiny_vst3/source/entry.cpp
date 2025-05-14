@@ -1,8 +1,13 @@
-#include "processor.h"
-#include "controller.h"
-#include "cids.h"
-
 #include "public.sdk/source/main/pluginfactory.h"
+
+#include "cmake_defines.h"
+#include "shared.h"
+
+#include "adapters.h"
+#include "controller.h"
+#include "processor.h"
+
+using namespace tiny;
 
 //------------------------------------------------------------------------
 //  VST Plug-in Entry
@@ -12,35 +17,35 @@
 //------------------------------------------------------------------------
 
 BEGIN_FACTORY_DEF(
-    "Sketch Audio, LLC", // Company name
-    "www.sketchaudio.com", // Company website
-    "mailto:ryan@sketchaudio.com" // Company email
+    User_plug::info.company_name.c_str(),
+    User_plug::info.company_website.c_str(),
+    User_plug::info.company_email.c_str()
 )
 
-// its kVstAudioEffectClass component
-DEF_CLASS2(
-    INLINE_UID_FROM_FUID(tiny::processor_uid),
-    Steinberg::PClassInfo::kManyInstances,	// cardinality
-    kVstAudioEffectClass,	// the component category (do not changed this)
-    "Tiny VST3 Demo",		// here the Plug-in name (to be changed)
-    Steinberg::Vst::kDistributable,	// means that component and controller could be distributed on different computers
-    "Fx", // Subcategory for this Plug-in (to be changed)
-    "1.0.0",		// Plug-in version (to be changed)
-    kVstVersionString,		// the VST 3 SDK version (do not changed this, use always this define)
-    tiny::Processor::createInstance // function pointer called when this component should be instantiated
-)	
+    // its kVstAudioEffectClass component
+    DEF_CLASS2(
+        INLINE_UID_FROM_FUID(map_to_fuid(User_plug::info.vst3_processor_uid)),
+        Steinberg::PClassInfo::kManyInstances,	        // Cardinality
+        kVstAudioEffectClass,	                        // Category (do not change this)
+        Cmake_defines::product_name.c_str(),		    // Name (to be changed)
+        Steinberg::Vst::kDistributable,	                // Means that component and controller could be distributed on different computers
+        User_plug::info.vst3_subcategories.c_str(),     // Subcategory for this Plug-in (to be changed)
+        Cmake_defines::version_string.c_str(),	        // Plug-in version (to be changed)
+        kVstVersionString,		                        // VST3 SDK version (do not change this, use always this define)
+        Processor::createInstance                       // Function pointer called when this component should be instantiated
+    )	
 
-// its kVstComponentControllerClass component
-DEF_CLASS2(
-    INLINE_UID_FROM_FUID(tiny::controller_uid),
-    Steinberg::PClassInfo::kManyInstances, // cardinality
-    kVstComponentControllerClass,// the Controller category (do not changed this)
-    "Tiny VST3 Demo",	// controller name (could be the same than component name)
-    0,						// not used here
-    "",						// not used here
-    "1.0.0",		// Plug-in version (to be changed)
-    kVstVersionString,		// the VST 3 SDK version (do not changed this, use always this define)
-    tiny::Controller::createInstance // function pointer called when this component should be instantiated
-)
+    // its kVstComponentControllerClass component
+    DEF_CLASS2(
+        INLINE_UID_FROM_FUID(map_to_fuid(User_plug::info.vst3_controller_uid)),
+        Steinberg::PClassInfo::kManyInstances,          // Cardinality
+        kVstComponentControllerClass,                   // Category (do not change this)
+        Cmake_defines::product_name.c_str(),	        // Name (could be the same than component name)
+        0,						                        // Class flags, not used here
+        "",						                        // Subcategories, not used here
+        Cmake_defines::version_string.c_str(),	        // Plug-in version (to be changed)
+        kVstVersionString,		                        // VST3 SDK version (do not change this, use always this define)
+        Controller::createInstance                      // Function pointer called when this component should be instantiated
+    )
 
 END_FACTORY
