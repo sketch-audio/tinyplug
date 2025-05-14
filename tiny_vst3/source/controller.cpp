@@ -35,7 +35,7 @@ Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream*
 	return Steinberg::kResultOk;
 }
 
-Steinberg::tresult PLUGIN_API Controller::setState(Steinberg::IBStream* state)
+Steinberg::tresult PLUGIN_API Controller::setState(Steinberg::IBStream* /*state*/)
 {
 	// Here you get the state of the controller.
 
@@ -43,7 +43,7 @@ Steinberg::tresult PLUGIN_API Controller::setState(Steinberg::IBStream* state)
 }
 
 //------------------------------------------------------------------------
-Steinberg::tresult PLUGIN_API Controller::getState(Steinberg::IBStream* state)
+Steinberg::tresult PLUGIN_API Controller::getState(Steinberg::IBStream* /*state*/)
 {
 	// Here you are asked to deliver the state of the controller (if needed).
 	// Note: the real state of your plug-in is saved in the processor.
