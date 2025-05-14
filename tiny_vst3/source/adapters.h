@@ -2,7 +2,7 @@
 
 #include "pluginterfaces/base/funknown.h"
 
-#include "shared.h"
+#include "tinyplug.h"
 
 namespace tiny {
 

@@ -14,6 +14,7 @@ set(tiny_shared_lib ${tiny_base_filename}_lib)
 add_library(
     ${tiny_shared_lib} INTERFACE
     shared.h
+    tinyplug.h
 )
 
 target_include_directories(
