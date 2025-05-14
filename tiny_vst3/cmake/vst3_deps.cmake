@@ -17,3 +17,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(
     vst3sdk
 )
+
+# Exclude sdk_hosting and validator from the default build
+set_target_properties(sdk_hosting PROPERTIES EXCLUDE_FROM_ALL TRUE)
+set_target_properties(validator PROPERTIES EXCLUDE_FROM_ALL TRUE)
