@@ -87,6 +87,4 @@ Steinberg::tresult PLUGIN_API Controller::getParamValueByString(Steinberg::Vst::
 	return Steinberg::Vst::EditControllerEx1::getParamValueByString(tag, string, valueNormalized);
 }
 
-
-
 } // namespace tiny

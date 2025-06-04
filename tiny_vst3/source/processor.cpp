@@ -1,7 +1,7 @@
 #include "base/source/fstreamer.h"
 #include "public.sdk/source/vst/utility/stringconvert.h"
 
-#include "shared.h"
+#include "user_plug.h"
 
 #include "adapters.h"
 #include "processor.h"

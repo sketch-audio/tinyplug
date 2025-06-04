@@ -1,7 +1,7 @@
 #include "public.sdk/source/main/pluginfactory.h"
 
 #include "cmake_defines.h"
-#include "shared.h"
+#include "user_plug.h"
 
 #include "adapters.h"
 #include "controller.h"

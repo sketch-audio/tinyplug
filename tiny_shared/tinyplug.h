@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <string>
+#include <vector>
 
 namespace tiny {
 
@@ -11,6 +12,8 @@ struct Plug_info {
     std::string company_name{};
     std::string company_website{};
     std::string company_email{};
+    std::string clap_description{};
+    std::vector<const char*> clap_features{nullptr};
     Vst3_uid vst3_controller_uid{};
     Vst3_uid vst3_processor_uid{};
     std::string vst3_subcategories{};

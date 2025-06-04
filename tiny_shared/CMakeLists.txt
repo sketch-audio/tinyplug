@@ -13,8 +13,8 @@ configure_file(
 set(tiny_shared_lib ${tiny_base_filename}_lib)
 add_library(
     ${tiny_shared_lib} INTERFACE
-    shared.h
     tinyplug.h
+    user_plug.h
 )
 
 target_include_directories(
