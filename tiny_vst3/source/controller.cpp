@@ -57,8 +57,9 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
 	// Here the Host wants to open your editor (if you have one).
 	if (Steinberg::FIDStringsEqual(name, Steinberg::Vst::ViewType::kEditor))
 	{
-		// Create your editor here and return a IPlugView ptr of it.
-        return nullptr;
+        // Create your editor here and return a IPlugView ptr of it.
+        view = new Vst3_view();
+        return view;
     }
     
     return nullptr;

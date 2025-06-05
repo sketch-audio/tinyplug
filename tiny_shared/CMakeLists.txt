@@ -12,15 +12,22 @@ configure_file(
 
 set(tiny_shared_lib ${tiny_base_filename}_lib)
 add_library(
-    ${tiny_shared_lib} INTERFACE
+    ${tiny_shared_lib} STATIC 
     tinyplug.h
     user_plug.h
+    platform/mac_view.mm
 )
 
 target_include_directories(
-    ${tiny_shared_lib} INTERFACE
+    ${tiny_shared_lib} PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/platform
+)
+
+target_link_libraries(
+    ${tiny_shared_lib} PUBLIC
+    "-framework Cocoa"
 )
 
 # Forward to parent scope.

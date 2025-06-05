@@ -14,7 +14,7 @@ target_include_directories(${clap_target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..
 
 target_link_libraries(${clap_target} PRIVATE clap clap-helpers)
 target_link_libraries(${clap_target} PRIVATE ${tiny_shared_lib})
-target_link_libraries(${clap_target} PRIVATE "-framework Foundation")
+target_link_libraries(${clap_target} PRIVATE "-framework Cocoa")
 
 target_compile_options(${clap_target} PRIVATE -Wall -Wextra -pedantic)
 
@@ -29,8 +29,6 @@ set_target_properties(${clap_target} PROPERTIES
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${tiny_version_string}
     MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Info.plist.in
 )
-
-set(output_dir ${CMAKE_BINARY_DIR}/lib/${CMAKE_BUILD_TYPE})
 
 # Add the PkgInfo file. (Makes it so we appear as a bundle and not a folder in Finder.)
 add_custom_command(

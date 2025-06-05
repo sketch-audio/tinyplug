@@ -2,6 +2,8 @@
 
 #include "public.sdk/source/vst/vsteditcontroller.h"
 
+#include "view.h"
+
 namespace tiny {
 
 class Controller : public Steinberg::Vst::EditControllerEx1
@@ -40,7 +42,11 @@ public:
 		// DEF_INTERFACE (Vst::IXXX)
 	END_DEFINE_INTERFACES (EditController)
     DELEGATE_REFCOUNT(EditController)
-        
+
+protected:
+
+    Vst3_view* view{nullptr}; // Is there any point in keeping this around?
+
 };
 
 } // namespace tiny 

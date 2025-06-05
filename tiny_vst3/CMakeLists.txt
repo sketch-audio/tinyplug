@@ -18,6 +18,7 @@ add_library(${vst3_target} MODULE
     source/entry.cpp
     source/processor.h
     source/processor.cpp
+    source/view.h
 )
 
 target_sources(${vst3_target} PRIVATE ${vst3sdk_SOURCE_DIR}/public.sdk/source/main/macmain.cpp)
@@ -50,9 +51,12 @@ add_custom_command(
     VERBATIM
 )
 
-# # Move from the lib folder to the root of the build directory.
-# add_custom_command(
-#     TARGET ${vst3_target} POST_BUILD
-#     COMMAND ${CMAKE_COMMAND} -E copy_directory ${output_dir}/${tiny_base_filename}.vst3 ${CMAKE_BINARY_DIR}/${tiny_base_filename}.vst3
-#     VERBATIM
-# )
+# Copy the VST3 bundle to ~/Library/Audio/Plug-Ins/VST3/ after building.
+add_custom_command(
+    TARGET ${vst3_target} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory $ENV{HOME}/Library/Audio/Plug-Ins/VST3/
+    COMMAND ${CMAKE_COMMAND} -E copy_directory 
+        ${output_dir}/${tiny_base_filename}.vst3 
+        $ENV{HOME}/Library/Audio/Plug-Ins/VST3/${tiny_base_filename}.vst3
+    VERBATIM
+)
