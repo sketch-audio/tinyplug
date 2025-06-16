@@ -32,7 +32,7 @@ bool Plugin::guiGetPreferredApi(const char** api, bool* isFloating) noexcept
 
 bool Plugin::guiCreate(const char* api, bool isFloating) noexcept
 {
-    platform_view = CreatePlatformView(800, 600);
+    platform_view = CreatePlatformView(_delegate.get());
     return true;
 }
 
@@ -59,8 +59,9 @@ bool Plugin::guiHide() noexcept
 
 bool Plugin::guiGetSize(uint32_t* width, uint32_t* height) noexcept
 {
-    *width = 800;
-    *height = 600;
+    const auto delegate_size = _delegate->getSize();
+    *width = delegate_size.width;
+    *height = delegate_size.height;
     return true;
 }
 
@@ -88,6 +89,8 @@ bool Plugin::guiAdjustSize(uint32_t* width, uint32_t* height) noexcept
 
 bool Plugin::guiSetSize(uint32_t width, uint32_t height) noexcept
 {
+    _delegate->onResize({static_cast<int>(width), static_cast<int>(height)});
+    RedrawPlatformView(platform_view, _delegate.get());
     return true;
 }
 

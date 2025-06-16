@@ -1,8 +1,12 @@
 #pragma once
 
+#include <memory>
+
 #include "clap/helpers/plugin.hh"
 
-#include "descriptor.h" 
+#include "platform_view.h"
+
+#include "descriptor.h"
 
 namespace tiny {
 
@@ -34,7 +38,8 @@ public:
     bool guiSetTransient(const clap_window* window) noexcept override;
 
 protected:
-
+    
+    std::unique_ptr<Graphics_delegate> _delegate = std::make_unique<Graphics_delegate>(Graphics_delegate::Size{800, 600});
     void* platform_view;
 
 };

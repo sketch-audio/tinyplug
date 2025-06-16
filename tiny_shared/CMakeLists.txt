@@ -10,6 +10,16 @@ configure_file(
     ${CMAKE_CURRENT_BINARY_DIR}/cmake_defines.h
 )
 
+# macOS-specific settings
+set(CMAKE_MACOSX_RPATH 1)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+
+# Set include and library directories
+set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../prebuilt/skia/build/include)
+set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../prebuilt/skia/build/mac/lib/Release)
+find_library(SKIA_LIB skia PATHS ${LIB_DIR} NO_DEFAULT_PATH REQUIRED)
+include_directories(${INCLUDE_DIR})
+
 set(tiny_shared_lib ${tiny_base_filename}_lib)
 add_library(
     ${tiny_shared_lib} STATIC 
@@ -23,11 +33,16 @@ target_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/platform
+    ${INCLUDE_DIR}
 )
 
+target_link_libraries(${tiny_shared_lib} PUBLIC ${SKIA_LIB})
 target_link_libraries(
     ${tiny_shared_lib} PUBLIC
     "-framework Cocoa"
+    "-framework CoreFoundation"
+    "-framework CoreText"
+    "-framework CoreGraphics"
 )
 
 # Forward to parent scope.
