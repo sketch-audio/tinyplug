@@ -8,15 +8,15 @@ add_library(${clap_target} MODULE
     source/clap_plugin.cpp
 )
 
-target_link_libraries(${clap_target} PRIVATE clap clap-helpers)
-target_link_libraries(${clap_target} PRIVATE ${tiny_shared_lib})
-target_link_libraries(${clap_target} PRIVATE "-framework Cocoa")
-
 # Don't issue warnings for clap library code.
 target_include_directories(${clap_target} SYSTEM PRIVATE
     ${clap_SOURCE_DIR}/include
     ${clap-helpers_SOURCE_DIR}/include
 )
+
+target_link_libraries(${clap_target} PRIVATE clap clap-helpers)
+target_link_libraries(${clap_target} PRIVATE ${tiny_shared_lib})
+target_link_libraries(${clap_target} PRIVATE "-framework Cocoa")
 
 target_compile_options(${clap_target} PRIVATE -Wall -Wextra -pedantic)
 
