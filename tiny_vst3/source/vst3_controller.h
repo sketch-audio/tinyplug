@@ -2,20 +2,18 @@
 
 #include "public.sdk/source/vst/vsteditcontroller.h"
 
-#include "view.h"
+#include "vst3_view.h"
 
-namespace tiny {
-
-class Controller : public Steinberg::Vst::EditControllerEx1
+class Vst3_controller : public Steinberg::Vst::EditControllerEx1
 {
 public:
-    Controller() = default;
-    ~Controller() SMTG_OVERRIDE = default;
+    Vst3_controller() = default;
+    ~Vst3_controller() SMTG_OVERRIDE = default;
 
     // Create function
 	static Steinberg::FUnknown* createInstance (void* /*context*/)
 	{
-		return (Steinberg::Vst::IEditController*)new Controller;
+		return (Steinberg::Vst::IEditController*)new Vst3_controller;
 	}
 
 	// IPluginBase
@@ -48,5 +46,3 @@ protected:
     Vst3_view* view{nullptr}; // Is there any point in keeping this around?
 
 };
-
-} // namespace tiny 

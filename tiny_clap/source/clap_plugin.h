@@ -4,20 +4,31 @@
 
 #include "clap/helpers/plugin.hh"
 
+#include "cmake_defines.h"
 #include "platform_view.h"
-
-#include "descriptor.h"
-
-namespace tiny {
+#include "user_plug.h"
 
 using MisbehaviourHandler = clap::helpers::MisbehaviourHandler;
 using CheckingLevel = clap::helpers::CheckingLevel;
 
-class Plugin : public clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal> {
+class Clap_plugin : public clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal> {
 public:
 
-    Plugin(const clap_host* host);
-    ~Plugin();
+    Clap_plugin(const clap_host* host);
+    ~Clap_plugin();
+
+    static const inline clap_plugin_descriptor_t descriptor{
+        .clap_version = CLAP_VERSION,
+        .id = tiny::Cmake_defines::base_identifier.c_str(),
+        .name = tiny::Cmake_defines::product_name.c_str(),
+        .vendor = tiny::User_plug::info.company_name.c_str(),
+        .url = tiny::User_plug::info.company_website.c_str(),
+        .manual_url = tiny::User_plug::info.company_website.c_str(),
+        .support_url = tiny::User_plug::info.company_website.c_str(),
+        .version = tiny::Cmake_defines::version_string.c_str(),
+        .description = tiny::User_plug::info.clap_description.c_str(),
+        .features = tiny::User_plug::info.clap_features.data()
+    };
 
     // clap_plugin_gui 
     bool implementsGui() const noexcept override { return true; }
@@ -43,5 +54,3 @@ protected:
     void* platform_view;
 
 };
-
-}

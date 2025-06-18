@@ -2,18 +2,16 @@
 
 #include "public.sdk/source/vst/vstaudioeffect.h"
 
-namespace tiny {
-
-class Processor : public Steinberg::Vst::AudioEffect {
+class Vst3_processor : public Steinberg::Vst::AudioEffect {
 public:
     
-    Processor();
-	~Processor() SMTG_OVERRIDE;
+    Vst3_processor();
+	~Vst3_processor() SMTG_OVERRIDE;
 
     // Create function
     static Steinberg::FUnknown* createInstance(void* /*context*/)
 	{ 
-		return (Steinberg::Vst::IAudioProcessor*)new Processor; 
+		return (Steinberg::Vst::IAudioProcessor*)new Vst3_processor; 
 	}
 
 	//--- ---------------------------------------------------------------------
@@ -41,5 +39,3 @@ public:
 	Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream* state) SMTG_OVERRIDE;
     Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream* state) SMTG_OVERRIDE;
 };
-
-} // namespace tiny

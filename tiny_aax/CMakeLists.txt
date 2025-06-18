@@ -1,3 +1,4 @@
+# AAX target.
 set(aax_target ${tiny_base_filename}_aax)
 
 # hardcoded
@@ -9,13 +10,16 @@ add_library(${aax_target} MODULE
     ${aax_sdk_root}/Interfaces/AAX_Exports.cpp
 )
 
-# --- from original xcconfig files: same for debug/release
-target_include_directories(${aax_target} PUBLIC ${aax_sdk_root}/Interfaces)
-target_include_directories(${aax_target} PUBLIC ${aax_sdk_root}/Interfaces/ACF)
-target_include_directories(${aax_target} PUBLIC ${aax_sdk_root}/Extensions/MIDI)
-target_include_directories(${aax_target} PUBLIC ${aax_sdk_root}/Extensions/Platform/include)
-target_include_directories(${aax_target} PUBLIC ${aax_sdk_root}/Extensions/Topology)
-target_include_directories(${aax_target} PUBLIC ${aax_sdk_root}/TI/SignalProcessing)
+# Probably not all needed.
+target_include_directories(
+    ${aax_target} SYSTEM PRIVATE 
+    ${aax_sdk_root}/Interfaces
+    ${aax_sdk_root}/Interfaces/ACF
+    ${aax_sdk_root}/Extensions/MIDI
+    ${aax_sdk_root}/Extensions/Platform/include
+    ${aax_sdk_root}/Extensions/Topology
+    ${aax_sdk_root}/TI/SignalProcessing
+)
 
 # https://github.com/willpirkleaudio/ASPiK/blob/develop/PluginTemplate/project_source/cmake/aax_cmake/CMakeLists.txt
 if(APPLE)
@@ -37,7 +41,6 @@ elseif(WIN)
 endif()
 
 
-target_include_directories(${aax_target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../tiny_shared_lib)
 target_link_libraries(${aax_target} PRIVATE ${tiny_shared_lib})
 target_link_libraries(${aax_target} PRIVATE "-framework Cocoa")
 

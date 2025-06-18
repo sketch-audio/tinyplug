@@ -11,21 +11,21 @@ configure_file(
     ${CMAKE_CURRENT_BINARY_DIR}/cmake_defines.h
 )
 
+# --- SKIA ---
+# See example: https://github.com/olilarkin/skia-builder
 # macOS-specific settings
 set(CMAKE_MACOSX_RPATH 1)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 
 # Set include and library directories
-set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../prebuilt/skia/build/include)
-set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../prebuilt/skia/build/mac/lib/Release)
-find_library(SKIA_LIB skia PATHS ${LIB_DIR} NO_DEFAULT_PATH REQUIRED)
-include_directories(${INCLUDE_DIR})
+set(skia_include_dir ${CMAKE_CURRENT_SOURCE_DIR}/../prebuilt/skia/build/include)
+set(skia_lib_dir ${CMAKE_CURRENT_SOURCE_DIR}/../prebuilt/skia/build/mac/lib/Release)
+find_library(skia_lib skia PATHS ${skia_lib_dir} NO_DEFAULT_PATH REQUIRED)
+# --- SKIA ---
 
 set(tiny_shared_lib ${tiny_base_filename}_lib)
 add_library(
     ${tiny_shared_lib} STATIC 
-    tinyplug.h
-    user_plug.h
     platform/mac_view.mm
 )
 
@@ -34,10 +34,15 @@ target_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/platform
-    ${INCLUDE_DIR}
 )
 
-target_link_libraries(${tiny_shared_lib} PUBLIC ${SKIA_LIB})
+# Don't issue warnings for Skia library code.
+target_include_directories(
+    ${tiny_shared_lib} SYSTEM PUBLIC
+    ${skia_include_dir}
+)
+
+target_link_libraries(${tiny_shared_lib} PUBLIC ${skia_lib})
 target_link_libraries(
     ${tiny_shared_lib} PUBLIC
     "-framework Cocoa"

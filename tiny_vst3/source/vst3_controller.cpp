@@ -1,10 +1,8 @@
 #include "pluginterfaces/base/ibstream.h"
 
-#include "controller.h"
+#include "vst3_controller.h"
 
-namespace tiny {
-
-Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* context)
+Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* context)
 {
     // Here the plug-in will be instantiated.
 
@@ -18,7 +16,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
     return result;
 }
 
-Steinberg::tresult PLUGIN_API Controller::terminate()
+Steinberg::tresult PLUGIN_API Vst3_controller::terminate()
 {
     // Here the Plug-in will be de-instantiated, last possibility to remove some memory!
 
@@ -26,7 +24,7 @@ Steinberg::tresult PLUGIN_API Controller::terminate()
     return Steinberg::Vst::EditControllerEx1::terminate();
 }
 
-Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream* state)
+Steinberg::tresult PLUGIN_API Vst3_controller::setComponentState(Steinberg::IBStream* state)
 {
 	// Here you get the state of the component (processor part).
 	if (!state)
@@ -35,7 +33,7 @@ Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream*
 	return Steinberg::kResultOk;
 }
 
-Steinberg::tresult PLUGIN_API Controller::setState(Steinberg::IBStream* /*state*/)
+Steinberg::tresult PLUGIN_API Vst3_controller::setState(Steinberg::IBStream* /*state*/)
 {
 	// Here you get the state of the controller.
 
@@ -43,7 +41,7 @@ Steinberg::tresult PLUGIN_API Controller::setState(Steinberg::IBStream* /*state*
 }
 
 //------------------------------------------------------------------------
-Steinberg::tresult PLUGIN_API Controller::getState(Steinberg::IBStream* /*state*/)
+Steinberg::tresult PLUGIN_API Vst3_controller::getState(Steinberg::IBStream* /*state*/)
 {
 	// Here you are asked to deliver the state of the controller (if needed).
 	// Note: the real state of your plug-in is saved in the processor.
@@ -52,7 +50,7 @@ Steinberg::tresult PLUGIN_API Controller::getState(Steinberg::IBStream* /*state*
 }
 
 //------------------------------------------------------------------------
-Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString name)
+Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDString name)
 {
 	// Here the Host wants to open your editor (if you have one).
 	if (Steinberg::FIDStringsEqual(name, Steinberg::Vst::ViewType::kEditor))
@@ -65,7 +63,7 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
     return nullptr;
 }
 
-Steinberg::tresult PLUGIN_API Controller::setParamNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue value)
+Steinberg::tresult PLUGIN_API Vst3_controller::setParamNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue value)
 {
 	// Called by host to update your parameters.
 	Steinberg::tresult result = Steinberg::Vst::EditControllerEx1::setParamNormalized(tag, value);
@@ -73,7 +71,7 @@ Steinberg::tresult PLUGIN_API Controller::setParamNormalized(Steinberg::Vst::Par
 }
 
 //------------------------------------------------------------------------
-Steinberg::tresult PLUGIN_API Controller::getParamStringByValue(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue valueNormalized, Steinberg::Vst::String128 string)
+Steinberg::tresult PLUGIN_API Vst3_controller::getParamStringByValue(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue valueNormalized, Steinberg::Vst::String128 string)
 {
 	// Called by host to get a string for given normalized value of a specific parameter.
 	// (without having to set the value!)
@@ -81,11 +79,9 @@ Steinberg::tresult PLUGIN_API Controller::getParamStringByValue(Steinberg::Vst::
 }
 
 //------------------------------------------------------------------------
-Steinberg::tresult PLUGIN_API Controller::getParamValueByString(Steinberg::Vst::ParamID tag, Steinberg::Vst::TChar* string, Steinberg::Vst::ParamValue& valueNormalized)
+Steinberg::tresult PLUGIN_API Vst3_controller::getParamValueByString(Steinberg::Vst::ParamID tag, Steinberg::Vst::TChar* string, Steinberg::Vst::ParamValue& valueNormalized)
 {
 	// Called by host to get a normalized value from a string representation of a specific parameter.
 	// (without having to set the value!)
 	return Steinberg::Vst::EditControllerEx1::getParamValueByString(tag, string, valueNormalized);
 }
-
-} // namespace tiny

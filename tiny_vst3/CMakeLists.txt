@@ -12,13 +12,9 @@ include(cmake/vst3_deps.cmake)
 smtg_enable_vst3_sdk() # sdk
 
 add_library(${vst3_target} MODULE
-    source/adapters.h
-    source/controller.h
-    source/controller.cpp
-    source/entry.cpp
-    source/processor.h
-    source/processor.cpp
-    source/view.h
+    source/vst3_controller.cpp
+    source/vst3_entry.cpp
+    source/vst3_processor.cpp
 )
 
 target_sources(${vst3_target} PRIVATE ${vst3sdk_SOURCE_DIR}/public.sdk/source/main/macmain.cpp)

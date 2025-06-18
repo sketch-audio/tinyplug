@@ -3,22 +3,20 @@
 
 #include "user_plug.h"
 
-#include "adapters.h"
-#include "processor.h"
+#include "vst3_adapters.h"
+#include "vst3_processor.h"
 
-namespace tiny {
-
-Processor::Processor()
+Vst3_processor::Vst3_processor()
 {
     setControllerClass(tiny::map_to_fuid(tiny::User_plug::info.vst3_controller_uid));
 }
 
-Processor::~Processor()
+Vst3_processor::~Vst3_processor()
 {
     //
 }
 
-Steinberg::tresult PLUGIN_API Processor::initialize(Steinberg::FUnknown* context)
+Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* context)
 {
     // Here the Plug-in will be instantiated.
 
@@ -60,7 +58,7 @@ Steinberg::tresult PLUGIN_API Processor::initialize(Steinberg::FUnknown* context
     return Steinberg::kResultOk;
 }
 
-Steinberg::tresult PLUGIN_API Processor::terminate()
+Steinberg::tresult PLUGIN_API Vst3_processor::terminate()
 {
     // Here the Plug-in will be de-instantiated, last possibility to remove some memory!
 
@@ -68,19 +66,19 @@ Steinberg::tresult PLUGIN_API Processor::terminate()
     return Steinberg::Vst::AudioEffect::terminate();
 }
 
-Steinberg::tresult PLUGIN_API Processor::setActive(Steinberg::TBool state)
+Steinberg::tresult PLUGIN_API Vst3_processor::setActive(Steinberg::TBool state)
 {
     // Called when the Plug-in is enable/disable (On/Off).
 	return Steinberg::Vst::AudioEffect::setActive(state);
 }
 
-Steinberg::tresult PLUGIN_API Processor::setupProcessing(Steinberg::Vst::ProcessSetup& newSetup)
+Steinberg::tresult PLUGIN_API Vst3_processor::setupProcessing(Steinberg::Vst::ProcessSetup& newSetup)
 {
 	// Called before any processing.
 	return Steinberg::Vst::AudioEffect::setupProcessing(newSetup);
 }
 
-Steinberg::tresult PLUGIN_API Processor::canProcessSampleSize(Steinberg::int32 symbolicSampleSize)
+Steinberg::tresult PLUGIN_API Vst3_processor::canProcessSampleSize(Steinberg::int32 symbolicSampleSize)
 {
 	// By default kSample32 is supported.
 	if (symbolicSampleSize == Steinberg::Vst::kSample32)
@@ -89,20 +87,12 @@ Steinberg::tresult PLUGIN_API Processor::canProcessSampleSize(Steinberg::int32 s
 	return Steinberg::kResultFalse;
 }
 
-Steinberg::tresult PLUGIN_API Processor::process(Steinberg::Vst::ProcessData& /*data*/)
+Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessData& /*data*/)
 {
     return Steinberg::kResultOk;
 }
 
-Steinberg::tresult PLUGIN_API Processor::setState(Steinberg::IBStream* state)
-{
-    if (!state)
-        return Steinberg::kResultFalse;
-
-    return Steinberg::kResultOk;
-}
-
-Steinberg::tresult PLUGIN_API Processor::getState(Steinberg::IBStream* state)
+Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* state)
 {
     if (!state)
         return Steinberg::kResultFalse;
@@ -110,4 +100,10 @@ Steinberg::tresult PLUGIN_API Processor::getState(Steinberg::IBStream* state)
     return Steinberg::kResultOk;
 }
 
-} // namespace tiny
+Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* state)
+{
+    if (!state)
+        return Steinberg::kResultFalse;
+
+    return Steinberg::kResultOk;
+}

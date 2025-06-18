@@ -6,8 +6,6 @@
 
 #include "platform_view.h"
 
-namespace tiny {
-
 class Vst3_view : public Steinberg::CPluginView {
 public:
 
@@ -19,7 +17,7 @@ public:
         return Steinberg::kResultFalse;
     }
 
-    Steinberg::tresult PLUGIN_API attached(void* parent, Steinberg::FIDString type) override
+    Steinberg::tresult PLUGIN_API attached(void* parent, Steinberg::FIDString /*type*/) override
     {
         platform_view = CreatePlatformView(_delegate.get());
         AttachPlatformView(parent, platform_view);
@@ -32,17 +30,17 @@ public:
         return Steinberg::kResultFalse;
     }
 
-    Steinberg::tresult PLUGIN_API onWheel(float distance) override
+    Steinberg::tresult PLUGIN_API onWheel(float /*distance*/) override
     {
         return Steinberg::kResultFalse;
     }
 
-    Steinberg::tresult PLUGIN_API onKeyDown(Steinberg::char16 key, Steinberg::int16 keyCode, Steinberg::int16 modifiers) override
+    Steinberg::tresult PLUGIN_API onKeyDown(Steinberg::char16 /*key*/, Steinberg::int16 /*keyCode*/, Steinberg::int16 /*modifiers*/) override
     {
         return Steinberg::kResultFalse;
     }
 
-    Steinberg::tresult PLUGIN_API onKeyUp(Steinberg::char16 key, Steinberg::int16 keyCode, Steinberg::int16 modifiers) override
+    Steinberg::tresult PLUGIN_API onKeyUp(Steinberg::char16 /*key*/, Steinberg::int16 /*keyCode*/, Steinberg::int16 /*modifiers*/) override
     {
         return Steinberg::kResultFalse;
     }
@@ -61,12 +59,12 @@ public:
         return Steinberg::kResultFalse;
     }
 
-    Steinberg::tresult PLUGIN_API onFocus(Steinberg::TBool state) override
+    Steinberg::tresult PLUGIN_API onFocus(Steinberg::TBool /*state*/) override
     {
         return Steinberg::kResultFalse;
     }
 
-    Steinberg::tresult PLUGIN_API setFrame(Steinberg::IPlugFrame* frame) override
+    Steinberg::tresult PLUGIN_API setFrame(Steinberg::IPlugFrame* /*frame*/) override
     {
         return Steinberg::kResultTrue;
     }
@@ -76,7 +74,7 @@ public:
         return Steinberg::kResultTrue;
     }
 
-    Steinberg::tresult PLUGIN_API checkSizeConstraint(Steinberg::ViewRect* rect) override
+    Steinberg::tresult PLUGIN_API checkSizeConstraint(Steinberg::ViewRect* /*rect*/) override
     {
         return Steinberg::kResultTrue;
     }
@@ -89,6 +87,3 @@ protected:
     void* platform_view{nullptr};
 
 };
-
-}
-

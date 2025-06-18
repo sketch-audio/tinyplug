@@ -18,6 +18,9 @@ FetchContent_MakeAvailable(
     vst3sdk
 )
 
+# Don't issue warnings when building VST3 sdk.
+target_compile_options(sdk PRIVATE -w)
+
 # Exclude sdk_hosting and validator from the default build
 set_target_properties(sdk_hosting PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(validator PROPERTIES EXCLUDE_FROM_ALL TRUE)
