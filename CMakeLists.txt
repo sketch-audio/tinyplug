@@ -13,5 +13,6 @@ if (APPLE)
 endif()
 
 add_subdirectory(tiny_shared)
+add_subdirectory(tiny_aax)
 add_subdirectory(tiny_clap)
 add_subdirectory(tiny_vst3)

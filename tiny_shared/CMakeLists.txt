@@ -1,5 +1,6 @@
 # Some of the plug-in information has to be defined in CMake.
 set(tiny_product_name "Tiny Demo")
+set(tiny_short_product_name "TnDm") # Must be <= 16 chars, for Pro Tools.
 set(tiny_base_filename "TinyDemo")
 set(tiny_base_identifier "com.sketch-audio.TinyDemo")
 set(tiny_version_string "1.0.0")

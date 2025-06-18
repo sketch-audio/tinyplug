@@ -8,6 +8,7 @@ namespace tiny {
 struct Cmake_defines {
     static inline const auto base_identifier = std::string{"@tiny_base_identifier@"};
     static inline const auto product_name = std::string{"@tiny_product_name@"};
+    static inline const auto product_short_name = std::string{"@tiny_product_short_name@"};
     static inline const auto version_string = std::string{"@tiny_version_string@"};
     static inline const auto build_number = size_t{@tiny_build_number@};
 };
