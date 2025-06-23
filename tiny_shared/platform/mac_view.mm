@@ -14,7 +14,7 @@
     [super drawRect:dirtyRect]; // Call superclass's method (optional)
     
     // Set the fill color to red
-    [[NSColor greenColor] setFill];
+    [[NSColor redColor] setFill];
     NSRectFill(self.bounds);
 
     // Graphics delegate paints blue

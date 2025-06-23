@@ -1,10 +1,15 @@
 # Some of the plug-in information has to be defined in CMake.
+set(tiny_manufacturer_name "Sketch Audio")
 set(tiny_product_name "Tiny Demo")
 set(tiny_short_product_name "TnDm") # Must be <= 16 chars, for Pro Tools.
 set(tiny_base_filename "TinyDemo")
 set(tiny_base_identifier "com.sketch-audio.TinyDemo")
 set(tiny_version_string "1.0.0")
 set(tiny_build_number "1")
+
+set(tiny_auv2_manufacturer "Skch")
+set(tiny_auv2_type "aufx")
+set(tiny_auv2_subtype "tndm")
 
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake_defines.h.in
@@ -52,9 +57,13 @@ target_link_libraries(
 )
 
 # Forward to parent scope.
+set(tiny_manufacturer_name ${tiny_manufacturer_name} PARENT_SCOPE)
 set(tiny_product_name ${tiny_product_name} PARENT_SCOPE)
 set(tiny_base_filename ${tiny_base_filename} PARENT_SCOPE)
 set(tiny_base_identifier ${tiny_base_identifier} PARENT_SCOPE)
 set(tiny_version_string ${tiny_version_string} PARENT_SCOPE)
 set(tiny_build_number ${tiny_build_number} PARENT_SCOPE)
+set(tiny_auv2_manufacturer ${tiny_auv2_manufacturer} PARENT_SCOPE)
+set(tiny_auv2_type ${tiny_auv2_type} PARENT_SCOPE)
+set(tiny_auv2_subtype ${tiny_auv2_subtype} PARENT_SCOPE)
 set(tiny_shared_lib ${tiny_shared_lib} PARENT_SCOPE)

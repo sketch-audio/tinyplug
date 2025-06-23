@@ -6,6 +6,9 @@
 #include "include/core/SkSurface.h"
 #include "include/utils/mac/SkCGUtils.h"
 
+// AUv2
+static const unsigned kAudioUnitProperty_UserPlugin = 'plug';
+
 struct Graphics_delegate;
 
 // Create the platform view.

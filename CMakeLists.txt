@@ -14,5 +14,6 @@ endif()
 
 add_subdirectory(tiny_shared)
 add_subdirectory(tiny_aax)
+add_subdirectory(tiny_auv2)
 add_subdirectory(tiny_clap)
 add_subdirectory(tiny_vst3)

@@ -11,6 +11,9 @@ struct Cmake_defines {
     static inline const auto product_short_name = std::string{"@tiny_product_short_name@"};
     static inline const auto version_string = std::string{"@tiny_version_string@"};
     static inline const auto build_number = size_t{@tiny_build_number@};
+    static inline const auto auv2_manufacturer = uint32_t{'@tiny_auv2_manufacturer@'};
+    static inline const auto auv2_type = uint32_t{'@tiny_auv2_type@'};
+    static inline const auto auv2_subtype = uint32_t{'@tiny_auv2_subtype@'};
 };
 
 } // namespace tiny
