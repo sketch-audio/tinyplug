@@ -1,42 +1,46 @@
 # AAX target.
-set(aax_target ${tiny_base_filename}_aax)
 
-# hardcoded
-set(aax_sdk_root ${CMAKE_CURRENT_SOURCE_DIR}/../../aax-sdk-2-8-1)
+# Requires AAX SDK path.
+if(NOT TINY_AAX_SDK_DIR)
+    message(STATUS "Set TINY_AAX_SDK_DIR to build AAX plug-ins.")
+    return()
+endif()
+
+set(aax_target ${tiny_base_filename}_aax)
 
 add_library(${aax_target} MODULE
     source/aax_algorithm.cpp
     source/aax_describe.cpp
-    ${aax_sdk_root}/Interfaces/AAX_Exports.cpp
+    ${TINY_AAX_SDK_DIR}/Interfaces/AAX_Exports.cpp
 )
 
 # Probably not all needed.
 target_include_directories(
     ${aax_target} SYSTEM PRIVATE 
-    ${aax_sdk_root}/Interfaces
-    ${aax_sdk_root}/Interfaces/ACF
-    ${aax_sdk_root}/Extensions/MIDI
-    ${aax_sdk_root}/Extensions/Platform/include
-    ${aax_sdk_root}/Extensions/Topology
-    ${aax_sdk_root}/TI/SignalProcessing
+    ${TINY_AAX_SDK_DIR}/Interfaces
+    ${TINY_AAX_SDK_DIR}/Interfaces/ACF
+    ${TINY_AAX_SDK_DIR}/Extensions/MIDI
+    ${TINY_AAX_SDK_DIR}/Extensions/Platform/include
+    ${TINY_AAX_SDK_DIR}/Extensions/Topology
+    ${TINY_AAX_SDK_DIR}/TI/SignalProcessing
 )
 
 # https://github.com/willpirkleaudio/ASPiK/blob/develop/PluginTemplate/project_source/cmake/aax_cmake/CMakeLists.txt
 if(APPLE)
 	add_library(aaxLibraryD STATIC IMPORTED)
-	set_property(TARGET aaxLibraryD PROPERTY IMPORTED_LOCATION "${aax_sdk_root}/Libs/Debug/libAAXLibrary_libcpp.a")
+	set_property(TARGET aaxLibraryD PROPERTY IMPORTED_LOCATION "${TINY_AAX_SDK_DIR}/Libs/Debug/libAAXLibrary_libcpp.a")
 	target_link_libraries(${aax_target} PRIVATE debug aaxLibraryD)
 
 	add_library(aaxLibraryR STATIC IMPORTED)
-	set_property(TARGET aaxLibraryR PROPERTY IMPORTED_LOCATION ${aax_sdk_root}/Libs/Release/libAAXLibrary_libcpp.a)
+	set_property(TARGET aaxLibraryR PROPERTY IMPORTED_LOCATION ${TINY_AAX_SDK_DIR}/Libs/Release/libAAXLibrary_libcpp.a)
 	target_link_libraries(${aax_target} PRIVATE optimized aaxLibraryR)
 elseif(WIN)
 	add_library(aaxLibraryD STATIC IMPORTED)
-	set_property(TARGET aaxLibraryD PROPERTY IMPORTED_LOCATION "${aax_sdk_root}/Libs/Debug/AAXLibrary_x64_D.lib")
+	set_property(TARGET aaxLibraryD PROPERTY IMPORTED_LOCATION "${TINY_AAX_SDK_DIR}/Libs/Debug/AAXLibrary_x64_D.lib")
 	target_link_libraries(${aax_target} PRIVATE debug aaxLibraryD)
 
 	add_library(aaxLibraryR STATIC IMPORTED)
-	set_property(TARGET aaxLibraryR PROPERTY IMPORTED_LOCATION ${aax_sdk_root}/Libs/Release/AAXLibrary_x64.lib )
+	set_property(TARGET aaxLibraryR PROPERTY IMPORTED_LOCATION ${TINY_AAX_SDK_DIR}/Libs/Release/AAXLibrary_x64.lib )
 	target_link_libraries(${aax_target} PRIVATE optimized aaxLibraryR)
 endif()
 

@@ -1,3 +1,8 @@
+if(NOT APPLE)
+    message(STATUS "This is not a Mac. Skipping AUv2 build.")
+    return()
+endif()
+
 # AUv2 target
 set(auv2_target ${tiny_base_filename}_auv2)
 
