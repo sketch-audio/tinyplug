@@ -4,7 +4,11 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkPixmap.h"
 #include "include/core/SkSurface.h"
+
+#if defined(__APPLE__)
 #include "include/utils/mac/SkCGUtils.h"
+#else
+#endif
 
 // AUv2
 static const unsigned kAudioUnitProperty_UserPlugin = 'plug';
@@ -40,6 +44,7 @@ struct Graphics_delegate {
         auto* canvas = _surface->getCanvas();
         canvas->clear(SK_ColorBLUE);
 
+        #if defined(__APPLE__)
         SkPixmap pixmap;
         _surface->peekPixels(&pixmap);
         SkBitmap bmp;
@@ -49,6 +54,7 @@ struct Graphics_delegate {
         CGContextScaleCTM(pCGContext, 1 / screen_scale, 1 / screen_scale);
         SkCGDrawBitmap(pCGContext, bmp, 0, 0);
         CGContextRestoreGState(pCGContext);
+        #endif
     }
 
     auto onResize(const Size& size) -> void

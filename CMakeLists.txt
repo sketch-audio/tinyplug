@@ -21,6 +21,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if (APPLE)
     enable_language(OBJCXX)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64") # Universal build.
+elseif(WIN32)
+    # This is for compatibility with Skia.
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDebug")
+        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MTd")
+    else()
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
+    endif()
 endif()
 
 # We need a path to the prebuilt Skia library.

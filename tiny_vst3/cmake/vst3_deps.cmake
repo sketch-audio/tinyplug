@@ -8,6 +8,10 @@ set(SMTG_ENABLE_VST3_PLUGIN_EXAMPLES OFF)
 set(SMTG_ENABLE_VSTGUI_SUPPORT OFF)
 set(SMTG_RUN_VST_VALIDATOR OFF)
 
+if(WIN32)
+    set(SMTG_USE_STATIC_CRT ON) # We need this for Skia.
+endif()
+
 FetchContent_Declare(
     vst3sdk
     GIT_REPOSITORY https://github.com/steinbergmedia/vst3sdk.git

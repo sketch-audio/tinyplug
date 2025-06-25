@@ -12,27 +12,23 @@ if(APPLE)
     set(CMAKE_MACOSX_RPATH 1)
     set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 elseif(WIN32)
-    # if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    #     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDebug")
-    #     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MTd")
-    # else()
-    #     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
-    #     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
-    # endif()
-    if(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
-        set(ARCH_DIR "x64")
-    else()
-        set(ARCH_DIR "Win32")
-    endif()
+    # Windows settings at top level.
 endif()
 
 # Set include and library directories.
-set(SKIA_INCLUDE_DIR ${TINY_SKIA_ROOT_DIR}/build/include)
+unset(SKIA_LIB CACHE)
 if(APPLE)
+    # TODO: - Update for new iPlug2 dependencies directory.
+    set(SKIA_INCLUDE_DIR ${TINY_SKIA_ROOT_DIR}/build/include)
     set(SKIA_LIB_DIR ${TINY_SKIA_ROOT_DIR}/build/mac/lib/Release)
     find_library(SKIA_LIB skia PATHS ${SKIA_LIB_DIR} NO_DEFAULT_PATH REQUIRED)
 elseif(WIN32)
-    set(SKIA_LIB_DIR ${TINY_SKIA_ROOT_DIR}/build/win/lib/${CMAKE_BUILD_TYPE}/${ARCH_DIR})
+    set(SKIA_INCLUDE_DIR ${TINY_SKIA_ROOT_DIR}/src/skia)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(SKIA_LIB_DIR ${TINY_SKIA_ROOT_DIR}/win/x64/Debug)
+    else()
+        set(SKIA_LIB_DIR ${TINY_SKIA_ROOT_DIR}/win/x64/Release)
+    endif()
     find_library(SKIA_LIB skia PATHS ${SKIA_LIB_DIR} NO_DEFAULT_PATH REQUIRED)
 endif()
 
@@ -46,10 +42,19 @@ else()
 endif()
 # --- SKIA ---
 
+if(APPLE)
+    set(PLATFORM_SOURCES
+        platform/mac_view.mm
+    )
+elseif(WIN32)
+    set(PLATFORM_SOURCES
+        platform/win_view.cpp
+    )
+endif()
+
 set(tiny_shared_lib ${tiny_base_filename}_lib)
-add_library(
-    ${tiny_shared_lib} STATIC 
-    platform/mac_view.mm
+add_library(${tiny_shared_lib} STATIC 
+    ${PLATFORM_SOURCES}
 )
 
 target_include_directories(

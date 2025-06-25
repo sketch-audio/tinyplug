@@ -31,7 +31,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* co
     using namespace Steinberg::Vst;
 
     const auto input_count = plug_io.audio_ports.num_inputs;
-    for (size_t i = 0; i < input_count; ++i) {
+    for (uint32_t i = 0; i < input_count; ++i) {
         // Name shenanigans.
         const auto name = tiny::Plug_io::resolve_audio_input_name(i, input_count);
         String128 tname{};
@@ -42,7 +42,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* co
     }
 
     const auto output_count = plug_io.audio_ports.num_outputs;
-    for (size_t i = 0; i < output_count; ++i) {
+    for (uint32_t i = 0; i < output_count; ++i) {
         // Name shenanigans.
         const auto name = tiny::Plug_io::resolve_audio_output_name(i, output_count);
         String128 tname{};
