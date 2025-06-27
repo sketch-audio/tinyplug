@@ -19,8 +19,8 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
 {
     if (auto* descriptor = collection->NewDescriptor()) {
         //
-        descriptor->AddName(tiny::Cmake_defines::product_name.c_str());
-        descriptor->AddName(tiny::Cmake_defines::product_short_name.c_str());
+        descriptor->AddName(tiny::Cmake_defines::product_name);
+        descriptor->AddName(tiny::Cmake_defines::product_short_name);
         descriptor->AddCategory(AAX_ePlugInCategory_None); // TODO: - 
         descriptor->AddProcPtr((void*)Aax_parameters::Create, kAAX_ProcPtrID_Create_EffectParameters);
         descriptor->AddProcPtr((void*)Aax_gui::Create, kAAX_ProcPtrID_Create_EffectGUI);
@@ -46,10 +46,10 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
         descriptor->AddComponent(component);
 
         //
-        collection->AddEffect(tiny::Cmake_defines::base_identifier.c_str(), descriptor);
-        collection->SetManufacturerName(tiny::User_plug::info.company_name.c_str());
-        collection->AddPackageName(tiny::Cmake_defines::product_name.c_str());
-        collection->AddPackageName(tiny::Cmake_defines::product_short_name.c_str());
+        collection->AddEffect(tiny::Cmake_defines::base_identifier, descriptor);
+        collection->SetManufacturerName(tiny::User_plug::info.company_name);
+        collection->AddPackageName(tiny::Cmake_defines::product_name);
+        collection->AddPackageName(tiny::Cmake_defines::product_short_name);
         collection->SetPackageVersion(tiny::Cmake_defines::build_number);
 
         return AAX_SUCCESS;
