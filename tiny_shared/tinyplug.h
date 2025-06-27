@@ -9,17 +9,17 @@ namespace tiny {
 
 struct Plug_info {
     using Vst3_uid = std::array<uint32_t, 4>;
-    std::string company_name{};
-    std::string company_website{};
-    std::string company_email{};
+    const char* company_name{};
+    const char* company_website{};
+    const char* company_email{};
     uint32_t aax_manufacturer_id{};
     uint32_t aax_product_id{};
     uint32_t aax_plugin_id{};
-    std::string clap_description{};
+    const char* clap_description{};
     std::vector<const char*> clap_features{nullptr};
     Vst3_uid vst3_controller_uid{};
     Vst3_uid vst3_processor_uid{};
-    std::string vst3_subcategories{};
+    const char* vst3_subcategories{};
 };
 
 struct Plug_io {

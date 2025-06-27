@@ -19,14 +19,14 @@ public:
 
     static const inline clap_plugin_descriptor_t descriptor{
         .clap_version = CLAP_VERSION,
-        .id = tiny::Cmake_defines::base_identifier.c_str(),
-        .name = tiny::Cmake_defines::product_name.c_str(),
-        .vendor = tiny::User_plug::info.company_name.c_str(),
-        .url = tiny::User_plug::info.company_website.c_str(),
-        .manual_url = tiny::User_plug::info.company_website.c_str(),
-        .support_url = tiny::User_plug::info.company_website.c_str(),
-        .version = tiny::Cmake_defines::version_string.c_str(),
-        .description = tiny::User_plug::info.clap_description.c_str(),
+        .id = tiny::Cmake_defines::base_identifier,
+        .name = tiny::Cmake_defines::product_name,
+        .vendor = tiny::User_plug::info.company_name,
+        .url = tiny::User_plug::info.company_website,
+        .manual_url = tiny::User_plug::info.company_website,
+        .support_url = tiny::User_plug::info.company_website,
+        .version = tiny::Cmake_defines::version_string,
+        .description = tiny::User_plug::info.clap_description,
         .features = tiny::User_plug::info.clap_features.data()
     };
 
@@ -50,7 +50,16 @@ public:
 
 protected:
     
-    std::unique_ptr<Graphics_delegate> _delegate = std::make_unique<Graphics_delegate>(Graphics_delegate::Size{800, 600});
-    void* platform_view;
+    std::shared_ptr<Graphics_delegate> _delegate = std::make_shared<Graphics_delegate>(Graphics_delegate::Size{800, 600});
+    std::unique_ptr<Platform_view> platform_view{nullptr};
+
+    // Preferred platform GUI API.
+    static constexpr auto gui_preferred_api = []() {
+        if (Platform::resolved == Platform::Type::macos) {
+            return CLAP_WINDOW_API_COCOA;
+        } else if (Platform::resolved == Platform::Type::windows) {
+            return CLAP_WINDOW_API_WIN32;
+        }
+    }();
 
 };

@@ -16,4 +16,8 @@ FetchContent_Declare(
     FIND_PACKAGE_ARGS NAMES clap-helpers
 )
 
+# Suppress a CLAP dependency (dev) warning.
+cmake_policy(SET CMP0177 NEW)
+set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 1 CACHE INTERNAL "No dev warnings")
+
 FetchContent_MakeAvailable(clap clap-helpers)

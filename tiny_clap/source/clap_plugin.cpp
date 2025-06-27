@@ -18,25 +18,24 @@ Clap_plugin::~Clap_plugin()
 
 bool Clap_plugin::guiIsApiSupported(const char* api, bool isFloating) noexcept
 {
-    return !isFloating && strcmp(api, CLAP_WINDOW_API_COCOA) == 0;
+    return !isFloating && strcmp(api, gui_preferred_api) == 0;
 }
 
 bool Clap_plugin::guiGetPreferredApi(const char** api, bool* isFloating) noexcept
 {
-    *api = CLAP_WINDOW_API_COCOA;
+    *api = gui_preferred_api;
     *isFloating = false;
     return true;
 }
 
 bool Clap_plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
 {
-    platform_view = CreatePlatformView(_delegate.get());
+    platform_view = std::make_unique<Platform_view>(_delegate);
     return true;
 }
 
 void Clap_plugin::guiDestroy() noexcept
 {
-    DestroyPlatformView(platform_view);
     platform_view = nullptr;
 }
 
@@ -88,7 +87,7 @@ bool Clap_plugin::guiAdjustSize(uint32_t* /*width*/, uint32_t* /*height*/) noexc
 bool Clap_plugin::guiSetSize(uint32_t width, uint32_t height) noexcept
 {
     _delegate->onResize({static_cast<int>(width), static_cast<int>(height)});
-    RedrawPlatformView(platform_view, _delegate.get());
+    platform_view->resize(width, height);
     return true;
 }
 
@@ -99,7 +98,15 @@ void Clap_plugin::guiSuggestTitle(const char* /*title*/) noexcept
 
 bool Clap_plugin::guiSetParent(const clap_window* window) noexcept
 {
-    AttachPlatformView((void*)window->cocoa, platform_view);
+    // Resolve the platform window type.
+    auto* platform_window = [=]() {
+        if (Platform::resolved == Platform::Type::macos) {
+            return window->cocoa;
+        } else if (Platform::resolved == Platform::Type::windows) {
+            return window->win32;
+        }
+    }();
+    platform_view->receive_parent(platform_window);
     return true;
 }
 

@@ -11,7 +11,19 @@ public:
 
     Steinberg::tresult PLUGIN_API isPlatformTypeSupported(Steinberg::FIDString type) override
     {
-        if (strcmp(type, Steinberg::kPlatformTypeNSView) == 0)
+        // Resolve the platform window type.
+        const auto platform_type = []() {
+            switch (Platform::resolved) {
+                case Platform::Type::macos: 
+                    return Steinberg::kPlatformTypeNSView;
+                case Platform::Type::ios:
+                    return Steinberg::kPlatformTypeUIView;
+                case Platform::Type::windows: 
+                    return Steinberg::kPlatformTypeHWND;
+            }
+        }();
+
+        if (strcmp(type, platform_type) == 0)
             return Steinberg::kResultTrue;
 
         return Steinberg::kResultFalse;
@@ -19,15 +31,15 @@ public:
 
     Steinberg::tresult PLUGIN_API attached(void* parent, Steinberg::FIDString /*type*/) override
     {
-        platform_view = CreatePlatformView(_delegate.get());
-        AttachPlatformView(parent, platform_view);
-        return Steinberg::kResultFalse;
+        platform_view = std::make_unique<Platform_view>(_delegate);
+        platform_view->receive_parent(parent);
+        return Steinberg::kResultTrue;
     }
 
     Steinberg::tresult PLUGIN_API removed() override
     {
-        DestroyPlatformView(platform_view);
-        return Steinberg::kResultFalse;
+        platform_view = nullptr;
+        return Steinberg::kResultTrue;
     }
 
     Steinberg::tresult PLUGIN_API onWheel(float /*distance*/) override
@@ -54,9 +66,11 @@ public:
 
     Steinberg::tresult PLUGIN_API onSize(Steinberg::ViewRect* newSize) override
     {
-        _delegate->onResize({newSize->getWidth(), newSize->getHeight()});
-        RedrawPlatformView(platform_view, _delegate.get());
-        return Steinberg::kResultFalse;
+        const auto w = newSize->getWidth();
+        const auto h = newSize->getHeight();
+        _delegate->onResize({w, h}); 
+        platform_view->resize(w, h);
+        return Steinberg::kResultTrue;
     }
 
     Steinberg::tresult PLUGIN_API onFocus(Steinberg::TBool /*state*/) override
@@ -83,7 +97,7 @@ public:
 
 protected:
 
-    std::unique_ptr<Graphics_delegate> _delegate = std::make_unique<Graphics_delegate>(Graphics_delegate::Size{800, 600});
-    void* platform_view{nullptr};
+    std::shared_ptr<Graphics_delegate> _delegate = std::make_shared<Graphics_delegate>(Graphics_delegate::Size{800, 600});
+    std::unique_ptr<Platform_view> platform_view{nullptr};
 
 };

@@ -5,7 +5,7 @@ project(tinyplug)
 # Your plug-in information goes here.
 set(tiny_manufacturer_name "Sketch Audio")
 set(tiny_product_name "Tiny Demo")
-set(tiny_short_product_name "TnDm") # Must be <= 16 chars, for Pro Tools.
+set(tiny_product_short_name "TnDm") # Must be <= 16 chars, for Pro Tools.
 set(tiny_base_filename "TinyDemo")
 set(tiny_base_identifier "com.sketch-audio.TinyDemo")
 set(tiny_version_string "1.0.0")
@@ -30,6 +30,7 @@ elseif(WIN32)
         set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
         set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
     endif()
+    add_compile_options("/utf-8") # for MSVC
 endif()
 
 # We need a path to the prebuilt Skia library.
