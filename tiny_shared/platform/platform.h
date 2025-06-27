@@ -2,7 +2,7 @@
 
 #if defined(__APPLE__)
     #include <TargetConditionals.h>
-    #if TARGET_OS_MACOS
+    #if TARGET_OS_OSX
         #ifndef PLATFORM_MACOS
         #define PLATFORM_MACOS 1
         #endif

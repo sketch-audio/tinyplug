@@ -18,14 +18,14 @@ protected:
     void CreateViewContainer() override
     {
         if (auto* parent = GetViewContainerPtr()) {
-            platform_view = CreatePlatformView(_delegate.get());
-            AttachPlatformView(parent, platform_view);
+            platform_view = std::make_unique<Platform_view>(_delegate);
+            platform_view->receive_parent(parent);
         }
     }
 
     void DeleteViewContainer() override
     {
-        DestroyPlatformView(platform_view);
+        platform_view = nullptr;
     }
 
     AAX_Result GetViewSize(AAX_Point* view_size) const override
@@ -38,7 +38,7 @@ protected:
 
 private:
 
-    std::unique_ptr<Graphics_delegate> _delegate = std::make_unique<Graphics_delegate>(Graphics_delegate::Size{800, 600});
-    void* platform_view{nullptr};
-
+    std::shared_ptr<Graphics_delegate> _delegate = std::make_shared<Graphics_delegate>(Graphics_delegate::Size{800, 600});
+    std::unique_ptr<Platform_view> platform_view{nullptr};
+    
 };

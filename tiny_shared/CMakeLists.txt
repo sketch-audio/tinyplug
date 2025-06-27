@@ -5,22 +5,22 @@ configure_file(
 )
 
 # --- SKIA ---
-# See example: https://github.com/olilarkin/skia-builder
+# We're expecting to use the iPlug2 optional dependencies folder.
+# See: https://github.com/iPlug2/iPlug2/releases 
 
 # Platform-specific settings.
 if(APPLE)
     set(CMAKE_MACOSX_RPATH 1)
     set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 elseif(WIN32)
-    # Windows settings at top level.
+    # Windows settings (static CRT) at top level.
 endif()
 
 # Set include and library directories.
 unset(SKIA_LIB CACHE)
 if(APPLE)
-    # TODO: - Update for new iPlug2 dependencies directory.
-    set(SKIA_INCLUDE_DIR ${TINY_SKIA_ROOT_DIR}/build/include)
-    set(SKIA_LIB_DIR ${TINY_SKIA_ROOT_DIR}/build/mac/lib/Release)
+    set(SKIA_INCLUDE_DIR ${TINY_SKIA_ROOT_DIR}/src/skia)
+    set(SKIA_LIB_DIR ${TINY_SKIA_ROOT_DIR}/mac/lib)
     find_library(SKIA_LIB skia PATHS ${SKIA_LIB_DIR} NO_DEFAULT_PATH REQUIRED)
 elseif(WIN32)
     set(SKIA_INCLUDE_DIR ${TINY_SKIA_ROOT_DIR}/src/skia)
@@ -60,8 +60,8 @@ add_library(${tiny_shared_lib} STATIC
 target_include_directories(
     ${tiny_shared_lib} PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/platform
+    ${CMAKE_CURRENT_BINARY_DIR} # for Cmake_defines.h
 )
 
 # Don't issue warnings for Skia library code.

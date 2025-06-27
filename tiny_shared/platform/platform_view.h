@@ -13,6 +13,7 @@ struct Platform_view {
     auto receive_parent(void* parent) -> void;
     auto resize(int32_t w, int32_t h) -> void;
     auto redraw() -> void;
+    auto native_handle() -> void* { return _view; }
 private:
     std::shared_ptr<Graphics_delegate> _delegate;
     void* _view{nullptr};

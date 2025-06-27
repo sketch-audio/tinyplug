@@ -22,7 +22,7 @@
     AudioUnitGetProperty(audioUnit, kAudioUnitProperty_UserPlugin, kAudioUnitScope_Global, 0, user_plugin, &size);
 
     if (auto* effect = static_cast<Auv2_effect*>(user_plugin[0]); effect != nullptr) {
-        return (NSView*)effect->create_view();
+        return static_cast<NSView*>(effect->create_view());
     }
 
     return nil;
