@@ -32,7 +32,6 @@
         graphics_delegate->draw(platformContext);
     }
 }
-
 @end
 
 Platform_view::Platform_view(std::shared_ptr<Graphics_delegate> delegate) : _delegate{delegate}
@@ -62,26 +61,4 @@ auto Platform_view::resize(int32_t w, int32_t h) -> void
 auto Platform_view::redraw() -> void
 {
     [(NSView*)_view setNeedsDisplay:YES];
-}
-
-// MARK: - Platform Interface
-
-void* CreatePlatformView(Graphics_delegate* delegate) {
-    NSView* view = [[TinyMacView alloc] initWithDelegate:delegate];
-    return (void*)view;
-}
-
-void DestroyPlatformView(void* view) {
-    [(NSView*)view removeFromSuperview];
-    [(NSView*)view release]; // Release the Objective-C object
-}
-
-void RedrawPlatformView(void* view, Graphics_delegate* delegate) {
-    auto size = delegate->getSize();
-    [(NSView*)view setFrameSize:NSMakeSize(size.width, size.height)];
-    [(NSView*)view setNeedsDisplay:YES];
-}
-
-void AttachPlatformView(void* parent, void* view) {
-    [(NSView*)parent addSubview: (NSView*)view];
 }
