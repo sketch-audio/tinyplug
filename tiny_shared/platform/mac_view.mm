@@ -1,6 +1,7 @@
-#import <Cocoa/Cocoa.h>
-
 #include "platform_view.h"
+
+#if PLATFORM_MACOS
+#import <Cocoa/Cocoa.h>
 
 // TinyMacView
 @interface TinyMacView : NSView
@@ -62,3 +63,4 @@ auto Platform_view::redraw() -> void
 {
     [(NSView*)_view setNeedsDisplay:YES];
 }
+#endif
