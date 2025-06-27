@@ -30,7 +30,6 @@ elseif(WIN32)
         set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
         set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
     endif()
-    add_compile_options("/utf-8") # for MSVC
 endif()
 
 # We need a path to the prebuilt Skia library.

@@ -30,7 +30,7 @@ if(APPLE)
     target_link_libraries(${vst3_target} PRIVATE "-framework Cocoa")
     target_compile_options(${vst3_target} PRIVATE -Wall -Wextra -pedantic)
 elseif(WIN32)
-    target_compile_options(${vst3_target} PRIVATE /W4 /WX)
+    target_compile_options(${vst3_target} PRIVATE /W4)
 endif()
 
 
