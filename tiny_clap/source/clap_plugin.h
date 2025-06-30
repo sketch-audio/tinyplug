@@ -30,6 +30,30 @@ public:
         .features = tiny::User_plug::info.clap_features.data()
     };
 
+    clap_process_status process(const clap_process* /*process*/) noexcept override
+    {
+        return CLAP_PROCESS_CONTINUE;
+    }
+
+    // audio ports
+    bool implementsAudioPorts() const noexcept override { return true; }
+    uint32_t audioPortsCount(bool /*isInput*/) const noexcept override { return 1; }
+    bool audioPortsInfo(uint32_t index, bool /*isInput*/, clap_audio_port_info* info) const noexcept override
+    {
+        if (index > 0) return false;
+        info->id = index;
+        strcpy(info->name, "Audio Port");
+        info->flags = CLAP_AUDIO_PORT_IS_MAIN;
+        info->channel_count = 2;
+        info->port_type = CLAP_PORT_STEREO;
+        info->in_place_pair = CLAP_INVALID_ID;
+        return true;
+    }
+
+    bool implementsState() const noexcept override { return true; }
+    bool stateSave(const clap_ostream* /*stream*/) noexcept override { return true; }
+    bool stateLoad(const clap_istream* /*stream*/) noexcept override { return true; }
+
     // clap_plugin_gui 
     bool implementsGui() const noexcept override { return true; }
     bool guiIsApiSupported(const char* api, bool isFloating) noexcept override;

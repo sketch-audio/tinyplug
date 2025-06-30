@@ -86,6 +86,8 @@ bool Clap_plugin::guiAdjustSize(uint32_t* /*width*/, uint32_t* /*height*/) noexc
 
 bool Clap_plugin::guiSetSize(uint32_t width, uint32_t height) noexcept
 {
+    if (!platform_view) return false;
+
     _delegate->onResize({static_cast<int>(width), static_cast<int>(height)});
     platform_view->resize(width, height);
     return true;
@@ -98,6 +100,8 @@ void Clap_plugin::guiSuggestTitle(const char* /*title*/) noexcept
 
 bool Clap_plugin::guiSetParent(const clap_window* window) noexcept
 {
+    if (!platform_view) return false;
+    
     // Resolve the platform window type.
     auto* platform_window = [=]() {
         if (Platform::resolved == Platform::Type::macos) {
