@@ -66,9 +66,11 @@ public:
 
     Steinberg::tresult PLUGIN_API onSize(Steinberg::ViewRect* newSize) override
     {
+        if (!platform_view) return Steinberg::kResultFalse;
+
         const auto w = newSize->getWidth();
         const auto h = newSize->getHeight();
-        _delegate->onResize({w, h}); 
+        _delegate->onResize({w, h});
         platform_view->resize(w, h);
         return Steinberg::kResultTrue;
     }
