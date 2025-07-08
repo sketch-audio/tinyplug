@@ -14,6 +14,7 @@ if(APPLE)
     set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 elseif(WIN32)
     # Windows settings (static CRT) at top level.
+    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN SK_DIRECT3D)
 endif()
 
 # Set include and library directories.
@@ -48,6 +49,8 @@ if(APPLE)
     )
 elseif(WIN32)
     set(PLATFORM_SOURCES
+        skia/d3d/D3DTestUtils.cpp
+        skia/win/D3D12WindowContext_win.cpp
         platform/win_view.cpp
     )
 endif()
@@ -55,6 +58,7 @@ endif()
 set(tiny_shared_lib ${tiny_base_filename}_lib)
 add_library(${tiny_shared_lib} STATIC 
     ${PLATFORM_SOURCES}
+    skia/WindowContext.cpp
 )
 
 target_include_directories(
@@ -78,6 +82,8 @@ if(APPLE)
         "-framework CoreText"
         "-framework CoreGraphics"
     )
+elseif(WIN32)
+    target_link_libraries(${tiny_shared_lib} PUBLIC d3d12.lib dxgi.lib d3dcompiler.lib)
 endif()
 
 # Forward to parent scope.

@@ -1,19 +1,26 @@
 #pragma once
 
-#include "include/core/SkBitmap.h"
-#include "include/core/SkCanvas.h"
-#include "include/core/SkPixmap.h"
-#include "include/core/SkSurface.h"
-
 #include "platform.h"
 
 #if PLATFORM_MACOS
 #include "include/utils/mac/SkCGUtils.h"
 #elif PLATFORM_WINDOWS
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <Windows.h>
 #endif
+
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkColorSpace.h"
+
+#include "../skia/WindowContext.h"
 
 struct Graphics_delegate {
 
@@ -25,14 +32,21 @@ struct Graphics_delegate {
         _surface = SkSurfaces::Raster(info);
     }
 
+    ~Graphics_delegate()
+    {
+
+    }
+
+    auto set_context(std::unique_ptr<skwindow::WindowContext> context) -> void
+    {
+        _context = std::move(context);
+        _context->resize(_size.width, _size.height);
+    }
+
     auto draw(void* platform_context) -> void
     {
-        if (!platform_context) return;
-
-        auto* canvas = _surface->getCanvas();
-        canvas->clear(SK_ColorBLUE);
-
 #if PLATFORM_MACOS
+        if (!platform_context) return;
         SkPixmap pixmap;
         _surface->peekPixels(&pixmap);
         SkBitmap bmp;
@@ -43,26 +57,19 @@ struct Graphics_delegate {
         SkCGDrawBitmap(pCGContext, bmp, 0, 0);
         CGContextRestoreGState(pCGContext);
 #elif PLATFORM_WINDOWS
-        HDC hdc = (HDC)platform_context;
-        SkPixmap pixmap;
-        if (_surface->peekPixels(&pixmap)) {
-            const auto info = pixmap.info();
-            BITMAPINFO bmi = { 0 };
-            bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-            bmi.bmiHeader.biWidth = info.width();
-            bmi.bmiHeader.biHeight = -info.height(); // Negative for top-down bitmap
-            bmi.bmiHeader.biPlanes = 1;
-            bmi.bmiHeader.biBitCount = 32;
-            bmi.bmiHeader.biCompression = BI_RGB;
+        if (!_context) return;
+        auto surface = _context->getBackbufferSurface();
+        if (!surface) return;
+        auto* canvas = surface->getCanvas();
 
-            // Copy pixels to HDC
-            StretchDIBits(
-                hdc,
-                0, 0, info.width(), info.height(), // Destination
-                0, 0, info.width(), info.height(), // Source
-                pixmap.addr(), &bmi, DIB_RGB_COLORS, SRCCOPY
-            );
-        }
+        // canvas->clear(...) was giving us some leaks.
+        auto paint = SkPaint{};
+        paint.setColor(SK_ColorBLUE);
+        paint.setStyle(SkPaint::kFill_Style);
+        canvas->drawRect(SkRect::MakeXYWH(0, 0, _size.width, _size.height), paint);
+
+        _context->submitToGpu();
+        _context->swapBuffers(); // order?
 #endif
     }
 
@@ -70,8 +77,10 @@ struct Graphics_delegate {
     {
         if (size.width < 0 || size.height < 0) return;
         _size = size;
-        const auto info = SkImageInfo::MakeN32Premul(_size.width, _size.height);
-        _surface = SkSurfaces::Raster(info);
+        
+        if (_context) {
+            _context->resize(_size.width, _size.height);
+        }
     }
 
     auto getSize() -> Size
@@ -82,6 +91,8 @@ struct Graphics_delegate {
 private:
 
     Size _size{};
+    std::unique_ptr<skwindow::WindowContext> _context{nullptr};
+
     sk_sp<SkSurface> _surface{};
     double screen_scale{1};
 
