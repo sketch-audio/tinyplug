@@ -66,13 +66,39 @@ if(APPLE)
         VERBATIM
     )
 elseif(WIN32)
+    # Set up the bundle.
+    set(VST3_BUNDLE_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.vst3)
     set_target_properties(${vst3_target} PROPERTIES
         OUTPUT_NAME ${tiny_base_filename}
         SUFFIX .vst3
-        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.vst3/Contents/x86_64-win
-        LIBRARY_OUTPUT_DIRECTORY_DEBUG ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.vst3/Contents/x86_64-win
-        LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.vst3/Contents/x86_64-win
+        LIBRARY_OUTPUT_DIRECTORY ${VST3_BUNDLE_OUTPUT_DIR}/Contents/x86_64-win
+        LIBRARY_OUTPUT_DIRECTORY_DEBUG ${VST3_BUNDLE_OUTPUT_DIR}/Contents/x86_64-win
+        LIBRARY_OUTPUT_DIRECTORY_RELEASE ${VST3_BUNDLE_OUTPUT_DIR}/Contents/x86_64-win
     )
 
-    # Right now have to manually copy to destination directory.
+    # Get icon file from the SDK.
+    add_custom_command(
+        TARGET ${vst3_target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${vst3sdk_SOURCE_DIR}/cmake/templates/VST_Logo_Steinberg.ico ${VST3_BUNDLE_OUTPUT_DIR}
+    )
+    add_custom_command(
+        TARGET ${vst3_target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/cmake/desktop.ini ${VST3_BUNDLE_OUTPUT_DIR}
+    )
+
+    # Add system attribute. (Causes File Explorer to use the custom icon.)
+    add_custom_command(
+        TARGET ${vst3_target} POST_BUILD 
+        COMMAND attrib +s ${VST3_BUNDLE_OUTPUT_DIR}
+    )
+
+    if(TINY_INSTALL_PLUGINS)
+        # Copy plugin to Common Files\VST3 (will ask for admin rights)
+        add_custom_command(
+            TARGET ${vst3_target} POST_BUILD
+            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/cmake/postbuild_copy.bat" "${VST3_BUNDLE_OUTPUT_DIR}"
+            COMMENT "Copying VST3 plugin to system folder (will prompt for administrator)"
+            VERBATIM
+        )
+    endif()
 endif()

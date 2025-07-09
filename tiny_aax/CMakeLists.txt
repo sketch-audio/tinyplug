@@ -113,4 +113,14 @@ elseif(WIN32)
         TARGET ${aax_target} POST_BUILD 
         COMMAND attrib +s ${AAX_BUNDLE_OUTPUT_DIR}
     )
+
+    if(TINY_INSTALL_PLUGINS)
+        # Copy plugin to Avid's system folder (will ask for admin rights)
+        add_custom_command(
+            TARGET ${aax_target} POST_BUILD
+            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/cmake/postbuild_copy.bat" "${AAX_BUNDLE_OUTPUT_DIR}"
+            COMMENT "Copying AAX plugin to system folder (will prompt for administrator)"
+            VERBATIM
+        )
+    endif()
 endif()

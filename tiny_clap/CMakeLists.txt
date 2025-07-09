@@ -57,16 +57,18 @@ elseif(WIN32)
         OUTPUT_NAME ${tiny_base_filename}
         SUFFIX .clap
     )
-    
-    file(TO_NATIVE_PATH "${CMAKE_CURRENT_BINARY_DIR}/Debug/${tiny_base_filename}.clap" SOURCE_PATH) 
-    add_custom_command(
-        TARGET ${clap_target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory $ENV{LOCALAPPDATA}\\Programs\\Common\\CLAP
-        COMMAND ${CMAKE_COMMAND} -E copy 
-            ${SOURCE_PATH}
-            $ENV{LOCALAPPDATA}\\Programs\\Common\\CLAP\\${tiny_base_filename}.clap
-        VERBATIM
-    )
+
+    if(TINY_INSTALL_PLUGINS)
+        add_custom_command(
+            TARGET ${clap_target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$ENV{LOCALAPPDATA}\\Programs\\Common\\CLAP"
+            COMMAND ${CMAKE_COMMAND} -E copy
+                "$<TARGET_FILE_DIR:${clap_target}>\\${tiny_base_filename}.clap"
+                "$ENV{LOCALAPPDATA}\\Programs\\Common\\CLAP\\${tiny_base_filename}.clap"
+            COMMENT "Copying CLAP plugin to $ENV{LOCALAPPDATA}\\Programs\\Common\\CLAP"
+            VERBATIM
+        )
+    endif()
 endif()
 
 

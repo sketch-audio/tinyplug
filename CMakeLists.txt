@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.25) # ???
 
+option(TINY_INSTALL_PLUGINS "Copy plug-ins to system folders after build (may prompt for admin privileges)" ON)
+
 project(tinyplug)
 
 # Your plug-in information goes here.

@@ -18,7 +18,6 @@ elseif(WIN32)
 endif()
 
 # Set include and library directories.
-unset(SKIA_LIB CACHE)
 if(APPLE)
     set(SKIA_INCLUDE_DIR ${TINY_SKIA_ROOT_DIR}/src/skia)
     set(SKIA_LIB_DIR ${TINY_SKIA_ROOT_DIR}/mac/lib)
