@@ -24,6 +24,13 @@ if (APPLE)
     enable_language(OBJC)
     enable_language(OBJCXX)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64") # Universal build.
+
+    # Don't export symbols by default. We are also using an exports.txt file to hide some straggling symbols from Skia.
+    set(CMAKE_C_VISIBILITY_PRESET hidden)
+    set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+    set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
+    set(CMAKE_OBJC_FLAGS "-fvisibility=hidden -fvisibility-inlines-hidden -fvisibility=hidden")
+    set(CMAKE_OBJCXX_FLAGS "-fvisibility=hidden -fvisibility-inlines-hidden -fvisibility=hidden")
 elseif(WIN32)
     # This is for compatibility with Skia.
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")

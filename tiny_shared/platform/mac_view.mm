@@ -7,7 +7,7 @@
 #include "../skia/mac/GaneshMetalWindowContext_mac.h"
 #include "../skia/mac/MacWindowInfo.h"
 
-#define MAC_VIEW_RENDER_MAIN_THREAD 0
+#define MAC_VIEW_RENDER_MAIN_THREAD 1 // Still some issues with background thread for AUv2 in Logic
 
 // MacView
 @interface MacView : NSView

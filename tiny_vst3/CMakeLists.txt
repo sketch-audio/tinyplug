@@ -29,6 +29,7 @@ target_link_libraries(${vst3_target} PRIVATE ${tiny_shared_lib})
 if(APPLE)
     target_link_libraries(${vst3_target} PRIVATE "-framework Cocoa")
     target_compile_options(${vst3_target} PRIVATE -Wall -Wextra -pedantic)
+    target_link_options(${vst3_target} PRIVATE "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/cmake/exports.txt")
 elseif(WIN32)
     target_compile_options(${vst3_target} PRIVATE /W4)
 endif()
@@ -36,6 +37,7 @@ endif()
 
 # Packaging.
 if(APPLE)
+    set(VST3_BUNDLE_OUTPUT_DIR ${CMAKE_BINARY_DIR}/lib/${CMAKE_BUILD_TYPE}/${tiny_base_filename}.vst3)
     set_target_properties(${vst3_target} PROPERTIES
         BUNDLE True
         OUTPUT_NAME ${tiny_base_filename}
@@ -47,24 +49,24 @@ if(APPLE)
         MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Info.plist.in
     )
 
-    set(output_dir ${CMAKE_BINARY_DIR}/lib/${CMAKE_BUILD_TYPE})
-
     # Add the PkgInfo file. (Makes it so we appear as a bundle and not a folder in Finder.)
     add_custom_command(
         TARGET ${vst3_target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PkgInfo ${output_dir}/${tiny_base_filename}.vst3/Contents
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PkgInfo ${VST3_BUNDLE_OUTPUT_DIR}/Contents
         VERBATIM
     )
 
-    # Copy the VST3 bundle to ~/Library/Audio/Plug-Ins/VST3/ after building.
-    add_custom_command(
-        TARGET ${vst3_target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory $ENV{HOME}/Library/Audio/Plug-Ins/VST3/
-        COMMAND ${CMAKE_COMMAND} -E copy_directory 
-            ${output_dir}/${tiny_base_filename}.vst3 
-            $ENV{HOME}/Library/Audio/Plug-Ins/VST3/${tiny_base_filename}.vst3
-        VERBATIM
-    )
+    if(TINY_INSTALL_PLUGINS)
+        # User library so we don't have to elevate.
+        set(VST3_INSTALL_DIR $ENV{HOME}/Library/Audio/Plug-Ins/VST3)
+        add_custom_command(
+            TARGET ${vst3_target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${VST3_INSTALL_DIR}"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${VST3_BUNDLE_OUTPUT_DIR}" "${VST3_INSTALL_DIR}/${tiny_base_filename}.vst3"
+            COMMENT "Copying VST3 plugin ${tiny_base_filename}.vst3 to ${VST3_INSTALL_DIR}"
+            VERBATIM
+        )
+    endif()
 elseif(WIN32)
     # Set up the bundle.
     set(VST3_BUNDLE_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.vst3)

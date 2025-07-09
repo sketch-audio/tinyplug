@@ -6,7 +6,6 @@ if(NOT TINY_AAX_SDK_DIR)
     return()
 endif()
 
-message(STATUS "Building AAX plug-in...")
 message(STATUS "TINY_AAX_SDK_DIR: ${TINY_AAX_SDK_DIR}")
 
 set(aax_target ${tiny_base_filename}_aax)
@@ -26,13 +25,13 @@ target_include_directories(${aax_target} SYSTEM PRIVATE
 )
 
 if(APPLE)
-	add_library(aaxLibraryD STATIC IMPORTED)
-	set_property(TARGET aaxLibraryD PROPERTY IMPORTED_LOCATION ${TINY_AAX_SDK_DIR}/Libs/Debug/libAAXLibrary_libcpp.a)
-	target_link_libraries(${aax_target} PRIVATE debug aaxLibraryD)
-
-	add_library(aaxLibraryR STATIC IMPORTED)
-	set_property(TARGET aaxLibraryR PROPERTY IMPORTED_LOCATION ${TINY_AAX_SDK_DIR}/Libs/Release/libAAXLibrary_libcpp.a)
-	target_link_libraries(${aax_target} PRIVATE optimized aaxLibraryR)
+    set(AAX_LIB_NAME libAAXLibrary)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(AAX_LIB_DIR ${TINY_AAX_SDK_DIR}/Libs/Debug)
+    else()
+        set(AAX_LIB_DIR ${TINY_AAX_SDK_DIR/Libs/Release})
+    endif()
+    find_library(AAX_LIB ${AAX_LIB_NAME} PATHS ${AAX_LIB_DIR} NO_DEFAULT_PATH REQUIRED)
 elseif(WIN32)
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(AAX_LIB_NAME AAXLibrary_x64_D)
@@ -50,12 +49,15 @@ target_link_libraries(${aax_target} PRIVATE ${tiny_shared_lib})
 if(APPLE)
     target_link_libraries(${aax_target} PRIVATE "-framework Cocoa")
     target_compile_options(${aax_target} PRIVATE -Wall -Wextra -pedantic)
+    target_link_options(${aax_target} PRIVATE "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/cmake/exports.txt")
 elseif(WIN32)
     target_compile_options(${aax_target} PRIVATE /W4)
 endif()
 
+# Packaging.
 if(APPLE)
-    # Packaging.
+    # Set up the bundle.
+    set(AAX_BUNDLE_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.aaxplugin)
     set_target_properties(${aax_target} PROPERTIES
         BUNDLE True
         OUTPUT_NAME ${tiny_base_filename}
@@ -70,23 +72,19 @@ if(APPLE)
     # Add the PkgInfo file. (Makes it so we appear as a bundle and not a folder in Finder.)
     add_custom_command(
         TARGET ${aax_target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PkgInfo ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.aaxplugin/Contents
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PkgInfo ${AAX_BUNDLE_OUTPUT_DIR}/Contents
         VERBATIM
     )
 
-    # Determine the destination directory based on platform
-    set(AAX_PLUGIN_DEST_DIR "/Library/Application Support/Avid/Audio/Plug-Ins")
-
-    # Add custom command to copy the AAX plugin after build
-    add_custom_command(
-        TARGET ${aax_target}
-        POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.aaxplugin"
-            "${AAX_PLUGIN_DEST_DIR}/${tiny_base_filename}.aaxplugin"
-        COMMENT "Copying AAX plugin ${tiny_base_filename}.aaxplugin to ${AAX_PLUGIN_DEST_DIR}"
-        VERBATIM
-    )
+    if(TINY_INSTALL_PLUGINS)
+        set(AAX_INSTALL_DIR "/Library/Application Support/Avid/Audio/Plug-Ins")
+        add_custom_command(
+            TARGET ${aax_target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${AAX_BUNDLE_OUTPUT_DIR}" "${AAX_INSTALL_DIR}/${tiny_base_filename}.aaxplugin"
+            COMMENT "Copying AAX plugin ${tiny_base_filename}.aaxplugin to ${AAX_INSTALL_DIR}"
+            VERBATIM
+        )
+    endif()
 elseif(WIN32)
     # Set up the bundle.
     set(AAX_BUNDLE_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.aaxplugin)

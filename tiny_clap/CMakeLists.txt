@@ -20,11 +20,13 @@ target_link_libraries(${clap_target} PRIVATE ${tiny_shared_lib})
 if(APPLE)
     target_link_libraries(${clap_target} PRIVATE "-framework Cocoa")
     target_compile_options(${clap_target} PRIVATE -Wall -Wextra -pedantic)
+    target_link_options(${clap_target} PRIVATE "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/cmake/exports.txt")
 elseif(WIN32)
 endif()
 
 # Packaging.
 if(APPLE)
+    set(CLAP_BUNDLE_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.clap)
     set_target_properties(${clap_target} PROPERTIES
         BUNDLE True
         OUTPUT_NAME ${tiny_base_filename}
@@ -39,19 +41,21 @@ if(APPLE)
     # Add the PkgInfo file. (Makes it so we appear as a bundle and not a folder in Finder.)
     add_custom_command(
         TARGET ${clap_target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PkgInfo ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.clap/Contents
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PkgInfo ${CLAP_BUNDLE_OUTPUT_DIR}/Contents
         VERBATIM
     )
 
-    # Copy the CLAP bundle to ~/Library/Audio/Plug-Ins/CLAP/ after building.
-    add_custom_command(
-        TARGET ${clap_target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory $ENV{HOME}/Library/Audio/Plug-Ins/CLAP/
-        COMMAND ${CMAKE_COMMAND} -E copy_directory 
-            ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.clap 
-            $ENV{HOME}/Library/Audio/Plug-Ins/CLAP/${tiny_base_filename}.clap
-        VERBATIM
-    )
+    if(TINY_INSTALL_PLUGINS)
+        # User library so we don't have to elevate.
+        set(CLAP_INSTALL_DIR $ENV{HOME}/Library/Audio/Plug-Ins/CLAP)
+        add_custom_command(
+            TARGET ${clap_target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CLAP_INSTALL_DIR}"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CLAP_BUNDLE_OUTPUT_DIR}" "${CLAP_INSTALL_DIR}/${tiny_base_filename}.clap"
+            COMMENT "Copying CLAP plugin ${tiny_base_filename}.clap to ${CLAP_INSTALL_DIR}"
+            VERBATIM
+        )
+    endif()
 elseif(WIN32)
     set_target_properties(${clap_target} PROPERTIES
         OUTPUT_NAME ${tiny_base_filename}

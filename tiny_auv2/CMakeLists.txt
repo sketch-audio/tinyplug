@@ -33,6 +33,7 @@ target_link_libraries(${auv2_target} PRIVATE ${tiny_shared_lib})
 target_link_libraries(${auv2_target} PRIVATE "-framework Cocoa" "-framework AudioToolbox")
 
 target_compile_options(${auv2_target} PRIVATE -Wall -Wextra -pedantic)
+target_link_options(${auv2_target} PRIVATE "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/cmake/exports.txt")
 
 # AudioComponents
 set(MACOSX_BUNDLE_COPYRIGHT ${tiny_manufacturer_name})
@@ -44,6 +45,7 @@ set(MACOSX_BUNDLE_SUBTYPE ${tiny_auv2_subtype})
 math(EXPR MACOSX_BUNDLE_VERSION_INT "0x10600" OUTPUT_FORMAT DECIMAL)
 
 # Packaging.
+set(AUV2_BUNDLE_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.component)
 set_target_properties(${auv2_target} PROPERTIES
     BUNDLE True
     OUTPUT_NAME ${tiny_base_filename}
@@ -58,23 +60,17 @@ set_target_properties(${auv2_target} PROPERTIES
 # Add the PkgInfo file. (Makes it so we appear as a bundle and not a folder in Finder.)
 add_custom_command(
     TARGET ${auv2_target} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PkgInfo ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.component/Contents
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PkgInfo ${AUV2_BUNDLE_OUTPUT_DIR}/Contents
     VERBATIM
 )
 
-# Copy the component bundle to /Library/Audio/Plug-Ins/Components/ after building.
-# add_custom_command(
-#     TARGET ${auv2_target} POST_BUILD
-#     COMMAND ${CMAKE_COMMAND} -E make_directory $ENV{HOME}/Library/Audio/Plug-Ins/Components/
-#     COMMAND ${CMAKE_COMMAND} -E copy_directory 
-#         ${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.component
-#         $ENV{HOME}/Library/Audio/Plug-Ins/Components/${tiny_base_filename}.component
-#     VERBATIM
-# )
-
-add_custom_command(
-    TARGET ${auv2_target} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E echo "Installing AUv2 to system Components folder..."
-    COMMAND sudo rsync -a "${CMAKE_CURRENT_BINARY_DIR}/${tiny_base_filename}.component" "/Library/Audio/Plug-Ins/Components/"
-    COMMENT "Copying TinyDemo.component to /Library/Audio/Plug-Ins/Components/"
-)
+if(TINY_INSTALL_PLUGINS)
+    # It seems auval can only find the plug-in if it is in the system library.
+    set(AUV2_INSTALL_DIR $ENV{HOME}/Library/Audio/Plug-Ins/Components/)
+    add_custom_command(
+        TARGET ${auv2_target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${AUV2_BUNDLE_OUTPUT_DIR}" "${AUV2_INSTALL_DIR}/${tiny_base_filename}.component"
+        COMMENT "Copying AUv2 plugin ${tiny_base_filename}.component to ${AUV2_INSTALL_DIR}"
+        VERBATIM
+    )
+endif()
