@@ -97,7 +97,7 @@ public:
 
 };
 
-Platform_view::Platform_view(std::shared_ptr<Graphics_delegate> delegate) : _delegate{delegate}
+Platform_view::Platform_view(std::shared_ptr<Graphics_delegate> delegate, bool owns_view) : _delegate{delegate}, _owns_view{owns_view}
 {
     const auto& registrar = Window_registrar::instance(); // Register/unregisters the window class.
 

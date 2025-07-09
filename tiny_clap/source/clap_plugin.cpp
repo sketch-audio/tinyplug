@@ -30,7 +30,7 @@ bool Clap_plugin::guiGetPreferredApi(const char** api, bool* isFloating) noexcep
 
 bool Clap_plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
 {
-    platform_view = std::make_unique<Platform_view>(_delegate);
+    platform_view = Platform_views::make_owning(_delegate);
     return true;
 }
 

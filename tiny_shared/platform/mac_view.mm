@@ -103,7 +103,7 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 }
 @end
 
-Platform_view::Platform_view(std::shared_ptr<Graphics_delegate> delegate) : _delegate{delegate}
+Platform_view::Platform_view(std::shared_ptr<Graphics_delegate> delegate, bool owns_view) : _delegate{delegate}, _owns_view{owns_view}
 {
     NSView* view = [[MacView alloc] initWithDelegate:_delegate];
 
@@ -117,8 +117,11 @@ Platform_view::Platform_view(std::shared_ptr<Graphics_delegate> delegate) : _del
 
 Platform_view::~Platform_view()
 {
-    [(NSView*)_view removeFromSuperview];
-    [(NSView*)_view release];
+    // The AUv2 view will likely have been autoreleased by now.
+    if (_owns_view) {
+        [(NSView*)_view removeFromSuperview];
+        [(NSView*)_view release];
+    }
     _view = nullptr;
 }
 

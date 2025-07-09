@@ -17,12 +17,13 @@
 
 - (NSView*)uiViewForAudioUnit:(AudioUnit)audioUnit withSize:(NSSize)preferredSize {
     void* user_plugin[1] = {nullptr};
-    UInt32 size = sizeof(user_plugin);
+    uint32_t size = sizeof(user_plugin);
 
     AudioUnitGetProperty(audioUnit, kAudioUnitProperty_UserPlugin, kAudioUnitScope_Global, 0, user_plugin, &size);
 
     if (auto* effect = static_cast<Auv2_effect*>(user_plugin[0]); effect != nullptr) {
-        return static_cast<NSView*>(effect->create_view());
+        NSView* view = (NSView*)effect->create_view();
+        return [view autorelease];
     }
 
     return nil;

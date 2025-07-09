@@ -18,7 +18,7 @@ protected:
     void CreateViewContainer() override
     {
         if (auto* parent = GetViewContainerPtr()) {
-            platform_view = std::make_unique<Platform_view>(_delegate);
+            platform_view = Platform_views::make_owning(_delegate);
             platform_view->receive_parent(parent);
         }
     }

@@ -101,7 +101,7 @@ public:
 
     auto create_view() -> void*
     {
-        platform_view = std::make_unique<Platform_view>(_delegate);
+        platform_view = Platform_views::make_autoreleasing(_delegate);
         return platform_view->native_handle();
     }
 
