@@ -1,4 +1,6 @@
 #include "cmake_defines.h" // window class name
+
+#include "platform.h"
 #include "platform_view.h"
 
 #if PLATFORM_WINDOWS
@@ -43,7 +45,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wParam, LPARA
             if (delegate) {
                 auto ps = PAINTSTRUCT{};
                 BeginPaint(window, &ps);
-                delegate->draw(nullptr); // Delegate window context handles everything.
+                delegate->draw(); // Delegate window context handles everything.
                 EndPaint(window, &ps);
             }
             return 0;

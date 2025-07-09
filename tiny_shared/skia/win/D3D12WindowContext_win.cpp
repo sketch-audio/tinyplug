@@ -17,7 +17,7 @@
 #include "include/gpu/ganesh/SkSurfaceGanesh.h"
 
 #define SK_DIRECT3D
-#include "../d3d/D3DTestUtils.h"//#include "tools/gpu/d3d/D3DTestUtils.h"
+#include "D3DTestUtils.h"//#include "tools/gpu/d3d/D3DTestUtils.h"
 #include "../DisplayParams.h"//#include "tools/window/DisplayParams.h"
 #include "../WindowContext.h"//#include "tools/window/WindowContext.h"
 #include "WindowContextFactory_win.h"//#include "tools/window/win/WindowContextFactory_win.h"

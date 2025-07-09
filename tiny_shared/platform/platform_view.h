@@ -2,6 +2,7 @@
 
 #include <memory>
 
+#include "platform.h"
 #include "graphics_delegate.h"
 
 // AUv2

@@ -37,7 +37,7 @@ public:
 
     virtual void resize(int w, int h) = 0;
 
-    virtual void activate(bool isActive) {}
+    virtual void activate(bool /*isActive*/) {}
 
     const DisplayParams* getDisplayParams() { return fDisplayParams.get(); }
     virtual void setDisplayParams(std::unique_ptr<const DisplayParams>) = 0;

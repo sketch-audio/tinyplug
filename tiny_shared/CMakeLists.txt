@@ -45,11 +45,13 @@ endif()
 
 if(APPLE)
     set(PLATFORM_SOURCES
+        skia/mac/MetalWindowContext.mm
+        skia/mac/GaneshMetalWindowContext_mac.mm
         platform/mac_view.mm
     )
 elseif(WIN32)
     set(PLATFORM_SOURCES
-        skia/d3d/D3DTestUtils.cpp
+        skia/win/D3DTestUtils.cpp
         skia/win/D3D12WindowContext_win.cpp
         platform/win_view.cpp
     )
@@ -79,8 +81,9 @@ if(APPLE)
     target_link_libraries(${tiny_shared_lib} PUBLIC
         "-framework Cocoa"
         "-framework CoreFoundation"
-        "-framework CoreText"
-        "-framework CoreGraphics"
+        "-framework Metal"
+        "-framework QuartzCore"
+        "-framework CoreVideo"
     )
 elseif(WIN32)
     target_link_libraries(${tiny_shared_lib} PUBLIC d3d12.lib dxgi.lib d3dcompiler.lib)

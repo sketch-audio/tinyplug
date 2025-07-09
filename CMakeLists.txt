@@ -19,6 +19,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if (APPLE)
+    enable_language(OBJC)
     enable_language(OBJCXX)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64") # Universal build.
 elseif(WIN32)
