@@ -10,7 +10,12 @@ message(STATUS "TINY_AAX_SDK_DIR: ${TINY_AAX_SDK_DIR}")
 
 set(AAX_TARGET ${TINY_BASE_FILENAME}_aax)
 
+file(GLOB TARGET_HEADERS
+    "${CMAKE_CURRENT_SOURCE_DIR}/source/*.h"
+)
+
 add_library(${AAX_TARGET} MODULE
+    ${TARGET_HEADERS}
     source/aax_algorithm.cpp
     source/aax_describe.cpp
 )
@@ -25,11 +30,11 @@ target_include_directories(${AAX_TARGET} SYSTEM PRIVATE
 )
 
 if(APPLE)
-    set(AAX_LIB_NAME libAAXLibrary)
+    set(AAX_LIB_NAME libAAXLibrary_libcpp.a)
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(AAX_LIB_DIR ${TINY_AAX_SDK_DIR}/Libs/Debug)
     else()
-        set(AAX_LIB_DIR ${TINY_AAX_SDK_DIR/Libs/Release})
+        set(AAX_LIB_DIR ${TINY_AAX_SDK_DIR}/Libs/Release)
     endif()
     find_library(AAX_LIB ${AAX_LIB_NAME} PATHS ${AAX_LIB_DIR} NO_DEFAULT_PATH REQUIRED)
 elseif(WIN32)
@@ -57,7 +62,7 @@ endif()
 # Packaging.
 if(APPLE)
     # Set up the bundle.
-    set(AAX_BUNDLE_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/${TINY_BASE_FILENAME}.aaxplugin)
+    set(AAX_BUNDLE_OUTPUT_DIR $<TARGET_BUNDLE_DIR:${AAX_TARGET}>)
     set_target_properties(${AAX_TARGET} PROPERTIES
         BUNDLE True
         OUTPUT_NAME ${TINY_BASE_FILENAME}
@@ -67,6 +72,7 @@ if(APPLE)
         MACOSX_BUNDLE_BUNDLE_VERSION ${TINY_BUILD_NUMBER}
         MACOSX_BUNDLE_SHORT_VERSION_STRING ${TINY_VERSION_STRING}
         MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Info.plist.in
+        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER ${TINY_BASE_IDENTIFIER}.aaxplugin
     )
     
     # Add the PkgInfo file. (Makes it so we appear as a bundle and not a folder in Finder.)

@@ -1,28 +1,25 @@
 if(NOT APPLE)
-    message(STATUS "This is not a Mac. Skipping AUv2 build.")
+    message(STATUS "Platform is not Apple. Skipping AUv2 build.")
     return()
 endif()
 
 # AUv2 target
 set(AUV2_TARGET ${TINY_BASE_FILENAME}_auv2)
 
+file(GLOB TARGET_HEADERS
+    "${CMAKE_CURRENT_SOURCE_DIR}/source/*.h"
+)
+
+# AudioUnitSDK
+file(GLOB SDK_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/AudioUnitSDK/*.h")
+file(GLOB SDK_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/sdk/src/AudioUnitSDK/*.cpp")
+
 add_library(${AUV2_TARGET} MODULE
+    ${TARGET_HEADERS}
     source/auv2_effect.cpp
     source/auv2_view_factory.mm
-
-    # AudioUnitSDK
-    sdk/src/AudioUnitSDK/AUBase.cpp
-    sdk/src/AudioUnitSDK/AUBuffer.cpp
-    sdk/src/AudioUnitSDK/AUBufferAllocator.cpp
-    sdk/src/AudioUnitSDK/AUEffectBase.cpp
-    sdk/src/AudioUnitSDK/AUInputElement.cpp
-    sdk/src/AudioUnitSDK/AUMIDIBase.cpp
-    sdk/src/AudioUnitSDK/AUMIDIEffectBase.cpp
-    sdk/src/AudioUnitSDK/AUOutputElement.cpp
-    sdk/src/AudioUnitSDK/AUPluginDispatch.cpp
-    sdk/src/AudioUnitSDK/AUScopeElement.cpp
-    sdk/src/AudioUnitSDK/ComponentBase.cpp
-    sdk/src/AudioUnitSDK/MusicDeviceBase.cpp
+    ${SDK_HEADERS}
+    ${SDK_SOURCES}
 )
 
 target_include_directories(${AUV2_TARGET} SYSTEM PRIVATE
@@ -38,14 +35,14 @@ target_link_options(${AUV2_TARGET} PRIVATE "-Wl,-exported_symbols_list,${CMAKE_C
 # AudioComponents
 set(MACOSX_BUNDLE_COPYRIGHT ${TINY_COMPANY_NAME})
 set(MACOSX_BUNDLE_DESCRIPTION ${TINY_PRODUCT_NAME})
-set(MACOSX_BUNDLE_TAGS "<string>Effect</string>")
+set(MACOSX_BUNDLE_TAGS "<string>${TINY_AUV2_BUNDLE_TAG}</string>")
 set(MACOSX_BUNDLE_MANUFACTURER ${TINY_AUV2_MANUFACTURER})
 set(MACOSX_BUNDLE_TYPE ${TINY_AUV2_TYPE})
 set(MACOSX_BUNDLE_SUBTYPE ${TINY_AUV2_SUBTYPE})
-math(EXPR MACOSX_BUNDLE_VERSION_INT "0x10600" OUTPUT_FORMAT DECIMAL)
+math(EXPR MACOSX_BUNDLE_VERSION_INT "${TINY_AUV2_BUNDLE_VERSION}" OUTPUT_FORMAT DECIMAL)
 
 # Packaging.
-set(AUV2_BUNDLE_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/${TINY_BASE_FILENAME}.component)
+set(AUV2_BUNDLE_OUTPUT_DIR $<TARGET_BUNDLE_DIR:${AUV2_TARGET}>)
 set_target_properties(${AUV2_TARGET} PROPERTIES
     BUNDLE True
     OUTPUT_NAME ${TINY_BASE_FILENAME}
@@ -55,6 +52,7 @@ set_target_properties(${AUV2_TARGET} PROPERTIES
     MACOSX_BUNDLE_BUNDLE_VERSION ${TINY_BUILD_NUMBER}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${TINY_VERSION_STRING}
     MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Info.plist.in
+    XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER ${TINY_BASE_IDENTIFIER}.component
 )
 
 # Add the PkgInfo file. (Makes it so we appear as a bundle and not a folder in Finder.)

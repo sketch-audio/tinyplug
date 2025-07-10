@@ -43,12 +43,14 @@ endif()
 # --- SKIA ---
 
 if(APPLE)
+    file(GLOB PLATFORM_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/skia/mac/*.h")
     set(PLATFORM_SOURCES
         skia/mac/MetalWindowContext.mm
         skia/mac/GaneshMetalWindowContext_mac.mm
         platform/mac_view.mm
     )
 elseif(WIN32)
+    file(GLOB PLATFORM_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/skia/win/*.h")
     set(PLATFORM_SOURCES
         skia/win/D3DTestUtils.cpp
         skia/win/D3D12WindowContext_win.cpp
@@ -56,10 +58,18 @@ elseif(WIN32)
     )
 endif()
 
+file(GLOB TARGET_HEADERS
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/platform/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/skia/*.h"
+)
+
 set(TINY_SHARED_LIB ${TINY_BASE_FILENAME}_lib)
 add_library(${TINY_SHARED_LIB} STATIC 
-    ${PLATFORM_SOURCES}
+    ${TARGET_HEADERS}
     skia/WindowContext.cpp
+    ${PLATFORM_HEADERS}
+    ${PLATFORM_SOURCES}
 )
 
 target_include_directories(

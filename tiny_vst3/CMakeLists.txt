@@ -11,7 +11,12 @@ endif()
 include(cmake/vst3_deps.cmake)
 smtg_enable_vst3_sdk() # sdk
 
+file(GLOB TARGET_HEADERS
+    "${CMAKE_CURRENT_SOURCE_DIR}/source/*.h"
+)
+
 add_library(${VST3_TARGET} MODULE
+    ${TARGET_HEADERS}
     source/vst3_controller.cpp
     source/vst3_entry.cpp
     source/vst3_processor.cpp
@@ -37,7 +42,7 @@ endif()
 
 # Packaging.
 if(APPLE)
-    set(VST3_BUNDLE_OUTPUT_DIR ${CMAKE_BINARY_DIR}/lib/${CMAKE_BUILD_TYPE}/${TINY_BASE_FILENAME}.vst3)
+    set(VST3_BUNDLE_OUTPUT_DIR $<TARGET_BUNDLE_DIR:${VST3_TARGET}>)
     set_target_properties(${VST3_TARGET} PROPERTIES
         BUNDLE True
         OUTPUT_NAME ${TINY_BASE_FILENAME}
@@ -47,6 +52,7 @@ if(APPLE)
         MACOSX_BUNDLE_BUNDLE_VERSION ${TINY_BUILD_NUMBER}
         MACOSX_BUNDLE_SHORT_VERSION_STRING ${TINY_VERSION_STRING}
         MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Info.plist.in
+        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER ${TINY_BASE_IDENTIFIER}.vst3
     )
 
     # Add the PkgInfo file. (Makes it so we appear as a bundle and not a folder in Finder.)

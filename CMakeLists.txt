@@ -29,6 +29,8 @@ set(TINY_AUV2_VIEW_CLASS "TinyDemo_viewFactory")
 set(TINY_AUV2_MANUFACTURER "Skch")
 set(TINY_AUV2_TYPE "aufx")
 set(TINY_AUV2_SUBTYPE "tndm")
+set(TINY_AUV2_BUNDLE_VERSION "0x10600")
+set(TINY_AUV2_BUNDLE_TAG "Effect") # Instrument or Effect
 
 # See: https://steinbergmedia.github.io/vst3_doc/vstinterfaces/namespaceSteinberg_1_1Vst_1_1PlugType.html
 set(TINY_VST3_CONTROLLER_UID "tiny" "Skch" "demo" "ctrl")
