@@ -1,6 +1,7 @@
 #include "base/source/fstreamer.h"
 #include "public.sdk/source/vst/utility/stringconvert.h"
 
+#include "cmake_defines.h"
 #include "user_plug.h"
 
 #include "vst3_adapters.h"
@@ -8,7 +9,7 @@
 
 Vst3_processor::Vst3_processor()
 {
-    setControllerClass(tiny::map_to_fuid(tiny::User_plug::info.vst3_controller_uid));
+    setControllerClass(tiny::map_to_fuid(tiny::Cmake_defines::Vst3::controller_uid));
 }
 
 Vst3_processor::~Vst3_processor()

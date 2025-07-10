@@ -21,13 +21,13 @@ public:
         .clap_version = CLAP_VERSION,
         .id = tiny::Cmake_defines::base_identifier,
         .name = tiny::Cmake_defines::product_name,
-        .vendor = tiny::User_plug::info.company_name,
-        .url = tiny::User_plug::info.company_website,
-        .manual_url = tiny::User_plug::info.company_website,
-        .support_url = tiny::User_plug::info.company_website,
+        .vendor = tiny::Cmake_defines::company_name,
+        .url = tiny::Cmake_defines::company_website,
+        .manual_url = tiny::Cmake_defines::company_website,
+        .support_url = tiny::Cmake_defines::company_website,
         .version = tiny::Cmake_defines::version_string,
-        .description = tiny::User_plug::info.clap_description,
-        .features = tiny::User_plug::info.clap_features.data()
+        .description = tiny::Cmake_defines::Clap::description,
+        .features = tiny::Cmake_defines::Clap::features.data()
     };
 
     clap_process_status process(const clap_process* /*process*/) noexcept override

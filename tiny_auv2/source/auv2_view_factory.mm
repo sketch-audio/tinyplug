@@ -5,15 +5,21 @@
 #include <AudioUnit/AudioUnit.h>
 #include <AudioUnit/AUCocoaUIView.h>
 
-#include "auv2_effect.h"
+#include "cmake_defines.h"
 #include "platform_view.h"
 
-@interface AUV2_VIEW_CLASS : NSObject <AUCocoaUIBase>
+#include "auv2_effect.h"
+
+#ifndef TINY_AUV2_VIEW_CLASS
+#error "AUv2 view class not defined."
+#endif
+
+@interface TINY_AUV2_VIEW_CLASS : NSObject <AUCocoaUIBase>
 - (NSView*)uiViewForAudioUnit:(AudioUnit)audioUnit withSize:(NSSize)preferredSize;
 - (unsigned)interfaceVersion;
 @end
 
-@implementation AUV2_VIEW_CLASS
+@implementation TINY_AUV2_VIEW_CLASS
 
 - (NSView*)uiViewForAudioUnit:(AudioUnit)audioUnit withSize:(NSSize)preferredSize {
     void* user_plugin[1] = {nullptr};

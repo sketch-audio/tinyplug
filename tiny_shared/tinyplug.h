@@ -7,21 +7,6 @@
 
 namespace tiny {
 
-struct Plug_info {
-    using Vst3_uid = std::array<uint32_t, 4>;
-    const char* company_name{};
-    const char* company_website{};
-    const char* company_email{};
-    uint32_t aax_manufacturer_id{};
-    uint32_t aax_product_id{};
-    uint32_t aax_plugin_id{};
-    const char* clap_description{};
-    std::vector<const char*> clap_features{nullptr};
-    Vst3_uid vst3_controller_uid{};
-    Vst3_uid vst3_processor_uid{};
-    const char* vst3_subcategories{};
-};
-
 struct Plug_io {
     struct Port_counts {
         uint32_t num_inputs{};

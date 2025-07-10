@@ -33,9 +33,9 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
         component->AddPrivateData(AAX_FIELD_INDEX(Aax_context, plugin), sizeof(Aax_parameters*));
 
         auto* properties = component->NewPropertyMap();
-        properties->AddProperty(AAX_eProperty_ManufacturerID, tiny::User_plug::info.aax_manufacturer_id);
-        properties->AddProperty(AAX_eProperty_ProductID, tiny::User_plug::info.aax_product_id);
-        properties->AddProperty(AAX_eProperty_PlugInID_Native, tiny::User_plug::info.aax_plugin_id);
+        properties->AddProperty(AAX_eProperty_ManufacturerID, tiny::Cmake_defines::Aax::manufacturer_id);
+        properties->AddProperty(AAX_eProperty_ProductID, tiny::Cmake_defines::Aax::product_id);
+        properties->AddProperty(AAX_eProperty_PlugInID_Native, tiny::Cmake_defines::Aax::plugin_id);
         properties->AddProperty(AAX_eProperty_CanBypass, true);
         properties->AddProperty(AAX_eProperty_InputStemFormat, AAX_eStemFormat_Stereo);
         properties->AddProperty(AAX_eProperty_OutputStemFormat, AAX_eStemFormat_Stereo);
@@ -47,7 +47,7 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
 
         //
         collection->AddEffect(tiny::Cmake_defines::base_identifier, descriptor);
-        collection->SetManufacturerName(tiny::User_plug::info.company_name);
+        collection->SetManufacturerName(tiny::Cmake_defines::company_name);
         collection->AddPackageName(tiny::Cmake_defines::product_name);
         collection->AddPackageName(tiny::Cmake_defines::product_short_name);
         collection->SetPackageVersion(tiny::Cmake_defines::build_number);

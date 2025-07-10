@@ -9,16 +9,6 @@
 
 #pragma mark - CFString and CString Utilities
 
-// Thanks, GPT
-template <size_t N1, size_t N2>
-constexpr auto concat_lit(const char(&a)[N1], const char(&b)[N2])
-{
-    std::array<char, N1 + N2 - 1> result{};
-    for (size_t i = 0; i < N1 - 1; ++i) result[i] = a[i];
-    for (size_t i = 0; i < N2; ++i) result[N1 - 1 + i] = b[i];
-    return result;
-}
-
 static inline CFStringRef MakeCFString(const char* cStr)
 {
   return CFStringCreateWithCString(0, cStr, kCFStringEncodingUTF8);
@@ -81,12 +71,12 @@ public:
                     auto* info = static_cast<AudioUnitCocoaViewInfo*>(outData);
 
                     // Bundle
-                    auto id = CFStrLocal{bundle_id.data()};
+                    auto id = CFStrLocal{tiny::Cmake_defines::Auv2::bundle_id};
                     auto* bundle = CFBundleGetBundleWithIdentifier(id.Get());
                     auto* url = CFBundleCopyBundleURL(bundle);
 
                     info->mCocoaAUViewBundleLocation = url;
-                    info->mCocoaAUViewClass[0] = CFStringCreateWithCString(0, view_class.c_str(), kCFStringEncodingUTF8);
+                    info->mCocoaAUViewClass[0] = CFStringCreateWithCString(0, tiny::Cmake_defines::Auv2::view_class, kCFStringEncodingUTF8);
                     return noErr;
                 }
                 case kAudioUnitProperty_UserPlugin: {
@@ -106,9 +96,6 @@ public:
     }
 
 private:
-
-    static constexpr auto bundle_id = concat_lit(tiny::Cmake_defines::base_identifier, ".component");
-    const std::string view_class{"AUV2_VIEW_CLASS"};
 
     std::shared_ptr<Graphics_delegate> _delegate = std::make_shared<Graphics_delegate>(Graphics_delegate::Size{800, 600});
     std::unique_ptr<Platform_view> platform_view{nullptr};

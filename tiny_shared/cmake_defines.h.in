@@ -1,21 +1,56 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <string>
+
+#define TINY_AUV2_VIEW_CLASS @TINY_AUV2_VIEW_CLASS@
+static const unsigned int kAudioUnitProperty_UserPlugin = 64000; // User properties have to be >= 64000.
 
 namespace tiny {
 
 struct Cmake_defines {
-    static constexpr const char base_identifier[] = "@tiny_base_identifier@";
-    static constexpr auto product_name = "@tiny_product_name@";
-    static constexpr auto wbase_identifier = L"@tiny_base_identifier@";
-    static constexpr auto wproduct_name = L"@tiny_product_name@";
-    static constexpr auto product_short_name = "@tiny_product_short_name@";
-    static constexpr auto version_string = "@tiny_version_string@";
-    static constexpr auto build_number = size_t{@tiny_build_number@};
-    static constexpr auto auv2_manufacturer = uint32_t{'@tiny_auv2_manufacturer@'};
-    static constexpr auto auv2_type = uint32_t{'@tiny_auv2_type@'};
-    static constexpr auto auv2_subtype = uint32_t{'@tiny_auv2_subtype@'};
+    static constexpr const char company_name[] = "@TINY_COMPANY_NAME@";
+    static constexpr const char company_website[] = "@TINY_COMPANY_WEBSITE@";
+    static constexpr const char company_email[] = "@TINY_COMPANY_EMAIL@";
+
+    static constexpr const char product_name[] = "@TINY_PRODUCT_NAME@";
+    static constexpr const char product_short_name[] = "@TINY_PRODUCT_SHORT_NAME@";
+    static constexpr const char base_file_name[] = "@TINY_BASE_FILENAME@";
+    static constexpr const char base_identifier[] = "@TINY_BASE_IDENTIFIER@";
+    static constexpr const char version_string[] = "@TINY_VERSION_STRING@";
+    static constexpr auto build_number = size_t{@TINY_BUILD_NUMBER@};
+
+    // Windows
+    static constexpr wchar_t wproduct_name[] = L"@TINY_PRODUCT_NAME@";
+    static constexpr wchar_t wbase_identifier[] = L"@TINY_BASE_IDENTIFIER@";
+
+    struct Aax {
+        static constexpr auto manufacturer_id = uint32_t{'@TINY_AAX_MANUFACTURER_ID@'};
+        static constexpr auto product_id = uint32_t{'@TINY_AAX_PRODUCT_ID@'};
+        static constexpr auto plugin_id = uint32_t{'@TINY_AAX_PLUGIN_ID@'};
+    };
+
+    struct Auv2 {
+        static constexpr const char bundle_id[] = "@TINY_BASE_IDENTIFIER@.component";
+        static constexpr const char view_class[] = "@TINY_AUV2_VIEW_CLASS@";
+        static constexpr auto manufacturer = uint32_t{'@TINY_AUV2_MANUFACTURER@'};
+        static constexpr auto type = uint32_t{'@TINY_AUV2_TYPE@'};
+        static constexpr auto subtype = uint32_t{'@TINY_AUV2_SUBTYPE@'};
+    };
+
+    struct Clap {
+        using Feature_list = std::array<const char*, @TINY_CLAP_FEATURE_COUNT@>;
+        static constexpr char description[] = "@TINY_CLAP_DESCRIPTION@";
+        static constexpr auto features = Feature_list{@TINY_CLAP_FEATURE_VALUES@};
+    };
+
+    struct Vst3 {
+        using Uid_arr = std::array<uint32_t, 4>;
+        static constexpr auto controller_uid = Uid_arr{@TINY_VST3_CONTROLLER_UID_LITERALS@};
+        static constexpr auto processor_uid = Uid_arr{@TINY_VST3_PROCESSOR_UID_LITERALS@};
+        static constexpr char subcategories[] = "@TINY_VST3_SUBCATEGORIES@";
+    };
 };
 
 } // namespace tiny

@@ -56,14 +56,14 @@ elseif(WIN32)
     )
 endif()
 
-set(tiny_shared_lib ${tiny_base_filename}_lib)
-add_library(${tiny_shared_lib} STATIC 
+set(TINY_SHARED_LIB ${TINY_BASE_FILENAME}_lib)
+add_library(${TINY_SHARED_LIB} STATIC 
     ${PLATFORM_SOURCES}
     skia/WindowContext.cpp
 )
 
 target_include_directories(
-    ${tiny_shared_lib} PUBLIC 
+    ${TINY_SHARED_LIB} PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/platform
     ${CMAKE_CURRENT_BINARY_DIR} # for Cmake_defines.h
@@ -71,13 +71,13 @@ target_include_directories(
 
 # Don't issue warnings for Skia library code.
 target_include_directories(
-    ${tiny_shared_lib} SYSTEM PUBLIC
+    ${TINY_SHARED_LIB} SYSTEM PUBLIC
     ${SKIA_INCLUDE_DIR}
 )
 
-target_link_libraries(${tiny_shared_lib} PUBLIC ${SKIA_LIB})
+target_link_libraries(${TINY_SHARED_LIB} PUBLIC ${SKIA_LIB})
 if(APPLE)
-    target_link_libraries(${tiny_shared_lib} PUBLIC
+    target_link_libraries(${TINY_SHARED_LIB} PUBLIC
         "-framework Cocoa"
         "-framework CoreFoundation"
         "-framework Metal"
@@ -85,8 +85,8 @@ if(APPLE)
         "-framework CoreVideo"
     )
 elseif(WIN32)
-    target_link_libraries(${tiny_shared_lib} PUBLIC d3d12.lib dxgi.lib d3dcompiler.lib)
+    target_link_libraries(${TINY_SHARED_LIB} PUBLIC d3d12.lib dxgi.lib d3dcompiler.lib)
 endif()
 
 # Forward to parent scope.
-set(tiny_shared_lib ${tiny_shared_lib} PARENT_SCOPE)
+set(TINY_SHARED_LIB ${TINY_SHARED_LIB} PARENT_SCOPE)

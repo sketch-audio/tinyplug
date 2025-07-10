@@ -5,8 +5,6 @@
 #include "platform.h"
 #include "graphics_delegate.h"
 
-// AUv2
-static const unsigned kAudioUnitProperty_UserPlugin = 'plug';
 
 struct Platform_view {
     Platform_view(std::shared_ptr<Graphics_delegate> delegate, bool owns_view);
