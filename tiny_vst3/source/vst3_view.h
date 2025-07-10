@@ -4,7 +4,7 @@
 
 #include "public.sdk/source/common/pluginview.h"
 
-#include "platform_view.h"
+#include "platform/platform_view.h"
 
 class Vst3_view : public Steinberg::CPluginView {
 public:

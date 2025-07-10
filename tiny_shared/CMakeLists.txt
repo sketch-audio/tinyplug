@@ -1,7 +1,7 @@
 # Configure generated header.
 configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake_defines.h.in
-    ${CMAKE_CURRENT_BINARY_DIR}/cmake_defines.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/plug_info.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/plug_info.h
 )
 
 # --- SKIA ---
@@ -65,8 +65,7 @@ add_library(${TINY_SHARED_LIB} STATIC
 target_include_directories(
     ${TINY_SHARED_LIB} PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/platform
-    ${CMAKE_CURRENT_BINARY_DIR} # for Cmake_defines.h
+    ${CMAKE_CURRENT_BINARY_DIR} # for plug_info.h
 )
 
 # Don't issue warnings for Skia library code.

@@ -4,8 +4,8 @@
 
 #include <AudioUnitSDK/AUEffectBase.h>
 
-#include "cmake_defines.h"
-#include "platform_view.h"
+#include "plug_info.h"
+#include "platform/platform_view.h"
 
 #pragma mark - CFString and CString Utilities
 
@@ -71,12 +71,12 @@ public:
                     auto* info = static_cast<AudioUnitCocoaViewInfo*>(outData);
 
                     // Bundle
-                    auto id = CFStrLocal{tiny::Cmake_defines::Auv2::bundle_id};
+                    auto id = CFStrLocal{tiny::Plug_info::Auv2::bundle_id};
                     auto* bundle = CFBundleGetBundleWithIdentifier(id.Get());
                     auto* url = CFBundleCopyBundleURL(bundle);
 
                     info->mCocoaAUViewBundleLocation = url;
-                    info->mCocoaAUViewClass[0] = CFStringCreateWithCString(0, tiny::Cmake_defines::Auv2::view_class, kCFStringEncodingUTF8);
+                    info->mCocoaAUViewClass[0] = CFStringCreateWithCString(0, tiny::Plug_info::Auv2::view_class, kCFStringEncodingUTF8);
                     return noErr;
                 }
                 case kAudioUnitProperty_UserPlugin: {

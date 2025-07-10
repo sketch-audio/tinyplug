@@ -2,11 +2,11 @@
 
 #include "pluginterfaces/base/funknown.h"
 
-#include "cmake_defines.h"
+#include "plug_info.h"
 
 namespace tiny {
 
-using Uid_arr = Cmake_defines::Vst3::Uid_arr;
+using Uid_arr = Plug_info::Vst3::Uid_arr;
 
 inline auto map_to_fuid(const Uid_arr& uid) -> Steinberg::FUID
 {

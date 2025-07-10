@@ -4,7 +4,7 @@
 
 #include "AAX_CEffectGUI.h"
 
-#include "platform_view.h"
+#include "platform/platform_view.h"
 
 class Aax_gui : public AAX_CEffectGUI {
 public:

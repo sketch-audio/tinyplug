@@ -1,4 +1,4 @@
-#include "cmake_defines.h" // window class name
+#include "plug_info.h" // window class name
 
 #include "platform.h"
 #include "platform_view.h"
@@ -73,8 +73,8 @@ struct Window_registrar {
         return _instance;
     }
     
-    const wchar_t* class_name = tiny::Cmake_defines::wbase_identifier;
-    const wchar_t* window_name = tiny::Cmake_defines::wproduct_name;
+    const wchar_t* class_name = tiny::Plug_info::wbase_identifier;
+    const wchar_t* window_name = tiny::Plug_info::wproduct_name;
 
 private:
 

@@ -4,8 +4,8 @@
 
 #include "clap/helpers/plugin.hh"
 
-#include "cmake_defines.h"
-#include "platform_view.h"
+#include "plug_info.h"
+#include "platform/platform_view.h"
 #include "user_plug.h"
 
 using MisbehaviourHandler = clap::helpers::MisbehaviourHandler;
@@ -19,15 +19,15 @@ public:
 
     static const inline clap_plugin_descriptor_t descriptor{
         .clap_version = CLAP_VERSION,
-        .id = tiny::Cmake_defines::base_identifier,
-        .name = tiny::Cmake_defines::product_name,
-        .vendor = tiny::Cmake_defines::company_name,
-        .url = tiny::Cmake_defines::company_website,
-        .manual_url = tiny::Cmake_defines::company_website,
-        .support_url = tiny::Cmake_defines::company_website,
-        .version = tiny::Cmake_defines::version_string,
-        .description = tiny::Cmake_defines::Clap::description,
-        .features = tiny::Cmake_defines::Clap::features.data()
+        .id = tiny::Plug_info::base_identifier,
+        .name = tiny::Plug_info::product_name,
+        .vendor = tiny::Plug_info::company_name,
+        .url = tiny::Plug_info::company_website,
+        .manual_url = tiny::Plug_info::company_website,
+        .support_url = tiny::Plug_info::company_website,
+        .version = tiny::Plug_info::version_string,
+        .description = tiny::Plug_info::Clap::description,
+        .features = tiny::Plug_info::Clap::features.data()
     };
 
     clap_process_status process(const clap_process* /*process*/) noexcept override

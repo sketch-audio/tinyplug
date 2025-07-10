@@ -9,7 +9,7 @@ static const unsigned int kAudioUnitProperty_UserPlugin = 64000; // User propert
 
 namespace tiny {
 
-struct Cmake_defines {
+struct Plug_info {
     static constexpr const char company_name[] = "@TINY_COMPANY_NAME@";
     static constexpr const char company_website[] = "@TINY_COMPANY_WEBSITE@";
     static constexpr const char company_email[] = "@TINY_COMPANY_EMAIL@";

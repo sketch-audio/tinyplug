@@ -5,8 +5,8 @@
 #include <AudioUnit/AudioUnit.h>
 #include <AudioUnit/AUCocoaUIView.h>
 
-#include "cmake_defines.h"
-#include "platform_view.h"
+#include "plug_info.h"
+#include "platform/platform_view.h"
 
 #include "auv2_effect.h"
 

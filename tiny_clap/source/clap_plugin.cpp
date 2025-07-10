@@ -5,7 +5,7 @@
 
 #include "clap_plugin.h"
 
-#include "platform_view.h"
+#include "platform/platform_view.h"
 
 Clap_plugin::Clap_plugin(const clap_host* host)
     : clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal>(&descriptor, host)
