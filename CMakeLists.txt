@@ -30,6 +30,7 @@ set(TINY_AUV2_MANUFACTURER "Skch")
 set(TINY_AUV2_TYPE "aufx")
 set(TINY_AUV2_SUBTYPE "tndm")
 
+# See: https://steinbergmedia.github.io/vst3_doc/vstinterfaces/namespaceSteinberg_1_1Vst_1_1PlugType.html
 set(TINY_VST3_CONTROLLER_UID "tiny" "Skch" "demo" "ctrl")
 set(TINY_VST3_PROCESSOR_UID "tiny" "Skch" "demo" "proc")
 set(TINY_VST3_SUBCATEGORIES "Fx")
