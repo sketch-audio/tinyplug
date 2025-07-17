@@ -5,6 +5,9 @@
 #include <string>
 #include <vector>
 
+#include "tiny_layout.h"
+#include "tiny_params.h"
+
 namespace tiny {
 
 struct Plug_io {

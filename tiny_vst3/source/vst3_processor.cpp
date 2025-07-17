@@ -9,7 +9,7 @@
 
 Vst3_processor::Vst3_processor()
 {
-    setControllerClass(tiny::map_to_fuid(tiny::Plug_info::Vst3::controller_uid));
+    setControllerClass(tiny::vst3::map_to_fuid(tiny::Plug_info::Vst3::controller_uid));
 }
 
 Vst3_processor::~Vst3_processor()

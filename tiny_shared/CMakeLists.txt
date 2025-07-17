@@ -1,6 +1,6 @@
 # Configure generated header.
 configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/plug_info.h.in
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/plug_info.h.in
     ${CMAKE_CURRENT_BINARY_DIR}/plug_info.h
 )
 
@@ -62,6 +62,7 @@ file(GLOB TARGET_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/platform/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/skia/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tinyplug/*.h"
 )
 
 set(TINY_SHARED_LIB ${TINY_BASE_FILENAME}_lib)

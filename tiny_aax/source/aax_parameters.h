@@ -1,8 +1,8 @@
 #pragma once
 
 #include "AAX_CEffectParameters.h"
-#include "AAX_CBinaryTaperDelegate.h"
-#include "AAX_CBinaryDisplayDelegate.h"
+
+#include "user_plug.h"
 
 class Aax_parameters : public AAX_CEffectParameters {
 public:
@@ -12,22 +12,12 @@ public:
 
     static AAX_CEffectParameters* AAX_CALLBACK Create() { return new Aax_parameters; }
 
-    AAX_Result EffectInit() override
-    {
-        // bypass
-        AAX_CString bypassID = cDefaultMasterBypassID;
-        AAX_IParameter * masterBypass = new AAX_CParameter<bool>(
-            bypassID.CString(), AAX_CString("Master Bypass"), false,
-            AAX_CBinaryTaperDelegate<bool>(),
-            AAX_CBinaryDisplayDelegate<bool>("bypass", "on"), true);
-        masterBypass->SetNumberOfSteps( 2 );
-        masterBypass->SetType( AAX_eParameterType_Discrete );
-        mParameterManager.AddParameter(masterBypass);
-
-        mPacketDispatcher.RegisterPacket(bypassID.CString(), AAX_FIELD_INDEX(Aax_context, bypass));
-        return AAX_SUCCESS;
-    }
+    AAX_Result EffectInit() override;
 
 private:
-    
+
+    // Sorted by paramId.
+    std::vector<tiny::Param_model::Spec> _specs{};
+    //tiny::Param_model::Param_values _uivalues{};
+
 };

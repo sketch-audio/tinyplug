@@ -18,6 +18,7 @@ add_library(${AAX_TARGET} MODULE
     ${TARGET_HEADERS}
     source/aax_algorithm.cpp
     source/aax_describe.cpp
+    source/aax_parameters.cpp
 )
 
 # AAX SDK sources

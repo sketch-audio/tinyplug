@@ -7,6 +7,8 @@
 
 #include "../skia/WindowContext.h"
 
+#include "../tinyplug/tinyplug.h"
+
 struct Graphics_delegate {
 
     struct Size { int32_t width{};  int32_t height{}; };
@@ -46,6 +48,16 @@ struct Graphics_delegate {
         paint.setStyle(SkPaint::kFill_Style);
         canvas->drawRect(SkRect::MakeXYWH(0, 0, w, h), paint);
 
+        paint.setColor(SK_ColorRED);
+        paint.setStyle(SkPaint::kStroke_Style);
+        paint.setStrokeWidth(4);
+
+        auto rect_list = std::vector<tiny::layout::Rect>{};
+        tiny::layout::do_layout(layout, {.w = w, .h = h}, rect_list);
+        for (auto& rect : rect_list) {
+            canvas->drawRect(SkRect::MakeXYWH(rect.x, rect.y, rect.w, rect.h), paint);
+        }
+
         _context->submitToGpu();
         _context->swapBuffers(); // order?
     }
@@ -70,6 +82,34 @@ private:
     std::unique_ptr<skwindow::WindowContext> _context{nullptr};
 
     std::atomic<bool> _do_resize{false};
+
+    #define tui tiny::layout
+    const tui::View layout = tui::Column{
+        .size = {.w = tui::Fixed{800}, .h = tui::Fixed{600}},
+        .align = {.x = tui::Alignment_rule::center, .y = tui::Alignment_rule::center},
+        .content = {{
+            tui::Row{
+                .size = {.h = tui::Fixed{100}},
+                .content = {{
+                    tui::Frame{.size = {.w = tui::Fixed{100}}},
+                    tui::Frame{},
+                    tui::Frame{.size = {.w = tui::Fixed{100}}},
+                }}
+            },
+            tui::Row{
+                .content = {{
+                    tui::Column{},
+                    tui::Column{},
+                    tui::Column{},
+                    tui::Frame{.size = {.w = tui::Fixed{100}}}
+                }}
+            },
+            tui::Row{
+                .size = {.h = tui::Fixed{100}},
+            }
+        }}
+    };
+    #undef tui
 
     auto resize_context() -> void
     {
