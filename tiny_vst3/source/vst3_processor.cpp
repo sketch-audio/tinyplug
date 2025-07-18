@@ -28,30 +28,22 @@ Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* co
         return result;
     
     // Create the audio IO.
-    const auto& plug_io = tiny::User_plug::io;
+
     using namespace Steinberg::Vst;
+    using namespace tiny;
 
-    const auto input_count = plug_io.audio_ports.num_inputs;
-    for (uint32_t i = 0; i < input_count; ++i) {
-        // Name shenanigans.
-        const auto name = tiny::Plug_io::resolve_audio_input_name(i, input_count);
-        String128 tname{};
-        StringConvert::convert(name, tname, 128);
+    const auto input_count = Plug_info::wants_sidechain ? 2 : 1;
 
-        const auto bus_type = (i == 0) ? BusTypes::kMain : BusTypes::kAux;
-        addAudioInput(tname, SpeakerArr::kStereo, bus_type);
+    for (size_t i = 0; i < input_count; ++i) {
+        const auto is_main = (i == 0);
+
+        const auto* input_name = is_main ? u"Input" : u"Sidechain";
+        const auto bus_type = is_main ? BusTypes::kMain : BusTypes::kAux;
+
+        addAudioInput(input_name, SpeakerArr::kStereo, bus_type);
     }
 
-    const auto output_count = plug_io.audio_ports.num_outputs;
-    for (uint32_t i = 0; i < output_count; ++i) {
-        // Name shenanigans.
-        const auto name = tiny::Plug_io::resolve_audio_output_name(i, output_count);
-        String128 tname{};
-        StringConvert::convert(name, tname, 128);
-
-        const auto bus_type = (i == 0) ? BusTypes::kMain : BusTypes::kAux;
-        addAudioOutput(tname, SpeakerArr::kStereo, bus_type);
-    }
+    addAudioOutput(u"Output", SpeakerArr::kStereo, BusTypes::kMain);
 
     // Create the event IO.
     

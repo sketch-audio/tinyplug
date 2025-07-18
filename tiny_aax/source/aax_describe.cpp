@@ -32,6 +32,10 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
         component->AddAudioBufferLength(AAX_FIELD_INDEX(Aax_context, buffer_size));
         component->AddPrivateData(AAX_FIELD_INDEX(Aax_context, plugin), sizeof(Aax_parameters*));
 
+        if constexpr (tiny::Plug_info::wants_sidechain) {
+            component->AddSideChainIn(AAX_FIELD_INDEX(Aax_context, sidechain));
+        }
+
         auto* properties = component->NewPropertyMap();
         properties->AddProperty(AAX_eProperty_ManufacturerID, tiny::Plug_info::Aax::manufacturer_id);
         properties->AddProperty(AAX_eProperty_ProductID, tiny::Plug_info::Aax::product_id);
@@ -40,6 +44,10 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
         properties->AddProperty(AAX_eProperty_InputStemFormat, AAX_eStemFormat_Stereo);
         properties->AddProperty(AAX_eProperty_OutputStemFormat, AAX_eStemFormat_Stereo);
         //properties->AddProperty(AAX_eProperty_Constraint_Location, AAX_eConstraintLocationMask_DataModel);
+
+        if constexpr (tiny::Plug_info::wants_sidechain) {
+            properties->AddProperty(AAX_eProperty_SupportsSideChainInput, true);
+        }
 
         component->AddProcessProc_Native(Aax_algorithm, properties);
 

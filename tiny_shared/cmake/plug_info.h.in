@@ -21,6 +21,8 @@ struct Plug_info {
     static constexpr const char version_string[] = "@TINY_VERSION_STRING@";
     static constexpr auto build_number = size_t{@TINY_BUILD_NUMBER@};
 
+    static constexpr auto wants_sidechain = bool{@TINY_PLUGIN_WANTS_SIDECHAIN@};
+
     // Windows
     static constexpr wchar_t wproduct_name[] = L"@TINY_PRODUCT_NAME@";
     static constexpr wchar_t wbase_identifier[] = L"@TINY_BASE_IDENTIFIER@";

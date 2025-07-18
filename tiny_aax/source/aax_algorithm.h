@@ -11,6 +11,7 @@ struct Aax_context {
     float** input_channels;
     float** output_channels;
     int32_t* buffer_size;
+    int32_t* sidechain;
     //float** meter_taps;
     Aax_parameters* plugin;
 };

@@ -17,6 +17,8 @@ set(TINY_BASE_IDENTIFIER "com.sketch-audio.TinyDemo")
 set(TINY_VERSION_STRING "1.0.0")
 set(TINY_BUILD_NUMBER "1")
 
+set(TINY_PLUGIN_WANTS_SIDECHAIN "false")
+
 set(TINY_AAX_MANUFACTURER_ID "Skch")
 set(TINY_AAX_PRODUCT_ID "demo")
 set(TINY_AAX_PLUGIN_ID "demo")

@@ -11,10 +11,10 @@
 using MisbehaviourHandler = clap::helpers::MisbehaviourHandler;
 using CheckingLevel = clap::helpers::CheckingLevel;
 
-class Clap_plugin : public clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal> {
+class Clap_plugin : public clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::Maximal> {
 public:
 
-    using Super = clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal>;
+    using Super = clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::Maximal>;
     Clap_plugin(const clap_host* host);
     ~Clap_plugin();
 
@@ -43,26 +43,17 @@ public:
     const void *extension(const char *id) noexcept override;
     bool enableDraftExtensions() const noexcept override;    
 
-    // audio ports
-    bool implementsAudioPorts() const noexcept override { return true; }
-    uint32_t audioPortsCount(bool /*isInput*/) const noexcept override { return 1; }
-    bool audioPortsInfo(uint32_t index, bool /*isInput*/, clap_audio_port_info* info) const noexcept override
-    {
-        if (index > 0) return false;
-        info->id = index;
-        strcpy(info->name, "Audio Port");
-        info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-        info->channel_count = 2;
-        info->port_type = CLAP_PORT_STEREO;
-        info->in_place_pair = CLAP_INVALID_ID;
-        return true;
-    }
-
+    // state
     bool implementsState() const noexcept override { return true; }
     bool stateSave(const clap_ostream* /*stream*/) noexcept override { return true; }
     bool stateLoad(const clap_istream* /*stream*/) noexcept override { return true; }
 
-    // clap_plugin_params
+    // audio ports
+    bool implementsAudioPorts() const noexcept override;
+    uint32_t audioPortsCount(bool isInput) const noexcept override;
+    bool audioPortsInfo(uint32_t index, bool isInput, clap_audio_port_info* info) const noexcept override;
+
+    // params
     bool implementsParams() const noexcept override { return true; };
     uint32_t paramsCount() const noexcept override;
     bool paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexcept override;

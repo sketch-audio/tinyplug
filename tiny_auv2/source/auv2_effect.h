@@ -16,6 +16,8 @@ public:
     using Super = ausdk::AUEffectBase;
     Auv2_effect(AudioUnit component) : Super(component)
     {
+        CreateElements();
+
         using namespace tiny;
         const auto tree = Param_model::build_tree();
         _ids = tiny::auv2::flatten_tree_ids(tree); // Ids in presentation order!
@@ -29,9 +31,29 @@ public:
         for (const auto& param : _specs) {
             Globals()->SetParameter(utils::to_underlying(param.id), param.def_val);
         }
+
+        const auto num_inputs = Plug_info::wants_sidechain ? 2 : 1;
+        SetNumberOfElements(kAudioUnitScope_Input, num_inputs);
+        Inputs().SetNumberOfElements(num_inputs);
+        for (size_t i = 0; i < num_inputs; ++i) {
+            const auto is_main = (i == 0);
+            const auto* input_name = is_main ? "Input" : "Sidechain";
+            const auto str = CFStringCreateWithCString(kCFAllocatorDefault, input_name, kCFStringEncodingUTF8);
+            Inputs().GetElement(i)->SetName(str);
+        }
+
+        SetNumberOfElements(kAudioUnitScope_Output, 1);
+        Outputs().SetNumberOfElements(1);
+        const auto str = CFStringCreateWithCString(kCFAllocatorDefault, "Output", kCFStringEncodingUTF8);
+        Outputs().GetElement(0)->SetName(str);
     }
 
     //~Auv2_effect() override {}
+
+    void PostConstructor() override
+    {
+    }
+
 
     OSStatus GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, UInt32& outDataSize, bool& outWritable) override
     {

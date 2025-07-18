@@ -101,6 +101,37 @@ bool Clap_plugin::enableDraftExtensions() const noexcept
     return false;
 }
 
+// MARK: - audio ports
+
+bool Clap_plugin::implementsAudioPorts() const noexcept
+{
+    return true;
+}
+
+uint32_t Clap_plugin::audioPortsCount(bool isInput) const noexcept
+{
+    using namespace tiny;
+    return isInput ? (Plug_info::wants_sidechain ? 2 : 1) : 1;
+}
+
+bool Clap_plugin::audioPortsInfo(uint32_t index, bool isInput, clap_audio_port_info* info) const noexcept
+{
+    if (!info) return false;
+
+    const auto is_main = (index == 0);
+    const char* port_name = isInput ? (is_main ? "Input" : "Sidechain") : "Output";
+
+    *info = {};
+    info->id = index;
+    std::strncpy(info->name, port_name, CLAP_NAME_SIZE);
+    info->flags = is_main ? CLAP_AUDIO_PORT_IS_MAIN : uint32_t{};
+    info->channel_count = 2; // 
+    info->port_type = CLAP_PORT_STEREO;
+    info->in_place_pair = CLAP_INVALID_ID;
+
+    return true;
+}
+
 // MARK: - params
 
 uint32_t Clap_plugin::paramsCount() const noexcept
