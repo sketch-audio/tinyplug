@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstring>
 #include <unordered_map>
 #include <string>
 #include <tuple>
@@ -10,6 +11,23 @@
 #include "user_plug.h"
 
 namespace tiny::auv2 {
+
+inline auto cf_to_std(CFStringRef cfStr) -> std::string
+{
+    if (!cfStr) return {};
+
+    CFIndex length = CFStringGetLength(cfStr);
+    CFIndex maxSize = CFStringGetMaximumSizeForEncoding(length, kCFStringEncodingUTF8) + 1;
+
+    auto result = std::string(maxSize, '\0');
+
+    if (CFStringGetCString(cfStr, result.data(), maxSize, kCFStringEncodingUTF8)) {
+        result.resize(std::strlen(result.c_str())); // Trim to actual size
+        return result;
+    }
+
+    return {};
+}
 
 #pragma mark - CFString and CString Utilities
 

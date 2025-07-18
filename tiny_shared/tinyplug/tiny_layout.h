@@ -5,6 +5,8 @@
 #include <variant>
 #include <vector>
 
+#include "tiny_utils.h"
+
 namespace tiny::layout {
 
 struct Fill {};
@@ -45,11 +47,6 @@ struct Rect { double x{};  double y{}; double w{};  double h{}; size_t z{}; };
 auto do_layout(const View& view, const Rect& in_rect, std::vector<Rect>& out_list) -> void;
 
 namespace impl {
-
-template<typename... Ts>
-struct Inline_visitor : Ts... {
-    using Ts::operator()...;
-};
 
 inline auto get_size_rule(const View& view, Axis axis) -> const Size_rule&
 {

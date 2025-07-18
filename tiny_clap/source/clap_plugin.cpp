@@ -20,8 +20,8 @@ Clap_plugin::Clap_plugin(const clap_host* host) : Super(&descriptor, host)
     params::sort_param_specs_by_id(_specs);
 
     for (const auto& param : _specs) {
-        const auto value = params::linearize(param.def_val, param.units);
-        _hostvalues[utils::to_underlying(param.id)] = value;
+        const auto def_val = params::get_host_default(param);
+        _hostvalues[utils::to_underlying(param.id)] = def_val;
     }
 }
 
@@ -154,20 +154,12 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
 
     auto resolve_flags = [](const Param_model::Spec& param) {
         auto result = clap_param_info_flags{};
-
-        if (param.discrete) {
-            result |= CLAP_PARAM_IS_STEPPED;
-        }
-
+        
         if (param.hidden) {
             result |= CLAP_PARAM_IS_HIDDEN;
         }
         else {
             result |= CLAP_PARAM_IS_AUTOMATABLE;
-        }
-
-        if (param.provides_labels()) {
-            result |= (CLAP_PARAM_IS_ENUM | CLAP_PARAM_IS_STEPPED); // Maybe we forgot to set discrete.
         }
 
         return result;
@@ -179,9 +171,27 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
     info->cookie = nullptr;
     std::strncpy(info->name, param.name, CLAP_NAME_SIZE);
     std::strncpy(info->module, path.c_str(), CLAP_NAME_SIZE);
-    info->min_value = params::linearize(param.min_val, param.units);
-    info->max_value = params::linearize(param.max_val, param.units);
-    info->default_value = params::linearize(param.def_val, param.units);
+
+    // Set min, max, default based on semantics.
+    std::visit(Inline_visitor{
+        [&](const params::Bool& b) {
+            info->flags |= CLAP_PARAM_IS_STEPPED;
+            info->min_value = 0;
+            info->max_value = 1;
+            info->default_value = b.def_val ? 1 : 0;
+        },
+        [&](const params::List& l) {
+            info->flags |= (CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_ENUM);
+            info->min_value = 0;
+            info->max_value = l.labels.size() - 1;
+            info->default_value = static_cast<double>(l.def_val);
+        },
+        [&](const params::Float& f) {
+            info->min_value = 0;
+            info->max_value = 1;
+            info->default_value = f.knob_adapter.plain_to_norm(f, f.def_val);
+        }
+    }, param.semantics);
 
     return true;
 }
@@ -199,8 +209,7 @@ bool Clap_plugin::paramsValueToText(clap_id paramId, double value, char* display
 
     using namespace tiny;
     const auto& param = _specs[paramId];
-    const auto delin = params::delinearize(value, param.units);
-    const auto str = Param_model::format_string(delin, param, _hostvalues, true); // Do include units.
+    const auto str = Param_model::format_string(value, param, _hostvalues);
     std::strncpy(display, str.c_str(), size);
     display[size - 1] = '\0'; // In case str is longer than display.
 
@@ -214,10 +223,13 @@ bool Clap_plugin::paramsTextToValue(clap_id paramId, const char* display, double
     using namespace tiny;
     const auto& param = _specs[paramId];
     const auto str = std::string{display};
-    const auto delin = Param_model::format_value(str, param);
-    *value = params::linearize(delin, param.units);
 
-    return true;
+    if (const auto plain = Param_model::format_value(str, param)) {
+        *value = params::plain_to_host_space(*plain, param);
+        return true;
+    }
+
+    return false;
 }
 
 void Clap_plugin::paramsFlush(const clap_input_events* in, const clap_output_events* /*out*/) noexcept

@@ -7,48 +7,50 @@
 
 namespace tiny::aax {
 
-template<typename T, typename Id>
-class ControlAdapterTaperDelegate final : public AAX_ITaperDelegate<T> {
+template<typename T>
+class FloatSemanticsTaperDelegate final : public AAX_ITaperDelegate<T> {
 public:
 
-    ControlAdapterTaperDelegate(Param_spec<Id> param) : mParam(std::move(param)) {}
-    ~ControlAdapterTaperDelegate() = default;
+    using Float_semantics = tiny::params::Float;
+
+    FloatSemanticsTaperDelegate(Float_semantics semantics) : _semantics{std::move(semantics)} {}
+    ~FloatSemanticsTaperDelegate() = default;
 
     AAX_ITaperDelegate<T>* Clone() const override
     {
-        return new ControlAdapterTaperDelegate(mParam);
+        return new FloatSemanticsTaperDelegate(_semantics);
     }
 
     T GetMaximumValue() const override
     {
-        return mParam.max_val;
+        return _semantics.max_val;
     }
 
     T GetMinimumValue() const override
     {
-        return mParam.min_val;
+        return _semantics.min_val;
     }
 
     T ConstrainRealValue(T value) const override
     {
-        return std::clamp(value, mParam.min_val, mParam.max_val);
+        return std::clamp(value, _semantics.min_val, _semantics.max_val);
     }
 
     T NormalizedToReal(double normalizedValue) const override
     {
-        const auto& adapter = mParam.knob_adapter;
-        return adapter.norm_to_plain(mParam, static_cast<T>(normalizedValue));
+        const auto& adapter = _semantics.knob_adapter;
+        return adapter.norm_to_plain(_semantics, static_cast<T>(normalizedValue));
     }
 
     double RealToNormalized(T realValue) const override
     {
-        const auto& adapter = mParam.knob_adapter;
-        return static_cast<double>(adapter.plain_to_norm(mParam, realValue));
+        const auto& adapter = _semantics.knob_adapter;
+        return static_cast<double>(adapter.plain_to_norm(_semantics, realValue));
     }
 
 private:
 
-    Param_spec<Id> mParam;
+    Float_semantics _semantics;
     
 };
 

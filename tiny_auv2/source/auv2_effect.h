@@ -29,7 +29,8 @@ public:
         // Set up parameters.
         Globals()->UseIndexedParameters(tiny::Param_model::num_params);
         for (const auto& param : _specs) {
-            Globals()->SetParameter(utils::to_underlying(param.id), param.def_val);
+            const auto def_val = params::get_host_default(param);
+            Globals()->SetParameter(utils::to_underlying(param.id), def_val);
         }
 
         const auto num_inputs = Plug_info::wants_sidechain ? 2 : 1;
@@ -65,11 +66,16 @@ public:
                 outWritable = false;
                 return noErr;
             }
-            // case kAudioUnitProperty_ParameterStringFromValue: {
-            //     outDataSize = sizeof(AudioUnitParameterStringFromValue);
-            //     outWritable = false;
-            //     return noErr;
-            // }
+            case kAudioUnitProperty_ParameterStringFromValue: {
+                outDataSize = sizeof(AudioUnitParameterStringFromValue);
+                outWritable = false;
+                return noErr;
+            }
+            case kAudioUnitProperty_ParameterValueFromString: {
+                outDataSize = sizeof(AudioUnitParameterValueFromString);
+                outWritable = false;
+                return noErr;
+            }
             case kAudioUnitProperty_UserPlugin: {
                 outDataSize = sizeof(void*);
                 outWritable = false;
@@ -83,7 +89,7 @@ public:
 
     OSStatus GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, void* outData) override
     {
-        if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
+        if (inScope != kAudioUnitScope_Global || !outData) return kAudioUnitErr_InvalidScope;
 
         switch (inID) {
             case kAudioUnitProperty_CocoaUI: {
@@ -98,15 +104,33 @@ public:
                 info->mCocoaAUViewClass[0] = CFStringCreateWithCString(kCFAllocatorDefault, tiny::Plug_info::Auv2::view_class, kCFStringEncodingUTF8);
                 return noErr;
             }
-            // case kAudioUnitProperty_ParameterStringFromValue: {
-            //     auto* data = static_cast<AudioUnitParameterStringFromValue*>(outData);
-            //     const auto id = data->inParamID;
-            //     const auto value = *data->inValue;
-            //     const auto& param = _specs[id];
-            //     const auto str = tiny::Param_model::format_string(value, param, _uivalues, false);
-            //     data->outString = CFStringCreateWithCString(kCFAllocatorDefault, str.c_str(), kCFStringEncodingUTF8);
-            //     return noErr;
-            // }
+            case kAudioUnitProperty_ParameterStringFromValue: {
+                auto* data = static_cast<AudioUnitParameterStringFromValue*>(outData);
+
+                using namespace tiny;
+                const auto id = data->inParamID;
+                const auto& param = _specs[id];
+                const auto str = Param_model::format_string(*data->inValue, param, _uivalues);
+                data->outString = CFStringCreateWithCString(kCFAllocatorDefault, str.c_str(), kCFStringEncodingUTF8);
+
+                return noErr;
+            }
+            case kAudioUnitProperty_ParameterValueFromString: {
+                auto* data = static_cast<AudioUnitParameterValueFromString*>(outData);
+
+                using namespace tiny;
+                const auto id = data->inParamID;
+                const auto& param = _specs[id];
+
+                const auto str = tiny::auv2::cf_to_std(data->inString);
+
+                if (const auto plain = Param_model::format_value(str, param)) {
+                    data->outValue = params::plain_to_host_space(*plain, param);
+                    return noErr;
+                }
+                
+                return kAudioUnitErr_InvalidPropertyValue;
+            }
             case kAudioUnitProperty_UserPlugin: {
                 ((void**)outData)[0] = (void*)this;
                 return noErr;
@@ -136,41 +160,15 @@ public:
 
         using namespace tiny;
 
-        // 
-        auto map_units = [](const Param_model::Spec& param) {
-            using enum params::Units;
-            switch (param.units) {
-                case generic: return kAudioUnitParameterUnit_Generic;
-                case boolean: return kAudioUnitParameterUnit_Boolean;
-                case indexed: return kAudioUnitParameterUnit_Indexed;
-                case percent: return kAudioUnitParameterUnit_Percent;
-                case decibels: return kAudioUnitParameterUnit_Decibels;
-                case hertz: return kAudioUnitParameterUnit_Hertz;
-                default: return kAudioUnitParameterUnit_Generic;
-            }
-        };
-
         //
         auto resolve_flags = [](const Param_model::Spec& param, bool found_clump) {
             auto flags = AudioUnitParameterOptions{};
 
             flags |= (kAudioUnitParameterFlag_HasCFNameString | kAudioUnitParameterFlag_CFNameRelease);
+            flags |= kAudioUnitParameterFlag_ValuesHaveStrings; // Use our custom value string implementation.
 
             if (found_clump) {
                 flags |= kAudioUnitParameterFlag_HasClump;
-            }
-
-            using enum params::Units;
-            if (param.units == boolean || param.provides_labels()) {
-                flags |= kAudioUnitParameterFlag_ValuesHaveStrings;
-            }
-
-            if (!param.discrete) {
-                flags |= kAudioUnitParameterFlag_CanRamp;
-            }
-
-            if (param.units == hertz) {
-                flags = SetAudioUnitParameterDisplayType(flags, kAudioUnitParameterFlag_DisplayLogarithmic); // Logic Pro not respecting?
             }
 
             if (!param.hidden) {
@@ -184,17 +182,47 @@ public:
         const auto* clump = tiny::auv2::find_clump_for_parameter(_clumps, utils::to_underlying(param.id));
         const auto found_clump = clump != nullptr;
 
-        outParameterInfo = {
-            .name = {},
-            .unitName = {},
-            .clumpID = found_clump ? clump->id : UInt32{},
-            .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
-            .unit = map_units(param),
-            .minValue = static_cast<float>(param.min_val),
-            .maxValue = static_cast<float>(param.max_val),
-            .defaultValue = static_cast<float>(param.def_val),
-            .flags = resolve_flags(param, found_clump)
-        };
+        std::visit(Inline_visitor{
+            [&](const Bool& b) {
+                outParameterInfo = {
+                    .name = {},
+                    .unitName = {},
+                    .clumpID = found_clump ? clump->id : UInt32{},
+                    .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
+                    .unit = kAudioUnitParameterUnit_Boolean,
+                    .minValue = 0,
+                    .maxValue = 1,
+                    .defaultValue = static_cast<float>(b.def_val ? 1 : 0), 
+                    .flags = resolve_flags(param, found_clump)
+                };
+            },
+            [&](const List& l) {
+                outParameterInfo = {
+                    .name = {},
+                    .unitName = {},
+                    .clumpID = found_clump ? clump->id : UInt32{},
+                    .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
+                    .unit = kAudioUnitParameterUnit_Indexed,
+                    .minValue = 0,
+                    .maxValue = static_cast<float>(l.labels.size() - 1),
+                    .defaultValue = static_cast<float>(l.def_val),
+                    .flags = resolve_flags(param, found_clump)
+                };
+            },
+            [&](const Float& f) {
+                outParameterInfo = {
+                    .name = {},
+                    .unitName = {},
+                    .clumpID = found_clump ? clump->id : UInt32{},
+                    .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
+                    .unit = kAudioUnitParameterUnit_Generic,
+                    .minValue = 0,
+                    .maxValue = 1,
+                    .defaultValue = static_cast<float>(f.knob_adapter.plain_to_norm(f, f.def_val)),
+                    .flags = resolve_flags(param, found_clump) | (kAudioUnitParameterFlag_CanRamp | kAudioUnitParameterFlag_IsHighResolution)
+                };
+            }
+        }, param.semantics);
 
         return noErr;
     }
@@ -209,22 +237,17 @@ public:
 
         auto array = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
 
-        using enum params::Units;
-        if (param.units == boolean) {
-            for (const char* label : {"Off", "On"}) {
-                const auto str = CFStringCreateWithCString(kCFAllocatorDefault, label, kCFStringEncodingUTF8);
-                CFArrayAppendValue(array, str);
-                CFRelease(str);
-            }
-        }
-        else if (param.units == indexed) {
-            for (const char* label : param.labels) {
-                if (!label) continue;
-                const auto str = CFStringCreateWithCString(kCFAllocatorDefault, label, kCFStringEncodingUTF8);
-                CFArrayAppendValue(array, str);
-                CFRelease(str);
-            }
-        }
+        std::visit(Inline_visitor{
+            [&](const List& l) {
+                for (const auto* label : l.labels) {
+                    if (!label) continue;
+                    const auto str = CFStringCreateWithCString(kCFAllocatorDefault, label, kCFStringEncodingUTF8);
+                    CFArrayAppendValue(array, str);
+                    CFRelease(str);
+                }
+            },
+            [](auto&&) {} // Bool and Float semantics handled in GetProperty.
+        }, param.semantics);
 
         *outStrings = array;
         return noErr;
@@ -257,6 +280,6 @@ private:
     std::vector<uint32_t> _ids{}; // So we can send to host the presentation order.
     std::vector<tiny::Param_model::Spec> _specs{};
     tiny::auv2::Clump_map _clumps{};
-    //tiny::Param_model::Param_values _uivalues{};
+    tiny::Param_model::Param_values _uivalues{};
 
 };

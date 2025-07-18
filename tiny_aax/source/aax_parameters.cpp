@@ -26,15 +26,14 @@ AAX_Result Aax_parameters::EffectInit()
         const auto& param = flat_map[i];
         const auto& identifier = identifiers[i];
 
-        using enum params::Units;
-        switch (param.units) {
-            case boolean: {
+        std::visit(Inline_visitor{
+            [&](const Bool& b) {
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<bool>(
                     identifier.c_str(),
                     AAX_CString(param.name),
-                    param.def_val > 0,
+                    b.def_val,
                     AAX_CBinaryTaperDelegate<bool>(),
-                    AAX_CBinaryDisplayDelegate<bool>("No", "Yes"),
+                    AAX_CBinaryDisplayDelegate<bool>("False", "True"),
                     !param.hidden
                 ));
                 if (std::strlen(param.short_name) > 0) {
@@ -43,39 +42,34 @@ AAX_Result Aax_parameters::EffectInit()
                 aax_param->SetNumberOfSteps(2);
                 aax_param->SetType(AAX_eParameterType_Discrete);
                 mParameterManager.AddParameter(aax_param.release());
-                break;
-            }
-            case indexed: {
-                if (!param.provides_labels()) break;
-
-                const auto num_states = param.max_val - param.min_val + 1;
-
+            },
+            [&](const List& l) {
+                const auto num_items = l.labels.size();
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<uint32_t>(
                     identifier.c_str(),
                     AAX_CString(param.name),
-                    param.def_val,
-                    AAX_CStateTaperDelegate<uint32_t>(param.min_val, param.max_val),
-                    AAX_CStateDisplayDelegate<uint32_t>(num_states, const_cast<const char**>(param.labels.data()), param.min_val),
+                    static_cast<uint32_t>(l.def_val),
+                    AAX_CStateTaperDelegate<uint32_t>(0, num_items - 1),
+                    AAX_CStateDisplayDelegate<uint32_t>(num_items, const_cast<const char**>(l.labels.data()), 0),
                     !param.hidden
                 ));
                 if (std::strlen(param.short_name) > 0) {
                     aax_param->AddShortenedName(param.short_name);
                 }
-                aax_param->SetNumberOfSteps(num_states);
+                aax_param->SetNumberOfSteps(num_items);
                 aax_param->SetType(AAX_eParameterType_Discrete);
                 mParameterManager.AddParameter(aax_param.release());
-                break;
-            }
-            default: {
-                using TaperDelegate = tiny::aax::ControlAdapterTaperDelegate<double, Param_model::Param_id>;
+            },
+            [&](const Float& f) {
+                using TaperDelegate = tiny::aax::FloatSemanticsTaperDelegate<double>;
                 using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 1, space after: 1
-                const auto units_str = params::units_string(param.units);
+                const auto units_str = params::units_string(f.units);
 
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
                     identifier.c_str(),
                     AAX_CString(param.name),
-                    param.def_val,
-                    TaperDelegate(param), // So we can use our own control adapter.
+                    f.def_val,
+                    TaperDelegate(f), // So we can use our own control adapter.
                     AAX_CUnitDisplayDelegateDecorator<double>(DisplayDelegate(), units_str.c_str()),
                     !param.hidden
                 ));
@@ -85,9 +79,8 @@ AAX_Result Aax_parameters::EffectInit()
                 aax_param->SetNumberOfSteps(128); // This is apparently the default.
                 aax_param->SetType(AAX_eParameterType_Continuous);
                 mParameterManager.AddParameter(aax_param.release());
-                break;
             }
-        }
+        }, param.semantics);
     }
 
     // Pro Tool Bypass

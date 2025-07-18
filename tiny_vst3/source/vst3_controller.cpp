@@ -38,44 +38,53 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
         addUnit(new Steinberg::Vst::Unit{unit_info});
     }
 
-    auto resolve_flags = [](const Param_model::Spec& param) {
-        auto result = int32_t{};
-
-        if (param.hidden) {
-            result |= Steinberg::Vst::ParameterInfo::kIsHidden;
-        }
-        else {
-            result |= Steinberg::Vst::ParameterInfo::kCanAutomate;
-        }
-
-        if (param.provides_labels()) {
-            result |= Steinberg::Vst::ParameterInfo::kIsList;
-        }
-
-        return result;
-    };
-
     for (size_t i = 0; i < flat_map.size(); ++i) {
         const auto& param = flat_map[i];
         const auto& unit_id = param_unit_ids[i];
 
-        const auto step_count = param.discrete ? static_cast<int32_t>(param.max_val - param.min_val) : 0;
-        const auto& adapter = param.knob_adapter;
-        //
-        auto param_info = Steinberg::Vst::ParameterInfo{
-            .id = static_cast<Steinberg::Vst::ParamID>(param.id),
-            .stepCount = step_count,
-            .defaultNormalizedValue = adapter.plain_to_norm(param, param.def_val),
-            .unitId = unit_id.unit_id,
-            .flags = resolve_flags(param)
-        };
+        auto param_info = std::visit(Inline_visitor{
+            [&](const Bool& b) {
+                return Steinberg::Vst::ParameterInfo{
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.id),
+                    .stepCount = 1,
+                    .defaultNormalizedValue = b.knob_adapter.plain_to_norm(b, b.def_val),
+                    .unitId = unit_id.unit_id,
+                    .flags = {}
+                };
+            },
+            [&](const List& l) {
+                return Steinberg::Vst::ParameterInfo{
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.id),
+                    .stepCount = static_cast<int32_t>(l.labels.size() - 1),
+                    .defaultNormalizedValue = l.knob_adapter.plain_to_norm(l, l.def_val),
+                    .unitId = unit_id.unit_id,
+                    .flags = Steinberg::Vst::ParameterInfo::kIsList
+                };
+            },
+            [&](const Float& f) {
+                return Steinberg::Vst::ParameterInfo{
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.id),
+                    .stepCount = 0,
+                    .defaultNormalizedValue = f.knob_adapter.plain_to_norm(f, f.def_val),
+                    .unitId = unit_id.unit_id,
+                    .flags = {}
+                };
+            }
+        }, param.semantics);
+
+        // 
+        if (param.hidden) {
+            param_info.flags |= Steinberg::Vst::ParameterInfo::kIsHidden;
+        }
+        else {
+            param_info.flags |= Steinberg::Vst::ParameterInfo::kCanAutomate;
+        }
 
         // Shenanigans to get the name.
         Steinberg::Vst::StringConvert::convert(param.name, param_info.title);
         if (std::strlen(param.short_name) > 0) {
             Steinberg::Vst::StringConvert::convert(param.short_name, param_info.shortTitle);
         }
-        Steinberg::Vst::StringConvert::convert(tiny::params::units_string(param.units), param_info.units);
 
         parameters.addParameter(param_info);
     }
@@ -125,9 +134,8 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamStringByValue(Steinberg::
 
     using namespace tiny;
     const auto& param = _specs[tag];
-    const auto& adapter = param.knob_adapter;
-    const auto plain = adapter.norm_to_plain(param, valueNormalized);
-    const auto str = Param_model::format_string(plain, param, _uivalues, false); // Don't include units.
+    const auto host = params::knob_to_host_space(valueNormalized, param);
+    const auto str = Param_model::format_string(host, param, _uivalues);
     Steinberg::Vst::StringConvert::convert(str, string);
 
     return Steinberg::kResultTrue;
@@ -142,26 +150,27 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamValueByString(Steinberg::
 
     using namespace tiny;
     const auto& param = _specs[tag];
-    const auto& adapter = param.knob_adapter;
     const auto str = Steinberg::Vst::StringConvert::convert(string);
-    const auto value = Param_model::format_value(str, param);
-    valueNormalized = adapter.plain_to_norm(param, value);
+    if (const auto plain = Param_model::format_value(str, param)) {
+        valueNormalized = params::plain_to_knob_space(*plain, param);
+        return Steinberg::kResultTrue;
+    }
 
-    return Steinberg::kResultTrue;
+    return Steinberg::kResultFalse;
 }
 
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::normalizedParamToPlain(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue valueNormalized)
 {
+    using namespace tiny;
     const auto& param = _specs[tag];
-    const auto& adapter = param.knob_adapter;
-    return adapter.norm_to_plain(param, valueNormalized);
+    return params::knob_to_plain_space(valueNormalized, param);
 }
 
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::plainParamToNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue plainValue)
 {
+    using namespace tiny;
     const auto& param = _specs[tag];
-    const auto& adapter = param.knob_adapter;
-    return adapter.plain_to_norm(param, plainValue);
+    return params::plain_to_knob_space(plainValue, param);
 }
 
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::getParamNormalized(Steinberg::Vst::ParamID tag)

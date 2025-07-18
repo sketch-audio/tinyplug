@@ -5,8 +5,26 @@
 namespace tiny {
 
 // CORE
+
+template<typename T>
+struct deferred_false : std::false_type {};
+
+template<typename T>
+inline constexpr auto deferred_false_v = deferred_false<T>::value;
+
 template <typename T>
 concept Enum = std::is_enum_v<T>;
+
+template<typename... Ts>
+struct Inline_visitor : Ts... {
+    using Ts::operator()...;
+};
+
+template<typename T, typename Variant>
+struct is_variant_alternative;
+
+template<typename T, typename... Alts>
+struct is_variant_alternative<T, std::variant<Alts...>> : std::disjunction<std::is_same<T, Alts>...> {};
 
 namespace utils {
 

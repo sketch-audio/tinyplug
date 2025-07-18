@@ -15,115 +15,157 @@ namespace tiny::params {
 
 template<Enum Id> struct Param_group;
 template<Enum Id> struct Param_spec;
-template<Enum Id> struct Knob_adapter;
-template<Enum Id> struct Knob_adapters; // factory
 
 template<Enum Id>
 using Param_node = std::variant<Param_group<Id>, Param_spec<Id>>;
 
-//
+struct Bool;
+struct List;
+struct Float;
+using Value_semantics = std::variant<Bool, List, Float>;
+
+template<typename T>
+concept Some_value_semantics = is_variant_alternative<T, Value_semantics>::value;
+
+template<Some_value_semantics Vs>
+struct Knob_adapter {
+    using Value_transform = std::function<double(const Vs&, double)>;
+
+    Value_transform plain_to_norm{[](const Vs&, double) {
+        static_assert(deferred_false_v<Vs>, "Your parameter needs a knob adapter.");
+        return 0;
+    }};
+
+    Value_transform norm_to_plain{[](const Vs&, double) {
+        static_assert(deferred_false_v<Vs>, "Your parameter needs a knob adapter.");
+        return 0;
+    }};
+};
+
+// Unit hints for float semantics parameters.
 enum class Units : uint32_t {
     generic = 0,
-    boolean,
-    indexed,
     percent,
     decibels,
     hertz,
 };
 
-// TODO: -
+inline auto units_string(Units units) -> std::string
+{
+    using enum Units;
+    switch (units) {
+        case generic:
+            return "";
+        case percent:
+            return "%";
+        case decibels:
+            return "dB";
+        case hertz:
+            return "Hz";
+    }
+}
+
+struct Bool {
+    bool def_val{true};
+    Knob_adapter<Bool> knob_adapter; // required.
+};
+
+struct List {
+    std::vector<const char*> labels{"One", "Two", "Three", "Four"};
+    size_t def_val{};
+    Knob_adapter<List> knob_adapter; // required.
+};
+
+struct Float {
+    double min_val{};
+    double def_val{0.5f};
+    double max_val{1};
+    Units units{};
+    Knob_adapter<Float> knob_adapter; // required.
+};
+
+// MARK: - knob adapters
+
+struct Knob_adapters {
+    // 
+    static auto make_bool() -> Knob_adapter<Bool>
+    {
+        return {
+            .plain_to_norm = [](const Bool& /*b*/, double value) {
+                return value;
+            },
+            .norm_to_plain = [](const Bool& /*b*/, double value) {
+                return value;
+            }
+        };
+    }
+
+    // 
+    static auto make_list() -> Knob_adapter<List>
+    {
+        return {
+            .plain_to_norm = [](const List& l, double value) {
+                const auto step_count = static_cast<double>(l.labels.size() - 1);
+                return value / step_count;
+            },
+            .norm_to_plain = [](const List& l, double value) {
+                const auto step_count = static_cast<double>(l.labels.size() - 1);
+                return std::floor(std::min(step_count, value * (step_count + 1)));
+            }
+        };
+    }
+
+    // 
+    static auto make_linear() -> Knob_adapter<Float>
+    {
+        return {
+            .plain_to_norm = [](const Float& f, double value) {
+                return (value - f.min_val) / (f.max_val - f.min_val);
+            },
+            .norm_to_plain = [](const Float& f, double value) {
+                return (f.max_val - f.min_val) * value + f.min_val;
+            }
+        };
+    }
+
+    // 
+    static auto make_tapered(double taper, bool bipolar) -> Knob_adapter<Float>
+    {
+        return {
+            .plain_to_norm = [=](const Float& f, double value) {
+                return utils::normalized(value, f.min_val, f.max_val, taper, bipolar);
+            },
+            .norm_to_plain = [=](const Float& f, double value) {
+                return utils::denormalized(value, f.min_val, f.max_val, taper, bipolar);
+            }
+        };
+    }
+};
+
 struct Version {
     size_t version{1};
     static constexpr auto deprecated = std::numeric_limits<size_t>::max();
 };
 
-//
+// MARK: - param group, spec
+
 template<Enum Id>
 struct Param_group {
     const char* name{""};
     std::vector<Param_node<Id>> nodes{};
 };
 
-// MARK: - param spec
-
 template<Enum Id>
 struct Param_spec {
-    //
     Id id{};
+    Version version{};
     const char* name{""};
     const char* short_name{""};
-    double min_val{};
-    double max_val{1};
-    double def_val{0.5f};
-    bool discrete{}; // possibly derive this from units?
+    Value_semantics semantics{Float{.knob_adapter = Knob_adapters::make_linear()}};
     bool hidden{};
-    Units units{};
-    std::vector<const char*> labels{}; // 
-    std::vector<Id> dep_ids{};
-    Knob_adapter<Id> knob_adapter{Knob_adapters<Id>::make_linear()};
-
-    // To provide labels, set your units to `indexed` and make sure your `labels` vector size matches your range.
-    auto provides_labels() const -> bool
-    {
-        const auto num_values = max_val - min_val + 1;
-        return units == Units::indexed && labels.size() == num_values;
-    }
 };
 
-// MARK: - control adapter
-
-template<Enum Id>
-struct Knob_adapter {
-    using Value_transform = std::function<double(const Param_spec<Id>&, double)>;
-    Value_transform plain_to_norm{};
-    Value_transform norm_to_plain{};
-};
-
-template<Enum Id>
-struct Knob_adapters {
-    //
-    static auto make_linear() -> Knob_adapter<Id>
-    {
-        return {
-            .plain_to_norm = [](const Param_spec<Id>& param, double value) {
-                return (value - param.min_val) / (param.max_val - param.min_val);
-            },
-            .norm_to_plain = [](const Param_spec<Id>& param, double value) {
-                return (param.max_val - param.min_val) * value + param.min_val;
-            }
-        };
-    }
-
-    //
-    static auto make_discrete() -> Knob_adapter<Id>
-    {
-        return {
-            .plain_to_norm = [](const Param_spec<Id>& param, double value) {
-                const auto step_count = param.max_val - param.min_val;
-                return value / step_count;
-            },
-            .norm_to_plain = [](const Param_spec<Id>& param, double value) {
-                const auto step_count = param.max_val - param.min_val;
-                return std::floor(std::min(step_count, value * (step_count + 1)));
-            }
-        };
-    }
-
-    //
-    static auto make_tapered(double taper, bool bipolar) -> Knob_adapter<Id>
-    {
-        return {
-            .plain_to_norm = [=](const Param_spec<Id>& param, double value) {
-                return utils::normalized(value, param.min_val, param.max_val, taper, bipolar);
-            },
-            .norm_to_plain = [=](const Param_spec<Id>& param, double value) {
-                return utils::denormalized(value, param.min_val, param.max_val, taper, bipolar);
-            }
-        };
-    }
-};
-
-// MARK: - functions
+// MARK: - tree + sort
 
 template<Enum Id>
 inline auto flatten_tree(const Param_node<Id>& root) -> std::vector<Param_spec<Id>>
@@ -154,49 +196,68 @@ inline auto sort_param_specs_by_id(std::vector<Param_spec<Id>>& specs) -> void
     });
 }
 
-inline auto linearize(double value, Units from_units) -> double 
+// MARK: - space
+
+template<Enum Id>
+inline auto plain_to_host_space(double plain_value, const Param_spec<Id>& spec) -> double
 {
-    using enum Units;
-    switch (from_units) {
-        case generic: return value;
-        case boolean: return value;
-        case indexed: return value;
-        case percent: return value;
-        case decibels: return value;
-        case hertz: return std::log2(std::max(value, 1e-6));
-    }
+    return std::visit(Inline_visitor{
+        [&](const Bool&) { return plain_value; },
+        [&](const List&) { return plain_value; },
+        [&](const Float& f) { return f.knob_adapter.plain_to_norm(f, plain_value); }
+    }, spec.semantics);
 }
 
-inline auto delinearize(double value, Units to_units) -> double
+template<Enum Id>
+inline auto plain_to_knob_space(double plain_value, const Param_spec<Id>& spec) -> double
 {
-    using enum Units;
-    switch (to_units) {
-        case generic: return value;
-        case boolean: return value;
-        case indexed: return value;
-        case percent: return value;
-        case decibels: return value;
-        case hertz: return std::exp2(value);
-    }
+    return std::visit(Inline_visitor{
+        [&](const Bool&) { return plain_value; },
+        [&](const List& l) { return l.knob_adapter.plain_to_norm(l, plain_value); },
+        [&](const Float& f) { return f.knob_adapter.plain_to_norm(f, plain_value); }
+    }, spec.semantics);
 }
 
-inline auto units_string(Units units) -> std::string {
-    switch (units) {
-        case Units::generic:
-            return "";
-        case Units::boolean:
-            return "";
-        case Units::indexed:
-            return "";
-        case Units::percent:
-            return "%";
-        case Units::decibels:
-            return "dB";
-        case Units::hertz:
-            return "Hz";
-        default:
-            return "";
-    }
+template<Enum Id>
+inline auto knob_to_host_space(double knob_value, const Param_spec<Id>& spec) -> double
+{
+    return std::visit(Inline_visitor{
+        [&](const Bool&) { return knob_value; },
+        [&](const List& l) { return l.knob_adapter.norm_to_plain(l, knob_value); },
+        [&](const Float&) { return knob_value; }
+    }, spec.semantics);
+}
+
+template<Enum Id>
+inline auto knob_to_plain_space(double knob_value, const Param_spec<Id>& spec) -> double
+{
+    return std::visit(Inline_visitor{
+        [&](const Bool&) { return knob_value; },
+        [&](const List& l) { return l.knob_adapter.norm_to_plain(l, knob_value); },
+        [&](const Float& f) { return f.knob_adapter.norm_to_plain(f, knob_value); }
+    }, spec.semantics);
+}
+
+// MARK: - default
+
+template<Enum Id>
+inline auto get_host_default(const Param_spec<Id>& spec) -> double
+{
+    return std::visit(Inline_visitor{
+        [&](const Bool& b) { return static_cast<double>(b.def_val ? 1 : 0); },
+        [&](const List& l) { return static_cast<double>(l.def_val); },
+        [&](const Float& f) { return f.knob_adapter.plain_to_norm(f, f.def_val); }
+    }, spec.semantics);
+}
+
+template<Enum Id>
+inline auto get_knob_default(const Param_spec<Id>& spec) -> double
+{
+    return std::visit(Inline_visitor{
+        [&](const Bool& b) { return static_cast<double>(b.def_val ? 1 : 0); },
+        [&](const List& l) { return l.knob_adapter.plain_to_norm(l, l.def_val); },
+        [&](const Float& f) { return f.knob_adapter.plain_to_norm(f, f.def_val); }
+    }, spec.semantics);
 }
 
 // MARK: - parameter model
