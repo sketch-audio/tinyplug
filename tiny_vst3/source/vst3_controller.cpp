@@ -43,7 +43,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
         const auto& unit_id = param_unit_ids[i];
 
         auto param_info = std::visit(Inline_visitor{
-            [&](const Bool& b) {
+            [&](const Bool_semantics& b) {
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.id),
                     .stepCount = 1,
@@ -52,7 +52,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
                     .flags = {}
                 };
             },
-            [&](const List& l) {
+            [&](const List_semantics& l) {
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.id),
                     .stepCount = static_cast<int32_t>(l.labels.size() - 1),
@@ -61,11 +61,20 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
                     .flags = Steinberg::Vst::ParameterInfo::kIsList
                 };
             },
-            [&](const Float& f) {
+            [&](const Float_semantics& f) {
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.id),
                     .stepCount = 0,
                     .defaultNormalizedValue = f.knob_adapter.plain_to_norm(f, f.def_val),
+                    .unitId = unit_id.unit_id,
+                    .flags = {}
+                };
+            },
+            [&](const Int_semantics& i) {
+                return Steinberg::Vst::ParameterInfo{
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.id),
+                    .stepCount = i.max_val - i.min_val,
+                    .defaultNormalizedValue = i.knob_adapter.plain_to_norm(i, i.def_val),
                     .unitId = unit_id.unit_id,
                     .flags = {}
                 };

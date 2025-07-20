@@ -27,7 +27,7 @@ AAX_Result Aax_parameters::EffectInit()
         const auto& identifier = identifiers[i];
 
         std::visit(Inline_visitor{
-            [&](const Bool& b) {
+            [&](const Bool_semantics& b) {
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<bool>(
                     identifier.c_str(),
                     AAX_CString(param.name),
@@ -43,7 +43,7 @@ AAX_Result Aax_parameters::EffectInit()
                 aax_param->SetType(AAX_eParameterType_Discrete);
                 mParameterManager.AddParameter(aax_param.release());
             },
-            [&](const List& l) {
+            [&](const List_semantics& l) {
                 const auto num_items = l.labels.size();
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<uint32_t>(
                     identifier.c_str(),
@@ -60,7 +60,7 @@ AAX_Result Aax_parameters::EffectInit()
                 aax_param->SetType(AAX_eParameterType_Discrete);
                 mParameterManager.AddParameter(aax_param.release());
             },
-            [&](const Float& f) {
+            [&](const Float_semantics& f) {
                 using TaperDelegate = tiny::aax::FloatSemanticsTaperDelegate<double>;
                 using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 1, space after: 1
                 const auto units_str = params::units_string(f.units);
@@ -76,8 +76,27 @@ AAX_Result Aax_parameters::EffectInit()
                 if (std::strlen(param.short_name) > 0) {
                     aax_param->AddShortenedName(param.short_name);
                 }
-                aax_param->SetNumberOfSteps(128); // This is apparently the default.
+                aax_param->SetNumberOfSteps(2048); // Is this the most we can have?
                 aax_param->SetType(AAX_eParameterType_Continuous);
+                mParameterManager.AddParameter(aax_param.release());
+            },
+            [&](const Int_semantics& i) {
+                using DisplayDelegate = AAX_CNumberDisplayDelegate<int32_t, 0, 1>; // precision: 0, space after: 1
+                const auto units_str = params::units_string(i.units);
+
+                auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<int32_t>(
+                    identifier.c_str(),
+                    AAX_CString(param.name),
+                    i.def_val,
+                    AAX_CStateTaperDelegate<int32_t>(i.min_val, i.max_val),
+                    AAX_CUnitDisplayDelegateDecorator<int32_t>(DisplayDelegate(), units_str.c_str()),
+                    !param.hidden
+                ));
+                if (std::strlen(param.short_name) > 0) {
+                    aax_param->AddShortenedName(param.short_name);
+                }
+                aax_param->SetNumberOfSteps(i.max_val - i.min_val + 1);
+                aax_param->SetType(AAX_eParameterType_Discrete);
                 mParameterManager.AddParameter(aax_param.release());
             }
         }, param.semantics);

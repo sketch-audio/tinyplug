@@ -19,6 +19,7 @@ struct Param_model {
         curve,
         wet,
         filter_cutoff,
+        pitch_offset,
         num_params // Don't delete this one!
     };
 
@@ -38,27 +39,27 @@ struct Param_model {
     {
         using Group = Param_group<Param_id>;
         const auto tree = Group{
-            .nodes = {{
+            .nodes = {
                 Group{
                     .name = "Clipper",
-                    .nodes = {{
+                    .nodes = {
                         Spec{
                             .id = Param_id::drive,
                             .name = "Clipper Drive",
                             .short_name = "Drive",
-                            .semantics = Float{
+                            .semantics = Float_semantics{
                                 .min_val = 0,
                                 .def_val = 0,
                                 .max_val = 36,
                                 .units = Units::decibels,
-                                .knob_adapter = Knob_adapters::make_linear()
+                                .knob_adapter = Knob_adapters::make_piecewise({{.plain = 6, .norm = 0.5f}})
                             }
                         },
                         Spec{
                             .id = Param_id::out_gain,
                             .name = "Clipper Out Gain",
                             .short_name = "Out",
-                            .semantics = Float{
+                            .semantics = Float_semantics{
                                 .min_val = -18,
                                 .def_val = 0,
                                 .max_val = 18,
@@ -70,7 +71,7 @@ struct Param_model {
                             .id = Param_id::curve,
                             .name = "Clipper Curve",
                             .short_name = "Curve",
-                            .semantics = List{
+                            .semantics = List_semantics{
                                 .labels = {"Juicy", "Tight", "Hardest"},
                                 .knob_adapter = Knob_adapters::make_list()
                             }
@@ -79,21 +80,33 @@ struct Param_model {
                             .id = Param_id::filter_cutoff,
                             .name = "Filter Cutoff",
                             .short_name = "Cutoff",
-                            .semantics = Float{
+                            .semantics = Float_semantics{
                                 .min_val = 20,
                                 .def_val = 1000,
                                 .max_val = 20000,
                                 .units = Units::hertz,
                                 .knob_adapter = Knob_adapters::make_tapered(0.05f, false)
                             }
+                        },
+                        Spec{
+                            .id = Param_id::pitch_offset,
+                            .name = "Pitch Offset",
+                            .short_name = "Offset",
+                            .semantics = Int_semantics{
+                                .min_val = -12,
+                                .def_val = 0,
+                                .max_val = 12,
+                                .units = Units::generic,
+                                .knob_adapter = Knob_adapters::make_discrete()
+                            }
                         }
-                    }}
+                    }
                 },
                 Spec{
                     .id = Param_id::bypass,
                     .name = "Global Enabled",
                     .short_name = "Enabled",
-                    .semantics = Bool{
+                    .semantics = Bool_semantics{
                         .def_val = true,
                         .knob_adapter = Knob_adapters::make_bool()
                     },
@@ -102,7 +115,7 @@ struct Param_model {
                     .id = Param_id::wet,
                     .name = "Global Mix",
                     .short_name = "Mix",
-                    .semantics = Float{
+                    .semantics = Float_semantics{
                         .min_val = 0,
                         .def_val = 100,
                         .max_val = 100,
@@ -110,7 +123,7 @@ struct Param_model {
                         .knob_adapter = Knob_adapters::make_linear()
                     }
                 }
-            }}
+            }
         };
 
         return std::move(tree);
@@ -122,12 +135,12 @@ struct Param_model {
     static auto format_string(double host_value, const Spec& param, const Param_values& /*context*/, bool include_units = true) -> std::string
     {
         return std::visit(Inline_visitor{
-            [&](const Bool&) { return host_value > 0.5f ? std::string{"True"} : std::string{"False"}; },
-            [&](const List& l) {
+            [&](const Bool_semantics&) { return host_value > 0.5f ? std::string{"True"} : std::string{"False"}; },
+            [&](const List_semantics& l) {
                 const auto idx = static_cast<size_t>(host_value);
                 return std::string{l.labels[idx]};
             },
-            [&](const Float& f) {
+            [&](const Float_semantics& f) {
                 using enum Units;
                 const auto value = f.knob_adapter.norm_to_plain(f, host_value);
                 switch (f.units) {
@@ -156,6 +169,9 @@ struct Param_model {
                     default:
                         return std::string{};
                 }
+            },
+            [&](const Int_semantics&) {
+                return std::format("{:.0f}", host_value);
             }
         }, param.semantics);
     }

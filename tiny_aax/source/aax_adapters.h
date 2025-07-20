@@ -11,7 +11,7 @@ template<typename T>
 class FloatSemanticsTaperDelegate final : public AAX_ITaperDelegate<T> {
 public:
 
-    using Float_semantics = tiny::params::Float;
+    using Float_semantics = tiny::params::Float_semantics;
 
     FloatSemanticsTaperDelegate(Float_semantics semantics) : _semantics{std::move(semantics)} {}
     ~FloatSemanticsTaperDelegate() = default;

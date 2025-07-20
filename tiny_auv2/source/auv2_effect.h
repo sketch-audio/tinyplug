@@ -183,7 +183,7 @@ public:
         const auto found_clump = clump != nullptr;
 
         std::visit(Inline_visitor{
-            [&](const Bool& b) {
+            [&](const Bool_semantics& b) {
                 outParameterInfo = {
                     .name = {},
                     .unitName = {},
@@ -196,7 +196,7 @@ public:
                     .flags = resolve_flags(param, found_clump)
                 };
             },
-            [&](const List& l) {
+            [&](const List_semantics& l) {
                 outParameterInfo = {
                     .name = {},
                     .unitName = {},
@@ -209,7 +209,7 @@ public:
                     .flags = resolve_flags(param, found_clump)
                 };
             },
-            [&](const Float& f) {
+            [&](const Float_semantics& f) {
                 outParameterInfo = {
                     .name = {},
                     .unitName = {},
@@ -220,6 +220,19 @@ public:
                     .maxValue = 1,
                     .defaultValue = static_cast<float>(f.knob_adapter.plain_to_norm(f, f.def_val)),
                     .flags = resolve_flags(param, found_clump) | (kAudioUnitParameterFlag_CanRamp | kAudioUnitParameterFlag_IsHighResolution)
+                };
+            },
+            [&](const Int_semantics& i) {
+                outParameterInfo = {
+                    .name = {},
+                    .unitName = {},
+                    .clumpID = found_clump ? clump->id : UInt32{},
+                    .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
+                    .unit = kAudioUnitParameterUnit_Indexed,
+                    .minValue = static_cast<float>(i.min_val),
+                    .maxValue = static_cast<float>(i.max_val),
+                    .defaultValue = static_cast<float>(i.def_val),
+                    .flags = resolve_flags(param, found_clump)
                 };
             }
         }, param.semantics);
@@ -238,7 +251,7 @@ public:
         auto array = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
 
         std::visit(Inline_visitor{
-            [&](const List& l) {
+            [&](const List_semantics& l) {
                 for (const auto* label : l.labels) {
                     if (!label) continue;
                     const auto str = CFStringCreateWithCString(kCFAllocatorDefault, label, kCFStringEncodingUTF8);
@@ -246,7 +259,7 @@ public:
                     CFRelease(str);
                 }
             },
-            [](auto&&) {} // Bool and Float semantics handled in GetProperty.
+            [](auto&&) {} // Bool, Int, and Float semantics handled by `StringFromValue`
         }, param.semantics);
 
         *outStrings = array;
