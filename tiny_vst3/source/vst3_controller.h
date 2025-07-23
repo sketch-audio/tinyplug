@@ -2,7 +2,7 @@
 
 #include "public.sdk/source/vst/vsteditcontroller.h"
 
-#include "user_plug.h"
+#include "user/param_model.h"
 
 #include "vst3_view.h"
 

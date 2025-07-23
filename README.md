@@ -13,6 +13,8 @@
     - Declare parameters as a tree of `Param_spec` structs.
 - Type-safe parameter value semantics via `std::variant`
     - Bool, List, Float, Int
+- Sample-accurate events & automation
+    - Tinyplug automatically interleaves host events (including ramps) with calls to your process function for precise automation playback.
 
 ## Style
 - Herb Sutter AAA style

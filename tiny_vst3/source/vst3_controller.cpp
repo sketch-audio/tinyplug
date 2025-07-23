@@ -3,7 +3,7 @@
 #include "pluginterfaces/base/ibstream.h"
 #include "public.sdk/source/vst/utility/stringconvert.h"
 
-#include "user_plug.h"
+#include "user/param_model.h"
 
 #include "vst3_adapters.h"
 #include "vst3_controller.h"
@@ -18,6 +18,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
         return result;
 
     using namespace tiny;
+    using namespace params;
     const auto tree = Param_model::build_tree();
     _specs = params::flatten_tree(tree);
     params::sort_param_specs_by_id(_specs);

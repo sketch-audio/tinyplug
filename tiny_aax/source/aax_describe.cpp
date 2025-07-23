@@ -8,50 +8,32 @@
 #include "AAX_Assert.h"
 
 #include "plug_info.h"
-#include "user_plug.h"
+#include "user/param_model.h"
 
-#include "aax_algorithm.h"
 #include "aax_gui.h"
 #include "aax_parameters.h"
 
 //
 AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
 {
+    
     if (auto* descriptor = collection->NewDescriptor()) {
-        //
+
         descriptor->AddName(tiny::Plug_info::product_name);
         descriptor->AddName(tiny::Plug_info::product_short_name);
         descriptor->AddCategory(AAX_ePlugInCategory_None); // TODO: - 
         descriptor->AddProcPtr((void*)Aax_parameters::Create, kAAX_ProcPtrID_Create_EffectParameters);
         descriptor->AddProcPtr((void*)Aax_gui::Create, kAAX_ProcPtrID_Create_EffectGUI);
 
-        auto* component = descriptor->NewComponentDescriptor();
-        component->AddDataInPort(AAX_FIELD_INDEX(Aax_context, bypass), sizeof(int32_t));
-        component->AddAudioIn(AAX_FIELD_INDEX(Aax_context, input_channels));
-        component->AddAudioOut(AAX_FIELD_INDEX(Aax_context, output_channels));
-        component->AddAudioBufferLength(AAX_FIELD_INDEX(Aax_context, buffer_size));
-        component->AddPrivateData(AAX_FIELD_INDEX(Aax_context, plugin), sizeof(Aax_parameters*));
-
-        if constexpr (tiny::Plug_info::wants_sidechain) {
-            component->AddSideChainIn(AAX_FIELD_INDEX(Aax_context, sidechain));
-        }
-
-        auto* properties = component->NewPropertyMap();
-        properties->AddProperty(AAX_eProperty_ManufacturerID, tiny::Plug_info::Aax::manufacturer_id);
-        properties->AddProperty(AAX_eProperty_ProductID, tiny::Plug_info::Aax::product_id);
-        properties->AddProperty(AAX_eProperty_PlugInID_Native, tiny::Plug_info::Aax::plugin_id);
-        properties->AddProperty(AAX_eProperty_CanBypass, true);
-        properties->AddProperty(AAX_eProperty_InputStemFormat, AAX_eStemFormat_Stereo);
-        properties->AddProperty(AAX_eProperty_OutputStemFormat, AAX_eStemFormat_Stereo);
-        //properties->AddProperty(AAX_eProperty_Constraint_Location, AAX_eConstraintLocationMask_DataModel);
-
-        if constexpr (tiny::Plug_info::wants_sidechain) {
-            properties->AddProperty(AAX_eProperty_SupportsSideChainInput, true);
-        }
-
-        component->AddProcessProc_Native(Aax_algorithm, properties);
-
-        descriptor->AddComponent(component);
+        //
+        auto info = tiny::aax::AAX_SInstrumentSetupInfo{};
+        info.mInputStemFormat = AAX_eStemFormat_Stereo;
+        info.mOutputStemFormat = AAX_eStemFormat_Stereo;
+        info.mWantsSidechain = tiny::Plug_info::wants_sidechain;
+        info.mManufacturerID = tiny::Plug_info::Aax::manufacturer_id;
+        info.mProductID = tiny::Plug_info::Aax::product_id;
+        info.mPluginID = tiny::Plug_info::Aax::plugin_id;
+        Aax_parameters::StaticDescribe(descriptor, info);
 
         //
         collection->AddEffect(tiny::Plug_info::base_identifier, descriptor);

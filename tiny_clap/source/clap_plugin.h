@@ -5,16 +5,19 @@
 #include "clap/helpers/plugin.hh"
 
 #include "plug_info.h"
+
 #include "platform/platform_view.h"
-#include "user_plug.h"
+#include "user/param_model.h"
+
+#include "clap_adapters.h"
 
 using MisbehaviourHandler = clap::helpers::MisbehaviourHandler;
 using CheckingLevel = clap::helpers::CheckingLevel;
 
-class Clap_plugin : public clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::Maximal> {
+class Clap_plugin : public clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal> {
 public:
 
-    using Super = clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::Maximal>;
+    using Super = clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal>;
     Clap_plugin(const clap_host* host);
     ~Clap_plugin();
 
@@ -61,9 +64,6 @@ public:
     bool paramsValueToText(clap_id paramId, double value, char* display, uint32_t size) noexcept override;
     bool paramsTextToValue(clap_id paramId, const char* display, double* value) noexcept override;
     void paramsFlush(const clap_input_events* in, const clap_output_events* out) noexcept override;
-    // int32_t getParamIndexForParamId(clap_id paramId) const noexcept override;
-    // bool isValidParamId(clap_id paramId) const noexcept override;
-    // bool getParamInfoForParamId(clap_id paramId, clap_param_info* info) const noexcept override;
 
     // clap_plugin_gui 
     bool implementsGui() const noexcept override { return true; }
@@ -93,8 +93,11 @@ protected:
     // Sorted by paramId.
     std::vector<tiny::Param_model::Spec> _specs{};
 
-    // Values in host (linearized) space.
-    tiny::Param_model::Param_values _hostvalues{};
+    // Values in host space.
+    tiny::Param_model::Param_values _hostvalues{}; // these should probably be atomics
+
+    using Adapter = tiny::clap::Kernel_adapter<tiny::Dsp_kernel>;
+    std::unique_ptr<Adapter> _adapter = std::make_unique<Adapter>(_specs);
 
     // Preferred platform GUI API.
     static constexpr auto gui_preferred_api = []() {

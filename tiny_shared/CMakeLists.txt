@@ -63,6 +63,7 @@ file(GLOB TARGET_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/platform/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/skia/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/tinyplug/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/user/*.h"
 )
 
 set(TINY_SHARED_LIB ${TINY_BASE_FILENAME}_lib)

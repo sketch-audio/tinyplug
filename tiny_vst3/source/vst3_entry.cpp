@@ -1,7 +1,6 @@
 #include "public.sdk/source/main/pluginfactory.h"
 
 #include "plug_info.h"
-#include "user_plug.h"
 
 #include "vst3_adapters.h"
 #include "vst3_controller.h"

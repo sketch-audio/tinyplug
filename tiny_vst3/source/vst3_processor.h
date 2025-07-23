@@ -1,6 +1,13 @@
 #pragma once
 
+#include <limits>
+#include <memory>
+#include <vector>
+
 #include "public.sdk/source/vst/vstaudioeffect.h"
+
+#include "user/dsp_kernel.h"
+#include "user/param_model.h"
 
 class Vst3_processor : public Steinberg::Vst::AudioEffect {
 public:
@@ -38,4 +45,34 @@ public:
 	/** For persistence */
 	Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream* state) SMTG_OVERRIDE;
     Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream* state) SMTG_OVERRIDE;
+
+private:
+    //
+    struct Automation_point {
+        int32_t offset{-1};
+        double value{};
+    };
+
+    static constexpr auto num_params = tiny::Param_model::num_params;
+
+    static constexpr auto num_ichannels = size_t{2 + (tiny::Plug_info::wants_sidechain ? 2 : 0)};
+    static constexpr auto num_ochannels = size_t{2};
+
+    // Pointers to host io buffers.
+    std::array<const float*, num_ichannels> _ibuffers{};
+    std::array<float*, num_ochannels> _obuffers{};
+
+    std::vector<tiny::Param_model::Spec> _specs{};
+    std::array<Automation_point, num_params> _lpoints{};
+
+    struct Tagged_event {
+        int32_t offset{std::numeric_limits<int32_t>::max()};
+        tiny::Event event{};
+    };
+    std::vector<Tagged_event> _events{}; // Some fixed size thing.
+
+    std::unique_ptr<tiny::Dsp_kernel> _kernel = std::make_unique<tiny::Dsp_kernel>();
+
+    auto normalize_input_events(Steinberg::Vst::ProcessData& data) -> void;
+
 };

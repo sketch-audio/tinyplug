@@ -3,12 +3,11 @@
 #include <array>
 #include <format>
 #include <optional>
+#include <span>
 
 #include "tinyplug/tinyplug.h"
 
 namespace tiny {
-
-using namespace params;
 
 struct Param_model {
     // These will be used as the indices into an array!
@@ -20,6 +19,7 @@ struct Param_model {
         wet,
         filter_cutoff,
         pitch_offset,
+        lin_gain,
         num_params // Don't delete this one!
     };
 
@@ -33,10 +33,11 @@ struct Param_model {
     // The number of params.
     static constexpr auto num_params = size_t{utils::to_underlying(Param_id::num_params)};
 
-    using Spec = Param_spec<Param_id>;
+    using Spec = params::Param_spec<Param_id>;
 
-    static auto build_tree() -> Param_node<Param_id>
+    static auto build_tree() -> params::Param_node<Param_id>
     {
+        using namespace params;
         using Group = Param_group<Param_id>;
         const auto tree = Group{
             .nodes = {
@@ -99,6 +100,18 @@ struct Param_model {
                                 .units = Units::generic,
                                 .knob_adapter = Knob_adapters::make_discrete()
                             }
+                        },
+                        Spec{
+                            .id = Param_id::lin_gain,
+                            .name = "Linear gain",
+                            .short_name = "Lin. gain",
+                            .semantics = Float_semantics{
+                                .min_val = 0,
+                                .def_val = 1,
+                                .max_val = 1,
+                                .units = Units::generic,
+                                .knob_adapter = Knob_adapters::make_power(3)
+                            }
                         }
                     }
                 },
@@ -134,6 +147,7 @@ struct Param_model {
     // 
     static auto format_string(double host_value, const Spec& param, const Param_values& /*context*/, bool include_units = true) -> std::string
     {
+        using namespace tiny::params;
         return std::visit(Inline_visitor{
             [&](const Bool_semantics&) { return host_value > 0.5f ? std::string{"True"} : std::string{"False"}; },
             [&](const List_semantics& l) {
@@ -191,6 +205,19 @@ struct Param_model {
         return std::nullopt;
     }
 };
-static_assert(Is_param_model<Param_model>);
+static_assert(tiny::params::Is_param_model<Param_model>);
+
+struct Values {
+    static auto get(const Param_model::Param_values& values, Param_model::Param_id id) -> double
+    {
+        const auto idx = utils::to_underlying(id);
+        return values[idx];
+    }
+
+    static auto set(Param_model::Param_values& values, size_t idx, double value) -> void
+    {
+        values[idx] = value;
+    }
+};
 
 } // namespace tiny

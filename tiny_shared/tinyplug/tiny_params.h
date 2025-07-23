@@ -366,6 +366,28 @@ inline auto knob_to_plain_space(double knob_value, const Param_spec<Id>& spec) -
     }, spec.semantics);
 }
 
+template<Enum Id>
+inline auto host_to_plain_space(double host_value, const Param_spec<Id>& spec) -> double
+{
+    return std::visit(Inline_visitor{
+        [&](const Bool_semantics&) { return host_value; },
+        [&](const List_semantics&) { return host_value; },
+        [&](const Float_semantics& f) { return f.knob_adapter.norm_to_plain(f, host_value); },
+        [&](const Int_semantics&) { return host_value; }
+    }, spec.semantics);
+}
+
+template<Enum Id>
+inline auto host_to_knob_space(double host_value, const Param_spec<Id>& spec) -> double
+{
+    return std::visit(Inline_visitor{
+        [&](const Bool_semantics&) { return host_value; },
+        [&](const List_semantics& l) { return l.knob_adapter.plain_to_norm(l, host_value); },
+        [&](const Float_semantics&) { return host_value; },
+        [&](const Int_semantics& i) { return i.knob_adapter.plain_to_norm(i, host_value); }
+    }, spec.semantics);
+}
+
 // MARK: - default
 
 template<Enum Id>
@@ -387,6 +409,17 @@ inline auto get_knob_default(const Param_spec<Id>& spec) -> double
         [&](const List_semantics& l) { return l.knob_adapter.plain_to_norm(l, l.def_val); },
         [&](const Float_semantics& f) { return f.knob_adapter.plain_to_norm(f, f.def_val); },
         [&](const Int_semantics& i) { return i.knob_adapter.plain_to_norm(i, i.def_val); }
+    }, spec.semantics);
+}
+
+template<Enum Id>
+inline auto get_plain_default(const Param_spec<Id>& spec) -> double
+{
+    return std::visit(Inline_visitor{
+        [&](const Bool_semantics& b) { return static_cast<double>(b.def_val ? 1 : 0); },
+        [&](const List_semantics& l) { return static_cast<double>(l.def_val); },
+        [&](const Float_semantics& f) { return f.def_val; },
+        [&](const Int_semantics& i) { return static_cast<double>(i.def_val); }
     }, spec.semantics);
 }
 

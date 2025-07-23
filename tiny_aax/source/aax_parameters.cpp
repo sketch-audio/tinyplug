@@ -10,11 +10,11 @@
 #include "AAX_CUnitDisplayDelegateDecorator.h"
 
 #include "aax_adapters.h"
-#include "aax_algorithm.h"
 
 AAX_Result Aax_parameters::EffectInit()
 {
     using namespace tiny;
+    using namespace params;
     const auto tree = Param_model::build_tree();
     _specs = params::flatten_tree(tree);
     params::sort_param_specs_by_id(_specs);
@@ -41,6 +41,9 @@ AAX_Result Aax_parameters::EffectInit()
                 }
                 aax_param->SetNumberOfSteps(2);
                 aax_param->SetType(AAX_eParameterType_Discrete);
+                if (aax_param->Automatable()) {
+                    AddSynchronizedParameter(*aax_param);
+                }
                 mParameterManager.AddParameter(aax_param.release());
             },
             [&](const List_semantics& l) {
@@ -58,6 +61,9 @@ AAX_Result Aax_parameters::EffectInit()
                 }
                 aax_param->SetNumberOfSteps(num_items);
                 aax_param->SetType(AAX_eParameterType_Discrete);
+                if (aax_param->Automatable()) {
+                    AddSynchronizedParameter(*aax_param);
+                }
                 mParameterManager.AddParameter(aax_param.release());
             },
             [&](const Float_semantics& f) {
@@ -78,6 +84,9 @@ AAX_Result Aax_parameters::EffectInit()
                 }
                 aax_param->SetNumberOfSteps(2048); // Is this the most we can have?
                 aax_param->SetType(AAX_eParameterType_Continuous);
+                if (aax_param->Automatable()) {
+                    AddSynchronizedParameter(*aax_param);
+                }
                 mParameterManager.AddParameter(aax_param.release());
             },
             [&](const Int_semantics& i) {
@@ -97,26 +106,33 @@ AAX_Result Aax_parameters::EffectInit()
                 }
                 aax_param->SetNumberOfSteps(i.max_val - i.min_val + 1);
                 aax_param->SetType(AAX_eParameterType_Discrete);
+                if (aax_param->Automatable()) {
+                    AddSynchronizedParameter(*aax_param);
+                }
                 mParameterManager.AddParameter(aax_param.release());
             }
         }, param.semantics);
     }
 
+    auto sample_rate = AAX_CSampleRate{};
+    Controller()->GetSampleRate(&sample_rate);
+    _kernel->reset(sample_rate, 2048); // How to get max frames?
+
     // Pro Tool Bypass
-    const auto bypass_id = AAX_CString{cDefaultMasterBypassID};
-    auto bypass_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<bool>(
-        bypass_id.CString(),
-        AAX_CString{"Bypass (Pro Tools)"},
-        false,
-        AAX_CBinaryTaperDelegate<bool>(),
-        AAX_CBinaryDisplayDelegate<bool>("Bypass", "On"),
-        true
-    ));
-    bypass_param->AddShortenedName("Bypass");
-    bypass_param->SetNumberOfSteps(2);
-    bypass_param->SetType(AAX_eParameterType_Discrete);
-    mParameterManager.AddParameter(bypass_param.release());
-    mPacketDispatcher.RegisterPacket(bypass_id.CString(), AAX_FIELD_INDEX(Aax_context, bypass));
+    // const auto bypass_id = AAX_CString{cDefaultMasterBypassID};
+    // auto bypass_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<bool>(
+    //     bypass_id.CString(),
+    //     AAX_CString{"Bypass (Pro Tools)"},
+    //     false,
+    //     AAX_CBinaryTaperDelegate<bool>(),
+    //     AAX_CBinaryDisplayDelegate<bool>("Bypass", "On"),
+    //     true
+    // ));
+    // bypass_param->AddShortenedName("Bypass");
+    // bypass_param->SetNumberOfSteps(2);
+    // bypass_param->SetType(AAX_eParameterType_Discrete);
+    // mParameterManager.AddParameter(bypass_param.release());
+    // mPacketDispatcher.RegisterPacket(bypass_id.CString(), AAX_FIELD_INDEX(Aax_context, bypass));
 
     return AAX_SUCCESS;
 }

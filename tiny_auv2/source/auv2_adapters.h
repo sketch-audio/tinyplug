@@ -7,10 +7,37 @@
 #include <variant>
 #include <vector>
 
+#include <AudioUnitSDK/AUScopeElement.h>
+
 #include "tinyplug/tinyplug.h"
-#include "user_plug.h"
+#include "user/param_model.h"
 
 namespace tiny::auv2 {
+
+class MyScheduledAUElement : public ausdk::AUElement {
+public:
+    using AUElement::AUElement; // inherit constructors
+
+    void SetScheduledEvent(AudioUnitParameterID paramID,
+                           const AudioUnitParameterEvent& inEvent,
+                           UInt32 /*inSliceOffsetInBuffer*/,
+                           UInt32 /*inSliceDurationFrames*/,
+                           bool okWhenInitialized = false) override
+    {
+        // If you want to differentiate between event types:
+        switch (inEvent.eventType) {
+            case kParameterEvent_Immediate: {
+                // handle immediate
+                SetParameter(paramID, inEvent.eventValues.immediate.value, okWhenInitialized);
+                break;
+            }
+            case kParameterEvent_Ramped: {
+                // handle ramped
+                break;
+            }
+        }
+    }
+};
 
 inline auto cf_to_std(CFStringRef cfStr) -> std::string
 {
@@ -65,7 +92,7 @@ struct Clump {
 using Clump_map = std::unordered_map<uint32_t, Clump>; // Param id : Clump
 
 template <typename Id>
-inline auto build_clump_map(const Param_node<Id>& root) -> Clump_map
+inline auto build_clump_map(const params::Param_node<Id>& root) -> Clump_map
 {
     auto result = Clump_map{};
     auto clump_ids = std::unordered_map<std::string, int32_t>{};
@@ -75,7 +102,7 @@ inline auto build_clump_map(const Param_node<Id>& root) -> Clump_map
         std::visit([&](const auto& item) {
             using T = std::decay_t<decltype(item)>;
 
-            if constexpr (std::is_same_v<T, Param_spec<Id>>) {
+            if constexpr (std::is_same_v<T, params::Param_spec<Id>>) {
                 const auto clump_path = path;
                 const auto clump_id = [&]() {
                     const auto [it, inserted] = clump_ids.try_emplace(clump_path, next_id);
@@ -84,7 +111,7 @@ inline auto build_clump_map(const Param_node<Id>& root) -> Clump_map
                 }();
                 result[utils::to_underlying(item.id)] = {clump_id, clump_path};
             }
-            else if constexpr (std::is_same_v<T, Param_group<Id>>) {
+            else if constexpr (std::is_same_v<T, params::Param_group<Id>>) {
                 const auto new_path = path.empty() ? std::string{item.name} : path + "/" + item.name;
                 for (const auto& child : item.nodes) {
                     self(child, new_path, self);
@@ -98,7 +125,7 @@ inline auto build_clump_map(const Param_node<Id>& root) -> Clump_map
 }
 
 template <typename Id>
-inline auto flatten_tree_ids(const Param_node<Id>& root) -> std::vector<std::underlying_type_t<Id>>
+inline auto flatten_tree_ids(const params::Param_node<Id>& root) -> std::vector<std::underlying_type_t<Id>>
 {
     using Underlying = std::underlying_type_t<Id>;
     auto result = std::vector<Underlying>{};
@@ -106,9 +133,9 @@ inline auto flatten_tree_ids(const Param_node<Id>& root) -> std::vector<std::und
     const auto visit = [&](const auto& node, const auto& self) -> void {
         std::visit([&](const auto& item) {
             using T = std::decay_t<decltype(item)>;
-            if constexpr (std::is_same_v<T, Param_spec<Id>>) {
+            if constexpr (std::is_same_v<T, params::Param_spec<Id>>) {
                 result.push_back(static_cast<Underlying>(item.id));
-            } else if constexpr (std::is_same_v<T, Param_group<Id>>) {
+            } else if constexpr (std::is_same_v<T, params::Param_group<Id>>) {
                 for (const auto& child : item.nodes) {
                     self(child, self);
                 }

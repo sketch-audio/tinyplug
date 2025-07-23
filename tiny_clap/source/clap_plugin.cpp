@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 
 #include "clap/helpers/plugin.hh"
 #include "clap/helpers/plugin.hxx"
@@ -20,8 +21,8 @@ Clap_plugin::Clap_plugin(const clap_host* host) : Super(&descriptor, host)
     params::sort_param_specs_by_id(_specs);
 
     for (const auto& param : _specs) {
-        const auto def_val = params::get_host_default(param);
-        _hostvalues[utils::to_underlying(param.id)] = def_val;
+        const auto idx = utils::to_underlying(param.id);
+        _hostvalues[idx] = params::get_host_default(param);
     }
 }
 
@@ -36,8 +37,9 @@ bool Clap_plugin::init() noexcept
     return true;
 }
 
-bool Clap_plugin::activate(double /*sampleRate*/, uint32_t /*minFrameCount*/, uint32_t /*maxFrameCount*/) noexcept
+bool Clap_plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t maxFrameCount) noexcept
 {
+    _adapter->reset(sampleRate, maxFrameCount);
     return true;
 }
 
@@ -56,31 +58,7 @@ void Clap_plugin::stopProcessing() noexcept
 
 clap_process_status Clap_plugin::process(const clap_process* process) noexcept
 {
-    // Get ready to process the input events.
-    const auto* in_events = process->in_events;
-    const auto event_count = in_events->size(in_events);
-
-    auto event_index = size_t{};
-    const auto* event = event_count > 0 ? in_events->get(in_events, event_index) : nullptr;
-
-    auto go_to_next_event = [&]() {
-        ++event_index;
-        if (event_index >= event_count) {
-            event = nullptr;
-        }
-        else {
-            event = in_events->get(in_events, event_index);
-        }
-    };
-
-    for (size_t i = 0; i < process->frames_count; ++i) {
-        // Process the input events.
-        while (event && event->time == i) {
-            this->handle_event(event);
-            go_to_next_event();
-        }
-    }
-    return CLAP_PROCESS_SLEEP;
+    return _adapter->process(process);
 }
 
 void Clap_plugin::reset() noexcept
@@ -145,6 +123,8 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
     if (paramIndex >= tiny::Param_model::num_params || !info) return false;
 
     using namespace tiny;
+    using namespace params;
+    
     static const auto tree = Param_model::build_tree();
     static const auto flat_map = params::flatten_tree(tree);
     static const auto paths = tiny::clap::flatten_tree_paths(tree);
@@ -370,4 +350,7 @@ auto Clap_plugin::handle_event(const clap_event_header* event) -> void
             break;
         }
     }
+
+    // Send to kernel adapter. (Kernel will need to have its own queue)
+    _adapter->handle_event(event);
 }
