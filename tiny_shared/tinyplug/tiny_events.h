@@ -1,5 +1,6 @@
 #pragma once
 
+#include <limits>
 #include <variant>
 
 namespace tiny {
@@ -18,7 +19,7 @@ struct Ramp_param {
 using Event = std::variant<Set_param, Ramp_param>;
 
 struct Tagged_event {
-    int32_t offset{};
+    int32_t offset{std::numeric_limits<decltype(offset)>::max()}; // Frame offset in current buffer.
     Event event{};
 };
 

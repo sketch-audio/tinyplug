@@ -65,11 +65,7 @@ private:
     std::vector<tiny::Param_model::Spec> _specs{};
     std::array<Automation_point, num_params> _lpoints{};
 
-    struct Tagged_event {
-        int32_t offset{std::numeric_limits<int32_t>::max()};
-        tiny::Event event{};
-    };
-    std::vector<Tagged_event> _events{}; // Some fixed size thing.
+    std::vector<tiny::Tagged_event> _events{}; // Some fixed size thing.
 
     std::unique_ptr<tiny::Dsp_kernel> _kernel = std::make_unique<tiny::Dsp_kernel>();
 

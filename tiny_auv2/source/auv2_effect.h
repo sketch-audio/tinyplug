@@ -75,7 +75,7 @@ public:
         _events.clear(); // Start with no events.
 
         // Push received parameter events
-        auto param_event = Tagged_event{};
+        auto param_event = tiny::Tagged_event{};
         while (_queue.pop(param_event)) {
             check_events_full();
             _events.push_back(param_event);
@@ -242,16 +242,11 @@ private:
     tiny::auv2::Clump_map _clumps{};
     tiny::Param_model::Param_values _uivalues{};
 
-    struct Tagged_event {
-        int32_t offset{std::numeric_limits<int32_t>::max()};
-        tiny::Event event{};
-    };
-
     // SetParameter -> Render
-    lark::Lock_free_queue<Tagged_event, 256, lark::On_full_behavior::overwrite> _queue{}; // TODO: - Use a heuristic.
+    lark::Lock_free_queue<tiny::Tagged_event, 256, lark::On_full_behavior::overwrite> _queue{}; // TODO: - Use a heuristic.
 
     // Render
-    std::vector<Tagged_event> _events{}; // Some fixed size thing.
+    std::vector<tiny::Tagged_event> _events{}; // Some fixed size thing.
 
     std::unique_ptr<tiny::Dsp_kernel> _kernel = std::make_unique<tiny::Dsp_kernel>();
 
