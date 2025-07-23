@@ -284,6 +284,160 @@ OSStatus Auv2_effect::CopyClumpName(AudioUnitScope inScope, UInt32 inClumpID, UI
     return kAudioUnitErr_InvalidPropertyValue;
 }
 
+// MARK: - GetParameter
+
+OSStatus Auv2_effect::GetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue& outValue)
+{
+    return Super::GetParameter(inID, inScope, inElement, outValue);
+}
+
+// MARK: - SetParameter
+
+OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames)
+{
+    const auto& param = _specs[inID];
+
+    _queue.push({
+        .offset = static_cast<int32_t>(inBufferOffsetInFrames),
+        .event = tiny::Set_param{.id = inID, .value = tiny::params::host_to_plain_space(inValue, param)}
+    });
+
+    return Super::SetParameter(inID, inScope, inElement, inValue, inBufferOffsetInFrames);
+}
+
+OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEvent, UInt32 inNumEvents)
+{
+    for (auto i = decltype(inNumEvents){}; i < inNumEvents; ++i) {
+        const auto& event = inParameterEvent[i];
+        const auto& param = _specs[event.parameter];
+
+        switch (event.eventType) {
+            case kParameterEvent_Immediate: {
+                const auto offset = event.eventValues.immediate.bufferOffset;
+                const auto value = event.eventValues.immediate.value;
+                _queue.push({
+                    .offset = static_cast<int32_t>(offset),
+                    .event = tiny::Set_param{
+                        .id = event.parameter,
+                        .value = tiny::params::host_to_plain_space(value, param)
+                    }
+                });
+                Super::SetParameter(event.parameter, event.scope, event.element, value, offset);
+                break;
+            }
+            // Do any hosts even send these?
+            case kParameterEvent_Ramped: {
+                const auto offset = event.eventValues.ramp.startBufferOffset;
+                const auto duration = event.eventValues.ramp.durationInFrames;
+                const auto initial = event.eventValues.ramp.startValue;
+                const auto target = event.eventValues.ramp.endValue;
+                _queue.push({
+                    .offset = offset,
+                    .event = tiny::Set_param{
+                        .id = event.parameter,
+                        .value = initial
+                    }
+                });
+                _queue.push({
+                    .offset = offset,
+                    .event = tiny::Ramp_param{
+                        .id = event.parameter,
+                        .target = target,
+                        .dur_samples = static_cast<int32_t>(duration)
+                    }
+                });
+                Super::SetParameter(event.parameter, event.scope, event.element, target, offset + duration);
+                break;
+            }
+        }
+    }
+    return noErr;
+}
+
+// MARK: - Render
+
+OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTimeStamp& inTimeStamp, UInt32 nFrames)
+{
+    // Pull inputs.
+    for (auto i = decltype(num_inputs){}; i < num_inputs; ++i) {
+        Input(i).PullInput(ioActionFlags, inTimeStamp, i, nFrames);
+    }
+
+    using namespace tiny;
+
+    _events.clear(); // Events are only valid for the current render cycle.
+    auto param_event = Tagged_event{};
+    while (_queue.pop(param_event)) {
+        if (_events.size() == _events.capacity()) {
+            std::cout << "Events vector full!\n";
+        }
+        _events.push_back(param_event);
+    }
+
+    // Sort the events such that Set_params precedes Ramp_params with the same buffer offset.
+    std::ranges::sort(_events, [](const auto& a, const auto& b) {
+        if (a.offset != b.offset) return a.offset < b.offset;
+        return std::holds_alternative<Set_param>(a.event) && std::holds_alternative<Ramp_param>(b.event);
+    });
+
+    const auto event_count = _events.size();
+    size_t event_index = 0;
+    const auto* event = event_count > 0 ? &_events[event_index] : nullptr;
+
+    auto next_event = [&]() {
+        ++event_index;
+        event = (event_index < event_count) ? &_events[event_index] : nullptr;
+    };
+
+    auto do_process = [this](size_t num_frames, size_t offset) {
+        _ibuffers[0] = static_cast<const float*>(Input(0).GetBufferList().mBuffers[0].mData) + offset;
+        _ibuffers[1] = static_cast<const float*>(Input(0).GetBufferList().mBuffers[1].mData) + offset;
+
+        if constexpr (tiny::Plug_info::wants_sidechain) {
+            _ibuffers[2] = static_cast<const float*>(Input(1).GetBufferList().mBuffers[0].mData) + offset;
+            _ibuffers[3] = static_cast<const float*>(Input(1).GetBufferList().mBuffers[1].mData) + offset;
+        }
+
+        _obuffers[0] = static_cast<float*>(Output(0).GetBufferList().mBuffers[0].mData) + offset;
+        _obuffers[1] = static_cast<float*>(Output(0).GetBufferList().mBuffers[1].mData) + offset;
+
+        auto context = Dsp_context{
+            .ibuffers = _ibuffers,
+            .obuffers = _obuffers,
+            .num_frames = num_frames
+        };
+        _kernel->process(context);
+    };
+
+    const auto frame_count = nFrames;
+    auto now = decltype(frame_count){};
+    auto remaining = frame_count;
+
+    while (remaining > 0) {
+        if (!event) {
+            const auto offset = frame_count - remaining;
+            do_process(remaining, offset);
+            break;
+        }
+
+        const auto frames_until_event = std::max({}, event->offset - now);
+
+        if (frames_until_event > 0) {
+            const auto offset = frame_count - remaining;
+            do_process(frames_until_event, offset);
+            remaining -= frames_until_event;
+            now += frames_until_event;
+        }
+
+        do {
+            _kernel->handle_event(event->event);
+            next_event();
+        } while (event && static_cast<uint32_t>(event->offset) <= now);
+    }
+
+    return noErr;
+}
+
 // MARK: - create_view 
 
 void* Auv2_effect::create_view()

@@ -14,31 +14,6 @@
 
 namespace tiny::auv2 {
 
-class MyScheduledAUElement : public ausdk::AUElement {
-public:
-    using AUElement::AUElement; // inherit constructors
-
-    void SetScheduledEvent(AudioUnitParameterID paramID,
-                           const AudioUnitParameterEvent& inEvent,
-                           UInt32 /*inSliceOffsetInBuffer*/,
-                           UInt32 /*inSliceDurationFrames*/,
-                           bool okWhenInitialized = false) override
-    {
-        // If you want to differentiate between event types:
-        switch (inEvent.eventType) {
-            case kParameterEvent_Immediate: {
-                // handle immediate
-                SetParameter(paramID, inEvent.eventValues.immediate.value, okWhenInitialized);
-                break;
-            }
-            case kParameterEvent_Ramped: {
-                // handle ramped
-                break;
-            }
-        }
-    }
-};
-
 inline auto cf_to_std(CFStringRef cfStr) -> std::string
 {
     if (!cfStr) return {};
