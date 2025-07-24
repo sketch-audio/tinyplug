@@ -98,6 +98,8 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
 {
     this->normalize_input_events(data);
 
+    using namespace tiny;
+
     // Now we have the events organized how we want.
     const auto event_count = _events.size();
     auto event_index = size_t{};
@@ -116,20 +118,22 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     // Do the while loop.
     auto do_process = [this, &data](size_t num_frames, size_t offset) {
         // Assign buffer ptrs.
-        _ibuffers[0] = &data.inputs->channelBuffers32[0][offset];
-        _ibuffers[1] = &data.inputs->channelBuffers32[1][offset];
-
-        if constexpr (tiny::Plug_info::wants_sidechain) {
-            _ibuffers[2] = &data.inputs->channelBuffers32[0][offset];
-            _ibuffers[3] = &data.inputs->channelBuffers32[1][offset];
+        for (size_t i = 0; i < num_ichannels; ++i) {
+            _ibuffers[i] = &data.inputs->channelBuffers32[i][offset];
         }
-
-        _obuffers[0] = &data.outputs->channelBuffers32[0][offset];
-        _obuffers[1] = &data.outputs->channelBuffers32[1][offset];
+        for (size_t i = 0; i < num_ochannels; ++i) {
+            _obuffers[i] = &data.outputs->channelBuffers32[i][offset];
+        }
+        if constexpr (Plug_info::wants_sidechain) {
+            for (size_t i = 0; i < num_schannels; ++i) {
+                _sbuffers[i] = &data.inputs->channelBuffers32[i + num_ichannels][offset];
+            }
+        }
 
         // Process kernel.
         auto context = tiny::Dsp_context{
             .ibuffers = _ibuffers,
+            .sbuffers = _sbuffers,
             .obuffers = _obuffers,
             .num_frames = num_frames
         };
@@ -161,6 +165,10 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
             next_event();
         } while (event && event->offset <= now);
     }
+
+    // Now we can send out our exports.
+
+    //
 
     return Steinberg::kResultOk;
 }

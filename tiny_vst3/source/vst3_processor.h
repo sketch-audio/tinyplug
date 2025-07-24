@@ -57,11 +57,13 @@ private:
 
     static constexpr auto num_params = User_params::num_params;
 
-    static constexpr auto num_ichannels = size_t{2 + (tiny::Plug_info::wants_sidechain ? 2 : 0)};
+    static constexpr auto num_ichannels = size_t{2};
+    static constexpr auto num_schannels = size_t{2};
     static constexpr auto num_ochannels = size_t{2};
 
     // Pointers to host io buffers.
     std::array<const float*, num_ichannels> _ibuffers{};
+    std::array<const float*, num_schannels> _sbuffers{};
     std::array<float*, num_ochannels> _obuffers{};
 
     User_params _params{};
