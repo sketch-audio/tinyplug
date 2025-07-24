@@ -65,7 +65,7 @@ private:
     tiny::Param_model::Param_values _uivalues{};
 
     // SetParameter -> Render
-    using Queue = tiny::Lock_free_queue<tiny::Tagged_event, 256, tiny::Concurrency_type::mpsc>;
+    using Queue = tiny::Lock_free_queue<tiny::Tagged_event, 256, tiny::Queue_concurrency::mpsc>;
     Queue _queue{}; // TODO: - Use a heuristic.
 
     // Render

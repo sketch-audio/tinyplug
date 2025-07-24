@@ -115,7 +115,7 @@ private:
     const std::vector<Param_model::Spec>& _specs{};
     std::unique_ptr<Kernel> _kernel = std::make_unique<Kernel>();
 
-    using Queue = tiny::Lock_free_queue<tiny::Event, 256, tiny::Concurrency_type::mpsc>;
+    using Queue = tiny::Lock_free_queue<tiny::Event, 256, tiny::Queue_concurrency::mpsc>;
     Queue _queue{}; // TODO: - Use a heuristic.
 
     // MARK: - private

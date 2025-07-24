@@ -15,15 +15,30 @@
 
 namespace tiny {
 
-enum class Concurrency_type { spsc, spmc, mpsc, mpmc };
+enum class Queue_concurrency { spsc, spmc, mpsc, mpmc };
 
-template <typename T, size_t num_slots, Concurrency_type type>
-class Lock_free_queue {};
+template <typename T, size_t min_slots, Queue_concurrency type>
+struct Lock_free_queue {};
+
+namespace queue_impl {
+
+constexpr auto pow2_at_least(size_t n) -> size_t
+{
+    auto result = size_t{1};
+    while (result < n) {
+        result *= 2;
+    }
+    return result;
+}
+static_assert(pow2_at_least(100) == 128);
+static_assert(pow2_at_least(128) == 128);
+
+}
 
 // MARK: - spsc
 
-template <typename T, size_t num_slots>
-struct Lock_free_queue<T, num_slots, Concurrency_type::spsc> {
+template <typename T, size_t min_slots>
+struct Lock_free_queue<T, min_slots, Queue_concurrency::spsc> {
 
     auto push(const T& value) -> bool
     {
@@ -57,17 +72,18 @@ struct Lock_free_queue<T, num_slots, Concurrency_type::spsc> {
 
 private:
 
+    static constexpr auto num_slots = queue_impl::pow2_at_least(min_slots);
+    static constexpr auto GET_INDEX_MASK = num_slots - 1;
+
     std::array<T, num_slots> _storage{};
     std::atomic<uint32_t> _rpos{};
     std::atomic<uint32_t> _wpos{};
 
-    static constexpr auto GET_INDEX_MASK = size_t{num_slots - 1};
-    static_assert((num_slots & GET_INDEX_MASK) == 0, "Size must be a power of two.");
 };
 
-// MARK: - impl
+// MARK: - thread registry
 
-namespace impl {
+namespace queue_impl {
 
 static constexpr auto queue_max_threads = size_t{64};
 
@@ -88,7 +104,7 @@ struct Thread_registry {
         const auto own_id = std::this_thread::get_id();
         const auto num = num_threads.load(std::memory_order_relaxed);
 
-        for (int i = 0; i < num; ++i) {
+        for (auto i = decltype(num){}; i < num; ++i) {
             if (own_id == infos[i].identifier.load(std::memory_order_relaxed)) {
                 return infos[i].pos;
             }
@@ -115,7 +131,7 @@ struct Thread_registry {
 
         auto least = own;
 
-        for (int i = 0; i < num; ++i) {
+        for (auto i = decltype(num){}; i < num; ++i) {
             least = std::min(least, infos[i].pos.load(std::memory_order_acquire));
         }
 
@@ -123,12 +139,12 @@ struct Thread_registry {
     }
 };
 
-} // namespace impl
+} // namespace queue_impl
 
 // MARK: - spmc
 
-template <typename T, size_t num_slots>
-struct Lock_free_queue<T, num_slots, Concurrency_type::spmc> {
+template <typename T, size_t min_slots>
+struct Lock_free_queue<T, min_slots, Queue_concurrency::spmc> {
 
     auto push(const T& value) -> bool
     {
@@ -186,20 +202,21 @@ struct Lock_free_queue<T, num_slots, Concurrency_type::spmc> {
 
 private:
 
+    static constexpr auto num_slots = queue_impl::pow2_at_least(min_slots);
+    static constexpr auto GET_INDEX_MASK = num_slots - 1;
+
     std::array<T, num_slots> _storage{};
     std::atomic<uint32_t> _rpos{};
     std::atomic<uint32_t> _wpos{};
 
-    impl::Thread_registry<impl::queue_max_threads> reader_infos{};
+    queue_impl::Thread_registry<> reader_infos{};
 
-    static constexpr size_t GET_INDEX_MASK = num_slots - 1;
-    static_assert((num_slots & GET_INDEX_MASK) == 0, "Size must be a power of two.");
 };
 
 // MARK: - mpsc
 
-template <typename T, size_t num_slots>
-struct Lock_free_queue<T, num_slots, Concurrency_type::mpsc> {
+template <typename T, size_t min_slots>
+struct Lock_free_queue<T, min_slots, Queue_concurrency::mpsc> {
 
     auto push(const T& value) -> bool
     {
@@ -255,20 +272,21 @@ struct Lock_free_queue<T, num_slots, Concurrency_type::mpsc> {
 
 private:
 
+    static constexpr auto num_slots = queue_impl::pow2_at_least(min_slots);
+    static constexpr auto GET_INDEX_MASK = num_slots - 1;
+
     std::array<T, num_slots> _storage{};
     std::atomic<uint32_t> _rpos{};
     std::atomic<uint32_t> _wpos{};
 
-    impl::Thread_registry<impl::queue_max_threads> writer_infos{};
+    queue_impl::Thread_registry<> writer_infos{};
 
-    static constexpr size_t GET_INDEX_MASK = num_slots - 1;
-    static_assert((num_slots & GET_INDEX_MASK) == 0, "Size must be a power of two.");
 };
 
 // MARK: - mpmc
 
-template <typename T, size_t num_slots>
-struct Lock_free_queue<T, num_slots, Concurrency_type::mpmc> {
+template <typename T, size_t min_slots>
+struct Lock_free_queue<T, min_slots, Queue_concurrency::mpmc> {
 
     auto push(const T& value) -> bool
     {
@@ -345,15 +363,16 @@ struct Lock_free_queue<T, num_slots, Concurrency_type::mpmc> {
 
 private:
 
+    static constexpr auto num_slots = queue_impl::pow2_at_least(min_slots);
+    static constexpr auto GET_INDEX_MASK = num_slots - 1;
+
     std::array<T, num_slots> _storage{};
     std::atomic<uint32_t> _rpos{};
     std::atomic<uint32_t> _wpos{};
 
-    impl::Thread_registry<impl::queue_max_threads> reader_infos{};
-    impl::Thread_registry<impl::queue_max_threads> writer_infos{};
+    queue_impl::Thread_registry<> reader_infos{};
+    queue_impl::Thread_registry<> writer_infos{};
 
-    static constexpr size_t GET_INDEX_MASK = num_slots - 1;
-    static_assert((num_slots & GET_INDEX_MASK) == 0, "Size must be a power of two.");
 };
 
 } // namespace tiny
