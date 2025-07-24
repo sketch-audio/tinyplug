@@ -115,7 +115,8 @@ private:
     const std::vector<Param_model::Spec>& _specs{};
     std::unique_ptr<Kernel> _kernel = std::make_unique<Kernel>();
 
-    lark::Lock_free_queue<tiny::Event, 256, lark::On_full_behavior::overwrite> _queue{}; // TODO: - Use a heuristic.
+    using Queue = tiny::Lock_free_queue<tiny::Event, 256, tiny::Concurrency_type::mpsc>;
+    Queue _queue{}; // TODO: - Use a heuristic.
 
     // MARK: - private
 

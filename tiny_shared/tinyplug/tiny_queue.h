@@ -1,74 +1,359 @@
-#ifndef lock_free_queue_h
-#define lock_free_queue_h
-
-#include <assert.h>
+#pragma once
 
 #include <array>
 #include <atomic>
+#include <cassert>
+#include <cstddef>
+#include <limits>
+#include <thread>
+#include <utility>
 
-namespace lark {
+// This is a detemplated version of the farbot queue, but only implements return false on full/empty.
+// Original code: https://github.com/hogliux/farbot
+// Algorithm here: https://natsys-lab.blogspot.com/2013/05/lock-free-multi-producer-multi-consumer.html?m=1
+// See also: https://www.youtube.com/watch?v=PoZAo2Vikbo
 
-/// @brief Queue on full behavior options.
-enum class On_full_behavior { report, overwrite };
+namespace tiny {
 
-/// This is basically the boost queue.
-template <typename T, size_t MIN_SIZE, On_full_behavior Behavior>
-struct Lock_free_queue {
+enum class Concurrency_type { spsc, spmc, mpsc, mpmc };
 
-    auto push(T&& value) -> bool 
+template <typename T, size_t num_slots, Concurrency_type type>
+class Lock_free_queue {};
+
+// MARK: - spsc
+
+template <typename T, size_t num_slots>
+struct Lock_free_queue<T, num_slots, Concurrency_type::spsc> {
+
+    auto push(const T& value) -> bool
     {
-        const auto curr = writePos.load(std::memory_order_relaxed);
-        const auto next = curr + 1;
+        const auto pos = _wpos.load(std::memory_order_relaxed);
 
-        if constexpr (Behavior == On_full_behavior::report) {
-            if (curr >= readPos.load(std::memory_order_acquire) + N) {
-                return false;
-            }
+        if (pos >= _rpos.load(std::memory_order_acquire) + num_slots) {
+            return false;
         }
 
-        storage[curr & INDEX_MASK] = std::move(value);
+        _storage[pos & GET_INDEX_MASK] = std::move(value);
 
-        writePos.store(next, std::memory_order_release);
+        _wpos.store(pos + 1, std::memory_order_release);
 
         return true;
     }
 
-    auto pop(T& output) -> bool 
+    auto pop(T& output) -> bool
     {
-        const auto curr = readPos.load(std::memory_order_relaxed);
-        const auto next = curr + 1;
+        const auto pos = _rpos.load(std::memory_order_relaxed);
 
-        if (curr >= writePos.load(std::memory_order_acquire)) {
+        if (pos >= _wpos.load(std::memory_order_acquire)) {
             return false;
         }
 
-        output = std::move(storage[curr & INDEX_MASK]);
+        output = std::move(_storage[pos & GET_INDEX_MASK]);
 
-        readPos.store(next, std::memory_order_release);
+        _rpos.store(pos + 1, std::memory_order_release);
 
         return true;
     }
 
 private:
-    
-    static constexpr auto pow2_at_least(size_t x) {
-        auto result = size_t{1};
-        while (result < x) {
-            result *= 2;
-        }
-        return result;
-    }
-    
-    static constexpr auto N = pow2_at_least(MIN_SIZE);
-    static constexpr auto INDEX_MASK = N - 1;
 
-    std::atomic<size_t> readPos{};
-    std::atomic<size_t> writePos{};
+    std::array<T, num_slots> _storage{};
+    std::atomic<uint32_t> _rpos{};
+    std::atomic<uint32_t> _wpos{};
 
-    std::array<T, N> storage{};
-    
+    static constexpr auto GET_INDEX_MASK = size_t{num_slots - 1};
+    static_assert((num_slots & GET_INDEX_MASK) == 0, "Size must be a power of two.");
 };
 
-}
+// MARK: - impl
 
-#endif /* lock_free_queue_h */
+namespace impl {
+
+static constexpr auto queue_max_threads = size_t{64};
+
+struct Thread_info {
+    std::atomic<std::thread::id> identifier{};
+    std::atomic<uint32_t> pos{std::numeric_limits<uint32_t>::max()};
+    static_assert(std::atomic<std::thread::id>::is_always_lock_free);
+};
+
+template<size_t max_threads = queue_max_threads>
+struct Thread_registry {
+    std::atomic<uint32_t> num_threads{};
+    std::array<Thread_info, max_threads> infos{};
+
+    /// Get this thread's temporary position variable or add ourselves to the registry.
+    auto get_own_position() -> std::atomic<uint32_t>&
+    {
+        const auto own_id = std::this_thread::get_id();
+        const auto num = num_threads.load(std::memory_order_relaxed);
+
+        for (int i = 0; i < num; ++i) {
+            if (own_id == infos[i].identifier.load(std::memory_order_relaxed)) {
+                return infos[i].pos;
+            }
+        }
+
+        auto own_slot = num_threads.fetch_add(1, std::memory_order_relaxed);
+
+        if (own_slot >= num_threads) {
+            assert(false);
+            own_slot = 0; // Something is wrong!
+        }
+
+        infos[own_slot].identifier.store(own_id, std::memory_order_relaxed);
+
+        return infos[own_slot].pos;
+    }
+
+    /// Get the least position in the registry starting with `own`.
+    auto get_least_position(uint32_t own) -> uint32_t
+    {
+        // Note that if a new thread gets added to the registry, its position
+        // will necessarily be larger than what this function returns anyway.
+        const auto num = num_threads.load(std::memory_order_relaxed);
+
+        auto least = own;
+
+        for (int i = 0; i < num; ++i) {
+            least = std::min(least, infos[i].pos.load(std::memory_order_acquire));
+        }
+
+        return least;
+    }
+};
+
+} // namespace impl
+
+// MARK: - spmc
+
+template <typename T, size_t num_slots>
+struct Lock_free_queue<T, num_slots, Concurrency_type::spmc> {
+
+    auto push(const T& value) -> bool
+    {
+        const auto pos = _wpos.load(std::memory_order_relaxed);
+
+        // Make sure there aren't any readers in "scope" reading where we want to write.
+        const auto least_rpos = reader_infos.get_least_position(_rpos.load(std::memory_order_acquire));
+        if (pos >= least_rpos + num_slots) {
+            return false;
+        }
+
+        _storage[pos & GET_INDEX_MASK] = std::move(value);
+
+        _wpos.store(pos + 1, std::memory_order_release);
+
+        return true;
+    }
+
+    // writer? single? overwrite?
+
+    auto pop(T& output) -> bool
+    {
+        auto& temp = reader_infos.get_own_position();
+        auto pos = _rpos.load(std::memory_order_relaxed);
+
+        // Return if empty at this moment.
+        if (pos >= _wpos.load(std::memory_order_acquire)) {
+            return false;
+        }
+
+        // Attempt to pop. Enter "scope" with a "low enough" position.
+        temp.store(pos, std::memory_order_release);
+
+        // Possibly avoid loop with this if.
+        if (!_rpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
+            do {
+                // Possible someone else popped the last element.
+                if (pos >= _wpos.load(std::memory_order_acquire)) {
+                    temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_relaxed);
+                    return false;
+                }
+            } while (!_rpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed));
+
+            // Got our position.
+            temp.store(pos, std::memory_order_release);
+        }
+
+        output = std::move(_storage[pos & GET_INDEX_MASK]);
+
+        // Exit "scope" now that we're done reading.
+        temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_release);
+
+        return true;
+    }
+
+private:
+
+    std::array<T, num_slots> _storage{};
+    std::atomic<uint32_t> _rpos{};
+    std::atomic<uint32_t> _wpos{};
+
+    impl::Thread_registry<impl::queue_max_threads> reader_infos{};
+
+    static constexpr size_t GET_INDEX_MASK = num_slots - 1;
+    static_assert((num_slots & GET_INDEX_MASK) == 0, "Size must be a power of two.");
+};
+
+// MARK: - mpsc
+
+template <typename T, size_t num_slots>
+struct Lock_free_queue<T, num_slots, Concurrency_type::mpsc> {
+
+    auto push(const T& value) -> bool
+    {
+        auto& temp = writer_infos.get_own_position();
+        auto pos = _wpos.load(std::memory_order_relaxed);
+
+        // Return if full at this moment.
+        if (pos >= _rpos.load(std::memory_order_acquire) + num_slots) {
+            return false;
+        }
+
+        // Attempt to push. Enter "scope" with a "low enough" position.
+        temp.store(pos, std::memory_order_release);
+
+        // Possibly avoid loop with this if.
+        if (!_wpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
+            do {
+                // Possible someone else pushed and filled the queue.
+                if (pos >= _rpos.load(std::memory_order_acquire) + num_slots) {
+                    temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_relaxed);
+                    return false;
+                }
+            } while (!_wpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed));
+
+            // Got our position.
+            temp.store(pos, std::memory_order_release);
+        }
+
+        _storage[pos & GET_INDEX_MASK] = std::move(value);
+
+        // Exit "scope" now that we're done writing.
+        temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_release);
+
+        return true;
+    }
+
+    auto pop(T& output) -> bool
+    {
+        auto pos = _rpos.load(std::memory_order_relaxed);
+
+        // Maker sure we're not going to pop from a position that is being written.
+        const auto least_wpos = writer_infos.get_least_position(_wpos.load(std::memory_order_acquire));
+        if (pos >= least_wpos) {
+            return false;
+        }
+
+        output = std::move(_storage[pos & GET_INDEX_MASK]);
+
+        _rpos.store(pos + 1, std::memory_order_release);
+
+        return true;
+    }
+
+private:
+
+    std::array<T, num_slots> _storage{};
+    std::atomic<uint32_t> _rpos{};
+    std::atomic<uint32_t> _wpos{};
+
+    impl::Thread_registry<impl::queue_max_threads> writer_infos{};
+
+    static constexpr size_t GET_INDEX_MASK = num_slots - 1;
+    static_assert((num_slots & GET_INDEX_MASK) == 0, "Size must be a power of two.");
+};
+
+// MARK: - mpmc
+
+template <typename T, size_t num_slots>
+struct Lock_free_queue<T, num_slots, Concurrency_type::mpmc> {
+
+    auto push(const T& value) -> bool
+    {
+        auto& temp = writer_infos.get_own_position();
+        auto pos = _wpos.load(std::memory_order_relaxed);
+
+        // Make sure there aren't any readers in "scope" reading where we want to write.
+        const auto least_rpos = reader_infos.get_least_position(_rpos.load(std::memory_order_acquire));
+        if (pos >= least_rpos + num_slots) {
+            return false;
+        }
+
+        // Attempt to push. Enter "scope" with a "low enough" position.
+        temp.store(pos, std::memory_order_release);
+
+        // Possibly avoid loop with this if.
+        if (!_wpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
+            do {
+                // Possible someone else pushed and filled the queue.
+                if (pos >= least_rpos + num_slots) {
+                    temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_relaxed);
+                    return false;
+                }
+            } while (!_wpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed));
+
+            // Got our position.
+            temp.store(pos, std::memory_order_release);
+        }
+
+        _storage[pos & GET_INDEX_MASK] = std::move(value);
+
+        // Exit "scope" now that we're done writing.
+        temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_release);
+
+        return true;
+    }
+
+    auto pop(T& output) -> bool
+    {
+        auto& temp = reader_infos.get_own_position();
+        auto pos = _rpos.load(std::memory_order_relaxed);
+
+        // Return if empty at this moment.
+        const auto least_wpos = writer_infos.get_least_position(_wpos.load(std::memory_order_acquire));
+        if (pos >= least_wpos) {
+            return false;
+        }
+
+        // Attempt to pop. Enter "scope" with a "low enough" position.
+        temp.store(pos, std::memory_order_release);
+
+        // Possibly avoid loop with this if.
+        if (!_rpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
+            do {
+                // Possible someone else popped the last element.
+                //auto least_wpos = writer_infos.get_least_position(_wpos.load(std::memory_order_acquire));
+                if (pos >= least_wpos) {
+                    temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_relaxed);
+                    return false;
+                }
+            } while (!_rpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed));
+
+            // Got our position.
+            temp.store(pos, std::memory_order_release);
+        }
+
+        output = std::move(_storage[pos & GET_INDEX_MASK]);
+
+        // Exit "scope" now that we're done reading.
+        temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_release);
+
+        return true;
+    }
+
+private:
+
+    std::array<T, num_slots> _storage{};
+    std::atomic<uint32_t> _rpos{};
+    std::atomic<uint32_t> _wpos{};
+
+    impl::Thread_registry<impl::queue_max_threads> reader_infos{};
+    impl::Thread_registry<impl::queue_max_threads> writer_infos{};
+
+    static constexpr size_t GET_INDEX_MASK = num_slots - 1;
+    static_assert((num_slots & GET_INDEX_MASK) == 0, "Size must be a power of two.");
+};
+
+} // namespace tiny

@@ -65,7 +65,8 @@ private:
     tiny::Param_model::Param_values _uivalues{};
 
     // SetParameter -> Render
-    lark::Lock_free_queue<tiny::Tagged_event, 256, lark::On_full_behavior::overwrite> _queue{}; // TODO: - Use a heuristic.
+    using Queue = tiny::Lock_free_queue<tiny::Tagged_event, 256, tiny::Concurrency_type::mpsc>;
+    Queue _queue{}; // TODO: - Use a heuristic.
 
     // Render
     std::vector<tiny::Tagged_event> _events{}; // Some fixed size thing.
