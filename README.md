@@ -28,6 +28,9 @@
     - See: https://www.stroustrup.com/Programming/PPP-style.pdf
 
 ## Todo
+- Host context
+- Use sidechain field in `Dsp_context`
+- Exports
 - Add AUv3 format for iOS and macOS
 - Add Linux support for CLAP, VST3
 - Add LV2 format for Linux
