@@ -16,14 +16,9 @@
 Clap_plugin::Clap_plugin(const clap_host* host) : Super(&descriptor, host)
 {
     using namespace tiny;
-    const auto tree = Param_model::build_tree();
-    _specs = flatten_tree(tree);
-    sort_param_specs_by_id(_specs);
 
-    for (const auto& param : _specs) {
-        const auto idx = to_underlying(param.id);
-        _hostvalues[idx] = get_host_default(param);
-    }
+    const auto& tree = _params.get_tree();
+    _modules = tiny::clap::tree_to_clap_modules(tree);
 }
 
 Clap_plugin::~Clap_plugin()
@@ -114,24 +109,22 @@ bool Clap_plugin::audioPortsInfo(uint32_t index, bool isInput, clap_audio_port_i
 
 uint32_t Clap_plugin::paramsCount() const noexcept
 {
-    return tiny::Param_model::num_params;
+    return User_params::num_params;
 }
 
 bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexcept
 {
     // The index is the order of appearance in the UI, and isn't necessarily the same as the id.
-    if (paramIndex >= tiny::Param_model::num_params || !info) return false;
+    if (paramIndex >= User_params::num_params || !info) return false;
 
     using namespace tiny;
     
-    static const auto tree = Param_model::build_tree();
-    static const auto flat_map = flatten_tree(tree);
-    static const auto paths = tiny::clap::flatten_tree_paths(tree);
+    const auto& params = _params.get_presentation_specs(); // Report params in presentation order!
 
-    const auto& param = flat_map[paramIndex];
-    const auto& path = paths[paramIndex];
+    const auto& param = params[paramIndex];
+    const auto& path = _modules[paramIndex];
 
-    auto resolve_flags = [](const Param_model::Spec& param) {
+    auto resolve_flags = [](const User_params::Spec& param) {
         auto result = clap_param_info_flags{};
         
         if (param.hidden) {
@@ -152,49 +145,52 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
     std::strncpy(info->module, path.c_str(), CLAP_NAME_SIZE);
 
     // Set min, max, default based on semantics.
-    std::visit(Inline_visitor{
-        [&](const Bool_semantics& b) {
-            info->flags |= CLAP_PARAM_IS_STEPPED;
-            info->min_value = 0;
-            info->max_value = 1;
-            info->default_value = b.def_val ? 1 : 0;
-        },
-        [&](const List_semantics& l) {
-            info->flags |= (CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_ENUM);
-            info->min_value = 0;
-            info->max_value = l.labels.size() - 1;
-            info->default_value = static_cast<double>(l.def_val);
-        },
-        [&](const Float_semantics& f) {
-            info->min_value = 0;
-            info->max_value = 1;
-            info->default_value = f.knob_adapter.plain_to_norm(f, f.def_val);
-        },
-        [&](const Int_semantics& i) {
-            info->flags |= CLAP_PARAM_IS_STEPPED;
-            info->min_value = i.min_val;
-            info->max_value = i.max_val;
-            info->default_value = i.def_val;
+    std::visit(
+        Inline_visitor{
+            [&](const Bool_semantics& b) {
+                info->flags |= CLAP_PARAM_IS_STEPPED;
+                info->min_value = 0;
+                info->max_value = 1;
+                info->default_value = b.def_val ? 1 : 0;
+            },
+            [&](const List_semantics& l) {
+                info->flags |= (CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_ENUM);
+                info->min_value = 0;
+                info->max_value = l.labels.size() - 1;
+                info->default_value = static_cast<double>(l.def_val);
+            },
+            [&](const Float_semantics& f) {
+                info->min_value = 0;
+                info->max_value = 1;
+                info->default_value = f.knob_adapter.plain_to_norm(f, f.def_val);
+            },
+            [&](const Int_semantics& i) {
+                info->flags |= CLAP_PARAM_IS_STEPPED;
+                info->min_value = i.min_val;
+                info->max_value = i.max_val;
+                info->default_value = i.def_val;
+            }
         }
-    }, param.semantics);
+    , param.semantics);
 
     return true;
 }
 
 bool Clap_plugin::paramsValue(clap_id paramId, double* value) noexcept
 {
-    if (paramId > tiny::Param_model::num_params || !value) return false;
-    *value = _hostvalues[paramId];
+    if (paramId > User_params::num_params || !value) return false;
+    *value = _adapter->get_host_value(paramId);
     return true;
 }
 
 bool Clap_plugin::paramsValueToText(clap_id paramId, double value, char* display, uint32_t size) noexcept
 {
-    if (paramId >= tiny::Param_model::num_params || !display) return false;
+    if (paramId >= User_params::num_params || !display) return false;
 
     using namespace tiny;
-    const auto& param = _specs[paramId];
-    const auto str = Param_model::format_string(value, param, _hostvalues);
+    const auto& params = _params.get_kernel_specs();
+    const auto& param = params[paramId];
+    const auto str = Host_formatter::format_string(value, param.semantics);
     std::strncpy(display, str.c_str(), size);
     display[size - 1] = '\0'; // In case str is longer than display.
 
@@ -203,13 +199,14 @@ bool Clap_plugin::paramsValueToText(clap_id paramId, double value, char* display
 
 bool Clap_plugin::paramsTextToValue(clap_id paramId, const char* display, double* value) noexcept
 {
-    if (paramId >= tiny::Param_model::num_params || !display || !value) return false;
+    if (paramId >= User_params::num_params || !display || !value) return false;
 
     using namespace tiny;
-    const auto& param = _specs[paramId];
+    const auto& params = _params.get_kernel_specs();
+    const auto& param = params[paramId];
     const auto str = std::string{display};
 
-    if (const auto plain = Param_model::format_value(str, param)) {
+    if (const auto plain = Host_formatter::format_value(str, param.semantics)) {
         *value = plain_to_host_space(*plain, param);
         return true;
     }
@@ -338,18 +335,6 @@ bool Clap_plugin::guiSetTransient(const clap_window* /*window*/) noexcept
 
 auto Clap_plugin::handle_event(const clap_event_header* event) -> void
 {
-    if (event->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
-
-    switch (event->type) {
-        case CLAP_EVENT_PARAM_VALUE: {
-            const auto* value_event = reinterpret_cast<const clap_event_param_value*>(event);
-            const auto id = value_event->param_id;
-            const auto value = value_event->value;
-            _hostvalues[id] = value;
-            break;
-        }
-    }
-
     // Send to kernel adapter. (Kernel will need to have its own queue)
     _adapter->handle_event(event);
 }

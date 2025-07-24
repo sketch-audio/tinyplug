@@ -1,10 +1,5 @@
 #pragma once
 
-#include <array>
-#include <format>
-#include <optional>
-#include <span>
-
 #include "tinyplug/tinyplug.h"
 
 namespace tiny {
@@ -12,74 +7,54 @@ namespace tiny {
 struct Param_model {
     // These will be used as the indices into an array!
     enum class Param_id : uint32_t {
-        bypass = 0,
-        drive,
-        out_gain,
-        curve,
-        wet,
-        filter_cutoff,
-        pitch_offset,
-        lin_gain,
-        num_params // Don't delete this one!
+        enabled = 0,
+        gain,
+        cutoff,
+        type,
+        offset,
+        num_params
     };
 
-    // An idea.
+    // These will be used as the indices into an array!
     enum class Export_id : uint32_t {
-        clip_in = 0,
-        clip_out,
+        peak_in = 0,
+        peak_out,
         num_exports
     };
 
-    // The number of params.
-    static constexpr auto num_params = size_t{to_underlying(Param_id::num_params)};
-
-    using Spec = Param_spec<Param_id>;
-
+    // Declare your parameter info here.
     static auto build_tree() -> Param_node<Param_id>
     {
         using Group = Param_group<Param_id>;
-        const auto tree = Group{
+        using Spec = Param_spec<Param_id>;
+        
+        return Group{
             .nodes = {
+                Spec{
+                    .id = Param_id::enabled,
+                    .name = "Enabled",
+                    .semantics = Bool_semantics{
+                        .def_val = true,
+                        .knob_adapter = Knob_adapters::make_bool()
+                    }
+                },
+                Spec{
+                    .id = Param_id::gain,
+                    .name = "Gain",
+                    .semantics = Float_semantics{
+                        .min_val = 0,
+                        .def_val = 1,
+                        .max_val = 1,
+                        .units = Units::generic,
+                        .knob_adapter = Knob_adapters::make_power(3)
+                    }
+                },
                 Group{
-                    .name = "Clipper",
+                    .name = "Advanced",
                     .nodes = {
                         Spec{
-                            .id = Param_id::drive,
-                            .name = "Clipper Drive",
-                            .short_name = "Drive",
-                            .semantics = Float_semantics{
-                                .min_val = 0,
-                                .def_val = 0,
-                                .max_val = 36,
-                                .units = Units::decibels,
-                                .knob_adapter = Knob_adapters::make_piecewise({{.plain = 6, .norm = 0.5f}})
-                            }
-                        },
-                        Spec{
-                            .id = Param_id::out_gain,
-                            .name = "Clipper Out Gain",
-                            .short_name = "Out",
-                            .semantics = Float_semantics{
-                                .min_val = -18,
-                                .def_val = 0,
-                                .max_val = 18,
-                                .units = Units::decibels,
-                                .knob_adapter = Knob_adapters::make_linear()
-                            }
-                        },
-                        Spec{
-                            .id = Param_id::curve,
-                            .name = "Clipper Curve",
-                            .short_name = "Curve",
-                            .semantics = List_semantics{
-                                .labels = {"Juicy", "Tight", "Hardest"},
-                                .knob_adapter = Knob_adapters::make_list()
-                            }
-                        },
-                        Spec{
-                            .id = Param_id::filter_cutoff,
-                            .name = "Filter Cutoff",
-                            .short_name = "Cutoff",
+                            .id = Param_id::cutoff,
+                            .name = "Cutoff",
                             .semantics = Float_semantics{
                                 .min_val = 20,
                                 .def_val = 1000,
@@ -89,9 +64,17 @@ struct Param_model {
                             }
                         },
                         Spec{
-                            .id = Param_id::pitch_offset,
-                            .name = "Pitch Offset",
-                            .short_name = "Offset",
+                            .id = Param_id::type,
+                            .name = "Type",
+                            .semantics = List_semantics{
+                                .labels = {"One", "Two", "Three"},
+                                .def_val = 0,
+                                .knob_adapter = Knob_adapters::make_list()
+                            }
+                        },
+                        Spec{
+                            .id = Param_id::offset,
+                            .name = "Offset",
                             .semantics = Int_semantics{
                                 .min_val = -12,
                                 .def_val = 0,
@@ -100,122 +83,12 @@ struct Param_model {
                                 .knob_adapter = Knob_adapters::make_discrete()
                             }
                         },
-                        Spec{
-                            .id = Param_id::lin_gain,
-                            .name = "Linear gain",
-                            .short_name = "Lin. gain",
-                            .semantics = Float_semantics{
-                                .min_val = 0,
-                                .def_val = 1,
-                                .max_val = 1,
-                                .units = Units::generic,
-                                .knob_adapter = Knob_adapters::make_power(3)
-                            }
-                        }
-                    }
-                },
-                Spec{
-                    .id = Param_id::bypass,
-                    .name = "Global Enabled",
-                    .short_name = "Enabled",
-                    .semantics = Bool_semantics{
-                        .def_val = true,
-                        .knob_adapter = Knob_adapters::make_bool()
-                    },
-                },
-                Spec{
-                    .id = Param_id::wet,
-                    .name = "Global Mix",
-                    .short_name = "Mix",
-                    .semantics = Float_semantics{
-                        .min_val = 0,
-                        .def_val = 100,
-                        .max_val = 100,
-                        .units = Units::percent,
-                        .knob_adapter = Knob_adapters::make_linear()
                     }
                 }
             }
         };
-
-        return std::move(tree);
-    }
-
-    using Param_values = std::array<float, num_params>;
-
-    // 
-    static auto format_string(double host_value, const Spec& param, const Param_values& /*context*/, bool include_units = true) -> std::string
-    {
-        return std::visit(Inline_visitor{
-            [&](const Bool_semantics&) { return host_value > 0.5f ? std::string{"True"} : std::string{"False"}; },
-            [&](const List_semantics& l) {
-                const auto idx = static_cast<size_t>(host_value);
-                return std::string{l.labels[idx]};
-            },
-            [&](const Float_semantics& f) {
-                using enum Units;
-                const auto value = f.knob_adapter.norm_to_plain(f, host_value);
-                switch (f.units) {
-                    case generic:
-                        return std::format("{:.{}f}", value, 2);
-                    case percent: {
-                        const auto suffix = std::string{include_units ? " %" : ""};
-                        return std::format("{:.{}f}", value, 0) + suffix;
-                    }
-                    case decibels: {
-                        const auto prefix = std::string{value >= 0 ? "+" : ""};
-                        const auto suffix = std::string{include_units ? " dB" : ""};
-                        return prefix + std::format("{:.{}f}", value, 1) + suffix;
-                    }
-                    case hertz: {
-                        // If the host doesn't want us to include units, we should just send back the plain value in Hertz.
-                        if (value > 1000 && include_units) {
-                            const auto suffix = std::string{include_units ? " kHz" : ""};
-                            return std::format("{:.{}f}", value / 1000, 1) + suffix;
-                        }
-                        else {
-                            const auto suffix = std::string{include_units ? " Hz" : ""};
-                            return std::format("{:.{}f}", value, 0) + suffix;
-                        }
-                    }
-                    default:
-                        return std::string{};
-                }
-            },
-            [&](const Int_semantics&) {
-                return std::format("{:.0f}", host_value);
-            }
-        }, param.semantics);
-    }
-
-    
-    static auto format_value(const std::string& string, const Spec& /*param*/) -> std::optional<double>
-    {
-        char* end = nullptr;
-        errno = 0;
-        const auto result = std::strtod(string.c_str(), &end);
-
-        // Check for conversion success
-        if (end != string.c_str() && *end == '\0' && errno == 0) {
-            return result;
-        }
-
-        return std::nullopt;
     }
 };
-static_assert(tiny::Is_param_model<Param_model>);
-
-struct Values {
-    static auto get(const Param_model::Param_values& values, Param_model::Param_id id) -> double
-    {
-        const auto idx = to_underlying(id);
-        return values[idx];
-    }
-
-    static auto set(Param_model::Param_values& values, size_t idx, double value) -> void
-    {
-        values[idx] = value;
-    }
-};
+static_assert(Some_param_model<Param_model>);
 
 } // namespace tiny

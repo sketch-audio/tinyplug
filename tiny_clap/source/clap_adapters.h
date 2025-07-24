@@ -15,7 +15,13 @@ namespace tiny::clap {
 template<Some_dsp_kernel Kernel>
 struct Kernel_adapter {
 
-    Kernel_adapter(const std::vector<Param_model::Spec>& specs) : _specs {specs} {}
+    Kernel_adapter() {
+        // Initialize host defaults
+        for (const auto& param : _params.get_kernel_specs()) {
+            const auto idx = to_underlying(param.id);
+            _hostvalues[idx] = get_host_default(param);
+        }
+    }
 
     auto reset(double sample_rate, size_t max_frames) -> void
     {
@@ -24,7 +30,12 @@ struct Kernel_adapter {
 
     auto handle_event(const clap_event_header* event) -> void
     {
-        _handle_event<false>(event);
+        _handle_event<false>(event); // Not audio thread
+    }
+
+    auto get_host_value(clap_id paramId) -> double 
+    {
+        return _hostvalues[paramId];
     }
 
     auto process(const clap_process* process) -> clap_process_status
@@ -112,7 +123,12 @@ private:
     std::array<const float*, num_ichannels> _ibuffers{};
     std::array<float*, num_ochannels> _obuffers{};
 
-    const std::vector<Param_model::Spec>& _specs{};
+    using User_params = tiny::Params<tiny::Param_model>;
+    User_params _params{}; // We have to be able to map the values.
+
+    // Values in host space.
+    User_params::Param_values _hostvalues{}; // these should probably be atomics
+
     std::unique_ptr<Kernel> _kernel = std::make_unique<Kernel>();
 
     using Queue = tiny::Lock_free_queue<tiny::Event, 256, tiny::Queue_concurrency::mpsc>;
@@ -125,11 +141,13 @@ private:
     {
         if (event->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
 
+        const auto& params = _params.get_kernel_specs();
+
         switch (event->type) {
             case CLAP_EVENT_PARAM_VALUE: {
                 const auto* value_event = reinterpret_cast<const clap_event_param_value*>(event);
                 const auto id = value_event->param_id;
-                const auto& spec = _specs[id];
+                const auto& spec = params[id];
 
                 const auto kernel_event = Set_param{
                     .id = id,
@@ -137,9 +155,11 @@ private:
                 };
 
                 if constexpr (on_audio_thread) {
+                    _hostvalues[id] = value_event->value;
                     _kernel->handle_event(kernel_event);
                 }
                 else {
+                    _hostvalues[id] = value_event->value;
                     _queue.push(kernel_event);
                 }
 
@@ -150,25 +170,27 @@ private:
 
 };
 
-// MARK: - paths
+// MARK: - modules
 
 template <typename Id>
-auto flatten_tree_paths(const Param_node<Id>& root) -> std::vector<std::string>
-{
+inline auto tree_to_clap_modules(const Param_node<Id>& root) -> std::vector<std::string> {
     auto result = std::vector<std::string>{};
 
-    const auto visit = [&](const auto& node, const std::string& path, const auto& self) -> void {
-        std::visit([&](const auto& item) {
-            using T = std::decay_t<decltype(item)>;
-            if constexpr (std::is_same_v<T, Param_spec<Id>>) {
-                result.push_back(path);
-            } else if constexpr (std::is_same_v<T, Param_group<Id>>) {
-                const auto group_path = path.empty() ? std::string{item.name} : path + "/" + item.name;
-                for (const auto& child : item.nodes) {
-                    self(child, group_path, self);
+    const auto visit = [&](const Param_node<Id>& node, const std::string& path, const auto& self) -> void {
+        std::visit(
+            Inline_visitor{
+                [&](const Param_spec<Id>&) {
+                    result.push_back(path);
+                },
+                [&](const Param_group<Id>& group) {
+                    const auto group_path = path.empty() ? std::string{group.name} : path + "/" + group.name;
+
+                    for (const auto& child : group.nodes) {
+                        self(child, group_path, self);
+                    }
                 }
             }
-        }, node);
+        , node);
     };
 
     visit(root, "", visit);

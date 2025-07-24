@@ -11,13 +11,13 @@
 
 #include "clap_adapters.h"
 
-using MisbehaviourHandler = clap::helpers::MisbehaviourHandler;
+using MisbehaviourHandler = clap::helpers::MisbehaviourHandler; // Studio One appears to be misbehaving.
 using CheckingLevel = clap::helpers::CheckingLevel;
 
-class Clap_plugin : public clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal> {
+class Clap_plugin : public clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::Maximal> {
 public:
 
-    using Super = clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal>;
+    using Super = clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::Maximal>;
     Clap_plugin(const clap_host* host);
     ~Clap_plugin();
 
@@ -90,14 +90,13 @@ protected:
     std::shared_ptr<Graphics_delegate> _delegate = std::make_shared<Graphics_delegate>(Graphics_delegate::Size{800, 600});
     std::unique_ptr<Platform_view> platform_view{nullptr};
 
-    // Sorted by paramId.
-    std::vector<tiny::Param_model::Spec> _specs{};
+    using User_params = tiny::Params<tiny::Param_model>;
 
-    // Values in host space.
-    tiny::Param_model::Param_values _hostvalues{}; // these should probably be atomics
+    User_params _params{};
+    std::vector<std::string> _modules{};
 
     using Adapter = tiny::clap::Kernel_adapter<tiny::Dsp_kernel>;
-    std::unique_ptr<Adapter> _adapter = std::make_unique<Adapter>(_specs);
+    std::unique_ptr<Adapter> _adapter = std::make_unique<Adapter>();
 
     // Preferred platform GUI API.
     static constexpr auto gui_preferred_api = []() {

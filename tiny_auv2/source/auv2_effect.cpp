@@ -7,16 +7,14 @@ Auv2_effect::Auv2_effect(AudioUnit component) : Super(component, num_inputs, num
     CreateElements();
 
     using namespace tiny;
-    const auto tree = Param_model::build_tree();
-    _ids = tiny::auv2::flatten_tree_ids(tree); // Ids in presentation order!
-    _specs = flatten_tree(tree);
-    sort_param_specs_by_id(_specs);
+    const auto& tree = Param_model::build_tree();
+    _clumps = tiny::auv2::tree_to_clump_map(tree);
 
-    _clumps = tiny::auv2::build_clump_map(tree);
+    const auto& params = _params.get_kernel_specs();
 
     // Set up parameters.
-    Globals()->UseIndexedParameters(tiny::Param_model::num_params);
-    for (const auto& param : _specs) {
+    Globals()->UseIndexedParameters(User_params::num_params);
+    for (const auto& param : params) {
         const auto def_val = get_host_default(param);
         Globals()->SetParameter(to_underlying(param.id), def_val);
     }
@@ -104,8 +102,9 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
 
             using namespace tiny;
             const auto id = data->inParamID;
-            const auto& param = _specs[id];
-            const auto str = Param_model::format_string(*data->inValue, param, _uivalues);
+            const auto& params = _params.get_kernel_specs();
+            const auto& param = params[id];
+            const auto str = Host_formatter::format_string(*data->inValue, param.semantics);
             data->outString = CFStringCreateWithCString(kCFAllocatorDefault, str.c_str(), kCFStringEncodingUTF8);
 
             return noErr;
@@ -115,11 +114,12 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
 
             using namespace tiny;
             const auto id = data->inParamID;
-            const auto& param = _specs[id];
+            const auto& params = _params.get_kernel_specs();
+            const auto& param = params[id];
 
             const auto str = tiny::auv2::cf_to_std(data->inString);
 
-            if (const auto plain = Param_model::format_value(str, param)) {
+            if (const auto plain = Host_formatter::format_value(str, param.semantics)) {
                 data->outValue = plain_to_host_space(*plain, param);
                 return noErr;
             }
@@ -144,9 +144,11 @@ OSStatus Auv2_effect::GetParameterList(AudioUnitScope inScope, AudioUnitParamete
 
     // This is so we can determine the presentation order of the parameters by the host.
     using namespace tiny;
-    outNumParameters = Param_model::num_params; // Do this first.
+    outNumParameters = User_params::num_params; // Do this first.
     if (!outParameterList) return noErr;
-    std::ranges::copy(_ids, outParameterList);
+    const auto& params = _params.get_presentation_specs();
+    const auto ids = params | std::views::transform([](const auto& spec) { return to_underlying(spec.id); });
+    std::ranges::copy(ids, outParameterList);
 
     return noErr;
 }
@@ -159,7 +161,7 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
 
     using namespace tiny;
 
-    auto resolve_flags = [](const Param_model::Spec& param, bool found_clump) {
+    auto resolve_flags = [](const User_params::Spec& param, bool found_clump) {
         auto flags = AudioUnitParameterOptions{};
 
         flags |= (kAudioUnitParameterFlag_HasCFNameString | kAudioUnitParameterFlag_CFNameRelease);
@@ -176,7 +178,8 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
         return flags;
     };
 
-    const auto& param = _specs[inParameterID];
+    const auto& params = _params.get_kernel_specs();
+    const auto& param = params[inParameterID];
     const auto* clump = tiny::auv2::find_clump_for_parameter(_clumps, to_underlying(param.id));
     const auto found_clump = clump != nullptr;
 
@@ -246,8 +249,9 @@ OSStatus Auv2_effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnit
     if (!outStrings) return noErr;
 
     using namespace tiny;
-    
-    const auto& param = _specs[inParameterID];
+
+    const auto& params = _params.get_kernel_specs();
+    const auto& param = params[inParameterID];
 
     
     if (const auto* l = std::get_if<List_semantics>(&param.semantics)) {
@@ -293,7 +297,8 @@ OSStatus Auv2_effect::GetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
 OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames)
 {
-    const auto& param = _specs[inID];
+    const auto& params = _params.get_kernel_specs();
+    const auto& param = params[inID];
 
     _queue.push({
         .offset = static_cast<int32_t>(inBufferOffsetInFrames),
@@ -305,9 +310,10 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
 OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEvent, UInt32 inNumEvents)
 {
+    const auto& params = _params.get_kernel_specs();
     for (auto i = decltype(inNumEvents){}; i < inNumEvents; ++i) {
         const auto& event = inParameterEvent[i];
-        const auto& param = _specs[event.parameter];
+        const auto& param = params[event.parameter];
 
         switch (event.eventType) {
             case kParameterEvent_Immediate: {

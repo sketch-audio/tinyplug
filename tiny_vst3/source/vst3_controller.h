@@ -49,7 +49,8 @@ protected:
     Vst3_view* view{nullptr}; // Is there any point in keeping this around?
 
     // Sorted by paramId.
-    std::vector<tiny::Param_model::Spec> _specs{};
-    tiny::Param_model::Param_values _uivalues{};
+    using User_params = tiny::Params<tiny::Param_model>;
+    User_params _params{};
+    User_params::Param_values _uivalues{};
 
 };

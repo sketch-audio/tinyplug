@@ -67,58 +67,35 @@ struct Clump {
 using Clump_map = std::unordered_map<uint32_t, Clump>; // Param id : Clump
 
 template <typename Id>
-inline auto build_clump_map(const Param_node<Id>& root) -> Clump_map
+inline auto tree_to_clump_map(const Param_node<Id>& root) -> Clump_map
 {
     auto result = Clump_map{};
     auto clump_ids = std::unordered_map<std::string, int32_t>{};
     auto next_id = int32_t{1}; // 0 reserved for system per AU docs.
 
-    const auto visit = [&](const auto& node, const std::string& path, const auto& self) -> void {
-        std::visit([&](const auto& item) {
-            using T = std::decay_t<decltype(item)>;
+    const auto visit = [&](const Param_node<Id>& node, const std::string& path, const auto& self) -> void {
+        std::visit(
+            Inline_visitor{
+                [&](const Param_spec<Id>& spec) {
+                    const auto clump_id = [&]() {
+                        const auto [it, inserted] = clump_ids.try_emplace(path, next_id);
+                        if (inserted) ++next_id;
+                        return it->second;
+                    }();
+                    result[to_underlying(spec.id)] = {clump_id, path};
+                },
+                [&](const Param_group<Id>& group) {
+                    const auto new_path = path.empty() ? std::string{group.name} : path + "/" + group.name;
 
-            if constexpr (std::is_same_v<T, Param_spec<Id>>) {
-                const auto clump_path = path;
-                const auto clump_id = [&]() {
-                    const auto [it, inserted] = clump_ids.try_emplace(clump_path, next_id);
-                    if (inserted) ++next_id;
-                    return it->second;
-                }();
-                result[to_underlying(item.id)] = {clump_id, clump_path};
-            }
-            else if constexpr (std::is_same_v<T, Param_group<Id>>) {
-                const auto new_path = path.empty() ? std::string{item.name} : path + "/" + item.name;
-                for (const auto& child : item.nodes) {
-                    self(child, new_path, self);
+                    for (const auto& child : group.nodes) {
+                        self(child, new_path, self);
+                    }
                 }
             }
-        }, node);
+        , node);
     };
 
     visit(root, "", visit);
-    return result;
-}
-
-template <typename Id>
-inline auto flatten_tree_ids(const Param_node<Id>& root) -> std::vector<std::underlying_type_t<Id>>
-{
-    using Underlying = std::underlying_type_t<Id>;
-    auto result = std::vector<Underlying>{};
-
-    const auto visit = [&](const auto& node, const auto& self) -> void {
-        std::visit([&](const auto& item) {
-            using T = std::decay_t<decltype(item)>;
-            if constexpr (std::is_same_v<T, Param_spec<Id>>) {
-                result.push_back(static_cast<Underlying>(item.id));
-            } else if constexpr (std::is_same_v<T, Param_group<Id>>) {
-                for (const auto& child : item.nodes) {
-                    self(child, self);
-                }
-            }
-        }, node);
-    };
-
-    visit(root, visit);
     return result;
 }
 

@@ -290,49 +290,6 @@ struct Param_spec {
     bool hidden{};
 };
 
-// MARK: - tree + sort
-
-template<Enum Id>
-inline auto flatten_tree(const Param_node<Id>& root) -> std::vector<Param_spec<Id>>
-{
-    auto result = std::vector<Param_spec<Id>>{};
-
-    const auto visit = [&](const auto& node, const auto& self) -> void {
-        std::visit([&](const auto& item) {
-            if constexpr (std::is_same_v<std::decay_t<decltype(item)>, Param_spec<Id>>) {
-                result.push_back(item);
-            } else {
-                for (const auto& child : item.nodes) {
-                    self(child, self);
-                }
-            }
-        }, node);
-    };
-
-    visit(root, visit);
-    return result;
-}
-
-template<Enum Id>
-inline auto sort_param_specs_by_id(std::vector<Param_spec<Id>>& specs) -> void
-{
-    std::ranges::sort(specs, [](const auto& a, const auto& b) {
-        return to_underlying(a.id) < to_underlying(b.id);
-    });
-}
-
-template<Enum Id>
-inline auto get_defaults(const std::vector<Param_spec<Id>>& specs) -> decltype(auto)
-{
-    return specs | std::views::transform(
-        [](const auto& spec) {
-            return std::visit(
-                [](auto&& vs) { return static_cast<double>(vs.def_val); }
-            , spec.semantics);
-        }
-    );
-}
-
 // MARK: - space
 
 template<Enum Id>
@@ -439,10 +396,166 @@ inline auto get_plain_default(const Param_spec<Id>& spec) -> double
 // MARK: - parameter model
 
 template<typename T>
-concept Is_param_model = requires(T model) {
+concept Some_param_model = requires {
+    // An enum class `Param_id` with a case `num_params`
     typename T::Param_id;
     requires Enum<typename T::Param_id>;
-    { model.build_tree() } -> std::same_as<Param_node<typename T::Param_id>>;
+    { static_cast<uint32_t>(T::Param_id::num_params) };
+
+    // An enum class `Export_id` with a case `num_exports`
+    typename T::Export_id;
+    requires Enum<typename T::Export_id>;
+    { static_cast<uint32_t>(T::Export_id::num_exports) };
+
+    // A static function `build_tree` that returns a `Param_node<Param_id>`
+    { T::build_tree() } -> std::same_as<Param_node<typename T::Param_id>>;
 };
 
+// MARK: - params impl
+
+namespace params_impl {
+
+template<Enum Id>
+inline auto flatten_tree(const Param_node<Id>& root) -> std::vector<Param_spec<Id>>
+{
+    auto result = std::vector<Param_spec<Id>>{};
+
+    const auto visit = [&](const auto& node, const auto& self) -> void {
+        std::visit([&](const auto& item) {
+            if constexpr (std::is_same_v<std::decay_t<decltype(item)>, Param_spec<Id>>) {
+                result.push_back(item);
+            } else {
+                for (const auto& child : item.nodes) {
+                    self(child, self);
+                }
+            }
+        }, node);
+    };
+
+    visit(root, visit);
+    return result;
 }
+
+template <std::ranges::range R, typename Comp>
+    requires std::sortable<std::ranges::iterator_t<R>, Comp>
+inline auto sorted_copy(R&& range, Comp comp) -> decltype(auto)
+{
+    using T = std::ranges::range_value_t<R>;
+    std::vector<T> copy(std::ranges::begin(range), std::ranges::end(range));
+    std::ranges::sort(copy, comp);
+    return copy;
+}
+
+}
+
+// MARK: - params
+
+template<Some_param_model User_model>
+struct Params {
+    // 
+    static constexpr auto num_params = to_underlying(User_model::Param_id::num_params);
+
+    Params() {
+
+    }
+
+    //
+    using Node = Param_node<typename User_model::Param_id>;
+    using Spec = Param_spec<typename User_model::Param_id>;
+
+    //
+    using Param_values = std::array<float, num_params>;
+
+    auto get_tree() const -> const Node&
+    {
+        return tree;
+    }
+
+    auto get_presentation_specs() const -> const std::vector<Spec>&
+    {
+        return presentation_specs;
+    }
+
+    auto get_kernel_specs() const -> const std::vector<Spec>&
+    {
+        return kernel_specs;
+    }
+
+private:
+    
+    static constexpr auto id_less = [](const auto& a, const auto& b) { return to_underlying(a.id) < to_underlying(b.id); };
+
+    Node tree = User_model::build_tree();
+    std::vector<Spec> presentation_specs{params_impl::flatten_tree(tree)};
+    std::vector<Spec> kernel_specs{params_impl::sorted_copy(presentation_specs, id_less)};
+
+};
+
+// MARK: - host formatter
+
+struct Host_formatter {
+    // 
+    static auto format_string(double host_value, const Value_semantics& semantics, bool include_units = true) -> std::string
+    {
+        return std::visit(
+            Inline_visitor{
+                [&](const Bool_semantics&) {
+                    return host_value > 0.5f ? std::string{"True"} : std::string{"False"};
+                },
+                [&](const List_semantics& l) {
+                    const auto idx = static_cast<size_t>(host_value);
+                    return std::string{l.labels[idx]};
+                },
+                [&](const Float_semantics& f) {
+                    using enum Units;
+                    const auto value = f.knob_adapter.norm_to_plain(f, host_value);
+                    switch (f.units) {
+                        case generic:
+                            return std::format("{:.{}f}", value, 2);
+                        case percent: {
+                            const auto suffix = std::string{include_units ? " %" : ""};
+                            return std::format("{:.{}f}", value, 0) + suffix;
+                        }
+                        case decibels: {
+                            const auto prefix = std::string{value >= 0 ? "+" : ""};
+                            const auto suffix = std::string{include_units ? " dB" : ""};
+                            return prefix + std::format("{:.{}f}", value, 1) + suffix;
+                        }
+                        case hertz: {
+                            // If the host doesn't want us to include units, we should just send back the plain value in Hertz.
+                            if (value > 1000 && include_units) {
+                                const auto suffix = std::string{include_units ? " kHz" : ""};
+                                return std::format("{:.{}f}", value / 1000, 1) + suffix;
+                            }
+                            else {
+                                const auto suffix = std::string{include_units ? " Hz" : ""};
+                                return std::format("{:.{}f}", value, 0) + suffix;
+                            }
+                        }
+                        default:
+                            return std::string{};
+                    }
+                },
+                [&](const Int_semantics&) {
+                    return std::format("{:.0f}", host_value); // TODO: Units
+                }
+            }
+        , semantics);
+    }
+
+    static auto format_value(const std::string& string, const Value_semantics& /*semantics*/) -> std::optional<double>
+    {
+        char* end = nullptr;
+        errno = 0;
+        const auto result = std::strtod(string.c_str(), &end);
+
+        // Check for conversion success
+        if (end != string.c_str() && *end == '\0' && errno == 0) {
+            return result;
+        }
+
+        return std::nullopt;
+    }
+};
+
+} // namespace tiny

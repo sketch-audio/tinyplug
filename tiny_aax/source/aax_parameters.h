@@ -36,7 +36,7 @@ public:
             auto value = double{};
             aax_param->GetValueAsDouble(&value);
 
-            if (id < tiny::Param_model::num_params) {
+            if (id < User_params::num_params) {
                 _kernel->handle_event(tiny::Set_param{.id = id, .value = value});
             }
         }
@@ -70,9 +70,8 @@ private:
     std::array<const float*, num_ichannels> _ibuffers{};
     std::array<float*, num_ochannels> _obuffers{};
 
-    // Sorted by paramId.
-    std::vector<tiny::Param_model::Spec> _specs{};
-    //tiny::Param_model::Param_values _uivalues{};
+    using User_params = tiny::Params<tiny::Param_model>;
+    User_params _params{};
 
     std::unique_ptr<tiny::Dsp_kernel> _kernel = std::make_unique<tiny::Dsp_kernel>();
 

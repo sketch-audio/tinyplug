@@ -16,64 +16,103 @@ inline auto map_to_fuid(const Uid_arr& uid) -> Steinberg::FUID
     return {uid[0], uid[1], uid[2], uid[3]};
 }
 
-template <typename Id>
+// MARK: - units
+
+template<Enum Id>
 struct Param_unit {
     Id id;
     int32_t unit_id;
 };
 
-template <typename Id>
+template<Enum Id>
 struct Unit_info {
     int32_t unit_id;
     int32_t parent_id;
     std::string name;
 };
 
-template <typename Id>
+template<Enum Id>
 struct Flattened_units {
     std::vector<Unit_info<Id>> units;
     std::vector<Param_unit<Id>> param_to_unit;
 };
 
-template <typename Id>
-auto flatten_tree_to_units(const Param_node<Id>& root) -> Flattened_units<Id>
+template<Enum Id>
+auto tree_to_units(const Param_node<Id>& root) -> Flattened_units<Id>
 {
     auto result = Flattened_units<Id>{};
-    int32_t next_unit_id = 0;
+    auto next_unit_id = int32_t{};
 
-    const auto visit = [&](const auto& node, int32_t parent_id, const auto& self) -> std::optional<int32_t> {
-        return std::visit([&](const auto& item) -> std::optional<int32_t> {
-            using T = std::decay_t<decltype(item)>;
+    const auto visit = [&](const Param_node<Id>& node, int32_t parent_id, const auto& self) -> std::optional<int32_t> {
+        return std::visit(
+            Inline_visitor{
+                [&](const Param_spec<Id>&) -> std::optional<int32_t> {
+                    // Specs are assigned to their enclosing group’s unit
+                    return std::nullopt;
+                },
+                [&](const Param_group<Id>& group) -> std::optional<int32_t> {
+                    const int32_t this_unit_id = next_unit_id++;
+                    result.units.push_back(Unit_info<Id>{
+                        .unit_id = this_unit_id,
+                        .parent_id = parent_id,
+                        .name = group.name
+                    });
 
-            if constexpr (std::is_same_v<T, Param_spec<Id>>) {
-                // Specs are assigned to their enclosing group’s unit
-                return std::nullopt;
-            } else if constexpr (std::is_same_v<T, Param_group<Id>>) {
-                const int32_t this_unit_id = next_unit_id++;
-                result.units.push_back(Unit_info<Id>{
-                    .unit_id = this_unit_id,
-                    .parent_id = parent_id,
-                    .name = item.name
-                });
+                    for (const auto& child : group.nodes) {
+                        std::visit(
+                            Inline_visitor{
+                                [&](const Param_spec<Id>& spec) {
+                                    result.param_to_unit.push_back(Param_unit<Id>{
+                                        .id = spec.id,
+                                        .unit_id = this_unit_id
+                                    });
+                                },
+                                [&](const Param_group<Id>&) {
+                                    self(child, this_unit_id, self);
+                                }
+                            }
+                        , child);
+                    }
 
-                for (const auto& child : item.nodes) {
-                    std::visit([&](const auto& child_item) {
-                        using ChildT = std::decay_t<decltype(child_item)>;
-                        if constexpr (std::is_same_v<ChildT, Param_spec<Id>>) {
-                            result.param_to_unit.push_back(Param_unit<Id>{
-                                .id = child_item.id,
-                                .unit_id = this_unit_id
-                            });
-                        } else if constexpr (std::is_same_v<ChildT, Param_group<Id>>) {
-                            self(child, this_unit_id, self);
-                        }
-                    }, child);
+                    return this_unit_id;
                 }
-
-                return this_unit_id;
             }
-        }, node);
+            , node);
     };
+
+    // const auto visit = [&](const auto& node, int32_t parent_id, const auto& self) -> std::optional<int32_t> {
+    //     return std::visit([&](const auto& item) -> std::optional<int32_t> {
+    //         using T = std::decay_t<decltype(item)>;
+
+    //         if constexpr (std::is_same_v<T, Param_spec<Id>>) {
+    //             // Specs are assigned to their enclosing group’s unit
+    //             return std::nullopt;
+    //         } else if constexpr (std::is_same_v<T, Param_group<Id>>) {
+    //             const int32_t this_unit_id = next_unit_id++;
+    //             result.units.push_back(Unit_info<Id>{
+    //                 .unit_id = this_unit_id,
+    //                 .parent_id = parent_id,
+    //                 .name = item.name
+    //             });
+
+    //             for (const auto& child : item.nodes) {
+    //                 std::visit([&](const auto& child_item) {
+    //                     using ChildT = std::decay_t<decltype(child_item)>;
+    //                     if constexpr (std::is_same_v<ChildT, Param_spec<Id>>) {
+    //                         result.param_to_unit.push_back(Param_unit<Id>{
+    //                             .id = child_item.id,
+    //                             .unit_id = this_unit_id
+    //                         });
+    //                     } else if constexpr (std::is_same_v<ChildT, Param_group<Id>>) {
+    //                         self(child, this_unit_id, self);
+    //                     }
+    //                 }, child);
+    //             }
+
+    //             return this_unit_id;
+    //         }
+    //     }, node);
+    // };
 
     visit(root, -1, visit);
     return result;

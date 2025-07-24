@@ -53,7 +53,9 @@ private:
         double value{};
     };
 
-    static constexpr auto num_params = tiny::Param_model::num_params;
+    using User_params = tiny::Params<tiny::Param_model>;
+
+    static constexpr auto num_params = User_params::num_params;
 
     static constexpr auto num_ichannels = size_t{2 + (tiny::Plug_info::wants_sidechain ? 2 : 0)};
     static constexpr auto num_ochannels = size_t{2};
@@ -62,7 +64,8 @@ private:
     std::array<const float*, num_ichannels> _ibuffers{};
     std::array<float*, num_ochannels> _obuffers{};
 
-    std::vector<tiny::Param_model::Spec> _specs{};
+    User_params _params{};
+
     std::array<Automation_point, num_params> _lpoints{};
 
     std::vector<tiny::Tagged_event> _events{}; // Some fixed size thing.

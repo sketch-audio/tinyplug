@@ -53,12 +53,10 @@ Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* co
 
     // Create the event IO.
 
-    _events.reserve(128);
-    const auto tree = Param_model::build_tree();
-    _specs = flatten_tree(tree);
-    sort_param_specs_by_id(_specs);
+    _events.reserve(128); // Want fixed size event vector.
 
-    for (const auto& param : _specs) {
+    // Get knob defaults for automation points.
+    for (const auto& param : _params.get_kernel_specs()) {
         const auto idx = to_underlying(param.id);
         _lpoints[idx] = {.offset = -1, .value = get_knob_default(param)};
     }
@@ -193,12 +191,14 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
 
     auto& param_changes = *data.inputParameterChanges;
     const auto num_changes = param_changes.getParameterCount();
-    
+
+    const auto& specs = _params.get_kernel_specs();
+
     for (auto i = decltype(num_changes){}; i < num_changes; ++i) {
         auto& queue = *param_changes.getParameterData(i);
 
         const auto id = queue.getParameterId();
-        const auto& param = _specs[id]; // To denormalize the automation values.
+        const auto& param = specs[id]; // To denormalize the automation values.
 
         const auto point_count = queue.getPointCount();
 

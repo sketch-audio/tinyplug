@@ -8,13 +8,15 @@
 
 namespace tiny::aax {
 
+// MARK: - FloatSemanticsTaperDelegate
+
 template<typename T>
 class FloatSemanticsTaperDelegate final : public AAX_ITaperDelegate<T> {
 public:
 
     using Float_semantics = tiny::Float_semantics;
 
-    FloatSemanticsTaperDelegate(Float_semantics semantics) : _semantics{std::move(semantics)} {}
+    FloatSemanticsTaperDelegate(Float_semantics semantics) : _semantics{semantics} {}
     ~FloatSemanticsTaperDelegate() = default;
 
     AAX_ITaperDelegate<T>* Clone() const override
@@ -55,28 +57,26 @@ private:
     
 };
 
-template <typename Id>
-auto flatten_tree_to_ids(const Param_node<Id>& root) -> std::vector<std::string>
+// MARK: - tree_to_aax_id
+
+template<Enum Id>
+inline auto tree_to_aax_id(const Param_node<Id>& root) -> std::vector<std::string>
 {
     auto result = std::vector<std::string>{};
 
-    const auto visit = [&](const auto& node, const auto& self) -> void {
-        std::visit([&](const auto& item) {
-            using T = std::decay_t<decltype(item)>;
-
-            if constexpr (std::is_same_v<T, Param_spec<Id>>) {
-                const auto raw = to_underlying(item.id);
-                const auto hex = std::format("0x{:08X}", raw);
-                result.push_back(hex);
-            }
-            else if constexpr (std::is_same_v<T, Param_group<Id>>) {
-                for (const auto& child : item.nodes) {
-                    self(child, self);
+    const auto visit = [&](const Param_node<Id>& node, const auto& self) -> void {
+        std::visit(
+            Inline_visitor{
+                [&](const Param_spec<Id>& spec) {
+                    result.push_back(std::format("0x{:08X}", to_underlying(spec.id)));
+                },
+                [&](const Param_group<Id>& group) {
+                    for (const auto& child : group.nodes) self(child, self);
                 }
             }
-        }, node);
+        , node);
     };
-
+    
     visit(root, visit);
     return result;
 }

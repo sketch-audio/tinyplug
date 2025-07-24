@@ -59,10 +59,10 @@ private:
     std::shared_ptr<Graphics_delegate> _delegate = std::make_shared<Graphics_delegate>(Graphics_delegate::Size{800, 600});
     std::unique_ptr<Platform_view> platform_view{nullptr};
 
-    std::vector<uint32_t> _ids{}; // So we can send to host the presentation order.
-    std::vector<tiny::Param_model::Spec> _specs{};
+    using User_params = tiny::Params<tiny::Param_model>;
+
+    User_params _params{};
     tiny::auv2::Clump_map _clumps{};
-    tiny::Param_model::Param_values _uivalues{};
 
     // SetParameter -> Render
     using Queue = tiny::Lock_free_queue<tiny::Tagged_event, 256, tiny::Queue_concurrency::mpsc>;
