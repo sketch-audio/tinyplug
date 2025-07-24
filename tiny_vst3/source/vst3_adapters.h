@@ -36,7 +36,7 @@ struct Flattened_units {
 };
 
 template <typename Id>
-auto flatten_tree_to_units(const params::Param_node<Id>& root) -> Flattened_units<Id>
+auto flatten_tree_to_units(const Param_node<Id>& root) -> Flattened_units<Id>
 {
     auto result = Flattened_units<Id>{};
     int32_t next_unit_id = 0;
@@ -45,10 +45,10 @@ auto flatten_tree_to_units(const params::Param_node<Id>& root) -> Flattened_unit
         return std::visit([&](const auto& item) -> std::optional<int32_t> {
             using T = std::decay_t<decltype(item)>;
 
-            if constexpr (std::is_same_v<T, params::Param_spec<Id>>) {
+            if constexpr (std::is_same_v<T, Param_spec<Id>>) {
                 // Specs are assigned to their enclosing group’s unit
                 return std::nullopt;
-            } else if constexpr (std::is_same_v<T, params::Param_group<Id>>) {
+            } else if constexpr (std::is_same_v<T, Param_group<Id>>) {
                 const int32_t this_unit_id = next_unit_id++;
                 result.units.push_back(Unit_info<Id>{
                     .unit_id = this_unit_id,
@@ -59,12 +59,12 @@ auto flatten_tree_to_units(const params::Param_node<Id>& root) -> Flattened_unit
                 for (const auto& child : item.nodes) {
                     std::visit([&](const auto& child_item) {
                         using ChildT = std::decay_t<decltype(child_item)>;
-                        if constexpr (std::is_same_v<ChildT, params::Param_spec<Id>>) {
+                        if constexpr (std::is_same_v<ChildT, Param_spec<Id>>) {
                             result.param_to_unit.push_back(Param_unit<Id>{
                                 .id = child_item.id,
                                 .unit_id = this_unit_id
                             });
-                        } else if constexpr (std::is_same_v<ChildT, params::Param_group<Id>>) {
+                        } else if constexpr (std::is_same_v<ChildT, Param_group<Id>>) {
                             self(child, this_unit_id, self);
                         }
                     }, child);

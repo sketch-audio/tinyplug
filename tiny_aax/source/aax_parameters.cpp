@@ -14,12 +14,11 @@
 AAX_Result Aax_parameters::EffectInit()
 {
     using namespace tiny;
-    using namespace params;
     const auto tree = Param_model::build_tree();
-    _specs = params::flatten_tree(tree);
-    params::sort_param_specs_by_id(_specs);
+    _specs = flatten_tree(tree);
+    sort_param_specs_by_id(_specs);
 
-    static const auto flat_map = params::flatten_tree(tree);
+    static const auto flat_map = flatten_tree(tree);
     static const auto identifiers = tiny::aax::flatten_tree_to_ids(tree);
 
     for (size_t i = 0; i < flat_map.size(); ++i) {
@@ -69,7 +68,7 @@ AAX_Result Aax_parameters::EffectInit()
             [&](const Float_semantics& f) {
                 using TaperDelegate = tiny::aax::FloatSemanticsTaperDelegate<double>;
                 using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 1, space after: 1
-                const auto units_str = params::units_string(f.units);
+                const auto units_str = units_string(f.units);
 
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
                     identifier.c_str(),
@@ -91,7 +90,7 @@ AAX_Result Aax_parameters::EffectInit()
             },
             [&](const Int_semantics& i) {
                 using DisplayDelegate = AAX_CNumberDisplayDelegate<int32_t, 0, 1>; // precision: 0, space after: 1
-                const auto units_str = params::units_string(i.units);
+                const auto units_str = units_string(i.units);
 
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<int32_t>(
                     identifier.c_str(),

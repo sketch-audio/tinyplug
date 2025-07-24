@@ -13,12 +13,12 @@ struct Dsp_kernel {
     auto reset(double /*sample_rate*/, size_t /*max_frames*/) -> void
     {
         // Initialize internal state with parameter defaults.
-        auto specs = params::flatten_tree(Param_model::build_tree());
-        params::sort_param_specs_by_id(specs);
+        auto specs = flatten_tree(Param_model::build_tree());
+        sort_param_specs_by_id(specs);
 
         for (size_t i = 0; i < specs.size(); ++i) {
             const auto& spec = specs[i];
-            _params[i] = params::get_plain_default(spec);
+            _params[i] = get_plain_default(spec);
         }
     }
 

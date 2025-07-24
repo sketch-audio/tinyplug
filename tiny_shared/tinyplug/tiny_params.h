@@ -4,12 +4,13 @@
 #include <concepts>
 #include <functional>
 #include <type_traits>
+#include <ranges>
 #include <variant>
 #include <vector>
 
 #include "tiny_utils.h"
 
-namespace tiny::params {
+namespace tiny {
 
 // MARK: - types
 
@@ -174,10 +175,10 @@ struct Knob_adapters {
     {
         return {
             .plain_to_norm = [=](auto&& f, double value) {
-                return utils::normalized(value, f.min_val, f.max_val, taper, bipolar);
+                return normalized(value, f.min_val, f.max_val, taper, bipolar);
             },
             .norm_to_plain = [=](auto&& f, double value) {
-                return utils::denormalized(value, f.min_val, f.max_val, taper, bipolar);
+                return denormalized(value, f.min_val, f.max_val, taper, bipolar);
             }
         };
     }
@@ -316,8 +317,20 @@ template<Enum Id>
 inline auto sort_param_specs_by_id(std::vector<Param_spec<Id>>& specs) -> void
 {
     std::ranges::sort(specs, [](const auto& a, const auto& b) {
-        return utils::to_underlying(a.id) < utils::to_underlying(b.id);
+        return to_underlying(a.id) < to_underlying(b.id);
     });
+}
+
+template<Enum Id>
+inline auto get_defaults(const std::vector<Param_spec<Id>>& specs) -> decltype(auto)
+{
+    return specs | std::views::transform(
+        [](const auto& spec) {
+            return std::visit(
+                [](auto&& vs) { return static_cast<double>(vs.def_val); }
+            , spec.semantics);
+        }
+    );
 }
 
 // MARK: - space

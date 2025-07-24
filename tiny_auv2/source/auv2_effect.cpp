@@ -9,16 +9,16 @@ Auv2_effect::Auv2_effect(AudioUnit component) : Super(component, num_inputs, num
     using namespace tiny;
     const auto tree = Param_model::build_tree();
     _ids = tiny::auv2::flatten_tree_ids(tree); // Ids in presentation order!
-    _specs = params::flatten_tree(tree);
-    params::sort_param_specs_by_id(_specs);
+    _specs = flatten_tree(tree);
+    sort_param_specs_by_id(_specs);
 
     _clumps = tiny::auv2::build_clump_map(tree);
 
     // Set up parameters.
     Globals()->UseIndexedParameters(tiny::Param_model::num_params);
     for (const auto& param : _specs) {
-        const auto def_val = params::get_host_default(param);
-        Globals()->SetParameter(utils::to_underlying(param.id), def_val);
+        const auto def_val = get_host_default(param);
+        Globals()->SetParameter(to_underlying(param.id), def_val);
     }
 
     // 
@@ -120,7 +120,7 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
             const auto str = tiny::auv2::cf_to_std(data->inString);
 
             if (const auto plain = Param_model::format_value(str, param)) {
-                data->outValue = params::plain_to_host_space(*plain, param);
+                data->outValue = plain_to_host_space(*plain, param);
                 return noErr;
             }
             
@@ -158,7 +158,6 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
 
     using namespace tiny;
-    using namespace params;
 
     auto resolve_flags = [](const Param_model::Spec& param, bool found_clump) {
         auto flags = AudioUnitParameterOptions{};
@@ -178,7 +177,7 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
     };
 
     const auto& param = _specs[inParameterID];
-    const auto* clump = tiny::auv2::find_clump_for_parameter(_clumps, utils::to_underlying(param.id));
+    const auto* clump = tiny::auv2::find_clump_for_parameter(_clumps, to_underlying(param.id));
     const auto found_clump = clump != nullptr;
 
     std::visit(Inline_visitor{
@@ -247,7 +246,6 @@ OSStatus Auv2_effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnit
     if (!outStrings) return noErr;
 
     using namespace tiny;
-    using namespace params;
     
     const auto& param = _specs[inParameterID];
 
@@ -299,7 +297,7 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
     _queue.push({
         .offset = static_cast<int32_t>(inBufferOffsetInFrames),
-        .event = tiny::Set_param{.id = inID, .value = tiny::params::host_to_plain_space(inValue, param)}
+        .event = tiny::Set_param{.id = inID, .value = tiny::host_to_plain_space(inValue, param)}
     });
 
     return Super::SetParameter(inID, inScope, inElement, inValue, inBufferOffsetInFrames);
@@ -319,7 +317,7 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                     .offset = static_cast<int32_t>(offset),
                     .event = tiny::Set_param{
                         .id = event.parameter,
-                        .value = tiny::params::host_to_plain_space(value, param)
+                        .value = tiny::host_to_plain_space(value, param)
                     }
                 });
                 Super::SetParameter(event.parameter, event.scope, event.element, value, offset);

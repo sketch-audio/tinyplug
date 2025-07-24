@@ -18,15 +18,14 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
         return result;
 
     using namespace tiny;
-    using namespace params;
     const auto tree = Param_model::build_tree();
-    _specs = params::flatten_tree(tree);
-    params::sort_param_specs_by_id(_specs);
+    _specs = flatten_tree(tree);
+    sort_param_specs_by_id(_specs);
 
     // Here you could register some parameters.
 
     //static const auto tree = tiny::Param_model::build_tree();
-    static const auto flat_map = params::flatten_tree(tree);
+    static const auto flat_map = flatten_tree(tree);
     static const auto [units, param_unit_ids] = tiny::vst3::flatten_tree_to_units(tree);
     
     for (const auto& unit : units) {
@@ -144,7 +143,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamStringByValue(Steinberg::
 
     using namespace tiny;
     const auto& param = _specs[tag];
-    const auto host = params::knob_to_host_space(valueNormalized, param);
+    const auto host = knob_to_host_space(valueNormalized, param);
     const auto str = Param_model::format_string(host, param, _uivalues);
     Steinberg::Vst::StringConvert::convert(str, string);
 
@@ -162,7 +161,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamValueByString(Steinberg::
     const auto& param = _specs[tag];
     const auto str = Steinberg::Vst::StringConvert::convert(string);
     if (const auto plain = Param_model::format_value(str, param)) {
-        valueNormalized = params::plain_to_knob_space(*plain, param);
+        valueNormalized = plain_to_knob_space(*plain, param);
         return Steinberg::kResultTrue;
     }
 
@@ -173,14 +172,14 @@ Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::normalizedParamToPlain(St
 {
     using namespace tiny;
     const auto& param = _specs[tag];
-    return params::knob_to_plain_space(valueNormalized, param);
+    return knob_to_plain_space(valueNormalized, param);
 }
 
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::plainParamToNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue plainValue)
 {
     using namespace tiny;
     const auto& param = _specs[tag];
-    return params::plain_to_knob_space(plainValue, param);
+    return plain_to_knob_space(plainValue, param);
 }
 
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::getParamNormalized(Steinberg::Vst::ParamID tag)

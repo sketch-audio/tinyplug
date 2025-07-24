@@ -17,12 +17,12 @@ Clap_plugin::Clap_plugin(const clap_host* host) : Super(&descriptor, host)
 {
     using namespace tiny;
     const auto tree = Param_model::build_tree();
-    _specs = params::flatten_tree(tree);
-    params::sort_param_specs_by_id(_specs);
+    _specs = flatten_tree(tree);
+    sort_param_specs_by_id(_specs);
 
     for (const auto& param : _specs) {
-        const auto idx = utils::to_underlying(param.id);
-        _hostvalues[idx] = params::get_host_default(param);
+        const auto idx = to_underlying(param.id);
+        _hostvalues[idx] = get_host_default(param);
     }
 }
 
@@ -123,10 +123,9 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
     if (paramIndex >= tiny::Param_model::num_params || !info) return false;
 
     using namespace tiny;
-    using namespace params;
     
     static const auto tree = Param_model::build_tree();
-    static const auto flat_map = params::flatten_tree(tree);
+    static const auto flat_map = flatten_tree(tree);
     static const auto paths = tiny::clap::flatten_tree_paths(tree);
 
     const auto& param = flat_map[paramIndex];
@@ -146,7 +145,7 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
     };
 
     *info = {};
-    info->id = utils::to_underlying(param.id);
+    info->id = to_underlying(param.id);
     info->flags = resolve_flags(param);
     info->cookie = nullptr;
     std::strncpy(info->name, param.name, CLAP_NAME_SIZE);
@@ -211,7 +210,7 @@ bool Clap_plugin::paramsTextToValue(clap_id paramId, const char* display, double
     const auto str = std::string{display};
 
     if (const auto plain = Param_model::format_value(str, param)) {
-        *value = params::plain_to_host_space(*plain, param);
+        *value = plain_to_host_space(*plain, param);
         return true;
     }
 

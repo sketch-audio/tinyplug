@@ -55,12 +55,12 @@ Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* co
 
     _events.reserve(128);
     const auto tree = Param_model::build_tree();
-    _specs = params::flatten_tree(tree);
-    params::sort_param_specs_by_id(_specs);
+    _specs = flatten_tree(tree);
+    sort_param_specs_by_id(_specs);
 
     for (const auto& param : _specs) {
-        const auto idx = utils::to_underlying(param.id);
-        _lpoints[idx] = {.offset = -1, .value = params::get_knob_default(param)};
+        const auto idx = to_underlying(param.id);
+        _lpoints[idx] = {.offset = -1, .value = get_knob_default(param)};
     }
 
     return Steinberg::kResultOk;
@@ -222,7 +222,7 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
                     .offset = std::max(previous.offset, {}),
                     .event = Set_param{
                         .id = id,
-                        .value = params::knob_to_plain_space(value, param)
+                        .value = knob_to_plain_space(value, param)
                     }
                 });
             }
@@ -232,7 +232,7 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
                     .offset = std::max(previous.offset, {}),
                     .event = Ramp_param{
                         .id = id,
-                        .target = params::knob_to_plain_space(value, param),
+                        .target = knob_to_plain_space(value, param),
                         .dur_samples = ramp_dur
                     }
                 });

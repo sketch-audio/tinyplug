@@ -26,14 +26,12 @@ struct is_variant_alternative;
 template<typename T, typename... Alts>
 struct is_variant_alternative<T, std::variant<Alts...>> : std::disjunction<std::is_same<T, Alts>...> {};
 
-namespace utils {
-
 template<Enum E>
 constexpr auto to_underlying(E e) noexcept {
     return static_cast<std::underlying_type_t<E>>(e);
 }
 
-namespace impl {
+namespace utils_impl {
 template<typename X, typename B>
 inline auto normalized(X x, B in_lo, B in_hi, B taper = 0.5f) -> X
 {
@@ -70,18 +68,18 @@ inline auto normalized(X x, B in_lo, B in_hi, B taper = 0.5f, bool bipolar = fal
         const auto midpoint = (in_lo + in_hi) / 2;
         const auto cond = x >= midpoint;
 
-        const auto xu = impl::normalized(midpoint, in_hi, taper);
+        const auto xu = utils_impl::normalized(midpoint, in_hi, taper);
         const auto yu = (xu + 1) / 2;
 
         const auto xl = (x - in_lo) / (midpoint - in_lo);
         const auto refl = -1 * (xl - 1);
-        const auto unwp = impl::normalized(refl, B(0), B(1), taper);
+        const auto unwp = utils_impl::normalized(refl, B(0), B(1), taper);
         const auto yl = (unwp - 1) / -2;
 
         return cond ? yu : yl;
     }
     else {
-        return impl::normalized(x, in_lo, in_hi, taper);
+        return utils_impl::normalized(x, in_lo, in_hi, taper);
     }
 }
 
@@ -93,20 +91,18 @@ inline auto denormalized(X x, B out_lo, B out_hi, B taper = 0.5f, bool bipolar =
         const auto cond = x >= 0.5f;
 
         const auto xu = 2 * x - 1;
-        const auto yu = impl::denormalized(xu, midpoint, out_hi, taper);
+        const auto yu = utils_impl::denormalized(xu, midpoint, out_hi, taper);
 
         const auto xl = -2 * x + 1;
-        const auto warp = impl::denormalized(xl, B(0), B(1), taper);
+        const auto warp = utils_impl::denormalized(xl, B(0), B(1), taper);
         const auto refl = -1 * warp + 1;
         const auto yl = (midpoint - out_lo) * refl + out_lo;
 
         return cond ? yu : yl;
     }
     else {
-        return impl::denormalized(x, out_lo, out_hi, taper);
+        return utils_impl::denormalized(x, out_lo, out_hi, taper);
     }
-}
-
 }
 
 }
