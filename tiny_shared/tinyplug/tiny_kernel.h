@@ -12,6 +12,7 @@ struct Dsp_context {
     std::span<const float*> sbuffers{};
     std::span<float*> obuffers{};
     size_t num_frames{};
+    std::span<float> exports{};
 };
 
 template<typename T>

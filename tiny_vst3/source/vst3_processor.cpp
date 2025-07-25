@@ -23,6 +23,8 @@ Vst3_processor::~Vst3_processor()
     //
 }
 
+// MARK: - initialize
+
 Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* context)
 {
     // Here the Plug-in will be instantiated.
@@ -94,11 +96,14 @@ Steinberg::tresult PLUGIN_API Vst3_processor::canProcessSampleSize(Steinberg::in
 	return Steinberg::kResultFalse;
 }
 
+// MARK: - process
+
 Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessData& data)
 {
-    this->normalize_input_events(data);
-
     using namespace tiny;
+
+    _events.clear(); // Events only valid for this render cycle.
+    this->normalize_input_events(data);
 
     // Now we have the events organized how we want.
     const auto event_count = _events.size();
@@ -115,8 +120,11 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
         }
     };
 
-    // Do the while loop.
-    auto do_process = [this, &data](size_t num_frames, size_t offset) {
+    // Create the context.
+    auto context = Dsp_context{.exports = _exports};
+
+    // So we can process with an offset.
+    auto do_process = [this, &data, &context](size_t num_frames, size_t offset) {
         // Assign buffer ptrs.
         for (size_t i = 0; i < num_ichannels; ++i) {
             _ibuffers[i] = &data.inputs->channelBuffers32[i][offset];
@@ -130,16 +138,15 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
             }
         }
 
-        // Process kernel.
-        auto context = tiny::Dsp_context{
-            .ibuffers = _ibuffers,
-            .sbuffers = _sbuffers,
-            .obuffers = _obuffers,
-            .num_frames = num_frames
-        };
+        context.ibuffers = _ibuffers;
+        context.obuffers = _obuffers;
+        context.sbuffers = _sbuffers;
+        context.num_frames = num_frames;
+
         _kernel->process(context);
     };
 
+    // Do process loop.
     const auto frame_count = data.numSamples;
     auto now = decltype(frame_count){};
     auto remaining = frame_count;
@@ -166,9 +173,22 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
         } while (event && event->offset <= now);
     }
 
-    // Now we can send out our exports.
+    // Send exports as output parameter changes.
+    for (size_t i = 0; i < num_exports; ++i) {
+        if (context.exports[i] != _lexports[i]) {
+            // Send an output event.
+            auto event_index = Steinberg::int32{};
+            auto& queue = *data.outputParameterChanges->addParameterData(i + EXPORT_OFFSET, event_index);
 
-    //
+            auto point_index = Steinberg::int32{};
+            queue.addPoint(0, context.exports[i], point_index); // offset, value, index
+
+            // Cache for next time.
+            _lexports[i] = context.exports[i];
+        }
+
+        _exports[i] = 0; // Reset for peak meters.
+    }
 
     return Steinberg::kResultOk;
 }
@@ -195,8 +215,6 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
 {
     using namespace tiny;
 
-    _events.clear(); // 
-
     auto& param_changes = *data.inputParameterChanges;
     const auto num_changes = param_changes.getParameterCount();
 
@@ -206,6 +224,8 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
         auto& queue = *param_changes.getParameterData(i);
 
         const auto id = queue.getParameterId();
+        if (id >= User_params::num_params) continue; // Be defensive.
+
         const auto& param = specs[id]; // To denormalize the automation values.
 
         const auto point_count = queue.getPointCount();

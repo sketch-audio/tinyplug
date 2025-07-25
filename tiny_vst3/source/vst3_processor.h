@@ -54,8 +54,10 @@ private:
     };
 
     using User_params = tiny::Params<tiny::Param_model>;
+    using User_exports = tiny::Exports<tiny::Param_model>;
 
     static constexpr auto num_params = User_params::num_params;
+    static constexpr auto num_exports = User_exports::num_exports;
 
     static constexpr auto num_ichannels = size_t{2};
     static constexpr auto num_schannels = size_t{2};
@@ -65,10 +67,12 @@ private:
     std::array<const float*, num_ichannels> _ibuffers{};
     std::array<const float*, num_schannels> _sbuffers{};
     std::array<float*, num_ochannels> _obuffers{};
+    std::array<float, num_exports> _exports{};
 
     User_params _params{};
 
     std::array<Automation_point, num_params> _lpoints{};
+    std::array<double, num_exports> _lexports{};
 
     std::vector<tiny::Tagged_event> _events{}; // Some fixed size thing.
 

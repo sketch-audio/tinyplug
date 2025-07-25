@@ -3,6 +3,8 @@
 #include "pluginterfaces/base/ibstream.h"
 #include "public.sdk/source/vst/utility/stringconvert.h"
 
+#include "tinyplug/tinyplug.h"
+
 #include "user/param_model.h"
 
 #include "vst3_adapters.h"
@@ -95,6 +97,21 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
         }
 
         parameters.addParameter(param_info);
+    }
+
+    const auto num_exports = to_underlying(Param_model::Export_id::num_exports);
+
+    for (auto i = decltype(num_exports){}; i < num_exports; ++i) {
+        auto export_info = Steinberg::Vst::ParameterInfo{
+            .id = static_cast<Steinberg::Vst::ParamID>(i + EXPORT_OFFSET),
+            .title = u"",
+            .shortTitle = u"",
+            .stepCount = 0,
+            .defaultNormalizedValue = 0,
+            .unitId = Steinberg::Vst::kRootUnitId,
+            .flags = (Steinberg::Vst::ParameterInfo::kIsReadOnly | Steinberg::Vst::ParameterInfo::kIsHidden)
+        };
+        parameters.addParameter(export_info);
     }
 
     return result;
@@ -192,8 +209,25 @@ Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::getParamNormalized(Steinb
 
 Steinberg::tresult PLUGIN_API Vst3_controller::setParamNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue value)
 {
-	const auto result = Super::setParamNormalized(tag, value);
-	return result;
+    const auto result = Super::setParamNormalized(tag, value);
+
+    // This is where we would enqueue the events and send to UI.
+    using namespace tiny;
+    if (tag == EXPORT_OFFSET) { // Only visualize one specific ID
+        constexpr int kBarWidth = 30;
+        value = std::clamp(value, 0., 1.);
+        const int filled = static_cast<int>(value * kBarWidth + 0.5);
+        const int empty = kBarWidth - filled;
+
+        std::cout << '\r' << "\033[K"; // Return to start of line and clear line
+
+        std::cout << std::format("PEAK [");
+        for (int i = 0; i < filled; ++i) std::cout << '#';
+        for (int i = 0; i < empty; ++i) std::cout << '-';
+        std::cout << std::format("] {:>5.2f}", value) << std::flush;
+    }
+
+    return result;
 }
 
 Steinberg::tresult PLUGIN_API Vst3_controller::setComponentHandler(Steinberg::Vst::IComponentHandler* handler)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <span>
 
 #include "tinyplug/tinyplug.h"
@@ -47,8 +48,15 @@ struct Dsp_kernel {
         
         for (size_t channel = 0; channel < context.ibuffers.size(); ++channel) {
             for (size_t frame = 0; frame < context.num_frames; ++frame) {
-                const auto sample = gain * context.ibuffers[channel][frame];
-                context.obuffers[channel][frame] = sample;
+                const auto input = context.ibuffers[channel][frame];
+                const auto output = gain * input;
+                context.obuffers[channel][frame] = output;
+
+                // Update peak.
+                auto* curr_in = &context.exports[to_index(Export_id::peak_in)];
+                auto* curr_out = &context.exports[to_index(Export_id::peak_out)];
+                *curr_in = std::max(*curr_in, input);
+                *curr_out = std::max(*curr_out, output);
             }
         }
     }
@@ -57,11 +65,13 @@ private:
 
     using User_params = Params<Param_model>;
     using Param_id = Param_model::Param_id;
+    using Export_id = Param_model::Export_id;
 
     User_params _params{};
     User_params::Param_values _values{};
 
-    auto to_index(Param_id id) -> std::underlying_type_t<Param_id>
+    template<Enum E>
+    auto to_index(E id) -> std::underlying_type_t<E>
     {
         return to_underlying(id);
     }

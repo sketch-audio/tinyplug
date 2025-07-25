@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <concepts>
+#include <format>
 #include <functional>
 #include <type_traits>
 #include <ranges>
