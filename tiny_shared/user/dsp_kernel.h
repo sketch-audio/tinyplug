@@ -1,10 +1,8 @@
 #pragma once
 
-#include <algorithm>
-#include <span>
+#include <algorithm> // std::max
 
 #include "tinyplug/tinyplug.h"
-
 #include "param_model.h"
 
 namespace tiny {
@@ -55,8 +53,8 @@ struct Dsp_kernel {
                 // Update peak.
                 auto* curr_in = &context.exports[to_index(Export_id::peak_in)];
                 auto* curr_out = &context.exports[to_index(Export_id::peak_out)];
-                *curr_in = std::max(*curr_in, input);
-                *curr_out = std::max(*curr_out, output);
+                *curr_in = std::max(*curr_in, std::abs(input));
+                *curr_out = std::max(*curr_out, std::abs(output));
             }
         }
     }
@@ -79,4 +77,4 @@ private:
 };
 static_assert(Some_dsp_kernel<Dsp_kernel>);
 
-}
+} // namespace tiny

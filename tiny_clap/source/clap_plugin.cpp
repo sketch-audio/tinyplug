@@ -1,22 +1,17 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <span>
 
 #include "clap/helpers/plugin.hh"
 #include "clap/helpers/plugin.hxx"
 #include "clap/helpers/host-proxy.hh"
 #include "clap/helpers/host-proxy.hxx"
 
-#include "clap_adapters.h"
 #include "clap_plugin.h"
-
-#include "platform/platform_view.h"
 
 Clap_plugin::Clap_plugin(const clap_host* host) : Super(&descriptor, host)
 {
-    using namespace tiny;
-
+    // Figure out the module paths for our parameters.
     const auto& tree = _params.get_tree();
     _modules = tiny::clap::tree_to_clap_modules(tree);
 }
@@ -34,7 +29,7 @@ bool Clap_plugin::init() noexcept
 
 bool Clap_plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t maxFrameCount) noexcept
 {
-    _adapter->reset(sampleRate, maxFrameCount);
+    _kernel->reset(sampleRate, maxFrameCount);
     return true;
 }
 
@@ -53,7 +48,7 @@ void Clap_plugin::stopProcessing() noexcept
 
 clap_process_status Clap_plugin::process(const clap_process* process) noexcept
 {
-    return _adapter->process(process);
+    return _kernel->process(process);
 }
 
 void Clap_plugin::reset() noexcept
@@ -179,7 +174,7 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
 bool Clap_plugin::paramsValue(clap_id paramId, double* value) noexcept
 {
     if (paramId > User_params::num_params || !value) return false;
-    *value = _adapter->get_host_value(paramId);
+    *value = _kernel->get_host_value(paramId);
     return true;
 }
 
@@ -222,7 +217,7 @@ void Clap_plugin::paramsFlush(const clap_input_events* in, const clap_output_eve
 
     for (size_t i = 0; i < size; ++i) {
         const auto* event = in->get(in, i);
-        this->handle_event(event);
+        _kernel->handle_event(event);
     }
 }
 
@@ -242,13 +237,13 @@ bool Clap_plugin::guiGetPreferredApi(const char** api, bool* isFloating) noexcep
 
 bool Clap_plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
 {
-    platform_view = Platform_views::make_owning(_delegate);
+    _view->create();
     return true;
 }
 
 void Clap_plugin::guiDestroy() noexcept
 {
-    platform_view = nullptr;
+    _view->destroy();
 }
 
 bool Clap_plugin::guiSetScale(double /*scale*/) noexcept
@@ -268,9 +263,7 @@ bool Clap_plugin::guiHide() noexcept
 
 bool Clap_plugin::guiGetSize(uint32_t* width, uint32_t* height) noexcept
 {
-    const auto delegate_size = _delegate->getSize();
-    *width = delegate_size.width;
-    *height = delegate_size.height;
+    _view->get_size(width, height);
     return true;
 }
 
@@ -298,11 +291,7 @@ bool Clap_plugin::guiAdjustSize(uint32_t* /*width*/, uint32_t* /*height*/) noexc
 
 bool Clap_plugin::guiSetSize(uint32_t width, uint32_t height) noexcept
 {
-    if (!platform_view) return false;
-
-    _delegate->onResize({static_cast<int>(width), static_cast<int>(height)});
-    platform_view->resize(width, height);
-    return true;
+    return _view->set_size(width, height);
 }
 
 void Clap_plugin::guiSuggestTitle(const char* /*title*/) noexcept
@@ -312,29 +301,10 @@ void Clap_plugin::guiSuggestTitle(const char* /*title*/) noexcept
 
 bool Clap_plugin::guiSetParent(const clap_window* window) noexcept
 {
-    if (!platform_view) return false;
-    
-    // Resolve the platform window type.
-    auto* platform_window = [=]() {
-        if (Platform::resolved == Platform::Type::macos) {
-            return window->cocoa;
-        } else if (Platform::resolved == Platform::Type::windows) {
-            return window->win32;
-        }
-    }();
-    platform_view->receive_parent(platform_window);
-    return true;
+    return _view->set_parent(window);
 }
 
 bool Clap_plugin::guiSetTransient(const clap_window* /*window*/) noexcept
 {
     return false; // floating only
-}
-
-// MARK: - private
-
-auto Clap_plugin::handle_event(const clap_event_header* event) -> void
-{
-    // Send to kernel adapter. (Kernel will need to have its own queue)
-    _adapter->handle_event(event);
 }

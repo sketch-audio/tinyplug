@@ -17,7 +17,7 @@ namespace tiny {
 
 enum class Queue_concurrency { spsc, spmc, mpsc, mpmc };
 
-template <typename T, size_t min_slots, Queue_concurrency type>
+template <typename T, size_t min_slots, Queue_concurrency type = Queue_concurrency::spsc>
 struct Lock_free_queue {};
 
 namespace queue_impl {

@@ -6,8 +6,7 @@
 
 #include "vst3_view.h"
 
-class Vst3_controller : public Steinberg::Vst::EditControllerEx1
-{
+class Vst3_controller : public Steinberg::Vst::EditControllerEx1 {
 public:
     
     using Super = Steinberg::Vst::EditControllerEx1;
@@ -46,11 +45,20 @@ public:
 
 protected:
 
+    auto pop_export(tiny::Export_event& event) -> bool
+    {
+        return _oqueue.pop(event); 
+    }
+
     Vst3_view* view{nullptr}; // Is there any point in keeping this around?
 
     // Sorted by paramId.
     using User_params = tiny::Params<tiny::Param_model>;
     User_params _params{};
     User_params::Param_values _uivalues{};
+
+    // We receive the exports in `setParamNormalized` and let the view pop them here.
+    using Export_queue = tiny::Lock_free_queue<tiny::Export_event, 256>;
+    Export_queue _oqueue{};
 
 };

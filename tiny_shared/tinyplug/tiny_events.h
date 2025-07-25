@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <limits>
 #include <variant>
 
@@ -23,4 +24,13 @@ struct Tagged_event {
     Event event{};
 };
 
-}
+// MARK: - UI events
+
+struct Export_event {
+    uint32_t id{};
+    double value{};
+};
+
+using Pop_export = std::function<bool(Export_event&)>;
+
+} // namespace tiny

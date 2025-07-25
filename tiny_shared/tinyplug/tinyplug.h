@@ -7,3 +7,4 @@
 #include "tiny_params.h"
 #include "tiny_queue.h"
 #include "tiny_utils.h"
+#include "tiny_view.h"

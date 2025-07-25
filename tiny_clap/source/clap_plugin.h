@@ -5,11 +5,11 @@
 #include "clap/helpers/plugin.hh"
 
 #include "plug_info.h"
-
-#include "platform/platform_view.h"
 #include "user/param_model.h"
 
 #include "clap_adapters.h"
+#include "clap_kernel.h"
+#include "clap_view.h"
 
 using MisbehaviourHandler = clap::helpers::MisbehaviourHandler; // Studio One appears to be misbehaving.
 using CheckingLevel = clap::helpers::CheckingLevel;
@@ -83,22 +83,26 @@ public:
     bool guiSetParent(const clap_window* window) noexcept override;
     bool guiSetTransient(const clap_window* window) noexcept override;
 
-protected:
+    // MARK: - private
 
-    auto handle_event(const clap_event_header* event) -> void;
-
-    std::shared_ptr<Graphics_delegate> _delegate = std::make_shared<Graphics_delegate>(Graphics_delegate::Size{800, 600});
-    std::unique_ptr<Platform_view> platform_view{nullptr};
+private:
 
     using User_params = tiny::Params<tiny::Param_model>;
 
     User_params _params{};
     std::vector<std::string> _modules{};
 
-    using Adapter = tiny::clap::Kernel_adapter<tiny::Dsp_kernel>;
-    std::unique_ptr<Adapter> _adapter = std::make_unique<Adapter>();
+    using Kernel = tiny::clap::Clap_kernel;
+    std::unique_ptr<Kernel> _kernel = std::make_unique<Kernel>();
 
-    // Preferred platform GUI API.
+    using View = tiny::clap::Clap_view;
+    std::unique_ptr<View> _view = std::make_unique<View>(
+        [this](auto& event) { return _kernel->pop_export(event); }
+    );
+
+    // MARK: - gui api
+
+    // Preferred platform GUI API (used in a couple places).
     static constexpr auto gui_preferred_api = []() {
         if (Platform::resolved == Platform::Type::macos) {
             return CLAP_WINDOW_API_COCOA;

@@ -213,18 +213,13 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setParamNormalized(Steinberg::Vst
 
     // This is where we would enqueue the events and send to UI.
     using namespace tiny;
-    if (tag == EXPORT_OFFSET) { // Only visualize one specific ID
-        constexpr int kBarWidth = 30;
-        value = std::clamp(value, 0., 1.);
-        const int filled = static_cast<int>(value * kBarWidth + 0.5);
-        const int empty = kBarWidth - filled;
 
-        std::cout << '\r' << "\033[K"; // Return to start of line and clear line
-
-        std::cout << std::format("PEAK [");
-        for (int i = 0; i < filled; ++i) std::cout << '#';
-        for (int i = 0; i < empty; ++i) std::cout << '-';
-        std::cout << std::format("] {:>5.2f}", value) << std::flush;
+    if (tag >= EXPORT_OFFSET) {
+        const auto id = tag - EXPORT_OFFSET;
+        _oqueue.push({.id = id, .value = value});
+    }
+    else {
+        // Param event.
     }
 
     return result;
@@ -243,7 +238,7 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
 	if (Steinberg::FIDStringsEqual(name, Steinberg::Vst::ViewType::kEditor))
 	{
         // Create your editor here and return a IPlugView ptr of it.
-        view = new Vst3_view();
+        view = new Vst3_view([this](auto& event) { return this->pop_export(event); });
         return view;
     }
     
