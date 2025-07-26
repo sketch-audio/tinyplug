@@ -11,8 +11,8 @@ struct Ui_state {/*TODO*/};
 
 // The current parameter & export values.
 struct Params_state {
-    std::span<double> params{};
-    std::span<double> exports{};
+    std::span<const double> params{};
+    std::span<const double> exports{};
 };
 
 // A place to send your control's actions.
