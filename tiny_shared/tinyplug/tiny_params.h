@@ -396,6 +396,8 @@ inline auto get_plain_default(const Param_spec<Id>& spec) -> double
 
 // MARK: - parameter model
 
+enum class Export_type; // See `tiny_exports.h`
+
 template<typename T>
 concept Some_param_model = requires {
     // An enum class `Param_id` with a case `num_params`
@@ -410,6 +412,9 @@ concept Some_param_model = requires {
 
     // A static function `build_tree` that returns a `Param_node<Param_id>`
     { T::build_tree() } -> std::same_as<Param_node<typename T::Param_id>>;
+
+    // A static function for `export_type` for looking up the export type.
+    { T::export_type(std::declval<typename T::Export_id>()) } -> std::same_as<Export_type>;
 };
 
 // MARK: - params impl

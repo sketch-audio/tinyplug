@@ -8,6 +8,8 @@
 
 namespace tiny {
 
+enum class Export_type { peak, stream, trig };
+
 static constexpr auto EXPORT_OFFSET = int32_t{1 << 30};
 
 template<Some_param_model User_model>

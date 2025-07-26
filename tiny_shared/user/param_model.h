@@ -88,6 +88,17 @@ struct Param_model {
             }
         };
     }
+
+    // This is so the framework can deliver your exports accurately.
+    static auto export_type(Export_id id) -> Export_type
+    {
+        using enum Export_id;
+        switch (id) {
+            case peak_in: return Export_type::peak;
+            case peak_out: return Export_type::peak;
+            default: return Export_type::stream;
+        }
+    }
 };
 static_assert(Some_param_model<Param_model>);
 
