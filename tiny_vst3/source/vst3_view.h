@@ -116,11 +116,11 @@ protected:
         auto event = Export_event{};
         while (_pop_export(event)) {
             auto& ui_export = _exports[event.id];
-            if (ui_export.dirty) {
-                ui_export.value = 0;
+            if (!ui_export.updated) {
+                ui_export.value = 0; // Reset on first update in frame where we receive an event.
             }
             ui_export.value = std::max(ui_export.value, event.value);
-            ui_export.dirty = true;
+            ui_export.updated = true;
         }
 
         // Adapt to values.
@@ -138,6 +138,11 @@ protected:
 
         // Tell the user view to draw.
         _view->on_draw(view_context);
+
+        // Get ready for next frame.
+        for (auto& ui_export : _exports) {
+            ui_export.updated = false;
+        }
     }
 
     using User_params = tiny::Params<tiny::Param_model>;
@@ -155,8 +160,8 @@ protected:
     std::unique_ptr<User_view> _view = std::make_unique<User_view>();
 
     struct Ui_export {
-        bool dirty{};
         double value{};
+        bool updated{};
     };
     std::array<Ui_export, User_exports::num_exports> _exports{};
 
