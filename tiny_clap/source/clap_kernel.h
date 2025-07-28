@@ -156,7 +156,7 @@ private:
 
     // Pointers to host io buffers.
     std::array<const float*, num_ichannels> _ibuffers{};
-    std::array<const float*, num_ichannels> _sbuffers{};
+    std::array<const float*, num_schannels> _sbuffers{};
     std::array<float*, num_ochannels> _obuffers{};
     std::array<float, num_exports> _exports{};
 
@@ -171,7 +171,7 @@ private:
 
     // TODO: - Use a heuristic for size.
     using Event_queue = tiny::Lock_free_queue<tiny::Event, 256>;
-    using Export_queue = tiny::Lock_free_queue<Export_event, 256>;
+    using Export_queue = tiny::Lock_free_queue<tiny::Export_event, 256>;
     Event_queue _iqueue{}; 
     Export_queue _oqueue{};
 
