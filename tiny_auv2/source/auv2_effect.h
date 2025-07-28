@@ -9,11 +9,11 @@
 #include "tinyplug/tinyplug.h"
 
 #include "plug_info.h"
-#include "platform/platform_view.h"
 #include "user/param_model.h"
 #include "user/dsp_kernel.h"
 
 #include "auv2_adapters.h"
+#include "auv2_view.h"
 
 class Auv2_effect : public ausdk::AUBase {
 public:
@@ -49,28 +49,48 @@ public:
 
 private:
 
-    static constexpr auto num_ichannels = size_t{2 + (tiny::Plug_info::wants_sidechain ? 2 : 0)};
+    auto pop_export(tiny::Export_event& event) -> bool
+    {
+        return _oqueue.pop(event);
+    }
+
+    using User_params = tiny::Params<tiny::Param_model>;
+    using User_exports = tiny::Exports<tiny::Param_model>;
+
+    static constexpr auto num_params = User_params::num_params;
+    static constexpr auto num_exports = User_exports::num_exports;
+
+    static constexpr auto num_ichannels = size_t{2};
+    static constexpr auto num_schannels = size_t{2};
     static constexpr auto num_ochannels = size_t{2};
 
     // Pointers to host io buffers.
     std::array<const float*, num_ichannels> _ibuffers{};
+    std::array<const float*, num_schannels> _sbuffers{};
     std::array<float*, num_ochannels> _obuffers{};
-
-    std::shared_ptr<Graphics_delegate> _delegate = std::make_shared<Graphics_delegate>(Graphics_delegate::Size{800, 600});
-    std::unique_ptr<Platform_view> platform_view{nullptr};
-
-    using User_params = tiny::Params<tiny::Param_model>;
+    std::array<float, num_exports> _exports{};
 
     User_params _params{};
     tiny::auv2::Clump_map _clumps{};
 
+    std::array<double, num_exports> _lexports{};
+
     // SetParameter -> Render
-    using Queue = tiny::Lock_free_queue<tiny::Tagged_event, 256, tiny::Queue_concurrency::mpsc>;
-    Queue _queue{}; // TODO: - Use a heuristic.
+    // TODO: - Use a heuristic for size.
+    using Event_queue = tiny::Lock_free_queue<tiny::Tagged_event, 256>;
+    using Export_queue = tiny::Lock_free_queue<tiny::Export_event, 256>;
+    Event_queue _iqueue{}; 
+    Export_queue _oqueue{};
 
     // Render
     std::vector<tiny::Tagged_event> _events{}; // Some fixed size thing.
 
     std::unique_ptr<tiny::Dsp_kernel> _kernel = std::make_unique<tiny::Dsp_kernel>();
+
+    // AUv2 view adapter.
+    using View = tiny::auv2::Auv2_view;
+    std::unique_ptr<View> _view = std::make_unique<View>(
+        [this](auto& event) { return this->pop_export(event); }
+    );
 
 };

@@ -91,7 +91,7 @@ set(TINY_AAX_SDK_DIR "" CACHE PATH "Path to AAX SDK.")
 add_subdirectory(tiny_shared)
 
 # Plug-in targets.
-#add_subdirectory(tiny_aax)
-#add_subdirectory(tiny_auv2)
+add_subdirectory(tiny_aax)
+add_subdirectory(tiny_auv2)
 add_subdirectory(tiny_clap)
 add_subdirectory(tiny_vst3)

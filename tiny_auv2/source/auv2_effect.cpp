@@ -300,7 +300,7 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
     const auto& params = _params.get_kernel_specs();
     const auto& param = params[inID];
 
-    _queue.push({
+    _iqueue.push({
         .offset = static_cast<int32_t>(inBufferOffsetInFrames),
         .event = tiny::Set_param{.id = inID, .value = tiny::host_to_plain_space(inValue, param)}
     });
@@ -319,7 +319,7 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
             case kParameterEvent_Immediate: {
                 const auto offset = event.eventValues.immediate.bufferOffset;
                 const auto value = event.eventValues.immediate.value;
-                _queue.push({
+                _iqueue.push({
                     .offset = static_cast<int32_t>(offset),
                     .event = tiny::Set_param{
                         .id = event.parameter,
@@ -335,14 +335,14 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                 const auto duration = event.eventValues.ramp.durationInFrames;
                 const auto initial = event.eventValues.ramp.startValue;
                 const auto target = event.eventValues.ramp.endValue;
-                _queue.push({
+                _iqueue.push({
                     .offset = offset,
                     .event = tiny::Set_param{
                         .id = event.parameter,
                         .value = initial
                     }
                 });
-                _queue.push({
+                _iqueue.push({
                     .offset = offset,
                     .event = tiny::Ramp_param{
                         .id = event.parameter,
@@ -371,7 +371,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
 
     _events.clear(); // Events are only valid for the current render cycle.
     auto param_event = Tagged_event{};
-    while (_queue.pop(param_event)) {
+    while (_iqueue.pop(param_event)) {
         if (_events.size() == _events.capacity()) {
             std::cout << "Events vector full!\n";
         }
@@ -393,23 +393,26 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
         event = (event_index < event_count) ? &_events[event_index] : nullptr;
     };
 
-    auto do_process = [this](size_t num_frames, size_t offset) {
-        _ibuffers[0] = static_cast<const float*>(Input(0).GetBufferList().mBuffers[0].mData) + offset;
-        _ibuffers[1] = static_cast<const float*>(Input(0).GetBufferList().mBuffers[1].mData) + offset;
+    // Create the context.
+    auto context = Dsp_context{.exports = _exports};
 
-        if constexpr (tiny::Plug_info::wants_sidechain) {
-            _ibuffers[2] = static_cast<const float*>(Input(1).GetBufferList().mBuffers[0].mData) + offset;
-            _ibuffers[3] = static_cast<const float*>(Input(1).GetBufferList().mBuffers[1].mData) + offset;
+    auto do_process = [this, &context](size_t num_frames, size_t offset) {
+        for (size_t i = 0; i < num_ichannels; ++i) {
+            _ibuffers[i] = static_cast<const float*>(Input(0).GetBufferList().mBuffers[i].mData) + offset;
+        }
+        for (size_t i = 0; i < num_ochannels; ++i) {
+             _obuffers[i] = static_cast<float*>(Output(0).GetBufferList().mBuffers[i].mData) + offset;
+        }
+        if constexpr (Plug_info::wants_sidechain) {
+            for (size_t i = 0; i < num_schannels; ++i) {
+                _sbuffers[i] = static_cast<const float*>(Input(1).GetBufferList().mBuffers[i].mData) + offset;
+            }
         }
 
-        _obuffers[0] = static_cast<float*>(Output(0).GetBufferList().mBuffers[0].mData) + offset;
-        _obuffers[1] = static_cast<float*>(Output(0).GetBufferList().mBuffers[1].mData) + offset;
-
-        auto context = Dsp_context{
-            .ibuffers = _ibuffers,
-            .obuffers = _obuffers,
-            .num_frames = num_frames
-        };
+        context.ibuffers = _ibuffers;
+        context.obuffers = _obuffers;
+        context.sbuffers = _sbuffers;
+        context.num_frames = num_frames;
         _kernel->process(context);
     };
 
@@ -439,6 +442,22 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
         } while (event && static_cast<uint32_t>(event->offset) <= now);
     }
 
+    // Send exports.
+    for (size_t i = 0; i < num_exports; ++i) {
+        if (context.exports[i] != _lexports[i]) {
+            // Send an output event.
+            _oqueue.push({
+                .id = static_cast<uint32_t>(i),
+                .value = context.exports[i]
+            });
+
+            // Cache for next time.
+            _lexports[i] = context.exports[i];
+        }
+
+        _exports[i] = 0; // Reset for peak meters.
+    }
+
     return noErr;
 }
 
@@ -446,8 +465,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
 
 void* Auv2_effect::create_view()
 {
-    platform_view = Platform_views::make_autoreleasing(_delegate);
-    return platform_view->native_handle();
+    return _view->create_view();
 }
 
 // MARK: - entry
