@@ -6,6 +6,7 @@
 #include <functional>
 #include <type_traits>
 #include <ranges>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -442,6 +443,57 @@ inline auto flatten_tree(const Param_node<Id>& root) -> std::vector<Param_spec<I
     return result;
 }
 
+template<Enum Id>
+inline auto validate_spec(const Param_spec<Id>& spec) -> bool
+{
+    auto in_range = [](auto x, auto a, auto b) -> bool { return a <= x && x <= b; };
+    auto ok_range = std::visit(
+        Inline_visitor{
+            [](const Bool_semantics&) { return true; },
+            [](const List_semantics& l) { return l.def_val < l.labels.size(); },
+            [&](const Float_semantics& f) { return in_range(f.def_val, f.min_val, f.max_val); },
+            [&](const Int_semantics& i) { return in_range(i.def_val, i.min_val, i.max_val); }
+        }
+    , spec.semantics);
+    TINY_ASSERT(ok_range, "Param default must be on a valid range.");
+    return ok_range;
+}
+
+template<Enum Id>
+inline auto validate_tree(const Param_node<Id>& root, size_t num_expected) -> bool
+{
+    auto ids = std::unordered_set<Id>{};
+
+    // Recursive lambda that takes a const ref to itself for recursion
+    const auto visit = [&](const Param_node<Id>& node, const auto& self) -> void {
+        std::visit(
+            Inline_visitor{
+                [&](const Param_group<Id>& group) {
+                    for (const auto& child : group.nodes) {
+                        self(child, self);
+                    }
+                },
+                [&](const Param_spec<Id>& spec) {
+                    validate_spec(spec);
+                    ids.insert(spec.id);
+                }
+            }
+        , node);
+    };
+
+    visit(root, visit);
+
+    const auto num_leaves = ids.size();
+    TINY_ASSERT(num_leaves > 0, "The tree must contain at least one parameter.");
+
+    const auto [min_val, max_val] = std::ranges::minmax_element(ids);
+    TINY_ASSERT(to_underlying(*min_val) == 0, "Identifiers must start at 0.");
+    TINY_ASSERT(to_underlying(*max_val) == num_leaves - 1, "Identifiers must not exceed (size - 1).");
+    TINY_ASSERT(num_leaves == num_expected, "The parameter tree ");
+
+    return true;
+}
+
 template <std::ranges::range R, typename Comp>
     requires std::sortable<std::ranges::iterator_t<R>, Comp>
 inline auto sorted_copy(R&& range, Comp comp) -> decltype(auto)
@@ -457,7 +509,8 @@ inline auto sorted_copy(R&& range, Comp comp) -> decltype(auto)
 // MARK: - params
 
 template<Some_param_model User_model>
-struct Params {
+class Params {
+public:
     // 
     static constexpr auto num_params = to_underlying(User_model::Param_id::num_params);
 
@@ -467,6 +520,7 @@ struct Params {
 
     //
     using Node = Param_node<typename User_model::Param_id>;
+    using Group = Param_node<typename User_model::Param_id>;
     using Spec = Param_spec<typename User_model::Param_id>;
 
     //
@@ -491,7 +545,12 @@ private:
     
     static constexpr auto id_less = [](const auto& a, const auto& b) { return to_underlying(a.id) < to_underlying(b.id); };
 
-    Node tree = User_model::build_tree();
+    Node tree = []() {
+        const auto t = User_model::build_tree();
+        const auto is_valid = params_impl::validate_tree(t, num_params);
+        return is_valid ? t : Group{};
+    }();
+    
     std::vector<Spec> presentation_specs{params_impl::flatten_tree(tree)};
     std::vector<Spec> kernel_specs{params_impl::sorted_copy(presentation_specs, id_less)};
 

@@ -1,8 +1,31 @@
 #pragma once
 
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <format>
 
 namespace tiny {
+
+#ifdef NDEBUG
+    #define TINY_ASSERT(expr, fmt, ...) ((void)0)
+#else
+    #define TINY_ASSERT(expr, fmt, ...)                                               \
+        do {                                                                          \
+            if (!(expr)) {                                                            \
+                const auto message = std::format(fmt __VA_OPT__(,) __VA_ARGS__);      \
+                std::fprintf(stderr,                                                  \
+                    "Assertion failed: %s\n"                                          \
+                    "Message: %s\n"                                                   \
+                    "File: %s:%d\n"                                                   \
+                    "Function: %s\n",                                                 \
+                    #expr,                                                            \
+                    message.c_str(),                                                  \
+                    __FILE__, __LINE__, __func__);                                    \
+                std::abort();                                                         \
+            }                                                                         \
+        } while (0)
+#endif
 
 // CORE
 
