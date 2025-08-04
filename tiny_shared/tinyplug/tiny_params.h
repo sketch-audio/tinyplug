@@ -294,6 +294,92 @@ struct Param_spec {
 
 // MARK: - space
 
+struct Value_conv {
+    /*
+        Semantics    Implies Linear?    Plain Space         Host Space         Knob Space
+        ------------------------------------------------------------------------------
+        Bool         Yes                0...1               0...1              0...1
+        List         Yes                0...(size - 1)      0...(size - 1)     0...1
+        Float        No                 min...max           0...1              0...1
+        Int          Yes                min...max           min...max          0...1
+    */
+    
+    // plain <--> host
+    static auto plain_to_host(double plain_value, const Value_semantics& semantics) -> double
+    {
+        return std::visit(
+            Inline_visitor{
+                [=](const Bool_semantics&) { return plain_value; },
+                [=](const List_semantics&) { return plain_value; },
+                [=](const Float_semantics& f) { return f.knob_adapter.plain_to_norm(f, plain_value); },
+                [=](const Int_semantics&) { return plain_value; }
+            }
+        , semantics);
+    }
+
+    static auto host_to_plain(double host_value, const Value_semantics& semantics) -> double
+    {
+        return std::visit(
+            Inline_visitor{
+                [=](const Bool_semantics&) { return host_value; },
+                [=](const List_semantics&) { return host_value; },
+                [=](const Float_semantics& f) { return f.knob_adapter.norm_to_plain(f, host_value); },
+                [=](const Int_semantics&) { return host_value; }
+            }
+        , semantics);
+    }
+
+    // host <--> knob
+    static auto host_to_knob(double host_value, const Value_semantics& semantics) -> double
+    {
+        return std::visit(
+            Inline_visitor{
+                [=](const Bool_semantics&) { return host_value; },
+                [=](const List_semantics& l) { return l.knob_adapter.plain_to_norm(l, host_value); },
+                [=](const Float_semantics&) { return host_value; },
+                [=](const Int_semantics& i) { return i.knob_adapter.plain_to_norm(i, host_value); }
+            }
+        , semantics);
+    }
+
+    static auto knob_to_host(double knob_value, const Value_semantics& semantics) -> double
+    {
+        return std::visit(
+            Inline_visitor{
+                [=](const Bool_semantics&) { return knob_value; },
+                [=](const List_semantics& l) { return l.knob_adapter.norm_to_plain(l, knob_value); },
+                [=](const Float_semantics&) { return knob_value; },
+                [=](const Int_semantics& i) { return i.knob_adapter.norm_to_plain(i, knob_value); }
+            }
+        , semantics);
+    }
+
+    // knob <--> plain
+    static auto knob_to_plain(double knob_value, const Value_semantics& semantics) -> double
+    {
+        return std::visit(
+            Inline_visitor{
+                [=](const Bool_semantics&) { return knob_value; },
+                [=](const List_semantics& l) { return l.knob_adapter.norm_to_plain(l, knob_value); },
+                [=](const Float_semantics& f) { return f.knob_adapter.norm_to_plain(f, knob_value); },
+                [=](const Int_semantics& i) { return i.knob_adapter.norm_to_plain(i, knob_value); }
+            }
+        , semantics);
+    }
+
+    static auto plain_to_knob(double plain_value, const Value_semantics& semantics) -> double
+    {
+        return std::visit(
+            Inline_visitor{
+                [=](const Bool_semantics&) { return plain_value; },
+                [=](const List_semantics& l) { return l.knob_adapter.plain_to_norm(l, plain_value); },
+                [=](const Float_semantics& f) { return f.knob_adapter.plain_to_norm(f, plain_value); },
+                [=](const Int_semantics& i) { return i.knob_adapter.plain_to_norm(i, plain_value); }
+            }
+        , semantics);
+    }
+};
+
 template<Enum Id>
 inline auto plain_to_host_space(double plain_value, const Param_spec<Id>& spec) -> double
 {
