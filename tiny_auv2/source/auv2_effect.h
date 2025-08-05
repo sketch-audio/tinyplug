@@ -49,6 +49,8 @@ public:
 
 private:
 
+    double _sr{48000};
+
     auto pop_export(tiny::Export_event& event) -> bool
     {
         return _oqueue.pop(event);

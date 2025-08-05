@@ -39,6 +39,7 @@ OSStatus Auv2_effect::Initialize()
     const auto sample_rate = format.mSampleRate;
     const auto max_frames = Super::GetMaxFramesPerSlice();
     _kernel->reset(sample_rate, max_frames);
+    _sr = sample_rate;
 
     _events.reserve(128);
 
@@ -393,10 +394,63 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
         event = (event_index < event_count) ? &_events[event_index] : nullptr;
     };
 
+    // Get host data.
+    struct {
+        Boolean is_playing{};
+        Boolean is_recording{};
+        Float64 sample_pos{};
+        Boolean is_cycling{};
+        Float64 cycle_start{};
+        Float64 cycle_end{};
+        Float64 beat_pos{};
+        Float64 tempo{};
+        Float32 time_sig_numer{};
+        UInt32 time_sig_denom{};
+    } host_data{};
+
+    [[maybe_unused]] auto result = OSStatus{noErr};
+    result = [this, &host_data]() {
+        auto info = GetHostCallbackInfo();
+        if (info.transportStateProc2) {
+            return (*info.transportStateProc2)(
+                info.hostUserData,
+                &host_data.is_playing,
+                &host_data.is_recording,
+                nullptr, // transport_state_changed
+                &host_data.sample_pos,
+                &host_data.is_cycling,
+                &host_data.cycle_start,
+                &host_data.cycle_end
+            );
+        }
+        else {
+            return CallHostTransportState(
+                &host_data.is_playing,
+                nullptr, // transport_state_changed
+                &host_data.sample_pos,
+                &host_data.is_cycling,
+                &host_data.cycle_start,
+                &host_data.cycle_end
+            );
+        }
+    }();
+
+    result = CallHostBeatAndTempo(
+        &host_data.beat_pos,
+        &host_data.tempo
+    );
+
+    result = CallHostMusicalTimeLocation(
+        nullptr, // sample_offset_to_next_beat
+        &host_data.time_sig_numer,
+        &host_data.time_sig_denom,
+        nullptr // current_measure_downbeat
+    );
+
     // Create the context.
     auto context = Dsp_context{.exports = _exports};
 
-    auto do_process = [this, &context](size_t num_frames, size_t offset) {
+    auto do_process = [this, &context, &host_data](size_t num_frames, size_t offset) {
         for (size_t i = 0; i < num_ichannels; ++i) {
             _ibuffers[i] = static_cast<const float*>(Input(0).GetBufferList().mBuffers[i].mData) + offset;
         }
@@ -408,6 +462,30 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
                 _sbuffers[i] = static_cast<const float*>(Input(1).GetBufferList().mBuffers[i].mData) + offset;
             }
         }
+
+        const auto sample_pos = host_data.sample_pos;
+        const auto beat_pos = host_data.beat_pos;
+        const auto cycle_start = host_data.cycle_start;
+        const auto cycle_end = host_data.cycle_end;
+        const auto tempo = host_data.tempo;
+        const auto ts_numer = static_cast<int32_t>(host_data.time_sig_numer);
+        const auto ts_denom = static_cast<int32_t>(host_data.time_sig_denom);
+
+        const auto to_bool = [](auto a) { return a != 0; };
+
+        context.musical_context = {
+            .sample_pos = static_cast<int64_t>(sample_pos + offset),
+            .beat_pos = beat_pos + frames_to_beats(offset, tempo, _sr),
+            .cycle_start = cycle_start,
+            .cycle_end = cycle_end,
+            .tempo_ideal = tempo,
+            .time_sig = {ts_numer, ts_denom},
+            .transport_state = {
+                .moving = to_bool(host_data.is_playing),
+                .cycling = to_bool(host_data.is_cycling),
+                .recording = to_bool(host_data.is_recording)
+            }
+        };
 
         context.ibuffers = _ibuffers;
         context.obuffers = _obuffers;
