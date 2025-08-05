@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <charconv>
 
 #include "aax_monolith.h"
@@ -19,6 +20,8 @@ public:
     static AAX_CEffectParameters* AAX_CALLBACK Create() { return new Aax_parameters; }
 
     AAX_Result EffectInit() override;
+
+    AAX_Result NotificationReceived(AAX_CTypeID inNotificationType, const void* inNotificationData, uint32_t inNotificationDataSize) override;
 
     using RenderInfo = tiny::aax::AAX_SInstrumentRenderInfo;
     void RenderAudio(RenderInfo* ioRenderInfo, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues) override
@@ -59,8 +62,58 @@ public:
             }
         }
 
+        // Read host data.
+        struct {
+            double tempo{};
+            int32_t time_sig_numer{};
+            int32_t time_sig_denom{};
+            bool is_playing{};
+            int64_t tick_pos{};
+            bool is_looping{};
+            int64_t loop_start_tick{};
+            int64_t loop_end_tick{};
+            int64_t sample_pos{};
+            uint32_t ticks_per_beat{};
+            bool is_recording{};
+        } host_data{};
+
+        auto* transport = ioRenderInfo->mTransportNode->GetTransport();
+
+        // ...
+        [[maybe_unused]] auto result = AAX_Result{AAX_SUCCESS};
+        result = transport->GetCurrentTempo(&host_data.tempo);
+        result = transport->GetCurrentMeter(&host_data.time_sig_numer, &host_data.time_sig_denom);
+        result = transport->IsTransportPlaying(&host_data.is_playing);
+        result = transport->GetCurrentTickPosition(&host_data.tick_pos);
+        result = transport->GetCurrentLoopPosition(&host_data.is_looping, &host_data.loop_start_tick, &host_data.loop_end_tick);
+        result = transport->GetCurrentNativeSampleLocation(&host_data.sample_pos);
+        result = transport->GetCurrentTicksPerBeat(&host_data.ticks_per_beat);
+
+        host_data.is_recording = recording.load(std::memory_order_relaxed); // From notifications.
+
+        const auto sample_pos = host_data.sample_pos;
+        const auto beat_pos = static_cast<double>(host_data.tick_pos) / host_data.ticks_per_beat;
+        const auto cycle_start = static_cast<double>(host_data.loop_start_tick) / host_data.ticks_per_beat;
+        const auto cycle_end = static_cast<double>(host_data.loop_end_tick) / host_data.ticks_per_beat;
+        const auto tempo = host_data.tempo;
+        const auto ts_numer = host_data.time_sig_numer;
+        const auto ts_denom = host_data.time_sig_denom;
+
         // Process kernel.
         auto context = tiny::Dsp_context{
+            .musical_context = {
+                .sample_pos = sample_pos,
+                .beat_pos = beat_pos,
+                .cycle_start = cycle_start,
+                .cycle_end = cycle_end,
+                .tempo_ideal = tempo,
+                .time_sig = {ts_numer, ts_denom},
+                .transport_state = {
+                    .moving = host_data.is_playing,
+                    .cycling = host_data.is_looping,
+                    .recording = host_data.is_recording
+                }
+            },
             .ibuffers = _ibuffers,
             .sbuffers = _sbuffers,
             .obuffers = _obuffers,
@@ -102,6 +155,8 @@ private:
     static constexpr auto num_ichannels = size_t{2};
     static constexpr auto num_schannels = size_t{1}; // mono sidechain? verify.
     static constexpr auto num_ochannels = size_t{2};
+
+    std::atomic<bool> recording{false}; // 
 
     // Pointers to host io buffers.
     std::array<const float*, num_ichannels> _ibuffers{};

@@ -238,6 +238,7 @@ AAX_Result	AAX_CMonolithicParameters::StaticDescribe(AAX_IEffectDescriptor* ioDe
     err = properties->AddProperty(AAX_eProperty_Constraint_Location, 0x0 | AAX_eConstraintLocationMask_DataModel); // The alg proc must be co-located with the effect data model
     if (setupInfo.mNeedsTransport) {
         err = properties->AddProperty(AAX_eProperty_UsesTransport, true);
+        err = properties->AddProperty(AAX_eProperty_ObservesTransportState, true); // TINY: - So we can get recording state.
     }
     err = properties->AddProperty(AAX_eProperty_ManufacturerID, static_cast<int32_t>(setupInfo.mManufacturerID));
     err = properties->AddProperty(AAX_eProperty_ProductID, static_cast<int32_t>(setupInfo.mProductID));

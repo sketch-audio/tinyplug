@@ -1,7 +1,9 @@
 #pragma once
 
 #include <algorithm>
+#include <charconv>
 
+#include "AAX.h"
 #include "AAX_ITaperDelegate.h"
 
 #include "tinyplug/tinyplug.h"
@@ -79,6 +81,39 @@ inline auto tree_to_aax_id(const Param_node<Id>& root) -> std::vector<std::strin
     
     visit(root, visit);
     return result;
+}
+
+// MARK: - AAX id <--> tiny
+
+inline auto tiny_id_to_aax(uint32_t tiny_id) -> std::optional<std::string>
+{
+    // Prefix: "0x", Base: 16 (with leading 0s)
+    return std::format("0x{:08x}", tiny_id);
+}
+
+inline auto aax_id_to_tiny(const char* aax_id) noexcept -> std::optional<uint32_t>
+{
+    static constexpr auto aax_id_prefix = "0x";
+    static constexpr auto aax_id_base = 16;
+
+    if (!aax_id) return std::nullopt;
+
+    const auto size = std::strlen(aax_id);
+    const auto poff = std::strlen(aax_id_prefix);
+
+    auto tiny_id = uint32_t{};
+    const auto [ptr, ec] = std::from_chars(
+        aax_id + poff,
+        aax_id + size,
+        tiny_id,
+        aax_id_base
+    );
+
+    if (ec != std::errc{} || ptr != aax_id + size) {
+        return std::nullopt;
+    }
+
+    return tiny_id;
 }
 
 }

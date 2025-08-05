@@ -27,6 +27,7 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
 
         //
         auto info = tiny::aax::AAX_SInstrumentSetupInfo{};
+        info.mNeedsTransport = true;
         info.mInputStemFormat = AAX_eStemFormat_Stereo;
         info.mOutputStemFormat = AAX_eStemFormat_Stereo;
         info.mWantsSidechain = tiny::Plug_info::wants_sidechain;

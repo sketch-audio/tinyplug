@@ -8,6 +8,7 @@
 #include "AAX_CStateTaperDelegate.h"
 #include "AAX_CStateDisplayDelegate.h"
 #include "AAX_CUnitDisplayDelegateDecorator.h"
+#include "AAX_TransportTypes.h"
 
 #include "aax_adapters.h"
 
@@ -134,5 +135,20 @@ AAX_Result Aax_parameters::EffectInit()
     // mParameterManager.AddParameter(bypass_param.release());
     // mPacketDispatcher.RegisterPacket(bypass_id.CString(), AAX_FIELD_INDEX(Aax_context, bypass));
 
+    return AAX_SUCCESS;
+}
+
+AAX_Result Aax_parameters::NotificationReceived(AAX_CTypeID inNotificationType, const void* inNotificationData, uint32_t /*inNotificationDataSize*/)
+{
+    switch (inNotificationType) {
+        case AAX_eNotificationEvent_TransportStateChanged: {
+            if (const auto* data = inNotificationData) {
+                const auto* info = static_cast<const AAX_TransportStateInfo_V1*>(data);
+                recording.store(info->mIsRecording, std::memory_order_relaxed);
+                break;
+            }
+        }
+        default: break;
+    }
     return AAX_SUCCESS;
 }
