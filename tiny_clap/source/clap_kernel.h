@@ -25,6 +25,7 @@ struct Clap_kernel {
     auto reset(double sample_rate, size_t max_frames) -> void
     {
         _kernel->reset(sample_rate, max_frames);
+        _sr = sample_rate;
     }
 
     auto handle_event(const clap_event_header* event) -> void
@@ -88,6 +89,36 @@ struct Clap_kernel {
                 }
             }
 
+            // Resolve the musical context.
+            const auto* transport = process->transport;
+
+            // We will derive the sample time from the time in seconds.
+            const auto sec_pos = static_cast<double>(transport->song_pos_seconds) / CLAP_SECTIME_FACTOR;
+            const auto sample_pos = std::round(sec_pos * _sr);
+            const auto beat_pos = static_cast<double>(transport->song_pos_beats) / CLAP_BEATTIME_FACTOR;
+            const auto cycle_start = static_cast<double>(transport->loop_start_beats) / CLAP_BEATTIME_FACTOR;
+            const auto cycle_end = static_cast<double>(transport->loop_end_beats) / CLAP_BEATTIME_FACTOR;
+            const auto tempo = transport->tempo;
+            const auto ts_numer = transport->tsig_num;
+            const auto ts_denom = transport->tsig_denom;
+
+            const auto flags = transport->flags;
+            const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
+
+            context.musical_context = {
+                .sample_pos = static_cast<int64_t>(sample_pos + offset),
+                .beat_pos = beat_pos + frames_to_beats(offset, tempo, _sr),
+                .cycle_start = cycle_start,
+                .cycle_end = cycle_end,
+                .tempo_ideal = tempo,
+                .time_sig = {ts_numer, ts_denom},
+                .transport_state = {
+                    .moving = has_flag(flags, CLAP_TRANSPORT_IS_PLAYING),
+                    .cycling = has_flag(flags, CLAP_TRANSPORT_IS_LOOP_ACTIVE),
+                    .recording = has_flag(flags, CLAP_TRANSPORT_IS_RECORDING)
+                }
+            };
+
             context.ibuffers = _ibuffers;
             context.obuffers = _obuffers;
             context.sbuffers = _sbuffers;
@@ -143,7 +174,9 @@ struct Clap_kernel {
     }
 
 private:
-    
+
+    double _sr{48000};
+
     using User_params = tiny::Params<tiny::Param_model>;
     using User_exports = tiny::Exports<tiny::Param_model>;
 
