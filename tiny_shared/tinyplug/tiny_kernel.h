@@ -1,13 +1,44 @@
 #pragma once
 
 #include <concepts>
+#include <optional>
 #include <span>
 
 #include "tiny_events.h"
+#include "tiny_utils.h"
 
 namespace tiny {
 
+inline auto frames_to_beats(int64_t frames, double tempo, double sample_rate) noexcept -> double
+{
+    TINY_ASSERT(sample_rate > 0, "Sample rate must be greater than zero.");
+    return static_cast<double>(frames) * tempo / (60 * sample_rate);
+}
+
+struct Transport_state {
+    bool moving{};
+    bool cycling{};
+    bool recording{};
+};
+
+struct Time_sig {
+    int32_t numer{4};
+    int32_t denom{4};
+};
+
+struct Musical_context {
+    int64_t sample_pos{};
+    double beat_pos{};
+    double cycle_start{}; // cycle start, end in beats
+    double cycle_end{};
+    double tempo_ideal{120};
+    double tempo_real{tempo_ideal};
+    Time_sig time_sig{};
+    Transport_state transport_state{};
+};
+
 struct Dsp_context {
+    Musical_context musical_context{};
     std::span<const float*> ibuffers{};
     std::span<const float*> sbuffers{};
     std::span<float*> obuffers{};
