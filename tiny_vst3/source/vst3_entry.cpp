@@ -21,7 +21,7 @@ BEGIN_FACTORY_DEF(
 
     // its kVstAudioEffectClass component
     DEF_CLASS2(
-        INLINE_UID_FROM_FUID(tiny::vst3::map_to_fuid(tiny::Plug_info::Vst3::processor_uid)),
+        INLINE_UID_FROM_FUID(tiny::map_to_fuid(tiny::Plug_info::Vst3::processor_uid)),
         Steinberg::PClassInfo::kManyInstances,	            // Cardinality
         kVstAudioEffectClass,	                            // Category (do not change this)
         tiny::Plug_info::product_name,		            // Name (to be changed)
@@ -34,7 +34,7 @@ BEGIN_FACTORY_DEF(
 
     // its kVstComponentControllerClass component
     DEF_CLASS2(
-        INLINE_UID_FROM_FUID(tiny::vst3::map_to_fuid(tiny::Plug_info::Vst3::controller_uid)),
+        INLINE_UID_FROM_FUID(tiny::map_to_fuid(tiny::Plug_info::Vst3::controller_uid)),
         Steinberg::PClassInfo::kManyInstances,          // Cardinality
         kVstComponentControllerClass,                   // Category (do not change this)
         tiny::Plug_info::product_name,	            // Name (could be the same than component name)

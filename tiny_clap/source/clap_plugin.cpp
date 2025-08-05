@@ -2,23 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "clap/helpers/plugin.hh"
-#include "clap/helpers/plugin.hxx"
-#include "clap/helpers/host-proxy.hh"
-#include "clap/helpers/host-proxy.hxx"
-
 #include "clap_plugin.h"
-
-Clap_plugin::Clap_plugin(const clap_host* host) : Super(&descriptor, host)
-{
-    // Figure out the module paths for our parameters.
-    const auto& tree = _params.get_tree();
-    _modules = tiny::clap::tree_to_clap_modules(tree);
-}
-
-Clap_plugin::~Clap_plugin()
-{
-}
 
 // MARK: - plugin
 
@@ -114,27 +98,14 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
 
     using namespace tiny;
     
-    const auto& params = _params.get_presentation_specs(); // Report params in presentation order!
+    const auto& params = _params.presentation_specs(); // Report params in presentation order!
 
     const auto& param = params[paramIndex];
     const auto& path = _modules[paramIndex];
 
-    auto resolve_flags = [](const User_params::Spec& param) {
-        auto result = clap_param_info_flags{};
-        
-        if (param.hidden) {
-            result |= CLAP_PARAM_IS_HIDDEN;
-        }
-        else {
-            result |= CLAP_PARAM_IS_AUTOMATABLE;
-        }
-
-        return result;
-    };
-
     *info = {};
-    info->id = to_underlying(param.id);
-    info->flags = resolve_flags(param);
+    info->id = param.id;
+    info->flags = param.hidden ? CLAP_PARAM_IS_HIDDEN : CLAP_PARAM_IS_AUTOMATABLE;
     info->cookie = nullptr;
     std::strncpy(info->name, param.name, CLAP_NAME_SIZE);
     std::strncpy(info->module, path.c_str(), CLAP_NAME_SIZE);
@@ -183,7 +154,7 @@ bool Clap_plugin::paramsValueToText(clap_id paramId, double value, char* display
     if (paramId >= User_params::num_params || !display) return false;
 
     using namespace tiny;
-    const auto& params = _params.get_kernel_specs();
+    const auto& params = _params.kernel_specs();
     const auto& param = params[paramId];
     const auto str = Host_formatter::format_string(value, param.semantics);
     std::strncpy(display, str.c_str(), size);
@@ -197,12 +168,12 @@ bool Clap_plugin::paramsTextToValue(clap_id paramId, const char* display, double
     if (paramId >= User_params::num_params || !display || !value) return false;
 
     using namespace tiny;
-    const auto& params = _params.get_kernel_specs();
+    const auto& params = _params.kernel_specs();
     const auto& param = params[paramId];
     const auto str = std::string{display};
 
     if (const auto plain = Host_formatter::format_value(str, param.semantics)) {
-        *value = plain_to_host_space(*plain, param);
+        *value = Value_conv::plain_to_host(*plain, param.semantics);
         return true;
     }
 

@@ -8,7 +8,7 @@
 #include "user/param_model.h"
 #include "user/custom_view.h"
 
-namespace tiny::auv2 {
+namespace tiny {
 
 struct Auv2_view {
 
@@ -61,7 +61,7 @@ private:
         }
     }
 
-    using User_params = tiny::Params<tiny::Param_model>;
+    using User_params = tiny::Param_infos<tiny::Param_model>;
     using User_exports = tiny::Exports<tiny::Param_model>;
 
     Pop_export _pop_export{}; // A function to pop exports

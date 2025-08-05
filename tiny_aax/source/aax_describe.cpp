@@ -26,7 +26,7 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
         descriptor->AddProcPtr((void*)Aax_gui::Create, kAAX_ProcPtrID_Create_EffectGUI);
 
         //
-        auto info = tiny::aax::AAX_SInstrumentSetupInfo{};
+        auto info = tiny::AAX_SInstrumentSetupInfo{};
         info.mNeedsTransport = true;
         info.mInputStemFormat = AAX_eStemFormat_Stereo;
         info.mOutputStemFormat = AAX_eStemFormat_Stereo;

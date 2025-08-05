@@ -28,7 +28,7 @@
 // AAX Includes
 #include "AAX_Exception.h"
 
-namespace tiny::aax {
+namespace tiny {
 
 AAX_CMonolithicParameters::AAX_CMonolithicParameters(void)
     : AAX_CEffectParameters()
@@ -341,4 +341,4 @@ void AAX_CMonolithicParameters::DeleteUsedParameterChanges()
     }
 }
 
-} // namespace tiny::aax
+} // namespace tiny

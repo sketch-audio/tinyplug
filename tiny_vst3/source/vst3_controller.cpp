@@ -23,9 +23,9 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
 
     // Here you could register some parameters.
 
-    const auto& tree = _params.get_tree();
-    const auto& params = _params.get_presentation_specs();
-    const auto [units, param_unit_ids] = tiny::vst3::tree_to_units(tree);
+    const auto& tree = _params.tree();
+    const auto& params = _params.presentation_specs();
+    const auto [units, param_unit_ids] = tree_to_units(tree);
     
     for (const auto& unit : units) {
         auto unit_info = Steinberg::Vst::UnitInfo{
@@ -99,7 +99,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
         parameters.addParameter(param_info);
     }
 
-    const auto num_exports = to_underlying(Param_model::Export_id::num_exports);
+    const auto num_exports = enum_raw(Param_model::Export_id::num_exports);
 
     for (auto i = decltype(num_exports){}; i < num_exports; ++i) {
         auto export_info = Steinberg::Vst::ParameterInfo{
@@ -158,9 +158,9 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamStringByValue(Steinberg::
     if (tag >= User_params::num_params) return Steinberg::kResultFalse;
 
     using namespace tiny;
-    const auto& params = _params.get_kernel_specs();
+    const auto& params = _params.kernel_specs();
     const auto& param = params[tag];
-    const auto host = knob_to_host_space(valueNormalized, param);
+    const auto host = Value_conv::knob_to_host(valueNormalized, param.semantics);
     const auto str = Host_formatter::format_string(host, param.semantics);
     Steinberg::Vst::StringConvert::convert(str, string);
 
@@ -175,11 +175,11 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamValueByString(Steinberg::
     if (tag >= User_params::num_params) return Steinberg::kResultFalse;
 
     using namespace tiny;
-    const auto& params = _params.get_kernel_specs();
+    const auto& params = _params.kernel_specs();
     const auto& param = params[tag];
     const auto str = Steinberg::Vst::StringConvert::convert(string);
     if (const auto plain = Host_formatter::format_value(str, param.semantics)) {
-        valueNormalized = plain_to_knob_space(*plain, param);
+        valueNormalized = Value_conv::plain_to_knob(*plain, param.semantics);
         return Steinberg::kResultTrue;
     }
 
@@ -189,17 +189,17 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamValueByString(Steinberg::
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::normalizedParamToPlain(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue valueNormalized)
 {
     using namespace tiny;
-    const auto& params = _params.get_kernel_specs();
+    const auto& params = _params.kernel_specs();
     const auto& param = params[tag];
-    return knob_to_plain_space(valueNormalized, param);
+    return Value_conv::knob_to_plain(valueNormalized, param.semantics);
 }
 
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::plainParamToNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue plainValue)
 {
     using namespace tiny;
-    const auto& params = _params.get_kernel_specs();
+    const auto& params = _params.kernel_specs();
     const auto& param = params[tag];
-    return plain_to_knob_space(plainValue, param);
+    return Value_conv::plain_to_knob(plainValue, param.semantics);
 }
 
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::getParamNormalized(Steinberg::Vst::ParamID tag)

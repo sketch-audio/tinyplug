@@ -3,6 +3,9 @@
 #include <memory>
 
 #include "clap/helpers/plugin.hh"
+#include "clap/helpers/plugin.hxx"
+#include "clap/helpers/host-proxy.hh"
+#include "clap/helpers/host-proxy.hxx"
 
 #include "plug_info.h"
 #include "user/param_model.h"
@@ -18,8 +21,8 @@ class Clap_plugin : public clap::helpers::Plugin<MisbehaviourHandler::Ignore, Ch
 public:
 
     using Super = clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::Maximal>;
-    Clap_plugin(const clap_host* host);
-    ~Clap_plugin();
+    Clap_plugin(const clap_host* host) : Super{&descriptor, host} {};
+    ~Clap_plugin() = default;
 
     static const inline clap_plugin_descriptor_t descriptor{
         .clap_version = CLAP_VERSION,
@@ -87,15 +90,15 @@ public:
 
 private:
 
-    using User_params = tiny::Params<tiny::Param_model>;
+    using User_params = tiny::Param_infos<tiny::Param_model>;
 
     User_params _params{};
-    std::vector<std::string> _modules{};
+    std::vector<std::string> _modules{tree_to_clap_modules(_params.tree())};
 
-    using Kernel = tiny::clap::Clap_kernel;
+    using Kernel = tiny::Clap_kernel;
     std::unique_ptr<Kernel> _kernel = std::make_unique<Kernel>();
 
-    using View = tiny::clap::Clap_view;
+    using View = tiny::Clap_view;
     std::unique_ptr<View> _view = std::make_unique<View>(
         [this](auto& event) { return _kernel->pop_export(event); }
     );

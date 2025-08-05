@@ -50,8 +50,10 @@ template<typename T, typename... Alts>
 struct is_variant_alternative<T, std::variant<Alts...>> : std::disjunction<std::is_same<T, Alts>...> {};
 
 template<Enum E>
-constexpr auto to_underlying(E e) noexcept {
-    return static_cast<std::underlying_type_t<E>>(e);
+constexpr auto enum_raw(E e) noexcept -> std::underlying_type_t<E>
+{
+    using U = std::underlying_type_t<E>;
+    return static_cast<U>(e);
 }
 
 namespace utils_impl {

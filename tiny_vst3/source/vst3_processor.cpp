@@ -16,7 +16,7 @@
 
 Vst3_processor::Vst3_processor()
 {
-    setControllerClass(tiny::vst3::map_to_fuid(tiny::Plug_info::Vst3::controller_uid));
+    setControllerClass(tiny::map_to_fuid(tiny::Plug_info::Vst3::controller_uid));
 }
 
 Vst3_processor::~Vst3_processor()
@@ -59,9 +59,8 @@ Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* co
     _events.reserve(128); // Want fixed size event vector.
 
     // Get knob defaults for automation points.
-    for (const auto& param : _params.get_kernel_specs()) {
-        const auto idx = to_underlying(param.id);
-        _lpoints[idx] = {.offset = -1, .value = get_knob_default(param)};
+    for (const auto& param : _params.kernel_specs()) {
+        _lpoints[param.id] = {.offset = -1, .value = get_knob_default(param)};
     }
 
     return Steinberg::kResultOk;
@@ -248,7 +247,7 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
     auto& param_changes = *data.inputParameterChanges;
     const auto num_changes = param_changes.getParameterCount();
 
-    const auto& specs = _params.get_kernel_specs();
+    const auto& specs = _params.kernel_specs();
 
     for (auto i = decltype(num_changes){}; i < num_changes; ++i) {
         auto& queue = *param_changes.getParameterData(i);
@@ -280,7 +279,7 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
                     .offset = std::max(previous.offset, {}),
                     .event = Set_param{
                         .id = id,
-                        .value = knob_to_plain_space(value, param)
+                        .value = Value_conv::knob_to_plain(value, param.semantics)
                     }
                 });
             }
@@ -290,7 +289,7 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
                     .offset = std::max(previous.offset, {}),
                     .event = Ramp_param{
                         .id = id,
-                        .target = knob_to_plain_space(value, param),
+                        .target = Value_conv::knob_to_plain(value, param.semantics),
                         .dur_samples = ramp_dur
                     }
                 });

@@ -4,19 +4,17 @@
 
 Auv2_effect::Auv2_effect(AudioUnit component) : Super(component, num_inputs, num_outputs)
 {
-    CreateElements();
-
     using namespace tiny;
-    const auto& tree = Param_model::build_tree();
-    _clumps = tiny::auv2::tree_to_clump_map(tree);
 
-    const auto& params = _params.get_kernel_specs();
+    CreateElements(); // So we can create the sidechain.
 
     // Set up parameters.
+    const auto& params = _params.kernel_specs();
+
     Globals()->UseIndexedParameters(User_params::num_params);
     for (const auto& param : params) {
         const auto def_val = get_host_default(param);
-        Globals()->SetParameter(to_underlying(param.id), def_val);
+        Globals()->SetParameter(param.id, def_val);
     }
 
     // 
@@ -85,12 +83,14 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
 {
     if (inScope != kAudioUnitScope_Global || !outData) return kAudioUnitErr_InvalidScope;
 
+    using namespace tiny;
+
     switch (inID) {
         case kAudioUnitProperty_CocoaUI: {
             auto* info = static_cast<AudioUnitCocoaViewInfo*>(outData);
 
             // Bundle
-            auto id = tiny::auv2::CFStrLocal{tiny::Plug_info::Auv2::bundle_id};
+            auto id = CFStrLocal{tiny::Plug_info::Auv2::bundle_id};
             auto* bundle = CFBundleGetBundleWithIdentifier(id.Get());
             auto* url = CFBundleCopyBundleURL(bundle);
 
@@ -103,7 +103,7 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
 
             using namespace tiny;
             const auto id = data->inParamID;
-            const auto& params = _params.get_kernel_specs();
+            const auto& params = _params.kernel_specs();
             const auto& param = params[id];
             const auto str = Host_formatter::format_string(*data->inValue, param.semantics);
             data->outString = CFStringCreateWithCString(kCFAllocatorDefault, str.c_str(), kCFStringEncodingUTF8);
@@ -115,13 +115,13 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
 
             using namespace tiny;
             const auto id = data->inParamID;
-            const auto& params = _params.get_kernel_specs();
+            const auto& params = _params.kernel_specs();
             const auto& param = params[id];
 
-            const auto str = tiny::auv2::cf_to_std(data->inString);
+            const auto str = cf_to_std(data->inString);
 
             if (const auto plain = Host_formatter::format_value(str, param.semantics)) {
-                data->outValue = plain_to_host_space(*plain, param);
+                data->outValue = Value_conv::plain_to_host(*plain, param.semantics);
                 return noErr;
             }
             
@@ -147,8 +147,8 @@ OSStatus Auv2_effect::GetParameterList(AudioUnitScope inScope, AudioUnitParamete
     using namespace tiny;
     outNumParameters = User_params::num_params; // Do this first.
     if (!outParameterList) return noErr;
-    const auto& params = _params.get_presentation_specs();
-    const auto ids = params | std::views::transform([](const auto& spec) { return to_underlying(spec.id); });
+    const auto& params = _params.presentation_specs();
+    const auto ids = params | std::views::transform([](const auto& spec) { return spec.id; });
     std::ranges::copy(ids, outParameterList);
 
     return noErr;
@@ -162,7 +162,7 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
 
     using namespace tiny;
 
-    auto resolve_flags = [](const User_params::Spec& param, bool found_clump) {
+    auto resolve_flags = [](const Param_spec& param, bool found_clump) {
         auto flags = AudioUnitParameterOptions{};
 
         flags |= (kAudioUnitParameterFlag_HasCFNameString | kAudioUnitParameterFlag_CFNameRelease);
@@ -179,9 +179,9 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
         return flags;
     };
 
-    const auto& params = _params.get_kernel_specs();
+    const auto& params = _params.kernel_specs();
     const auto& param = params[inParameterID];
-    const auto* clump = tiny::auv2::find_clump_for_parameter(_clumps, to_underlying(param.id));
+    const auto* clump = find_clump_for_parameter(_clumps, param.id);
     const auto found_clump = clump != nullptr;
 
     std::visit(Inline_visitor{
@@ -251,7 +251,7 @@ OSStatus Auv2_effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnit
 
     using namespace tiny;
 
-    const auto& params = _params.get_kernel_specs();
+    const auto& params = _params.kernel_specs();
     const auto& param = params[inParameterID];
 
     
@@ -277,8 +277,9 @@ OSStatus Auv2_effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnit
 OSStatus Auv2_effect::CopyClumpName(AudioUnitScope inScope, UInt32 inClumpID, UInt32 /*inDesiredNameLength*/, CFStringRef* outClumpName)
 {
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
-
-    if (const auto* clump = tiny::auv2::find_clump(_clumps, inClumpID)) {
+    
+    using namespace tiny;
+    if (const auto* clump = find_clump(_clumps, inClumpID)) {
         const auto& name = clump->name;
         *outClumpName = CFStringCreateWithCString(0, name.c_str(), kCFStringEncodingUTF8);
         return noErr;
@@ -298,12 +299,14 @@ OSStatus Auv2_effect::GetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
 OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames)
 {
-    const auto& params = _params.get_kernel_specs();
+    using namespace tiny;
+    const auto& params = _params.kernel_specs();
     const auto& param = params[inID];
+    const auto plain_value = Value_conv::host_to_plain(inValue, param.semantics);
 
     _iqueue.push({
         .offset = static_cast<int32_t>(inBufferOffsetInFrames),
-        .event = tiny::Set_param{.id = inID, .value = tiny::host_to_plain_space(inValue, param)}
+        .event = tiny::Set_param{.id = inID, .value = plain_value}
     });
 
     return Super::SetParameter(inID, inScope, inElement, inValue, inBufferOffsetInFrames);
@@ -311,7 +314,10 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
 OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEvent, UInt32 inNumEvents)
 {
-    const auto& params = _params.get_kernel_specs();
+    using namespace tiny;
+
+    const auto& params = _params.kernel_specs();
+
     for (auto i = decltype(inNumEvents){}; i < inNumEvents; ++i) {
         const auto& event = inParameterEvent[i];
         const auto& param = params[event.parameter];
@@ -320,13 +326,14 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
             case kParameterEvent_Immediate: {
                 const auto offset = event.eventValues.immediate.bufferOffset;
                 const auto value = event.eventValues.immediate.value;
+                const auto plain_value = Value_conv::host_to_plain(value, param.semantics);
+
                 _iqueue.push({
                     .offset = static_cast<int32_t>(offset),
-                    .event = tiny::Set_param{
-                        .id = event.parameter,
-                        .value = tiny::host_to_plain_space(value, param)
-                    }
+                    .event = Set_param{.id = event.parameter, .value = plain_value}
                 });
+
+                // Maintain host values.
                 Super::SetParameter(event.parameter, event.scope, event.element, value, offset);
                 break;
             }
@@ -336,21 +343,25 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                 const auto duration = event.eventValues.ramp.durationInFrames;
                 const auto initial = event.eventValues.ramp.startValue;
                 const auto target = event.eventValues.ramp.endValue;
+
+                const auto plain_initial = Value_conv::host_to_plain(initial, param.semantics);
+                const auto plain_target = Value_conv::host_to_plain(target, param.semantics);
+
+                // Do we need to be sending set initial?
                 _iqueue.push({
                     .offset = offset,
-                    .event = tiny::Set_param{
-                        .id = event.parameter,
-                        .value = initial
-                    }
+                    .event = Set_param{.id = event.parameter, .value = plain_initial}
                 });
                 _iqueue.push({
                     .offset = offset,
-                    .event = tiny::Ramp_param{
+                    .event = Ramp_param{
                         .id = event.parameter,
-                        .target = target,
+                        .target = plain_target,
                         .dur_samples = static_cast<int32_t>(duration)
                     }
                 });
+
+                // Maintain host values.
                 Super::SetParameter(event.parameter, event.scope, event.element, target, offset + duration);
                 break;
             }

@@ -3,6 +3,7 @@
 #include <atomic>
 #include <charconv>
 
+#include "aax_adapters.h"
 #include "aax_monolith.h"
 
 #include "plug_info.h"
@@ -10,40 +11,33 @@
 #include "user/dsp_kernel.h"
 #include "user/param_model.h"
 
-class Aax_parameters : public tiny::aax::AAX_CMonolithicParameters {
+class Aax_parameters : public tiny::AAX_CMonolithicParameters {
 public:
 
-    using Super = tiny::aax::AAX_CMonolithicParameters;
+    using Super = tiny::AAX_CMonolithicParameters;
     Aax_parameters() : Super() {}
     ~Aax_parameters() override = default;
 
     static AAX_CEffectParameters* AAX_CALLBACK Create() { return new Aax_parameters; }
 
     AAX_Result EffectInit() override;
-
     AAX_Result NotificationReceived(AAX_CTypeID inNotificationType, const void* inNotificationData, uint32_t inNotificationDataSize) override;
 
-    using RenderInfo = tiny::aax::AAX_SInstrumentRenderInfo;
+    using RenderInfo = tiny::AAX_SInstrumentRenderInfo;
     void RenderAudio(RenderInfo* ioRenderInfo, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues) override
     {
-        //
         using namespace tiny;
 
+        // Handle parameter events.
         for (auto i = decltype(inNumSynchronizedParamValues){}; i < inNumSynchronizedParamValues; ++i) {
             const auto* sync_value = inSynchronizedParamValues[i];
             const auto aax_id = sync_value->first;
             const auto aax_param = sync_value->second;
 
-            auto id = uint32_t{};
-            // +2 gets rid of "0x"
-            std::from_chars(aax_id + 2, aax_id + std::strlen(aax_id), id, 16); // Should I do a map?
-
-            // Obtain value
-            auto value = double{};
-            aax_param->GetValueAsDouble(&value);
-
-            if (id < User_params::num_params) {
-                _kernel->handle_event(Set_param{.id = id, .value = value});
+            if (const auto tiny_id = aax_id_to_tiny(aax_id); *tiny_id < User_params::num_params) {
+                auto value = double{};
+                aax_param->GetValueAsDouble(&value);
+                _kernel->handle_event(Set_param{.id = *tiny_id, .value = value});
             }
         }
 
@@ -79,7 +73,7 @@ public:
 
         auto* transport = ioRenderInfo->mTransportNode->GetTransport();
 
-        // ...
+        // TODO: - Optionals 
         [[maybe_unused]] auto result = AAX_Result{AAX_SUCCESS};
         result = transport->GetCurrentTempo(&host_data.tempo);
         result = transport->GetCurrentMeter(&host_data.time_sig_numer, &host_data.time_sig_denom);
@@ -99,6 +93,8 @@ public:
         const auto ts_numer = host_data.time_sig_numer;
         const auto ts_denom = host_data.time_sig_denom;
 
+        const auto num_frames = static_cast<size_t>(*ioRenderInfo->mNumSamples);
+
         // Process kernel.
         auto context = tiny::Dsp_context{
             .musical_context = {
@@ -117,7 +113,7 @@ public:
             .ibuffers = _ibuffers,
             .sbuffers = _sbuffers,
             .obuffers = _obuffers,
-            .num_frames = static_cast<size_t>(*ioRenderInfo->mNumSamples),
+            .num_frames = num_frames,
             .exports = _exports
         };
         _kernel->process(context);
@@ -146,7 +142,7 @@ public:
 
 private:
 
-    using User_params = tiny::Params<tiny::Param_model>;
+    using User_params = tiny::Param_infos<tiny::Param_model>;
     using User_exports = tiny::Exports<tiny::Param_model>;
 
     static constexpr auto num_params = User_params::num_params;

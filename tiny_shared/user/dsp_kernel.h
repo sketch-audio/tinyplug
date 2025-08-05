@@ -11,7 +11,7 @@ struct Dsp_kernel {
 
     Dsp_kernel() {
         // Initialize dsp values with defaults.
-        const auto params = _params.get_kernel_specs();
+        const auto params = _params.kernel_specs();
         for (size_t i = 0; i < params.size(); ++i) {
             const auto& param = params[i];
             _values[i] = get_plain_default(param);
@@ -42,7 +42,7 @@ struct Dsp_kernel {
     //
     auto process(Dsp_context& context) -> void
     {
-        const auto gain = _values[to_index(Param_id::gain)];
+        const auto gain = _values[enum_raw(Param_id::gain)];
         
         for (size_t channel = 0; channel < context.ibuffers.size(); ++channel) {
             for (size_t frame = 0; frame < context.num_frames; ++frame) {
@@ -51,8 +51,8 @@ struct Dsp_kernel {
                 context.obuffers[channel][frame] = output;
 
                 // Update peak.
-                auto* curr_in = &context.exports[to_index(Export_id::peak_in)];
-                auto* curr_out = &context.exports[to_index(Export_id::peak_out)];
+                auto* curr_in = &context.exports[enum_raw(Export_id::peak_in)];
+                auto* curr_out = &context.exports[enum_raw(Export_id::peak_out)];
                 *curr_in = std::max(*curr_in, std::abs(input));
                 *curr_out = std::max(*curr_out, std::abs(output));
             }
@@ -61,18 +61,14 @@ struct Dsp_kernel {
 
 private:
 
-    using User_params = Params<Param_model>;
+    using User_params = Param_infos<Param_model>;
+    static constexpr auto num_params = User_params::num_params;
+
     using Param_id = Param_model::Param_id;
     using Export_id = Param_model::Export_id;
 
     User_params _params{};
-    User_params::Param_values _values{};
-
-    template<Enum E>
-    auto to_index(E id) -> std::underlying_type_t<E>
-    {
-        return to_underlying(id);
-    }
+    std::array<float, num_params> _values{};
 
 };
 static_assert(Some_dsp_kernel<Dsp_kernel>);

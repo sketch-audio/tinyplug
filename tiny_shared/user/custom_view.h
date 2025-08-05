@@ -20,8 +20,8 @@ struct Custom_view {
 
         // Get peak values.
         auto& exports = context.params_state.exports;
-        const auto peak_in = exports[to_index(Export_id::peak_in)];
-        const auto peak_out = exports[to_index(Export_id::peak_out)];
+        const auto peak_in = exports[enum_raw(Export_id::peak_in)];
+        const auto peak_out = exports[enum_raw(Export_id::peak_out)];
 
         // Draw peak meters.
         paint.setColor(SK_ColorBLACK);
@@ -36,17 +36,11 @@ struct Custom_view {
 
 private:
 
-    using User_params = Params<Param_model>;
+    using User_params = Param_infos<Param_model>;
     using Param_id = Param_model::Param_id;
     using Export_id = Param_model::Export_id;
 
     User_params _params{};
-
-    template<Enum E>
-    auto to_index(E id) -> std::underlying_type_t<E>
-    {
-        return to_underlying(id);
-    }
 
 };
 

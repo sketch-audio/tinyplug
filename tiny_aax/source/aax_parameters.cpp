@@ -16,20 +16,19 @@ AAX_Result Aax_parameters::EffectInit()
 {
     using namespace tiny;
 
-    const auto& tree = _params.get_tree();
-    const auto identifiers = tiny::aax::tree_to_aax_id(tree);
-
-    const auto& params = _params.get_presentation_specs();
+    const auto& params = _params.presentation_specs();
+    const auto aax_ids = tree_to_aax_ids(_params.tree());
+    TINY_ASSERT(params.size() == aax_ids.size(), "AAX IDs must have same size as param specs.");
 
     for (size_t i = 0; i < params.size(); ++i) {
         const auto& param = params[i];
-        const auto& identifier = identifiers[i];
+        const auto& aax_id = aax_ids[i];
 
         std::visit(
             Inline_visitor{
                 [&](const Bool_semantics& b) {
                     auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<bool>(
-                        identifier.c_str(),
+                        aax_id.c_str(),
                         AAX_CString(param.name),
                         b.def_val,
                         AAX_CBinaryTaperDelegate<bool>(),
@@ -49,7 +48,7 @@ AAX_Result Aax_parameters::EffectInit()
                 [&](const List_semantics& l) {
                     const auto num_items = l.labels.size();
                     auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<uint32_t>(
-                        identifier.c_str(),
+                        aax_id.c_str(),
                         AAX_CString(param.name),
                         static_cast<uint32_t>(l.def_val),
                         AAX_CStateTaperDelegate<uint32_t>(0, num_items - 1),
@@ -67,12 +66,12 @@ AAX_Result Aax_parameters::EffectInit()
                     mParameterManager.AddParameter(aax_param.release());
                 },
                 [&](const Float_semantics& f) {
-                    using TaperDelegate = tiny::aax::FloatSemanticsTaperDelegate<double>;
+                    using TaperDelegate = FloatSemanticsTaperDelegate<double>;
                     using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 1, space after: 1
                     const auto units_str = units_string(f.units);
 
                     auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
-                        identifier.c_str(),
+                        aax_id.c_str(),
                         AAX_CString(param.name),
                         f.def_val,
                         TaperDelegate(f), // So we can use our own control adapter.
@@ -94,7 +93,7 @@ AAX_Result Aax_parameters::EffectInit()
                     const auto units_str = units_string(i.units);
 
                     auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<int32_t>(
-                        identifier.c_str(),
+                        aax_id.c_str(),
                         AAX_CString(param.name),
                         i.def_val,
                         AAX_CStateTaperDelegate<int32_t>(i.min_val, i.max_val),

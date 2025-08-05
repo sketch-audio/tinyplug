@@ -10,15 +10,14 @@
 
 #include "clap_adapters.h"
 
-namespace tiny::clap {
+namespace tiny {
 
 struct Clap_kernel {
 
     Clap_kernel() {
         // Initialize host defaults
-        for (const auto& param : _params.get_kernel_specs()) {
-            const auto idx = to_underlying(param.id);
-            _hostvalues[idx] = get_host_default(param);
+        for (const auto& param : _params.kernel_specs()) {
+            _hostvalues[param.id] = get_host_default(param);
         }
     }
 
@@ -177,7 +176,7 @@ private:
 
     double _sr{48000};
 
-    using User_params = tiny::Params<tiny::Param_model>;
+    using User_params = tiny::Param_infos<tiny::Param_model>;
     using User_exports = tiny::Exports<tiny::Param_model>;
 
     static constexpr auto num_params = User_params::num_params;
@@ -215,18 +214,16 @@ private:
     {
         if (event->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
 
-        const auto& params = _params.get_kernel_specs();
+        const auto& params = _params.kernel_specs();
 
         switch (event->type) {
             case CLAP_EVENT_PARAM_VALUE: {
                 const auto* value_event = reinterpret_cast<const clap_event_param_value*>(event);
                 const auto id = value_event->param_id;
-                const auto& spec = params[id];
+                const auto& param = params[id];
+                const auto plain_value = Value_conv::host_to_plain(value_event->value, param.semantics);
 
-                const auto kernel_event = Set_param{
-                    .id = id,
-                    .value = host_to_plain_space(value_event->value, spec)
-                };
+                const auto kernel_event = Set_param{.id = id, .value = plain_value};
 
                 if constexpr (on_audio_thread) {
                     _kernel->handle_event(kernel_event);

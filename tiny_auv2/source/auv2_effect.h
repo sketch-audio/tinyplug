@@ -23,7 +23,7 @@ public:
 
     using Super = ausdk::AUBase;
     Auv2_effect(AudioUnit component);
-    //~Auv2_effect() override {}
+    ~Auv2_effect() = default;
 
     OSStatus Initialize() override;
 
@@ -56,7 +56,7 @@ private:
         return _oqueue.pop(event);
     }
 
-    using User_params = tiny::Params<tiny::Param_model>;
+    using User_params = tiny::Param_infos<tiny::Param_model>;
     using User_exports = tiny::Exports<tiny::Param_model>;
 
     static constexpr auto num_params = User_params::num_params;
@@ -73,7 +73,7 @@ private:
     std::array<float, num_exports> _exports{};
 
     User_params _params{};
-    tiny::auv2::Clump_map _clumps{};
+    tiny::Clump_map _clumps{};
 
     std::array<double, num_exports> _lexports{};
 
@@ -90,7 +90,7 @@ private:
     std::unique_ptr<tiny::Dsp_kernel> _kernel = std::make_unique<tiny::Dsp_kernel>();
 
     // AUv2 view adapter.
-    using View = tiny::auv2::Auv2_view;
+    using View = tiny::Auv2_view;
     std::unique_ptr<View> _view = std::make_unique<View>(
         [this](auto& event) { return this->pop_export(event); }
     );

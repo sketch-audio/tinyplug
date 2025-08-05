@@ -53,7 +53,7 @@ private:
         double value{};
     };
 
-    using User_params = tiny::Params<tiny::Param_model>;
+    using User_params = tiny::Param_infos<tiny::Param_model>;
     using User_exports = tiny::Exports<tiny::Param_model>;
 
     static constexpr auto num_params = User_params::num_params;

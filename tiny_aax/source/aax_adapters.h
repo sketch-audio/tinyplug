@@ -8,7 +8,7 @@
 
 #include "tinyplug/tinyplug.h"
 
-namespace tiny::aax {
+namespace tiny {
 
 // MARK: - FloatSemanticsTaperDelegate
 
@@ -59,30 +59,6 @@ private:
     
 };
 
-// MARK: - tree_to_aax_id
-
-template<Enum Id>
-inline auto tree_to_aax_id(const Param_node<Id>& root) -> std::vector<std::string>
-{
-    auto result = std::vector<std::string>{};
-
-    const auto visit = [&](const Param_node<Id>& node, const auto& self) -> void {
-        std::visit(
-            Inline_visitor{
-                [&](const Param_spec<Id>& spec) {
-                    result.push_back(std::format("0x{:08X}", to_underlying(spec.id)));
-                },
-                [&](const Param_group<Id>& group) {
-                    for (const auto& child : group.nodes) self(child, self);
-                }
-            }
-        , node);
-    };
-    
-    visit(root, visit);
-    return result;
-}
-
 // MARK: - AAX id <--> tiny
 
 inline auto tiny_id_to_aax(uint32_t tiny_id) -> std::optional<std::string>
@@ -114,6 +90,31 @@ inline auto aax_id_to_tiny(const char* aax_id) noexcept -> std::optional<uint32_
     }
 
     return tiny_id;
+}
+
+// MARK: - tree_to_aax_id
+
+inline auto tree_to_aax_ids(const Param_node& root) -> std::vector<std::string>
+{
+    auto result = std::vector<std::string>{};
+
+    const auto visit = [&](const Param_node& node, const auto& self) -> void {
+        std::visit(
+            Inline_visitor{
+                [&](const Param_spec& spec) {
+                    if (const auto aax_id = tiny_id_to_aax(spec.id)) {
+                        result.push_back(*aax_id);
+                    }
+                },
+                [&](const Param_group& group) {
+                    for (const auto& child : group.nodes) self(child, self);
+                }
+            }
+        , node);
+    };
+    
+    visit(root, visit);
+    return result;
 }
 
 }

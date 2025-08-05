@@ -23,23 +23,20 @@ struct Param_model {
     };
 
     // Declare your parameter info here.
-    static auto build_tree() -> Param_node<Param_id>
+    static auto build_tree() -> Param_node
     {
-        using Group = Param_group<Param_id>;
-        using Spec = Param_spec<Param_id>;
-        
-        return Group{
+        return Param_group{
             .nodes = {
-                Spec{
-                    .id = Param_id::enabled,
+                Param_spec{
+                    .id = enum_raw(Param_id::enabled),
                     .name = "Enabled",
                     .semantics = Bool_semantics{
                         .def_val = true,
                         .knob_adapter = Knob_adapters::make_bool()
                     }
                 },
-                Spec{
-                    .id = Param_id::gain,
+                Param_spec{
+                    .id = enum_raw(Param_id::gain),
                     .name = "Gain",
                     .semantics = Float_semantics{
                         .min_val = 0,
@@ -49,11 +46,11 @@ struct Param_model {
                         .knob_adapter = Knob_adapters::make_power(3)
                     }
                 },
-                Group{
+                Param_group{
                     .name = "Advanced",
                     .nodes = {
-                        Spec{
-                            .id = Param_id::cutoff,
+                        Param_spec{
+                            .id = enum_raw(Param_id::cutoff),
                             .name = "Cutoff",
                             .semantics = Float_semantics{
                                 .min_val = 20,
@@ -63,8 +60,8 @@ struct Param_model {
                                 .knob_adapter = Knob_adapters::make_tapered(0.05f, false)
                             }
                         },
-                        Spec{
-                            .id = Param_id::type,
+                        Param_spec{
+                            .id = enum_raw(Param_id::type),
                             .name = "Type",
                             .semantics = List_semantics{
                                 .labels = {"One", "Two", "Three"},
@@ -72,8 +69,8 @@ struct Param_model {
                                 .knob_adapter = Knob_adapters::make_list()
                             }
                         },
-                        Spec{
-                            .id = Param_id::offset,
+                        Param_spec{
+                            .id = enum_raw(Param_id::offset),
                             .name = "Offset",
                             .semantics = Int_semantics{
                                 .min_val = -12,

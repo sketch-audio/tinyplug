@@ -16,11 +16,9 @@ namespace tiny {
 
 // MARK: - types
 
-template<Enum Id> struct Param_group;
-template<Enum Id> struct Param_spec;
-
-template<Enum Id>
-using Param_node = std::variant<Param_group<Id>, Param_spec<Id>>;
+struct Param_group;
+struct Param_spec;
+using Param_node = std::variant<Param_group, Param_spec>;
 
 struct Bool_semantics;
 struct List_semantics;
@@ -269,23 +267,16 @@ struct Knob_adapters {
     }
 };
 
-struct Version {
-    size_t version{1};
-    static constexpr auto deprecated = std::numeric_limits<size_t>::max();
-};
-
 // MARK: - param group, spec
 
-template<Enum Id>
 struct Param_group {
     const char* name{""};
-    std::vector<Param_node<Id>> nodes{};
+    std::vector<Param_node> nodes{};
 };
 
-template<Enum Id>
 struct Param_spec {
-    Id id{};
-    Version version{};
+    uint32_t id{};
+    uint32_t version{};
     const char* name{""};
     const char* short_name{""};
     Value_semantics semantics{Float_semantics{.knob_adapter = Knob_adapters::make_linear()}};
@@ -380,76 +371,9 @@ struct Value_conv {
     }
 };
 
-template<Enum Id>
-inline auto plain_to_host_space(double plain_value, const Param_spec<Id>& spec) -> double
-{
-    return std::visit(Inline_visitor{
-        [&](const Bool_semantics&) { return plain_value; },
-        [&](const List_semantics&) { return plain_value; },
-        [&](const Float_semantics& f) { return f.knob_adapter.plain_to_norm(f, plain_value); },
-        [&](const Int_semantics&) { return plain_value; }
-    }, spec.semantics);
-}
+// MARK: - defaults
 
-template<Enum Id>
-inline auto plain_to_knob_space(double plain_value, const Param_spec<Id>& spec) -> double
-{
-    return std::visit(Inline_visitor{
-        [&](const Bool_semantics&) { return plain_value; },
-        [&](const List_semantics& l) { return l.knob_adapter.plain_to_norm(l, plain_value); },
-        [&](const Float_semantics& f) { return f.knob_adapter.plain_to_norm(f, plain_value); },
-        [&](const Int_semantics& i) { return i.knob_adapter.plain_to_norm(i, plain_value); }
-    }, spec.semantics);
-}
-
-template<Enum Id>
-inline auto knob_to_host_space(double knob_value, const Param_spec<Id>& spec) -> double
-{
-    return std::visit(Inline_visitor{
-        [&](const Bool_semantics&) { return knob_value; },
-        [&](const List_semantics& l) { return l.knob_adapter.norm_to_plain(l, knob_value); },
-        [&](const Float_semantics&) { return knob_value; },
-        [&](const Int_semantics& i) { return i.knob_adapter.norm_to_plain(i, knob_value); }
-    }, spec.semantics);
-}
-
-template<Enum Id>
-inline auto knob_to_plain_space(double knob_value, const Param_spec<Id>& spec) -> double
-{
-    return std::visit(Inline_visitor{
-        [&](const Bool_semantics&) { return knob_value; },
-        [&](const List_semantics& l) { return l.knob_adapter.norm_to_plain(l, knob_value); },
-        [&](const Float_semantics& f) { return f.knob_adapter.norm_to_plain(f, knob_value); },
-        [&](const Int_semantics& i) { return i.knob_adapter.norm_to_plain(i, knob_value); }
-    }, spec.semantics);
-}
-
-template<Enum Id>
-inline auto host_to_plain_space(double host_value, const Param_spec<Id>& spec) -> double
-{
-    return std::visit(Inline_visitor{
-        [&](const Bool_semantics&) { return host_value; },
-        [&](const List_semantics&) { return host_value; },
-        [&](const Float_semantics& f) { return f.knob_adapter.norm_to_plain(f, host_value); },
-        [&](const Int_semantics&) { return host_value; }
-    }, spec.semantics);
-}
-
-template<Enum Id>
-inline auto host_to_knob_space(double host_value, const Param_spec<Id>& spec) -> double
-{
-    return std::visit(Inline_visitor{
-        [&](const Bool_semantics&) { return host_value; },
-        [&](const List_semantics& l) { return l.knob_adapter.plain_to_norm(l, host_value); },
-        [&](const Float_semantics&) { return host_value; },
-        [&](const Int_semantics& i) { return i.knob_adapter.plain_to_norm(i, host_value); }
-    }, spec.semantics);
-}
-
-// MARK: - default
-
-template<Enum Id>
-inline auto get_host_default(const Param_spec<Id>& spec) -> double
+inline auto get_host_default(const Param_spec& spec) -> double
 {
     return std::visit(Inline_visitor{
         [&](const Bool_semantics& b) { return static_cast<double>(b.def_val ? 1 : 0); },
@@ -459,8 +383,7 @@ inline auto get_host_default(const Param_spec<Id>& spec) -> double
     }, spec.semantics);
 }
 
-template<Enum Id>
-inline auto get_knob_default(const Param_spec<Id>& spec) -> double
+inline auto get_knob_default(const Param_spec& spec) -> double
 {
     return std::visit(Inline_visitor{
         [&](const Bool_semantics& b) { return static_cast<double>(b.def_val ? 1 : 0); },
@@ -470,8 +393,7 @@ inline auto get_knob_default(const Param_spec<Id>& spec) -> double
     }, spec.semantics);
 }
 
-template<Enum Id>
-inline auto get_plain_default(const Param_spec<Id>& spec) -> double
+inline auto get_plain_default(const Param_spec& spec) -> double
 {
     return std::visit(Inline_visitor{
         [&](const Bool_semantics& b) { return static_cast<double>(b.def_val ? 1 : 0); },
@@ -490,15 +412,15 @@ concept Some_param_model = requires {
     // An enum class `Param_id` with a case `num_params`
     typename T::Param_id;
     requires Enum<typename T::Param_id>;
-    { static_cast<uint32_t>(T::Param_id::num_params) };
+    requires std::same_as<std::underlying_type_t<typename T::Param_id>, uint32_t>;
 
     // An enum class `Export_id` with a case `num_exports`
     typename T::Export_id;
     requires Enum<typename T::Export_id>;
-    { static_cast<uint32_t>(T::Export_id::num_exports) };
+    requires std::same_as<std::underlying_type_t<typename T::Export_id>, uint32_t>;
 
     // A static function `build_tree` that returns a `Param_node<Param_id>`
-    { T::build_tree() } -> std::same_as<Param_node<typename T::Param_id>>;
+    { T::build_tree() } -> std::same_as<Param_node>;
 
     // A static function for `export_type` for looking up the export type.
     { T::export_type(std::declval<typename T::Export_id>()) } -> std::same_as<Export_type>;
@@ -508,29 +430,24 @@ concept Some_param_model = requires {
 
 namespace params_impl {
 
-template<Enum Id>
-inline auto flatten_tree(const Param_node<Id>& root) -> std::vector<Param_spec<Id>>
+inline auto flatten_tree(const Param_node& root) -> std::vector<Param_spec>
 {
-    auto result = std::vector<Param_spec<Id>>{};
+    auto result = std::vector<Param_spec>{};
 
     const auto visit = [&](const auto& node, const auto& self) -> void {
-        std::visit([&](const auto& item) {
-            if constexpr (std::is_same_v<std::decay_t<decltype(item)>, Param_spec<Id>>) {
-                result.push_back(item);
-            } else {
-                for (const auto& child : item.nodes) {
-                    self(child, self);
-                }
+        std::visit(
+            Inline_visitor{
+                [&](const Param_spec& spec) { result.push_back(spec); },
+                [&](const Param_group& group) { for (const auto& n : group.nodes) self(n, self); }
             }
-        }, node);
+        , node);
     };
 
     visit(root, visit);
     return result;
 }
 
-template<Enum Id>
-inline auto validate_spec(const Param_spec<Id>& spec) -> bool
+inline auto validate_spec(const Param_spec& spec) -> bool
 {
     auto in_range = [](auto x, auto a, auto b) -> bool { return a <= x && x <= b; };
     auto ok_range = std::visit(
@@ -545,21 +462,20 @@ inline auto validate_spec(const Param_spec<Id>& spec) -> bool
     return ok_range;
 }
 
-template<Enum Id>
-inline auto validate_tree(const Param_node<Id>& root, size_t num_expected) -> bool
+inline auto validate_tree(const Param_node& root, size_t num_expected) -> bool
 {
-    auto ids = std::unordered_set<Id>{};
+    auto ids = std::unordered_set<uint32_t>{};
 
     // Recursive lambda that takes a const ref to itself for recursion
-    const auto visit = [&](const Param_node<Id>& node, const auto& self) -> void {
+    const auto visit = [&](const Param_node& node, const auto& self) -> void {
         std::visit(
             Inline_visitor{
-                [&](const Param_group<Id>& group) {
+                [&](const Param_group& group) {
                     for (const auto& child : group.nodes) {
                         self(child, self);
                     }
                 },
-                [&](const Param_spec<Id>& spec) {
+                [&](const Param_spec& spec) {
                     validate_spec(spec);
                     ids.insert(spec.id);
                 }
@@ -573,14 +489,14 @@ inline auto validate_tree(const Param_node<Id>& root, size_t num_expected) -> bo
     TINY_ASSERT(num_leaves > 0, "The tree must contain at least one parameter.");
 
     const auto [min_val, max_val] = std::ranges::minmax_element(ids);
-    TINY_ASSERT(to_underlying(*min_val) == 0, "Identifiers must start at 0.");
-    TINY_ASSERT(to_underlying(*max_val) == num_leaves - 1, "Identifiers must not exceed (size - 1).");
+    TINY_ASSERT(*min_val == 0, "Identifiers must start at 0.");
+    TINY_ASSERT(*max_val == num_leaves - 1, "Identifiers must not exceed (size - 1).");
     TINY_ASSERT(num_leaves == num_expected, "The parameter tree ");
 
     return true;
 }
 
-template <std::ranges::range R, typename Comp>
+template<std::ranges::range R, typename Comp>
     requires std::sortable<std::ranges::iterator_t<R>, Comp>
 inline auto sorted_copy(R&& range, Comp comp) -> decltype(auto)
 {
@@ -595,50 +511,38 @@ inline auto sorted_copy(R&& range, Comp comp) -> decltype(auto)
 // MARK: - params
 
 template<Some_param_model User_model>
-class Params {
+class Param_infos {
 public:
-    // 
-    static constexpr auto num_params = to_underlying(User_model::Param_id::num_params);
-
-    Params() {
-
-    }
-
     //
-    using Node = Param_node<typename User_model::Param_id>;
-    using Group = Param_node<typename User_model::Param_id>;
-    using Spec = Param_spec<typename User_model::Param_id>;
+    static constexpr auto num_params = enum_raw(User_model::Param_id::num_params);
 
-    //
-    using Param_values = std::array<float, num_params>;
-
-    auto get_tree() const -> const Node&
+    auto tree() const -> const Param_node&
     {
-        return tree;
+        return _tree;
     }
 
-    auto get_presentation_specs() const -> const std::vector<Spec>&
+    auto presentation_specs() const -> const std::vector<Param_spec>&
     {
-        return presentation_specs;
+        return _pspecs;
     }
 
-    auto get_kernel_specs() const -> const std::vector<Spec>&
+    auto kernel_specs() const -> const std::vector<Param_spec>&
     {
-        return kernel_specs;
+        return _kspecs;
     }
 
 private:
     
-    static constexpr auto id_less = [](const auto& a, const auto& b) { return to_underlying(a.id) < to_underlying(b.id); };
+    static constexpr auto id_less = [](const auto& a, const auto& b) { return a.id < b.id; };
 
-    Node tree = []() {
+    Param_node _tree = []() {
         const auto t = User_model::build_tree();
         const auto is_valid = params_impl::validate_tree(t, num_params);
-        return is_valid ? t : Group{};
+        return is_valid ? t : Param_group{};
     }();
     
-    std::vector<Spec> presentation_specs{params_impl::flatten_tree(tree)};
-    std::vector<Spec> kernel_specs{params_impl::sorted_copy(presentation_specs, id_less)};
+    std::vector<Param_spec> _pspecs{params_impl::flatten_tree(_tree)};
+    std::vector<Param_spec> _kspecs{params_impl::sorted_copy(_pspecs, id_less)};
 
 };
 

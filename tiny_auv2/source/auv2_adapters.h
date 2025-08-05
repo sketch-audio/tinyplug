@@ -12,7 +12,7 @@
 #include "tinyplug/tinyplug.h"
 #include "user/param_model.h"
 
-namespace tiny::auv2 {
+namespace tiny {
 
 inline auto cf_to_std(CFStringRef cfStr) -> std::string
 {
@@ -66,25 +66,24 @@ struct Clump {
 
 using Clump_map = std::unordered_map<uint32_t, Clump>; // Param id : Clump
 
-template <typename Id>
-inline auto tree_to_clump_map(const Param_node<Id>& root) -> Clump_map
+inline auto tree_to_clump_map(const Param_node& root) -> Clump_map
 {
     auto result = Clump_map{};
     auto clump_ids = std::unordered_map<std::string, int32_t>{};
     auto next_id = int32_t{1}; // 0 reserved for system per AU docs.
 
-    const auto visit = [&](const Param_node<Id>& node, const std::string& path, const auto& self) -> void {
+    const auto visit = [&](const Param_node& node, const std::string& path, const auto& self) -> void {
         std::visit(
             Inline_visitor{
-                [&](const Param_spec<Id>& spec) {
+                [&](const Param_spec& spec) {
                     const auto clump_id = [&]() {
                         const auto [it, inserted] = clump_ids.try_emplace(path, next_id);
                         if (inserted) ++next_id;
                         return it->second;
                     }();
-                    result[to_underlying(spec.id)] = {clump_id, path};
+                    result[spec.id] = {clump_id, path};
                 },
-                [&](const Param_group<Id>& group) {
+                [&](const Param_group& group) {
                     const auto new_path = path.empty() ? std::string{group.name} : path + "/" + group.name;
 
                     for (const auto& child : group.nodes) {

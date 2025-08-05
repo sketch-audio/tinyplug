@@ -64,7 +64,7 @@
 // You can increase this if you need; it should be set to a value greater than or equal to the number of synchronized parameters in your plug-in
 #define kSynchronizedParameterQueueSize     32
 
-namespace tiny::aax {
+namespace tiny {
 
 /** \brief Information used to describe the instrument
  *
@@ -392,6 +392,6 @@ private:
     TParamValPairQueue						mFinishedParameterValues; // Parameter values ready for deletion
 };
 
-} // namespace tiny::aax
+} // namespace tiny
 
 #endif // AAX_CMONOLITHICPARAMETERS_H

@@ -12,7 +12,7 @@
 
 #include "clap_adapters.h"
 
-namespace tiny::clap {
+namespace tiny {
 
 struct Clap_view {
 
@@ -101,7 +101,7 @@ private:
         }
     }
 
-    using User_params = tiny::Params<tiny::Param_model>;
+    using User_params = tiny::Param_infos<tiny::Param_model>;
     using User_exports = tiny::Exports<tiny::Param_model>;
 
     Pop_export _pop_export{}; // A function to pop exports
