@@ -3,6 +3,7 @@
 #include <ranges>
 
 #include "pluginterfaces/vst/ivstparameterchanges.h"
+#include "pluginterfaces/vst/ivstprocesscontext.h"
 #include "public.sdk/source/vst/utility/stringconvert.h"
 #include "public.sdk/source/vst/vstaudioeffect.h"
 #include "base/source/fstreamer.h"
@@ -138,6 +139,35 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
             }
         }
 
+        // Resolve the musical context.
+        const auto* vst_context = data.processContext;
+        const auto sample_pos = vst_context->projectTimeSamples;
+        const auto beat_pos = vst_context->projectTimeMusic;
+        const auto cycle_start = vst_context->cycleStartMusic;
+        const auto cycle_end = vst_context->cycleEndMusic;
+        const auto tempo = vst_context->tempo;
+        const auto sr = vst_context->sampleRate;
+        const auto ts_numer = vst_context->timeSigNumerator;
+        const auto ts_denom = vst_context->timeSigDenominator;
+
+        using enum Steinberg::Vst::ProcessContext::StatesAndFlags;
+        const auto transport_state = vst_context->state;
+        const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
+
+        context.musical_context = {
+            .sample_pos = static_cast<int64_t>(sample_pos + offset),
+            .beat_pos = beat_pos + frames_to_beats(offset, tempo, sr),
+            .cycle_start = cycle_start,
+            .cycle_end = cycle_end,
+            .tempo_ideal = tempo,
+            .time_sig = {ts_numer, ts_denom},
+            .transport_state = {
+                .moving = has_flag(transport_state, kPlaying),
+                .cycling = has_flag(transport_state, kCycleActive),
+                .recording = has_flag(transport_state, kRecording)
+            }
+        };
+        
         context.ibuffers = _ibuffers;
         context.obuffers = _obuffers;
         context.sbuffers = _sbuffers;
