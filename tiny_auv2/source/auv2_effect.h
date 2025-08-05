@@ -51,11 +51,6 @@ private:
 
     double _sr{48000};
 
-    auto pop_export(tiny::Export_event& event) -> bool
-    {
-        return _oqueue.pop(event);
-    }
-
     using User_params = tiny::Param_infos<tiny::Param_model>;
     using User_exports = tiny::Exports<tiny::Param_model>;
 
@@ -79,10 +74,10 @@ private:
 
     // SetParameter -> Render
     // TODO: - Use a heuristic for size.
-    using Event_queue = tiny::Lock_free_queue<tiny::Tagged_event, 256>;
-    using Export_queue = tiny::Lock_free_queue<tiny::Export_event, 256>;
+    using Event_queue = tiny::Lock_free_queue<tiny::Tagged_event, 256>; // mpsc?
+    using To_ui_queue = tiny::Lock_free_queue<tiny::Ui_event, 256, tiny::Queue_concurrency::mpsc>;
     Event_queue _iqueue{}; 
-    Export_queue _oqueue{};
+    To_ui_queue _oqueue{};
 
     // Render
     std::vector<tiny::Tagged_event> _events{}; // Some fixed size thing.
@@ -91,8 +86,8 @@ private:
 
     // AUv2 view adapter.
     using View = tiny::Auv2_view;
-    std::unique_ptr<View> _view = std::make_unique<View>(
-        [this](auto& event) { return this->pop_export(event); }
-    );
+    std::unique_ptr<View> _view = std::make_unique<View>(tiny::Ui_receiver{
+        .pop_event = [this](auto& event) { return _oqueue.pop(event); }
+    });
 
 };

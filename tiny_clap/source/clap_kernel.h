@@ -27,6 +27,7 @@ struct Clap_kernel {
         _sr = sample_rate;
     }
 
+    // From flush,
     auto handle_event(const clap_event_header* event) -> void
     {
         _handle_event<false>(event); // Not audio thread
@@ -37,7 +38,7 @@ struct Clap_kernel {
         return _hostvalues[paramId].load(std::memory_order_relaxed);
     }
 
-    auto pop_export(Export_event& event) -> bool
+    auto pop_export(Ui_event& event) -> bool
     {
         return _oqueue.pop(event);
     }
@@ -45,7 +46,7 @@ struct Clap_kernel {
     auto process(const clap_process* process) -> clap_process_status
     {
         // Process flushed events.
-        auto kernel_event = Event{};
+        auto kernel_event = Render_event{};
         while (_iqueue.pop(kernel_event)) {
             _kernel->handle_event(kernel_event);
         }
@@ -154,16 +155,14 @@ struct Clap_kernel {
         }
 
         // Send exports.
-        for (size_t i = 0; i < num_exports; ++i) {
+        for (auto i = decltype(num_exports){}; i < num_exports; ++i) {
             if (context.exports[i] != _lexports[i]) {
                 // Send an output event.
-                _oqueue.push({
-                    .id = static_cast<uint32_t>(i),
-                    .value = context.exports[i]
-                });
+                const auto value = context.exports[i];
+                _oqueue.push(Set_export{.id = i, .value = value});
 
                 // Cache for next time.
-                _lexports[i] = context.exports[i];
+                _lexports[i] = value;
             }
 
             _exports[i] = 0; // Reset for peak meters.
@@ -202,10 +201,10 @@ private:
     std::unique_ptr<Dsp_kernel> _kernel = std::make_unique<Dsp_kernel>();
 
     // TODO: - Use a heuristic for size.
-    using Event_queue = tiny::Lock_free_queue<tiny::Event, 256>;
-    using Export_queue = tiny::Lock_free_queue<tiny::Export_event, 256>;
+    using Event_queue = tiny::Lock_free_queue<tiny::Render_event, 256>;
+    using To_ui_queue = tiny::Lock_free_queue<tiny::Ui_event, 256, tiny::Queue_concurrency::mpsc>; // 
     Event_queue _iqueue{}; 
-    Export_queue _oqueue{};
+    To_ui_queue _oqueue{};
 
     // MARK: - private
 
@@ -222,18 +221,22 @@ private:
                 const auto id = value_event->param_id;
                 const auto& param = params[id];
                 const auto plain_value = Value_conv::host_to_plain(value_event->value, param.semantics);
+                const auto knob_value = Value_conv::host_to_knob(value_event->value, param.semantics);
 
                 const auto kernel_event = Set_param{.id = id, .value = plain_value};
 
                 if constexpr (on_audio_thread) {
-                    _kernel->handle_event(kernel_event);
+                    _kernel->handle_event(kernel_event); // Process callback event list.
                 }
                 else {
-                    _iqueue.push(kernel_event);
+                    _iqueue.push(kernel_event); // Flush.
                 }
 
                 // Maintain host values.
                 _hostvalues[id].store(value_event->value, std::memory_order_relaxed);
+
+                // Notify UI.
+                _oqueue.push(Set_param{.id = id, .value = knob_value});
 
                 break;
             }

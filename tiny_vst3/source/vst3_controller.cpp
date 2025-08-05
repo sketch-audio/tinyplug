@@ -216,10 +216,10 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setParamNormalized(Steinberg::Vst
 
     if (tag >= EXPORT_OFFSET) {
         const auto id = tag - EXPORT_OFFSET;
-        _oqueue.push({.id = id, .value = value});
+        _oqueue.push(Set_export{.id = id, .value = value}); // TODO: - value space?
     }
     else {
-        // Param event.
+        _oqueue.push(Set_param{.id = tag, .value = value});
     }
 
     return result;
@@ -238,7 +238,9 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
 	if (Steinberg::FIDStringsEqual(name, Steinberg::Vst::ViewType::kEditor))
 	{
         // Create your editor here and return a IPlugView ptr of it.
-        view = new Vst3_view([this](auto& event) { return this->pop_export(event); });
+        view = new Vst3_view({
+            .pop_event = [this](auto& e) { return _oqueue.pop(e); }
+        });
         return view;
     }
     

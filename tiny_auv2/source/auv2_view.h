@@ -12,7 +12,7 @@ namespace tiny {
 
 struct Auv2_view {
 
-    Auv2_view(Pop_export pop_export) : _pop_export{pop_export} {}
+    Auv2_view(Ui_receiver receiver) : _receiver{receiver} {}
 
     auto create_view() -> void*
     {
@@ -29,14 +29,23 @@ private:
         // Resolve application state
 
         // Pop the exports.
-        auto event = Export_event{};
-        while (_pop_export(event)) {
-            auto& ui_export = _exports[event.id];
-            if (!ui_export.updated) {
-                ui_export.value = 0; // Reset on first update in frame where we receive an event.
-            }
-            ui_export.value = std::max(ui_export.value, event.value);
-            ui_export.updated = true;
+        auto event = Ui_event{};
+        while (_receiver.pop_event(event)) {
+            std::visit(
+                Inline_visitor{
+                    [&](const Set_param& p) {
+                        _uivalues[p.id] = p.value;
+                    },
+                    [&](const Set_export& e) {
+                        auto& ui_export = _exports[e.id];
+                        if (!ui_export.updated) {
+                            ui_export.value = 0; // Reset on first update in frame where we receive an event.
+                        }
+                        ui_export.value = std::max(ui_export.value, e.value);
+                        ui_export.updated = true;
+                    }
+                }
+            , event);
         }
 
         // Adapt to values.
@@ -46,7 +55,7 @@ private:
         // Create view context.
         auto view_context = View_context{
             .params_state = {
-                .params = {},
+                .params = _uivalues,
                 .exports = export_arr 
             },
             .draw_context = context
@@ -64,7 +73,12 @@ private:
     using User_params = tiny::Param_infos<tiny::Param_model>;
     using User_exports = tiny::Exports<tiny::Param_model>;
 
-    Pop_export _pop_export{}; // A function to pop exports
+    static constexpr auto num_params = User_params::num_params;
+    static constexpr auto num_exports = User_exports::num_exports;
+
+    User_params _params{};
+
+    Ui_receiver _receiver{};
 
     std::shared_ptr<Graphics_delegate> _delegate = std::make_shared<Graphics_delegate>(
         Graphics_delegate::Size{800, 600}, // Initial size
@@ -79,7 +93,8 @@ private:
         double value{};
         bool updated{};
     };
-    std::array<Ui_export, User_exports::num_exports> _exports{};
+    std::array<Ui_export, num_exports> _exports{};
+    std::array<double, num_params> _uivalues{_params.make_knob_defaults()};
 
 };
 

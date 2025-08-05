@@ -122,20 +122,18 @@ public:
         for (size_t i = 0; i < num_exports; ++i) {
             if (context.exports[i] != _lexports[i]) {
                 // Send an output event.
-                _oqueue.push({
-                    .id = static_cast<uint32_t>(i),
-                    .value = context.exports[i]
-                });
+                const auto value = context.exports[i];
+                _oqueue.push(Set_export{.id = static_cast<uint32_t>(i), .value = value});
 
                 // Cache for next time.
-                _lexports[i] = context.exports[i];
+                _lexports[i] = value;
             }
 
             _exports[i] = 0; // Reset for peak meters.
         }
     }
 
-    auto pop_export(tiny::Export_event& event) -> bool
+    auto pop_export(tiny::Ui_event& event) -> bool
     {
         return _oqueue.pop(event);
     }
@@ -164,8 +162,8 @@ private:
 
     User_params _params{};
 
-    using Export_queue = tiny::Lock_free_queue<tiny::Export_event, 256>;
-    Export_queue _oqueue{};
+    using To_ui_queue = tiny::Lock_free_queue<tiny::Ui_event, 256>;
+    To_ui_queue _oqueue{};
 
     std::unique_ptr<tiny::Dsp_kernel> _kernel = std::make_unique<tiny::Dsp_kernel>();
 

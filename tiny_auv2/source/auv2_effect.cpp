@@ -302,12 +302,15 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
     using namespace tiny;
     const auto& params = _params.kernel_specs();
     const auto& param = params[inID];
+
     const auto plain_value = Value_conv::host_to_plain(inValue, param.semantics);
+    const auto knob_value = Value_conv::host_to_knob(inValue, param.semantics);
 
     _iqueue.push({
         .offset = static_cast<int32_t>(inBufferOffsetInFrames),
         .event = tiny::Set_param{.id = inID, .value = plain_value}
     });
+    _oqueue.push(Set_param{.id = inID, .value = knob_value});
 
     return Super::SetParameter(inID, inScope, inElement, inValue, inBufferOffsetInFrames);
 }
@@ -327,11 +330,13 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                 const auto offset = event.eventValues.immediate.bufferOffset;
                 const auto value = event.eventValues.immediate.value;
                 const auto plain_value = Value_conv::host_to_plain(value, param.semantics);
+                const auto knob_value = Value_conv::host_to_knob(value, param.semantics);
 
                 _iqueue.push({
                     .offset = static_cast<int32_t>(offset),
                     .event = Set_param{.id = event.parameter, .value = plain_value}
                 });
+                _oqueue.push(Set_param{.id = event.parameter, .value = knob_value});
 
                 // Maintain host values.
                 Super::SetParameter(event.parameter, event.scope, event.element, value, offset);
@@ -346,6 +351,7 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
 
                 const auto plain_initial = Value_conv::host_to_plain(initial, param.semantics);
                 const auto plain_target = Value_conv::host_to_plain(target, param.semantics);
+                const auto knob_target = Value_conv::host_to_knob(target, param.semantics);
 
                 // Do we need to be sending set initial?
                 _iqueue.push({
@@ -360,6 +366,7 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                         .dur_samples = static_cast<int32_t>(duration)
                     }
                 });
+                _oqueue.push(Set_param{.id = event.parameter, .value = knob_target});
 
                 // Maintain host values.
                 Super::SetParameter(event.parameter, event.scope, event.element, target, offset + duration);
@@ -532,16 +539,14 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
     }
 
     // Send exports.
-    for (size_t i = 0; i < num_exports; ++i) {
+    for (auto i = decltype(num_exports){}; i < num_exports; ++i) {
         if (context.exports[i] != _lexports[i]) {
             // Send an output event.
-            _oqueue.push({
-                .id = static_cast<uint32_t>(i),
-                .value = context.exports[i]
-            });
+            const auto value = context.exports[i];
+            _oqueue.push(Set_export{.id = i, .value = value});
 
             // Cache for next time.
-            _lexports[i] = context.exports[i];
+            _lexports[i] = value;
         }
 
         _exports[i] = 0; // Reset for peak meters.

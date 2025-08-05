@@ -28,13 +28,13 @@ protected:
             platform_view = Platform_views::make_owning(_delegate);
             platform_view->receive_parent(parent);
 
-            // Grab our exporter.
-            _pop_export = [this]() -> Pop_export {
+            // Create our event receiver.
+            _receiver = [this]() -> Ui_receiver {
                 if (auto* params = dynamic_cast<Aax_parameters*>(GetEffectParameters())) {
-                    return [params](Export_event& event) -> bool { return params->pop_export(event); };
+                    return {[params](auto& e) -> bool { return params ? params->pop_export(e) : false; }};
                 }
                 else {
-                    return [](auto&) { return false; }; // no infinite loop
+                    return {};
                 }
             }();
         }
@@ -53,6 +53,19 @@ protected:
         return AAX_SUCCESS;
     }
 
+    AAX_Result ParameterUpdated(AAX_CParamID inParamID) override
+    {
+        if (const auto tiny_id = tiny::aax_id_to_tiny(inParamID)) {
+            auto* aax_parameters = GetEffectParameters();
+            AAX_IParameter* param = nullptr;
+            if (aax_parameters->GetParameter(inParamID, &param) == AAX_SUCCESS) {
+                const auto value = param->GetNormalizedValue();
+                _uivalues[*tiny_id] = value;
+            }
+        }
+        return AAX_SUCCESS;
+    }
+
 private:
 
     using Draw_context = Graphics_delegate::Draw_context;
@@ -62,14 +75,21 @@ private:
         // Resolve application state
 
         // Pop the exports.
-        auto event = Export_event{};
-        while (_pop_export(event)) {
-            auto& ui_export = _exports[event.id];
-            if (!ui_export.updated) {
-                ui_export.value = 0; // Reset on first update in frame where we receive an event.
-            }
-            ui_export.value = std::max(ui_export.value, event.value);
-            ui_export.updated = true;
+        auto event = Ui_event{};
+        while (_receiver.pop_event(event)) {
+            std::visit(
+                Inline_visitor{
+                    [&](const Set_param&) { /* use _values directly. */},
+                    [&](const Set_export& e) {
+                        auto& ui_export = _exports[e.id];
+                        if (!ui_export.updated) {
+                            ui_export.value = 0; // Reset on first update in frame where we receive an event.
+                        }
+                        ui_export.value = std::max(ui_export.value, e.value);
+                        ui_export.updated = true;
+                    }
+                }
+            , event);
         }
 
         // Adapt to values.
@@ -79,7 +99,7 @@ private:
         // Create view context.
         auto view_context = View_context{
             .params_state = {
-                .params = {},
+                .params = _uivalues,
                 .exports = export_arr 
             },
             .draw_context = context
@@ -97,7 +117,12 @@ private:
     using User_params = tiny::Param_infos<tiny::Param_model>;
     using User_exports = tiny::Exports<tiny::Param_model>;
 
-    tiny::Pop_export _pop_export{}; // A function to pop exports
+    static constexpr auto num_params = User_params::num_params;
+    static constexpr auto num_exports = User_exports::num_exports;
+
+    User_params _params{};
+
+    tiny::Ui_receiver _receiver{}; // A function to pop exports
 
     std::shared_ptr<Graphics_delegate> _delegate = std::make_shared<Graphics_delegate>(
         Graphics_delegate::Size{800, 600}, // Initial size
@@ -112,6 +137,7 @@ private:
         double value{};
         bool updated{};
     };
-    std::array<Ui_export, User_exports::num_exports> _exports{};
+    std::array<Ui_export, num_exports> _exports{};
+    std::array<double, num_params> _uivalues{_params.make_knob_defaults()};
     
 };

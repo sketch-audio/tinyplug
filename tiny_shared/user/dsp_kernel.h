@@ -25,7 +25,7 @@ struct Dsp_kernel {
     }
 
     // The framework will make sure event calls are correctly interleaved with process calls.
-    auto handle_event(const Event& event) -> void
+    auto handle_event(const Render_event& event) -> void
     {
         std::visit(
             Inline_visitor{

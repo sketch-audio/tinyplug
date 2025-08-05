@@ -18,20 +18,30 @@ struct Custom_view {
         paint.setStyle(SkPaint::kFill_Style);
         canvas->drawRect(SkRect::MakeXYWH(0, 0, size.width, size.height), paint);
 
-        // Get peak values.
+        // Get param, peak values.
+        auto& params = context.params_state.params;
+        const auto gain_plain = params[enum_raw(Param_id::gain)];
+
         auto& exports = context.params_state.exports;
         const auto peak_in = exports[enum_raw(Export_id::peak_in)];
         const auto peak_out = exports[enum_raw(Export_id::peak_out)];
 
-        // Draw peak meters.
         paint.setColor(SK_ColorBLACK);
+        const auto div = size.width / 3;
+
+        // Draw gain value.
+        const auto g_h = gain_plain * size.height;
+        const auto g_y = size.height - g_h;
+        canvas->drawRect(SkRect::MakeXYWH(0, g_y, div, g_h), paint);
+
+        // Draw peak meters.
         const auto in_h = peak_in * size.height;
         const auto in_y = size.height - in_h;
-        canvas->drawRect(SkRect::MakeXYWH(0, in_y, size.width / 2, in_h), paint);
+        canvas->drawRect(SkRect::MakeXYWH(div, in_y, div, in_h), paint);
 
         const auto out_h = peak_out * size.height;
         const auto out_y = size.height - out_h;
-        canvas->drawRect(SkRect::MakeXYWH(size.width / 2, out_y, size.width / 2, out_h), paint);
+        canvas->drawRect(SkRect::MakeXYWH(2 * div, out_y, div, out_h), paint);
     }
 
 private:

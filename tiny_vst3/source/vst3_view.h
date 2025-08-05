@@ -14,7 +14,7 @@ class Vst3_view : public Steinberg::CPluginView {
 public:
 
     using Super = Steinberg::CPluginView;
-    Vst3_view(tiny::Pop_export pop_export) : Super{}, _pop_export{pop_export} {}
+    Vst3_view(tiny::Ui_receiver receiver) : Super{}, _receiver{receiver} {}
 
     Steinberg::tresult PLUGIN_API isPlatformTypeSupported(Steinberg::FIDString type) override
     {
@@ -113,14 +113,23 @@ protected:
         // Resolve application state
 
         // Pop the exports.
-        auto event = Export_event{};
-        while (_pop_export(event)) {
-            auto& ui_export = _exports[event.id];
-            if (!ui_export.updated) {
-                ui_export.value = 0; // Reset on first update in frame where we receive an event.
-            }
-            ui_export.value = std::max(ui_export.value, event.value);
-            ui_export.updated = true;
+        auto event = Ui_event{};
+        while (_receiver.pop_event(event)) {
+            std::visit(
+                Inline_visitor{
+                    [&](const Set_param& p) {
+                        _uivalues[p.id] = p.value;
+                    },
+                    [&](const Set_export& e) {
+                        auto& ui_export = _exports[e.id];
+                        if (!ui_export.updated) {
+                            ui_export.value = 0; // Reset on first update in frame where we receive an event.
+                        }
+                        ui_export.value = std::max(ui_export.value, e.value);
+                        ui_export.updated = true;
+                    }
+                }
+            , event);
         }
 
         // Adapt to values.
@@ -130,7 +139,7 @@ protected:
         // Create view context.
         auto view_context = View_context{
             .params_state = {
-                .params = {},
+                .params = _uivalues,
                 .exports = export_arr 
             },
             .draw_context = context
@@ -148,7 +157,12 @@ protected:
     using User_params = tiny::Param_infos<tiny::Param_model>;
     using User_exports = tiny::Exports<tiny::Param_model>;
 
-    tiny::Pop_export _pop_export{}; // A function to pop exports
+    static constexpr auto num_params = User_params::num_params;
+    static constexpr auto num_exports = User_exports::num_exports;
+
+    User_params _params{};
+
+    tiny::Ui_receiver _receiver{};
 
     std::shared_ptr<Graphics_delegate> _delegate = std::make_shared<Graphics_delegate>(
         Graphics_delegate::Size{800, 600},
@@ -163,6 +177,7 @@ protected:
         double value{};
         bool updated{};
     };
-    std::array<Ui_export, User_exports::num_exports> _exports{};
+    std::array<Ui_export, num_exports> _exports{};
+    std::array<double, num_params> _uivalues{_params.make_knob_defaults()};
 
 };

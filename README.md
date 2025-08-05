@@ -28,15 +28,20 @@
     - See: https://www.stroustrup.com/Programming/PPP-style.pdf
 
 ## Todo
-- Host context
-- Use sidechain field in `Dsp_context`
-- Exports
+- Put everything in `tiny` namespace
+- Save & restore state
+- Parameter tree versioning
+- Set parameter values from UI
 - Add AUv3 format for iOS and macOS
 - Add Linux support for CLAP, VST3
 - Add LV2 format for Linux
 - Breakout dependencies project
-- MIDI
-- Parameter tree validation
-    - Identifiers should be unique, all identifiers should appear in tree.
-- Parameter tree versioning
+- MIDI events
 - Synth support
+
+## Consider
+- Use optionals in `Musical_context`
+
+## Needs tested
+- Test sidechain (add export and visualize?)
+- Test musical context

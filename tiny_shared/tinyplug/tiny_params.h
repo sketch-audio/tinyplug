@@ -531,6 +531,34 @@ public:
         return _kspecs;
     }
 
+    // ...
+    auto make_plain_defaults() const -> std::array<double, num_params>
+    {
+        std::array<double, num_params> result{};
+        for (const auto& spec : _kspecs) {
+            result[spec.id] = get_plain_default(spec);
+        }
+        return result;
+    }
+
+    auto make_host_defaults() const -> std::array<double, num_params>
+    {
+        std::array<double, num_params> result{};
+        for (const auto& spec : _kspecs) {
+            result[spec.id] = get_host_default(spec);
+        }
+        return result;
+    }
+
+    auto make_knob_defaults() const -> std::array<double, num_params>
+    {
+        std::array<double, num_params> result{};
+        for (const auto& spec : _kspecs) {
+            result[spec.id] = get_knob_default(spec);
+        }
+        return result;
+    }
+
 private:
     
     static constexpr auto id_less = [](const auto& a, const auto& b) { return a.id < b.id; };

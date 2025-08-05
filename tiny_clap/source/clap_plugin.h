@@ -99,9 +99,9 @@ private:
     std::unique_ptr<Kernel> _kernel = std::make_unique<Kernel>();
 
     using View = tiny::Clap_view;
-    std::unique_ptr<View> _view = std::make_unique<View>(
-        [this](auto& event) { return _kernel->pop_export(event); }
-    );
+    std::unique_ptr<View> _view = std::make_unique<View>(tiny::Ui_receiver{
+        .pop_event = [this](auto& event) { return _kernel->pop_export(event); }
+    });
 
     // MARK: - gui api
 

@@ -44,11 +44,6 @@ public:
         DELEGATE_REFCOUNT(Super)
 
 protected:
-
-    auto pop_export(tiny::Export_event& event) -> bool
-    {
-        return _oqueue.pop(event);
-    }
     
     Vst3_view* view{nullptr}; // Is there any point in keeping this around?
 
@@ -60,7 +55,7 @@ protected:
     std::array<double, num_params> _uivalues{};
 
     // We receive the exports in `setParamNormalized` and let the view pop them here.
-    using Export_queue = tiny::Lock_free_queue<tiny::Export_event, 256>;
-    Export_queue _oqueue{};
+    using To_ui_queue = tiny::Lock_free_queue<tiny::Ui_event, 256>;
+    To_ui_queue _oqueue{};
 
 };
