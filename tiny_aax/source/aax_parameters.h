@@ -11,10 +11,12 @@
 #include "user/dsp_kernel.h"
 #include "user/param_model.h"
 
-class Aax_parameters : public tiny::AAX_CMonolithicParameters {
+namespace tiny {
+
+class Aax_parameters : public AAX_CMonolithicParameters {
 public:
 
-    using Super = tiny::AAX_CMonolithicParameters;
+    using Super = AAX_CMonolithicParameters;
     Aax_parameters() : Super() {}
     ~Aax_parameters() override = default;
 
@@ -23,18 +25,16 @@ public:
     AAX_Result EffectInit() override;
     AAX_Result NotificationReceived(AAX_CTypeID inNotificationType, const void* inNotificationData, uint32_t inNotificationDataSize) override;
 
-    using RenderInfo = tiny::AAX_SInstrumentRenderInfo;
+    using RenderInfo = AAX_SInstrumentRenderInfo;
     void RenderAudio(RenderInfo* ioRenderInfo, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues) override
     {
-        using namespace tiny;
-
         // Handle parameter events.
         for (auto i = decltype(inNumSynchronizedParamValues){}; i < inNumSynchronizedParamValues; ++i) {
             const auto* sync_value = inSynchronizedParamValues[i];
             const auto aax_id = sync_value->first;
             const auto aax_param = sync_value->second;
 
-            if (const auto tiny_id = aax_id_to_tiny(aax_id); *tiny_id < User_params::num_params) {
+            if (const auto tiny_id = aax_id_to_tiny(aax_id); *tiny_id < num_params) {
                 auto value = double{};
                 aax_param->GetValueAsDouble(&value);
                 _kernel->handle_event(Set_param{.id = *tiny_id, .value = value});
@@ -96,7 +96,7 @@ public:
         const auto num_frames = static_cast<size_t>(*ioRenderInfo->mNumSamples);
 
         // Process kernel.
-        auto context = tiny::Dsp_context{
+        auto context = Dsp_context{
             .musical_context = {
                 .sample_pos = sample_pos,
                 .beat_pos = beat_pos,
@@ -133,15 +133,15 @@ public:
         }
     }
 
-    auto pop_export(tiny::Ui_event& event) -> bool
+    auto pop_export(Ui_event& event) -> bool
     {
         return _oqueue.pop(event);
     }
 
 private:
 
-    using User_params = tiny::Param_infos<tiny::Param_model>;
-    using User_exports = tiny::Exports<tiny::Param_model>;
+    using User_params = Param_infos<Param_model>;
+    using User_exports = Exports<Param_model>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_exports = User_exports::num_exports;
@@ -160,11 +160,13 @@ private:
 
     std::array<double, num_exports> _lexports{};
 
-    User_params _params{};
+    User_params _param_infos{};
 
-    using To_ui_queue = tiny::Lock_free_queue<tiny::Ui_event, 256>;
+    using To_ui_queue = Lock_free_queue<Ui_event, 256>;
     To_ui_queue _oqueue{};
 
-    std::unique_ptr<tiny::Dsp_kernel> _kernel = std::make_unique<tiny::Dsp_kernel>();
+    std::unique_ptr<Dsp_kernel> _kernel = std::make_unique<Dsp_kernel>();
 
 };
+
+} // namespace tiny

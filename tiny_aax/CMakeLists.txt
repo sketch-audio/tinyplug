@@ -17,6 +17,7 @@ file(GLOB TARGET_HEADERS
 add_library(${AAX_TARGET} MODULE
     ${TARGET_HEADERS}
     source/aax_describe.cpp
+    source/aax_gui.cpp
     source/aax_monolith.cpp
     source/aax_parameters.cpp
 )

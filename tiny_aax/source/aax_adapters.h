@@ -1,63 +1,17 @@
 #pragma once
 
-#include <algorithm>
 #include <charconv>
+#include <format>
+#include <optional>
+#include <string>
+#include <variant>
+#include <vector>
 
 #include "AAX.h"
-#include "AAX_ITaperDelegate.h"
 
 #include "tinyplug/tinyplug.h"
 
 namespace tiny {
-
-// MARK: - FloatSemanticsTaperDelegate
-
-template<typename T>
-class FloatSemanticsTaperDelegate final : public AAX_ITaperDelegate<T> {
-public:
-
-    using Float_semantics = tiny::Float_semantics;
-
-    FloatSemanticsTaperDelegate(Float_semantics semantics) : _semantics{semantics} {}
-    ~FloatSemanticsTaperDelegate() = default;
-
-    AAX_ITaperDelegate<T>* Clone() const override
-    {
-        return new FloatSemanticsTaperDelegate(_semantics);
-    }
-
-    T GetMaximumValue() const override
-    {
-        return _semantics.max_val;
-    }
-
-    T GetMinimumValue() const override
-    {
-        return _semantics.min_val;
-    }
-
-    T ConstrainRealValue(T value) const override
-    {
-        return std::clamp(value, _semantics.min_val, _semantics.max_val);
-    }
-
-    T NormalizedToReal(double normalizedValue) const override
-    {
-        const auto& adapter = _semantics.knob_adapter;
-        return adapter.norm_to_plain(_semantics, static_cast<T>(normalizedValue));
-    }
-
-    double RealToNormalized(T realValue) const override
-    {
-        const auto& adapter = _semantics.knob_adapter;
-        return static_cast<double>(adapter.plain_to_norm(_semantics, realValue));
-    }
-
-private:
-
-    Float_semantics _semantics;
-    
-};
 
 // MARK: - AAX id <--> tiny
 
@@ -67,8 +21,9 @@ inline auto tiny_id_to_aax(uint32_t tiny_id) -> std::optional<std::string>
     return std::format("0x{:08x}", tiny_id);
 }
 
-inline auto aax_id_to_tiny(const char* aax_id) noexcept -> std::optional<uint32_t>
+inline auto aax_id_to_tiny(AAX_CParamID aax_id) noexcept -> std::optional<uint32_t>
 {
+    // Maybe in the future we will want to use a map for this.
     static constexpr auto aax_id_prefix = "0x";
     static constexpr auto aax_id_base = 16;
 
@@ -92,29 +47,27 @@ inline auto aax_id_to_tiny(const char* aax_id) noexcept -> std::optional<uint32_
     return tiny_id;
 }
 
-// MARK: - tree_to_aax_id
+// MARK: - tree_to_aax_ids
 
 inline auto tree_to_aax_ids(const Param_node& root) -> std::vector<std::string>
 {
     auto result = std::vector<std::string>{};
 
     const auto visit = [&](const Param_node& node, const auto& self) -> void {
-        std::visit(
-            Inline_visitor{
-                [&](const Param_spec& spec) {
-                    if (const auto aax_id = tiny_id_to_aax(spec.id)) {
-                        result.push_back(*aax_id);
-                    }
-                },
-                [&](const Param_group& group) {
-                    for (const auto& child : group.nodes) self(child, self);
+        std::visit(Inline_visitor{
+            [&](const Param_spec& spec) {
+                if (const auto aax_id = tiny_id_to_aax(spec.id)) {
+                    result.push_back(*aax_id);
                 }
+            },
+            [&](const Param_group& group) {
+                for (const auto& child : group.nodes) self(child, self);
             }
-        , node);
+        }, node);
     };
     
     visit(root, visit);
     return result;
 }
 
-}
+} // namespace tiny

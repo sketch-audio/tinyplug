@@ -22,8 +22,8 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
         descriptor->AddName(tiny::Plug_info::product_name);
         descriptor->AddName(tiny::Plug_info::product_short_name);
         descriptor->AddCategory(AAX_ePlugInCategory_None); // TODO: - 
-        descriptor->AddProcPtr((void*)Aax_parameters::Create, kAAX_ProcPtrID_Create_EffectParameters);
-        descriptor->AddProcPtr((void*)Aax_gui::Create, kAAX_ProcPtrID_Create_EffectGUI);
+        descriptor->AddProcPtr((void*)tiny::Aax_parameters::Create, kAAX_ProcPtrID_Create_EffectParameters);
+        descriptor->AddProcPtr((void*)tiny::Aax_gui::Create, kAAX_ProcPtrID_Create_EffectGUI);
 
         //
         auto info = tiny::AAX_SInstrumentSetupInfo{};
@@ -34,7 +34,7 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
         info.mManufacturerID = tiny::Plug_info::Aax::manufacturer_id;
         info.mProductID = tiny::Plug_info::Aax::product_id;
         info.mPluginID = tiny::Plug_info::Aax::plugin_id;
-        Aax_parameters::StaticDescribe(descriptor, info);
+        tiny::Aax_parameters::StaticDescribe(descriptor, info);
 
         //
         collection->AddEffect(tiny::Plug_info::base_identifier, descriptor);

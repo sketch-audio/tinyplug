@@ -11,13 +11,14 @@
 #include "AAX_TransportTypes.h"
 
 #include "aax_adapters.h"
+#include "aax_taper_delegate.h"
+
+namespace tiny {
 
 AAX_Result Aax_parameters::EffectInit()
 {
-    using namespace tiny;
-
-    const auto& params = _params.presentation_specs();
-    const auto aax_ids = tree_to_aax_ids(_params.tree());
+    const auto& params = _param_infos.presentation_specs();
+    const auto aax_ids = tree_to_aax_ids(_param_infos.tree());
     TINY_ASSERT(params.size() == aax_ids.size(), "AAX IDs must have same size as param specs.");
 
     for (size_t i = 0; i < params.size(); ++i) {
@@ -66,7 +67,7 @@ AAX_Result Aax_parameters::EffectInit()
                     mParameterManager.AddParameter(aax_param.release());
                 },
                 [&](const Float_semantics& f) {
-                    using TaperDelegate = FloatSemanticsTaperDelegate<double>;
+                    using TaperDelegate = Float_semanticsTaperDelegate<double>;
                     using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 1, space after: 1
                     const auto units_str = units_string(f.units);
 
@@ -151,3 +152,5 @@ AAX_Result Aax_parameters::NotificationReceived(AAX_CTypeID inNotificationType, 
     }
     return AAX_SUCCESS;
 }
+
+} // namespace tiny
