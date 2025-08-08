@@ -7,10 +7,10 @@
 
 namespace tiny {
 
-void Custom_view::on_draw(App_state& app_state)
+auto Custom_view::on_draw(App_state& app_state) -> void
 {
-    using Pid = Param_model::Param_id;
-    using Eid = Param_model::Export_id;
+    using enum Param_model::Param_id;
+    using enum Param_model::Export_id;
 
     auto& params_state = app_state.params_state;
     auto& view_context = app_state.view_context;
@@ -31,9 +31,9 @@ void Custom_view::on_draw(App_state& app_state)
     auto& params = params_state.params;
     auto& exports = params_state.exports;
 
-    const auto gain = params[enum_raw(Pid::gain)];
-    const auto peak_in = exports[enum_raw(Eid::peak_in)];
-    const auto peak_out = exports[enum_raw(Eid::peak_out)];
+    const auto g = params[enum_raw(gain)];
+    const auto pk_x = exports[enum_raw(peak_in)];
+    const auto pk_y = exports[enum_raw(peak_out)];
 
     // Get incremented parameter value from a drag.
     auto get_next = [=, this](auto x, auto& d) -> double {
@@ -47,21 +47,21 @@ void Custom_view::on_draw(App_state& app_state)
     std::visit(Inline_visitor{
         [&](const Drag_start& s) {
             _ldrag = {};
-            const auto to_set = get_next(gain, s);
-            const auto id = enum_raw(Pid::gain);
+            const auto to_set = get_next(g, s);
+            const auto id = enum_raw(gain);
             actions.add_action(Action_start{id});
             actions.add_action(Set_param{id, to_set});
             _ldrag = s.tpos.y - s.fpos.y;
         },
         [&](const Drag& s) {
-            const auto to_set = get_next(gain, s);
-            const auto id = enum_raw(Pid::gain);
+            const auto to_set = get_next(g, s);
+            const auto id = enum_raw(gain);
             actions.add_action(Set_param{id, to_set});
             _ldrag = s.tpos.y - s.fpos.y;
         },
         [&](const Drag_end& s) {
-            const auto to_set = get_next(gain, s);
-            const auto id = enum_raw(Pid::gain);
+            const auto to_set = get_next(g, s);
+            const auto id = enum_raw(gain);
             actions.add_action(Set_param{id, to_set});
             actions.add_action(Action_end{id});
             _ldrag = {};
@@ -79,16 +79,16 @@ void Custom_view::on_draw(App_state& app_state)
     const auto div = rsize.w / 3;
 
     // Draw gain value.
-    const auto g_h = gain * rsize.h;
+    const auto g_h = g * rsize.h;
     const auto g_y = rsize.h - g_h;
     canvas->drawRect(SkRect::MakeXYWH(0, g_y, div, g_h), paint);
 
     // Draw peak meters.
-    const auto in_h = peak_in * rsize.h;
+    const auto in_h = pk_x * rsize.h;
     const auto in_y = rsize.h - in_h;
     canvas->drawRect(SkRect::MakeXYWH(div, in_y, div, in_h), paint);
 
-    const auto out_h = peak_out * rsize.h;
+    const auto out_h = pk_y * rsize.h;
     const auto out_y = rsize.h - out_h;
     canvas->drawRect(SkRect::MakeXYWH(2 * div, out_y, div, out_h), paint);
 }
