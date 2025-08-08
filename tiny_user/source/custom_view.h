@@ -5,8 +5,8 @@
 
 namespace tiny {
 
-struct Custom_view {
-
+class Custom_view {
+public:
     // This is where you draw your plug-in's UI and handle
     // The app state gives you
     // - Read-only access to the param and export values.
