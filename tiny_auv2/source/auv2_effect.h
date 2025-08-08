@@ -5,6 +5,7 @@
 #include <ranges>
 
 #include <AudioUnitSDK/AUBase.h>
+#include <AudioToolbox/AudioToolbox.h>
 
 #include "tinyplug/tinyplug.h"
 
@@ -15,10 +16,12 @@
 #include "auv2_adapters.h"
 #include "auv2_view.h"
 
+namespace tiny {
+
 class Auv2_effect : public ausdk::AUBase {
 public:
 
-    static constexpr auto num_inputs = uint32_t{tiny::Plug_info::wants_sidechain ? 2 : 1};
+    static constexpr auto num_inputs = uint32_t{Plug_info::wants_sidechain ? 2 : 1};
     static constexpr auto num_outputs = uint32_t{1};
 
     using Super = ausdk::AUBase;
@@ -51,8 +54,8 @@ private:
 
     double _sr{48000};
 
-    using User_params = tiny::Param_infos<tiny::Param_model>;
-    using User_exports = tiny::Exports<tiny::Param_model>;
+    using User_params = Param_infos<Param_model>;
+    using User_exports = Exports<Param_model>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_exports = User_exports::num_exports;
@@ -68,26 +71,73 @@ private:
     std::array<float, num_exports> _exports{};
 
     User_params _params{};
-    tiny::Clump_map _clumps{};
+    Clump_map _clumps{};
 
     std::array<double, num_exports> _lexports{};
 
     // SetParameter -> Render
     // TODO: - Use a heuristic for size.
-    using Event_queue = tiny::Lock_free_queue<tiny::Tagged_event, 256>; // mpsc?
-    using To_ui_queue = tiny::Lock_free_queue<tiny::Ui_event, 256, tiny::Queue_concurrency::mpsc>;
-    Event_queue _iqueue{}; 
+    using Event_queue = Lock_free_queue<Tagged_event, 256>; // mpsc?
+    using To_ui_queue = Lock_free_queue<Ui_event, 256, Queue_concurrency::mpsc>;
+    Event_queue _iqueue{};
     To_ui_queue _oqueue{};
 
     // Render
-    std::vector<tiny::Tagged_event> _events{}; // Some fixed size thing.
+    std::vector<Tagged_event> _events{}; // Some fixed size thing.
 
-    std::unique_ptr<tiny::Dsp_kernel> _kernel = std::make_unique<tiny::Dsp_kernel>();
+    std::unique_ptr<Dsp_kernel> _kernel = std::make_unique<Dsp_kernel>();
 
     // AUv2 view adapter.
-    using View = tiny::Auv2_view;
-    std::unique_ptr<View> _view = std::make_unique<View>(tiny::Ui_receiver{
-        .pop_event = [this](auto& event) { return _oqueue.pop(event); }
+    std::unique_ptr<Auv2_view> _view = std::make_unique<Auv2_view>(Ui_receiver{
+        .get_knob_value = [this](auto id) {
+            const auto& params = _params.kernel_specs();
+            const auto& param = params[id];
+            const auto host = Globals()->GetParameter(id);
+            const auto knob = Value_conv::host_to_knob(host, param.semantics);
+            return knob;
+        },
+        .pop_event = [this](auto& event) { return _oqueue.pop(event); },
+        .action_handler = [this](auto& action) {
+            std::visit(Inline_visitor{
+                [&](const Action_start& a) {
+                    auto event = AudioUnitEvent{};
+                    event.mEventType = kAudioUnitEvent_BeginParameterChangeGesture;
+                    event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
+                    event.mArgument.mParameter.mParameterID = a.id;
+                    event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
+                    event.mArgument.mParameter.mElement = 0;
+                    AUEventListenerNotify(NULL, NULL, &event);
+                },
+                [&](const Set_param& a) {
+                    // Notify host
+                    const auto& params = _params.kernel_specs();
+                    const auto& param = params[a.id];
+                    const auto plain_value = Value_conv::knob_to_plain(a.value, param.semantics);
+                    const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
+
+                    Globals()->SetParameter(a.id, host_value);
+                    auto event = AudioUnitEvent{};
+                    event.mEventType = kAudioUnitEvent_ParameterValueChange;
+                    event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
+                    event.mArgument.mParameter.mParameterID = a.id;
+                    event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
+                    event.mArgument.mParameter.mElement = 0;
+                    AUEventListenerNotify(NULL, NULL, &event);
+                    _iqueue.push({Set_param{a.id, plain_value}, 0});
+                },
+                [&](const Action_end& a) {
+                    auto event = AudioUnitEvent{};
+                    event.mEventType = kAudioUnitEvent_EndParameterChangeGesture;
+                    event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
+                    event.mArgument.mParameter.mParameterID = a.id;
+                    event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
+                    event.mArgument.mParameter.mElement = 0;
+                    AUEventListenerNotify(NULL, NULL, &event);
+                },
+            }, action);
+        }
     });
 
 };
+
+} // namespace tiny

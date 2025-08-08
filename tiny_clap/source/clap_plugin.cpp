@@ -6,6 +6,8 @@
 
 // MARK: - plugin
 
+namespace tiny {
+
 bool Clap_plugin::init() noexcept
 {
     return true;
@@ -62,7 +64,6 @@ bool Clap_plugin::implementsAudioPorts() const noexcept
 
 uint32_t Clap_plugin::audioPortsCount(bool isInput) const noexcept
 {
-    using namespace tiny;
     return isInput ? (Plug_info::wants_sidechain ? 2 : 1) : 1;
 }
 
@@ -96,8 +97,6 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
     // The index is the order of appearance in the UI, and isn't necessarily the same as the id.
     if (paramIndex >= User_params::num_params || !info) return false;
 
-    using namespace tiny;
-    
     const auto& params = _params.presentation_specs(); // Report params in presentation order!
 
     const auto& param = params[paramIndex];
@@ -153,7 +152,6 @@ bool Clap_plugin::paramsValueToText(clap_id paramId, double value, char* display
 {
     if (paramId >= User_params::num_params || !display) return false;
 
-    using namespace tiny;
     const auto& params = _params.kernel_specs();
     const auto& param = params[paramId];
     const auto str = Host_formatter::format_string(value, param.semantics);
@@ -167,7 +165,6 @@ bool Clap_plugin::paramsTextToValue(clap_id paramId, const char* display, double
 {
     if (paramId >= User_params::num_params || !display || !value) return false;
 
-    using namespace tiny;
     const auto& params = _params.kernel_specs();
     const auto& param = params[paramId];
     const auto str = std::string{display};
@@ -186,9 +183,9 @@ void Clap_plugin::paramsFlush(const clap_input_events* in, const clap_output_eve
 
     const auto size = in->size(in);
 
-    for (size_t i = 0; i < size; ++i) {
+    for (auto i = decltype(size){}; i < size; ++i) {
         const auto* event = in->get(in, i);
-        _kernel->handle_event(event);
+        _kernel->handle_flushed(event);
     }
 }
 
@@ -279,3 +276,5 @@ bool Clap_plugin::guiSetTransient(const clap_window* /*window*/) noexcept
 {
     return false; // floating only
 }
+
+} // namespace tiny

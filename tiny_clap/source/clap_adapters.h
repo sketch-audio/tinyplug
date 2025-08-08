@@ -1,6 +1,6 @@
 #pragma once
 
-#include <functional>
+#include <variant>
 #include <vector>
 #include <string>
 
@@ -8,26 +8,20 @@
 
 namespace tiny {
 
-// MARK: - modules
-
+// Build module paths for the user's parameter tree.
 inline auto tree_to_clap_modules(const Param_node& root) -> std::vector<std::string> {
     auto result = std::vector<std::string>{};
 
     const auto visit = [&](const Param_node& node, const std::string& path, const auto& self) -> void {
-        std::visit(
-            Inline_visitor{
-                [&](const Param_spec&) {
-                    result.push_back(path);
-                },
-                [&](const Param_group& group) {
-                    const auto group_path = path.empty() ? std::string{group.name} : path + "/" + group.name;
-
-                    for (const auto& child : group.nodes) {
-                        self(child, group_path, self);
-                    }
+        std::visit(Inline_visitor{
+            [&](const Param_spec&) { result.push_back(path); },
+            [&](const Param_group& group) {
+                const auto group_path = path.empty() ? std::string{group.name} : path + "/" + group.name;
+                for (const auto& child : group.nodes) {
+                    self(child, group_path, self);
                 }
             }
-        , node);
+        }, node);
     };
 
     visit(root, "", visit);

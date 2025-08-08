@@ -28,16 +28,26 @@
     - See: https://www.stroustrup.com/Programming/PPP-style.pdf
 
 ## Todo
-- Put everything in `tiny` namespace
+- Set parameter values from UI
 - Save & restore state
 - Parameter tree versioning
-- Set parameter values from UI
+- Latency reporting
+- Tail time?
 - Add AUv3 format for iOS and macOS
 - Add Linux support for CLAP, VST3
 - Add LV2 format for Linux
 - Breakout dependencies project
 - MIDI events
 - Synth support
+
+## UI stuff 
+- Draw timestamp
+- Logical & real size?
+
+## Wants
+- No shared_ptr
+- No singletons
+- No raw loops
 
 ## Consider
 - Use optionals in `Musical_context`

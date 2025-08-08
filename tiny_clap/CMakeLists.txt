@@ -10,7 +10,9 @@ file(GLOB TARGET_HEADERS
 add_library(${CLAP_TARGET} MODULE
     ${TARGET_HEADERS}
     source/clap_entry.cpp
+    source/clap_kernel.cpp
     source/clap_plugin.cpp
+    source/clap_view.cpp
 )
 
 # Don't issue warnings for clap library code.

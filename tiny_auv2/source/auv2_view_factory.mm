@@ -27,7 +27,7 @@
 
     AudioUnitGetProperty(audioUnit, kAudioUnitProperty_UserPlugin, kAudioUnitScope_Global, 0, user_plugin, &size);
 
-    if (auto* effect = static_cast<Auv2_effect*>(user_plugin[0]); effect != nullptr) {
+    if (auto* effect = static_cast<tiny::Auv2_effect*>(user_plugin[0]); effect != nullptr) {
         NSView* view = (NSView*)effect->create_view();
         return [view autorelease];
     }

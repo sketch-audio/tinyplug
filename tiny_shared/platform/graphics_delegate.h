@@ -9,16 +9,15 @@
 
 #include "../skia/WindowContext.h"
 
-struct Graphics_delegate {
+#include "../tinyplug/tinyplug.h"
 
-    struct Size { int32_t width{};  int32_t height{}; };
-    struct Draw_context { SkCanvas* canvas{}; Size size{}; };
-    using Draw_callback = std::function<void(Draw_context&)>;
+namespace tiny {
 
-    Graphics_delegate(Size initial_size, Draw_callback callback)
+class View_delegate {
+public:
+
+    View_delegate(Rect_size initial_size, Draw_callback callback)
         : _size{initial_size}, _callback{std::move(callback)} {}
-
-    ~Graphics_delegate() {}
 
     auto set_context(std::unique_ptr<skwindow::WindowContext> context) -> void
     {
@@ -27,13 +26,14 @@ struct Graphics_delegate {
         resize_context();
     }
 
-    auto draw() -> void
+    auto draw(const User_interaction& interaction) -> void
     {
-        if (!_context) return;
-
+        // Should we resize?
         if (_do_resize.exchange(false, std::memory_order_acq_rel)) {
-            resize_context();
+            resize_context(); // Safe.
         }
+
+        if (!_context) return;
 
         auto surface = _context->getBackbufferSurface();
         if (!surface) return;
@@ -41,36 +41,34 @@ struct Graphics_delegate {
         auto* canvas = surface->getCanvas();
         if (!canvas) return;
 
-        // Resolve canvas size.
-        const auto w = static_cast<int32_t>(_scale * _size.width);
-        const auto h = static_cast<int32_t>(_scale * _size.height);
-
-        auto draw_context = Draw_context{
+        // Create the view context and draw.
+        auto view_context = View_context{
+            .interaction = interaction,
             .canvas = canvas,
-            .size = {.width = w, .height = h} // Real pixels?
+            .logical_size = _size,
+            .scale = _scale,
         };
-        _callback(draw_context); // How to optimize the draw list?
+        _callback(view_context);
 
         _context->submitToGpu();
-        _context->swapBuffers(); // order?
+        _context->swapBuffers();
     }
 
-    auto onResize(const Size& size) -> void
+    auto on_resize(const Rect_size& size) -> void
     {
-        if (size.width < 0 || size.height < 0) return;
+        if (size.w < 0 || size.h < 0) return;
         _size = size;
         _do_resize.store(true, std::memory_order_release);
-        //resize_context();
     }
 
-    auto getSize() -> Size
+    auto get_size() -> Rect_size
     {
         return _size;
     }
 
 private:
 
-    Size _size{};
+    Rect_size _size{};
     double _scale{1};
     Draw_callback _callback{};
 
@@ -81,7 +79,9 @@ private:
     auto resize_context() -> void
     {
         if (!_context) return;
-        _context->resize(_size.width, _size.height);
-        _scale = _context->width() / _size.width; // Update screen scale.
+        _context->resize(_size.w, _size.h);
+        _scale = _context->width() / _size.w; // Update screen scale.
     }
 };
+
+} // namespace tiny

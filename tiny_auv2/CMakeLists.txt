@@ -18,6 +18,7 @@ add_library(${AUV2_TARGET} MODULE
     ${TARGET_HEADERS}
     source/auv2_effect.cpp
     source/auv2_view_factory.mm
+    source/auv2_view.cpp
     ${SDK_HEADERS}
     ${SDK_SOURCES}
 )

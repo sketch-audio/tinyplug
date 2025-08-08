@@ -17,6 +17,8 @@
 using MisbehaviourHandler = clap::helpers::MisbehaviourHandler; // Studio One appears to be misbehaving.
 using CheckingLevel = clap::helpers::CheckingLevel;
 
+namespace tiny {
+
 class Clap_plugin : public clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::Maximal> {
 public:
 
@@ -26,15 +28,15 @@ public:
 
     static const inline clap_plugin_descriptor_t descriptor{
         .clap_version = CLAP_VERSION,
-        .id = tiny::Plug_info::base_identifier,
-        .name = tiny::Plug_info::product_name,
-        .vendor = tiny::Plug_info::company_name,
-        .url = tiny::Plug_info::company_website,
-        .manual_url = tiny::Plug_info::company_website,
-        .support_url = tiny::Plug_info::company_website,
-        .version = tiny::Plug_info::version_string,
-        .description = tiny::Plug_info::Clap::description,
-        .features = tiny::Plug_info::Clap::features.data()
+        .id = Plug_info::base_identifier,
+        .name = Plug_info::product_name,
+        .vendor = Plug_info::company_name,
+        .url = Plug_info::company_website,
+        .manual_url = Plug_info::company_website,
+        .support_url = Plug_info::company_website,
+        .version = Plug_info::version_string,
+        .description = Plug_info::Clap::description,
+        .features = Plug_info::Clap::features.data()
     };
 
     // plugin
@@ -46,8 +48,8 @@ public:
     clap_process_status process(const clap_process* process) noexcept override;
     void reset() noexcept override;
     void onMainThread() noexcept override;
-    const void *extension(const char *id) noexcept override;
-    bool enableDraftExtensions() const noexcept override;    
+    const void* extension(const char* id) noexcept override;
+    bool enableDraftExtensions() const noexcept override;
 
     // state
     bool implementsState() const noexcept override { return true; }
@@ -90,17 +92,23 @@ public:
 
 private:
 
-    using User_params = tiny::Param_infos<tiny::Param_model>;
+    using User_params = Param_infos<Param_model>;
 
     User_params _params{};
     std::vector<std::string> _modules{tree_to_clap_modules(_params.tree())};
 
-    using Kernel = tiny::Clap_kernel;
-    std::unique_ptr<Kernel> _kernel = std::make_unique<Kernel>();
+    std::unique_ptr<Clap_kernel> _kernel = std::make_unique<Clap_kernel>();
 
-    using View = tiny::Clap_view;
-    std::unique_ptr<View> _view = std::make_unique<View>(tiny::Ui_receiver{
-        .pop_event = [this](auto& event) { return _kernel->pop_export(event); }
+    std::unique_ptr<Clap_view> _view = std::make_unique<Clap_view>(Ui_receiver{
+        .get_knob_value = [this](auto id) {
+            const auto& params = _params.kernel_specs();
+            const auto& param = params[id];
+            const auto host = _kernel->get_host_value(id);
+            const auto knob = Value_conv::host_to_knob(host, param.semantics);
+            return knob;
+        },
+        .pop_event = [this](auto& event) { return _kernel->pop_export(event); }, // kernel exports -> UI
+        .action_handler = [this](auto& action) { _kernel->handle_action(action); } // user actions -> DSP
     });
 
     // MARK: - gui api
@@ -109,9 +117,12 @@ private:
     static constexpr auto gui_preferred_api = []() {
         if (Platform::resolved == Platform::Type::macos) {
             return CLAP_WINDOW_API_COCOA;
-        } else if (Platform::resolved == Platform::Type::windows) {
+        }
+        else if (Platform::resolved == Platform::Type::windows) {
             return CLAP_WINDOW_API_WIN32;
         }
     }();
 
 };
+
+} // namespace tiny

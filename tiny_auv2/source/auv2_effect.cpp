@@ -2,10 +2,10 @@
 
 #include <AudioUnitSDK/ComponentBase.h>
 
+namespace tiny {
+
 Auv2_effect::Auv2_effect(AudioUnit component) : Super(component, num_inputs, num_outputs)
 {
-    using namespace tiny;
-
     CreateElements(); // So we can create the sidechain.
 
     // Set up parameters.
@@ -83,25 +83,22 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
 {
     if (inScope != kAudioUnitScope_Global || !outData) return kAudioUnitErr_InvalidScope;
 
-    using namespace tiny;
-
     switch (inID) {
         case kAudioUnitProperty_CocoaUI: {
             auto* info = static_cast<AudioUnitCocoaViewInfo*>(outData);
 
             // Bundle
-            auto id = CFStrLocal{tiny::Plug_info::Auv2::bundle_id};
+            auto id = CFStrLocal{Plug_info::Auv2::bundle_id};
             auto* bundle = CFBundleGetBundleWithIdentifier(id.Get());
             auto* url = CFBundleCopyBundleURL(bundle);
 
             info->mCocoaAUViewBundleLocation = url;
-            info->mCocoaAUViewClass[0] = CFStringCreateWithCString(kCFAllocatorDefault, tiny::Plug_info::Auv2::view_class, kCFStringEncodingUTF8);
+            info->mCocoaAUViewClass[0] = CFStringCreateWithCString(kCFAllocatorDefault, Plug_info::Auv2::view_class, kCFStringEncodingUTF8);
             return noErr;
         }
         case kAudioUnitProperty_ParameterStringFromValue: {
             auto* data = static_cast<AudioUnitParameterStringFromValue*>(outData);
 
-            using namespace tiny;
             const auto id = data->inParamID;
             const auto& params = _params.kernel_specs();
             const auto& param = params[id];
@@ -113,7 +110,6 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
         case kAudioUnitProperty_ParameterValueFromString: {
             auto* data = static_cast<AudioUnitParameterValueFromString*>(outData);
 
-            using namespace tiny;
             const auto id = data->inParamID;
             const auto& params = _params.kernel_specs();
             const auto& param = params[id];
@@ -124,7 +120,7 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
                 data->outValue = Value_conv::plain_to_host(*plain, param.semantics);
                 return noErr;
             }
-            
+
             return kAudioUnitErr_InvalidPropertyValue;
         }
         case kAudioUnitProperty_UserPlugin: {
@@ -144,8 +140,7 @@ OSStatus Auv2_effect::GetParameterList(AudioUnitScope inScope, AudioUnitParamete
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
 
     // This is so we can determine the presentation order of the parameters by the host.
-    using namespace tiny;
-    outNumParameters = User_params::num_params; // Do this first.
+    outNumParameters = num_params; // Do this first.
     if (!outParameterList) return noErr;
     const auto& params = _params.presentation_specs();
     const auto ids = params | std::views::transform([](const auto& spec) { return spec.id; });
@@ -159,8 +154,6 @@ OSStatus Auv2_effect::GetParameterList(AudioUnitScope inScope, AudioUnitParamete
 OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID inParameterID, AudioUnitParameterInfo& outParameterInfo)
 {
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
-
-    using namespace tiny;
 
     auto resolve_flags = [](const Param_spec& param, bool found_clump) {
         auto flags = AudioUnitParameterOptions{};
@@ -249,12 +242,10 @@ OSStatus Auv2_effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnit
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
     if (!outStrings) return noErr;
 
-    using namespace tiny;
-
     const auto& params = _params.kernel_specs();
     const auto& param = params[inParameterID];
 
-    
+
     if (const auto* l = std::get_if<List_semantics>(&param.semantics)) {
         auto array = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
 
@@ -277,8 +268,7 @@ OSStatus Auv2_effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnit
 OSStatus Auv2_effect::CopyClumpName(AudioUnitScope inScope, UInt32 inClumpID, UInt32 /*inDesiredNameLength*/, CFStringRef* outClumpName)
 {
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
-    
-    using namespace tiny;
+
     if (const auto* clump = find_clump(_clumps, inClumpID)) {
         const auto& name = clump->name;
         *outClumpName = CFStringCreateWithCString(0, name.c_str(), kCFStringEncodingUTF8);
@@ -299,7 +289,6 @@ OSStatus Auv2_effect::GetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
 OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames)
 {
-    using namespace tiny;
     const auto& params = _params.kernel_specs();
     const auto& param = params[inID];
 
@@ -308,7 +297,7 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
     _iqueue.push({
         .offset = static_cast<int32_t>(inBufferOffsetInFrames),
-        .event = tiny::Set_param{.id = inID, .value = plain_value}
+        .event = Set_param{.id = inID, .value = plain_value}
     });
     _oqueue.push(Set_param{.id = inID, .value = knob_value});
 
@@ -317,8 +306,6 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
 OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEvent, UInt32 inNumEvents)
 {
-    using namespace tiny;
-
     const auto& params = _params.kernel_specs();
 
     for (auto i = decltype(inNumEvents){}; i < inNumEvents; ++i) {
@@ -385,8 +372,6 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
     for (auto i = decltype(num_inputs){}; i < num_inputs; ++i) {
         Input(i).PullInput(ioActionFlags, inTimeStamp, i, nFrames);
     }
-
-    using namespace tiny;
 
     _events.clear(); // Events are only valid for the current render cycle.
     auto param_event = Tagged_event{};
@@ -473,7 +458,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
             _ibuffers[i] = static_cast<const float*>(Input(0).GetBufferList().mBuffers[i].mData) + offset;
         }
         for (size_t i = 0; i < num_ochannels; ++i) {
-             _obuffers[i] = static_cast<float*>(Output(0).GetBufferList().mBuffers[i].mData) + offset;
+            _obuffers[i] = static_cast<float*>(Output(0).GetBufferList().mBuffers[i].mData) + offset;
         }
         if constexpr (Plug_info::wants_sidechain) {
             for (size_t i = 0; i < num_schannels; ++i) {
@@ -565,3 +550,5 @@ void* Auv2_effect::create_view()
 // MARK: - entry
 
 AUSDK_COMPONENT_ENTRY(ausdk::AUBaseFactory, Auv2_effect);
+
+} // namespace tiny

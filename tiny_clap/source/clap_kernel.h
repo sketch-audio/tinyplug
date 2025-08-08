@@ -12,171 +12,32 @@
 
 namespace tiny {
 
-struct Clap_kernel {
+class Clap_kernel {
+public:
 
     Clap_kernel() {
-        // Initialize host defaults
-        for (const auto& param : _params.kernel_specs()) {
+        // Initialize host values with defaults.
+        for (const auto& param : _param_infos.kernel_specs()) {
             _hostvalues[param.id] = get_host_default(param);
         }
     }
 
-    auto reset(double sample_rate, size_t max_frames) -> void
-    {
-        _kernel->reset(sample_rate, max_frames);
-        _sr = sample_rate;
-    }
+    // CLAP
+    auto reset(double sample_rate, size_t max_frames) -> void;
+    auto handle_flushed(const clap_event_header* event) -> void;
+    auto get_host_value(clap_id paramId) -> double;
+    auto process(const clap_process* process) -> clap_process_status;
 
-    // From flush,
-    auto handle_event(const clap_event_header* event) -> void
-    {
-        _handle_event<false>(event); // Not audio thread
-    }
-
-    auto get_host_value(clap_id paramId) -> double
-    {
-        return _hostvalues[paramId].load(std::memory_order_relaxed);
-    }
-
-    auto pop_export(Ui_event& event) -> bool
-    {
-        return _oqueue.pop(event);
-    }
-
-    auto process(const clap_process* process) -> clap_process_status
-    {
-        // Process flushed events.
-        auto kernel_event = Render_event{};
-        while (_iqueue.pop(kernel_event)) {
-            _kernel->handle_event(kernel_event);
-        }
-
-        // Get ready to process the input events.
-        const auto* events = process->in_events;
-        const auto event_count = events->size(events);
-
-        auto event_index = size_t{};
-        const auto* event = event_count > 0 ? events->get(events, event_index) : nullptr;
-
-        auto next_event = [&]() {
-            ++event_index;
-            if (event_index >= event_count) {
-                event = nullptr;
-            }
-            else {
-                event = events->get(events, event_index);
-            }
-        };
-
-        // Create the context.
-        auto context = Dsp_context{.exports = _exports};
-
-        // So we can process with an offset.
-        auto do_process = [this, &process, &context](size_t num_frames, size_t offset) {
-            // Assign buffer ptrs.
-            for (size_t i = 0; i < num_ichannels; ++i) {
-                const auto& input_port = process->audio_inputs[0];
-                _ibuffers[i] = &input_port.data32[i][offset];
-            }
-            for (size_t i = 0; i < num_ochannels; ++i) {
-                auto& output_port = process->audio_outputs[0];
-                _obuffers[i] = &output_port.data32[i][offset];
-            }
-            if constexpr (Plug_info::wants_sidechain) {
-                for (size_t i = 0; i < num_schannels; ++i) {
-                    const auto& sidechain_port = process->audio_inputs[1];
-                    _sbuffers[i] = &sidechain_port.data32[i][offset];
-                }
-            }
-
-            // Resolve the musical context.
-            const auto* transport = process->transport;
-
-            // We will derive the sample time from the time in seconds.
-            const auto sec_pos = static_cast<double>(transport->song_pos_seconds) / CLAP_SECTIME_FACTOR;
-            const auto sample_pos = std::round(sec_pos * _sr);
-            const auto beat_pos = static_cast<double>(transport->song_pos_beats) / CLAP_BEATTIME_FACTOR;
-            const auto cycle_start = static_cast<double>(transport->loop_start_beats) / CLAP_BEATTIME_FACTOR;
-            const auto cycle_end = static_cast<double>(transport->loop_end_beats) / CLAP_BEATTIME_FACTOR;
-            const auto tempo = transport->tempo;
-            const auto ts_numer = transport->tsig_num;
-            const auto ts_denom = transport->tsig_denom;
-
-            const auto flags = transport->flags;
-            const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
-
-            context.musical_context = {
-                .sample_pos = static_cast<int64_t>(sample_pos + offset),
-                .beat_pos = beat_pos + frames_to_beats(offset, tempo, _sr),
-                .cycle_start = cycle_start,
-                .cycle_end = cycle_end,
-                .tempo_ideal = tempo,
-                .time_sig = {ts_numer, ts_denom},
-                .transport_state = {
-                    .moving = has_flag(flags, CLAP_TRANSPORT_IS_PLAYING),
-                    .cycling = has_flag(flags, CLAP_TRANSPORT_IS_LOOP_ACTIVE),
-                    .recording = has_flag(flags, CLAP_TRANSPORT_IS_RECORDING)
-                }
-            };
-
-            context.ibuffers = _ibuffers;
-            context.obuffers = _obuffers;
-            context.sbuffers = _sbuffers;
-            context.num_frames = num_frames;
-            
-            _kernel->process(context);
-        };
-
-        // Do process loop.
-        const auto frame_count = process->frames_count;
-        auto now = decltype(frame_count){};
-        auto remaining = frame_count;
-
-        while (remaining > 0) {
-            if (!event) {
-                const auto offset = frame_count - remaining;
-                do_process(remaining, offset);
-                break;
-            }
-
-            const auto frames_until_event = std::max({}, event->time - now);
-
-            if (frames_until_event > 0) {
-                const auto offset = frame_count - remaining;
-                do_process(frames_until_event, offset);
-                remaining -= frames_until_event;
-                now += frames_until_event;
-            }
-
-            do {
-                this->_handle_event<true>(event);
-                next_event();
-            } while (event && event->time <= now);
-        }
-
-        // Send exports.
-        for (auto i = decltype(num_exports){}; i < num_exports; ++i) {
-            if (context.exports[i] != _lexports[i]) {
-                // Send an output event.
-                const auto value = context.exports[i];
-                _oqueue.push(Set_export{.id = i, .value = value});
-
-                // Cache for next time.
-                _lexports[i] = value;
-            }
-
-            _exports[i] = 0; // Reset for peak meters.
-        }
-
-        return CLAP_PROCESS_SLEEP;
-    }
+    // tiny
+    auto pop_export(Ui_event& event) -> bool;
+    auto handle_action(const User_action& action) -> void;
 
 private:
 
     double _sr{48000};
 
-    using User_params = tiny::Param_infos<tiny::Param_model>;
-    using User_exports = tiny::Exports<tiny::Param_model>;
+    using User_params = Param_infos<Param_model>;
+    using User_exports = Exports<Param_model>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_exports = User_exports::num_exports;
@@ -191,29 +52,36 @@ private:
     std::array<float*, num_ochannels> _obuffers{};
     std::array<float, num_exports> _exports{};
 
-    User_params _params{}; // We have to be able to map the values to plain space.
+    User_params _param_infos{}; // We have to be able to map the values to plain space.
 
     // Values in host space.
-    std::array<std::atomic<double>, num_params> _hostvalues{};
+    using Host_values = std::array<std::atomic<double>, num_params>;
+    Host_values _hostvalues{};
 
     std::array<double, num_exports> _lexports{};
 
     std::unique_ptr<Dsp_kernel> _kernel = std::make_unique<Dsp_kernel>();
 
     // TODO: - Use a heuristic for size.
-    using Event_queue = tiny::Lock_free_queue<tiny::Render_event, 256>;
-    using To_ui_queue = tiny::Lock_free_queue<tiny::Ui_event, 256, tiny::Queue_concurrency::mpsc>; // 
-    Event_queue _iqueue{}; 
-    To_ui_queue _oqueue{};
+    using From_flush_queue = Lock_free_queue<Render_event, 256>;
+    using From_ui_queue = Lock_free_queue<User_action, 256>;
+    using To_ui_queue = Lock_free_queue<Ui_event, 256>;
+
+    From_flush_queue _from_flush{};
+    From_ui_queue _from_ui{};
+    To_ui_queue _to_ui{};
 
     // MARK: - private
 
+    auto _handle_host_flushed() -> void;
+    auto _handle_user_actions(const clap_output_events_t* out_events) -> void;
+
     template<bool on_audio_thread>
-    auto _handle_event(const clap_event_header* event) -> void
+    auto _handle_host_event(const clap_event_header* event) -> void
     {
         if (event->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
 
-        const auto& params = _params.kernel_specs();
+        const auto& params = _param_infos.kernel_specs();
 
         switch (event->type) {
             case CLAP_EVENT_PARAM_VALUE: {
@@ -226,17 +94,17 @@ private:
                 const auto kernel_event = Set_param{.id = id, .value = plain_value};
 
                 if constexpr (on_audio_thread) {
-                    _kernel->handle_event(kernel_event); // Process callback event list.
+                    // On the audio thread we can handle the event now.
+                    _kernel->handle_event(kernel_event);
                 }
                 else {
-                    _iqueue.push(kernel_event); // Flush.
+                    // On flush, we need to push into a queue for later.
+                    _from_flush.push(kernel_event);
                 }
 
-                // Maintain host values.
+                // Either way we need to update the host values and notify the UI.
                 _hostvalues[id].store(value_event->value, std::memory_order_relaxed);
-
-                // Notify UI.
-                _oqueue.push(Set_param{.id = id, .value = knob_value});
+                _to_ui.push(Set_param{.id = id, .value = knob_value});
 
                 break;
             }

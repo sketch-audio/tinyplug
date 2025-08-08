@@ -6,6 +6,8 @@
 
 #include "vst3_view.h"
 
+namespace tiny {
+
 class Vst3_controller : public Steinberg::Vst::EditControllerEx1 {
 public:
 
@@ -44,18 +46,21 @@ public:
         DELEGATE_REFCOUNT(Super)
 
 protected:
-    
+
     Vst3_view* view{nullptr}; // Is there any point in keeping this around?
 
     // Sorted by paramId.
-    using User_params = tiny::Param_infos<tiny::Param_model>;
+    using User_params = Param_infos<Param_model>;
     static constexpr auto num_params = User_params::num_params;
 
     User_params _params{};
-    std::array<double, num_params> _uivalues{};
 
     // We receive the exports in `setParamNormalized` and let the view pop them here.
-    using To_ui_queue = tiny::Lock_free_queue<tiny::Ui_event, 256>;
+    using To_ui_queue = Lock_free_queue<Ui_event, 256>;
     To_ui_queue _oqueue{};
 
+    std::unordered_set<uint32_t> _gestured{};
+
 };
+
+} // namespace tiny

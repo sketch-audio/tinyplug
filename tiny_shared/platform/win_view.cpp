@@ -36,7 +36,7 @@ inline auto get_monitor_refresh_rate(HWND window) -> int32_t
 LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     // Retrieve the graphics delegate stored in window's user data.
-    auto* delegate = reinterpret_cast<Graphics_delegate*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    auto* delegate = reinterpret_cast<View_delegate*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     if (!delegate) return DefWindowProcW(window, message, wParam, lParam);
     
     switch (message)
@@ -97,11 +97,11 @@ public:
 
 };
 
-Platform_view::Platform_view(std::shared_ptr<Graphics_delegate> delegate, bool owns_view) : _delegate{delegate}, _owns_view{owns_view}
+Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view) : _delegate{delegate}, _owns_view{owns_view}
 {
     const auto& registrar = Window_registrar::instance(); // Register/unregisters the window class.
 
-    const auto size = delegate->getSize();
+    const auto size = delegate->get_size();
 
     auto* window = CreateWindowW(
         registrar.class_name, 
@@ -155,7 +155,7 @@ auto Platform_view::resize(int32_t w, int32_t h) -> void
 {
     auto window = static_cast<HWND>(_view);
     // Update window size based on delegate
-    const auto size = _delegate->getSize();
+    const auto size = _delegate->get_size();
     SetWindowPos(window, nullptr, 0, 0, size.width, size.height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 

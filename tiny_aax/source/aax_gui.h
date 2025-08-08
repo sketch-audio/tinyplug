@@ -30,24 +30,19 @@ protected:
 
 private:
 
-    using Draw_context = Graphics_delegate::Draw_context;
-    auto on_draw(Draw_context& context) -> void;
+    auto on_draw(View_context& view_context) -> void;
 
     using User_params = Param_infos<Param_model>;
     using User_exports = Exports<Param_model>;
 
+    static constexpr auto initial_size = Rect_size{800, 600};
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_exports = User_exports::num_exports;
 
     User_params _param_infos{}; // infos
     Ui_receiver _receiver{};
 
-    std::shared_ptr<Graphics_delegate> _delegate = std::make_shared<Graphics_delegate>(
-        Graphics_delegate::Size{800, 600}, // Initial size
-        [this](auto& context) { this->on_draw(context); }
-    );
-    std::unique_ptr<Platform_view> platform_view{nullptr};
-
+    std::unique_ptr<Platform_view> _platform_view{nullptr};
     std::unique_ptr<Custom_view> _view = std::make_unique<Custom_view>();
 
     struct Ui_export {

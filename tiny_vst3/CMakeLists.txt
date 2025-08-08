@@ -20,6 +20,7 @@ add_library(${VST3_TARGET} MODULE
     source/vst3_controller.cpp
     source/vst3_entry.cpp
     source/vst3_processor.cpp
+    source/vst3_view.cpp
 )
 
 if(APPLE)

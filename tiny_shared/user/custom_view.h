@@ -1,5 +1,7 @@
 #pragma once
 
+#include <variant>
+
 #include "tinyplug/tinyplug.h"
 #include "param_model.h"
 
@@ -8,39 +10,86 @@ namespace tiny {
 struct Custom_view {
 
     // Here you have access to the user's interaction state, draw context, etc.
-    auto on_draw(View_context& context) -> void
+    auto on_draw(App_state& app_state) -> void
     {
-        auto* canvas = context.draw_context.canvas;
-        const auto size = context.draw_context.size;
+        auto& params_state = app_state.params_state;
+        auto& view_context = app_state.view_context;
+        auto& actions = app_state.action_receiver;
+
+        auto& interaction = view_context.interaction;
+        auto* canvas = view_context.canvas;
+
+        // Resolve the real size.
+        const auto lsize = view_context.logical_size;
+        const auto scale = view_context.scale;
+        const auto rsize = Rect_size{
+            .w = static_cast<int32_t>(lsize.w * scale),
+            .h = static_cast<int32_t>(lsize.h * scale)
+        };
+
+        // Get param, export values.
+        auto& params = params_state.params;
+        auto& exports = params_state.exports;
+
+        const auto gain = params[enum_raw(Param_id::gain)];
+
+        // Get incremented parameter value from a drag.
+        auto get_next = [=, this](auto x, auto& d) -> double {
+            const auto drag_y = d.tpos.y - d.fpos.y;
+            const auto drag_dy = drag_y - _ldrag;
+            const auto norm_dy = drag_dy / lsize.h;
+            return std::clamp(x + norm_dy, double{}, double{1});
+        };
+
+        std::visit(Inline_visitor{
+            [&](const Drag_start& s) {
+                _ldrag = {};
+                const auto to_set = get_next(gain, s);
+                const auto id = enum_raw(Param_id::gain);
+                actions.add_action(Action_start{id});
+                actions.add_action(Set_param{id, to_set});
+                _ldrag = s.tpos.y - s.fpos.y;
+            },
+            [&](const Drag& s) {
+                const auto to_set = get_next(gain, s);
+                const auto id = enum_raw(Param_id::gain);
+                actions.add_action(Set_param{id, to_set});
+                _ldrag = s.tpos.y - s.fpos.y;
+            },
+            [&](const Drag_end& s) {
+                const auto to_set = get_next(gain, s);
+                const auto id = enum_raw(Param_id::gain);
+                actions.add_action(Set_param{id, to_set});
+                actions.add_action(Action_end{id});
+                _ldrag = {};
+            },
+            [](const auto&) {}
+        }, interaction.state);
+
 
         auto paint = SkPaint{};
         paint.setColor(SK_ColorWHITE);
         paint.setStyle(SkPaint::kFill_Style);
-        canvas->drawRect(SkRect::MakeXYWH(0, 0, size.width, size.height), paint);
+        canvas->drawRect(SkRect::MakeXYWH(0, 0, rsize.w, rsize.h), paint);
 
-        // Get param, peak values.
-        auto& params = context.params_state.params;
-        const auto gain_plain = params[enum_raw(Param_id::gain)];
-
-        auto& exports = context.params_state.exports;
         const auto peak_in = exports[enum_raw(Export_id::peak_in)];
         const auto peak_out = exports[enum_raw(Export_id::peak_out)];
 
         paint.setColor(SK_ColorBLACK);
-        const auto div = size.width / 3;
+        const auto div = rsize.w / 3;
 
         // Draw gain value.
-        const auto g_h = gain_plain * size.height;
-        const auto g_y = size.height - g_h;
+        const auto g_h = gain * rsize.h;
+        const auto g_y = rsize.h - g_h;
         canvas->drawRect(SkRect::MakeXYWH(0, g_y, div, g_h), paint);
 
         // Draw peak meters.
-        const auto in_h = peak_in * size.height;
-        const auto in_y = size.height - in_h;
+        const auto in_h = peak_in * rsize.h;
+        const auto in_y = rsize.h - in_h;
         canvas->drawRect(SkRect::MakeXYWH(div, in_y, div, in_h), paint);
 
-        const auto out_h = peak_out * size.height;
-        const auto out_y = size.height - out_h;
+        const auto out_h = peak_out * rsize.h;
+        const auto out_y = rsize.h - out_h;
         canvas->drawRect(SkRect::MakeXYWH(2 * div, out_y, div, out_h), paint);
     }
 
@@ -51,6 +100,8 @@ private:
     using Export_id = Param_model::Export_id;
 
     User_params _params{};
+
+    double _ldrag{}; // norm
 
 };
 

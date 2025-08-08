@@ -14,6 +14,8 @@
 #include "vst3_adapters.h"
 #include "vst3_processor.h"
 
+namespace tiny {
+
 Vst3_processor::Vst3_processor()
 {
     setControllerClass(tiny::map_to_fuid(tiny::Plug_info::Vst3::controller_uid));
@@ -35,11 +37,10 @@ Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* co
 
     if (result != Steinberg::kResultOk)
         return result;
-    
+
     // Create the audio IO.
 
     using namespace Steinberg::Vst;
-    using namespace tiny;
 
     const auto input_count = Plug_info::wants_sidechain ? 2 : 1;
 
@@ -77,7 +78,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::terminate()
 Steinberg::tresult PLUGIN_API Vst3_processor::setActive(Steinberg::TBool state)
 {
     // Called when the Plug-in is enable/disable (On/Off).
-	return Steinberg::Vst::AudioEffect::setActive(state);
+    return Steinberg::Vst::AudioEffect::setActive(state);
 }
 
 Steinberg::tresult PLUGIN_API Vst3_processor::setupProcessing(Steinberg::Vst::ProcessSetup& newSetup)
@@ -89,19 +90,17 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setupProcessing(Steinberg::Vst::Pr
 
 Steinberg::tresult PLUGIN_API Vst3_processor::canProcessSampleSize(Steinberg::int32 symbolicSampleSize)
 {
-	// By default kSample32 is supported.
-	if (symbolicSampleSize == Steinberg::Vst::kSample32)
-		return Steinberg::kResultTrue;
+    // By default kSample32 is supported.
+    if (symbolicSampleSize == Steinberg::Vst::kSample32)
+        return Steinberg::kResultTrue;
 
-	return Steinberg::kResultFalse;
+    return Steinberg::kResultFalse;
 }
 
 // MARK: - process
 
 Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessData& data)
 {
-    using namespace tiny;
-
     _events.clear(); // Events only valid for this render cycle.
     this->normalize_input_events(data);
 
@@ -166,7 +165,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
                 .recording = has_flag(transport_state, kRecording)
             }
         };
-        
+
         context.ibuffers = _ibuffers;
         context.obuffers = _obuffers;
         context.sbuffers = _sbuffers;
@@ -242,8 +241,6 @@ Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* stat
 
 auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -> void
 {
-    using namespace tiny;
-
     auto& param_changes = *data.inputParameterChanges;
     const auto num_changes = param_changes.getParameterCount();
 
@@ -305,3 +302,5 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
     // sort events.
     std::ranges::sort(_events, [](const auto& a, const auto& b) { return a.offset < b.offset; });
 }
+
+} // namespace tiny
