@@ -50,7 +50,7 @@ void Aax_gui::CreateViewContainer()
                     [&](const Set_param& a) {
                         if (const auto aax_id = tiny_id_to_aax(a.id)) {
                             const auto* id_cstr = (*aax_id).c_str();
-                            view->HandleParameterMouseDown(id_cstr, 0);
+                            view->HandleParameterMouseDrag(id_cstr, 0);
                             AAX_IParameter* param = nullptr;
                             if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS) {
                                 param->SetNormalizedValue(a.value);
@@ -60,7 +60,7 @@ void Aax_gui::CreateViewContainer()
                     [&](const Action_end& a) {
                         if (const auto aax_id = tiny_id_to_aax(a.id)) {
                             const auto* id_cstr = (*aax_id).c_str();
-                            view->HandleParameterMouseDown(id_cstr, 0);
+                            view->HandleParameterMouseUp(id_cstr, 0);
                             AAX_IParameter* param = nullptr;
                             if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS) {
                                 param->Release();
