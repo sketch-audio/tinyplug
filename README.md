@@ -28,7 +28,6 @@
     - See: https://www.stroustrup.com/Programming/PPP-style.pdf
 
 ## Todo
-- Set parameter values from UI
 - Save & restore state
 - Parameter tree versioning
 - Latency reporting
