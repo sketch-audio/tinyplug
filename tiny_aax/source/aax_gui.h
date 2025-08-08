@@ -7,7 +7,7 @@
 #include "AAX_VController.h"
 
 #include "platform/platform_view.h"
-#include "user/custom_view.h"
+#include "custom_view.h"
 
 #include "aax_adapters.h"
 #include "aax_parameters.h"

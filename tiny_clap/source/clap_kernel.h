@@ -4,9 +4,9 @@
 
 #include "clap/clap.h"
 
+#include "dsp_kernel.h"
+#include "param_model.h"
 #include "plug_info.h"
-#include "user/dsp_kernel.h"
-#include "user/param_model.h"
 
 #include "clap_adapters.h"
 

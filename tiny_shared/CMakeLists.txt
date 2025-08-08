@@ -1,12 +1,6 @@
-# Configure generated header.
-configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/plug_info.h.in
-    ${CMAKE_CURRENT_BINARY_DIR}/plug_info.h
-)
-
 # --- SKIA ---
-# We're expecting to use the iPlug2 optional dependencies folder.
-# See: https://github.com/iPlug2/iPlug2/releases 
+# We're building Skia from iPlug2 using the scripts in the Dependencies folder.
+# See: https://github.com/iPlug2/iPlug2
 
 # Platform-specific settings.
 if(APPLE)
@@ -59,14 +53,13 @@ elseif(WIN32)
 endif()
 
 file(GLOB TARGET_HEADERS
-    "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
+    #"${CMAKE_CURRENT_SOURCE_DIR}/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/platform/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/skia/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/tinyplug/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/user/*.h"
 )
 
-set(TINY_SHARED_LIB ${TINY_BASE_FILENAME}_lib)
+set(TINY_SHARED_LIB tiny_shared_lib)
 add_library(${TINY_SHARED_LIB} STATIC 
     ${TARGET_HEADERS}
     skia/WindowContext.cpp
@@ -77,7 +70,6 @@ add_library(${TINY_SHARED_LIB} STATIC
 target_include_directories(
     ${TINY_SHARED_LIB} PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_BINARY_DIR} # for plug_info.h
 )
 
 # Don't issue warnings for Skia library code.

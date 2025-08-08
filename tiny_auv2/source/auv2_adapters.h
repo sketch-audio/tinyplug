@@ -10,7 +10,8 @@
 #include <AudioUnitSDK/AUScopeElement.h>
 
 #include "tinyplug/tinyplug.h"
-#include "user/param_model.h"
+
+#include "param_model.h"
 
 namespace tiny {
 

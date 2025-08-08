@@ -4,8 +4,8 @@
 
 #include "tinyplug/tinyplug.h"
 
+#include "param_model.h"
 #include "plug_info.h"
-#include "user/param_model.h"
 
 namespace tiny {
 

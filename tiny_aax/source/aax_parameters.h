@@ -8,8 +8,8 @@
 
 #include "plug_info.h"
 
-#include "user/dsp_kernel.h"
-#include "user/param_model.h"
+#include "dsp_kernel.h"
+#include "param_model.h"
 
 namespace tiny {
 

@@ -8,8 +8,8 @@
 #include "public.sdk/source/vst/vstaudioeffect.h"
 #include "base/source/fstreamer.h"
 
+#include "param_model.h"
 #include "plug_info.h"
-#include "user/param_model.h"
 
 #include "vst3_adapters.h"
 #include "vst3_processor.h"

@@ -6,8 +6,8 @@
 
 #include "public.sdk/source/vst/vstaudioeffect.h"
 
-#include "user/dsp_kernel.h"
-#include "user/param_model.h"
+#include "dsp_kernel.h"
+#include "param_model.h"
 
 namespace tiny {
 

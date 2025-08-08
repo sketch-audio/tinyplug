@@ -28,6 +28,7 @@
     - See: https://www.stroustrup.com/Programming/PPP-style.pdf
 
 ## Todo
+- Mouse events for Windows
 - Save & restore state
 - Parameter tree versioning
 - Latency reporting
@@ -50,6 +51,7 @@
 
 ## Consider
 - Use optionals in `Musical_context`
+- Remove max block size from reset
 
 ## Needs tested
 - Test sidechain (add export and visualize?)

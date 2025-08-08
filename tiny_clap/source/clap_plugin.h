@@ -7,8 +7,8 @@
 #include "clap/helpers/host-proxy.hh"
 #include "clap/helpers/host-proxy.hxx"
 
+#include "param_model.h"
 #include "plug_info.h"
-#include "user/param_model.h"
 
 #include "clap_adapters.h"
 #include "clap_kernel.h"

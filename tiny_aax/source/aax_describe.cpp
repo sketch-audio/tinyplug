@@ -8,7 +8,7 @@
 #include "AAX_Assert.h"
 
 #include "plug_info.h"
-#include "user/param_model.h"
+#include "param_model.h"
 
 #include "aax_gui.h"
 #include "aax_parameters.h"

@@ -30,7 +30,7 @@ elseif(WIN32)
 endif()
 
 target_link_libraries(${VST3_TARGET} PRIVATE sdk)
-target_link_libraries(${VST3_TARGET} PRIVATE ${TINY_SHARED_LIB})
+target_link_libraries(${VST3_TARGET} PRIVATE ${TINY_USER_CODE})
 
 if(APPLE)
     target_link_libraries(${VST3_TARGET} PRIVATE "-framework Cocoa")

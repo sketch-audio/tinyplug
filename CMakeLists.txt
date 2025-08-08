@@ -4,61 +4,6 @@ option(TINY_INSTALL_PLUGINS "Copy plug-ins to system folders after build (may pr
 
 project(tinyplug)
 
-# Your plug-in information goes here.
-# ---
-set(TINY_COMPANY_NAME "Sketch Audio")
-set(TINY_COMPANY_WEBSITE "www.sketchaudio.com")
-set(TINY_COMPANY_EMAIL "ryan@sketchaudio.com")
-
-set(TINY_PRODUCT_NAME "Tiny Demo")
-set(TINY_PRODUCT_SHORT_NAME "TnDm") # Must be <= 16 chars, for Pro Tools.
-set(TINY_BASE_FILENAME "TinyDemo")
-set(TINY_BASE_IDENTIFIER "com.sketch-audio.TinyDemo")
-set(TINY_VERSION_STRING "1.0.0")
-set(TINY_BUILD_NUMBER "1")
-
-set(TINY_PLUGIN_WANTS_SIDECHAIN "false")
-
-set(TINY_AAX_MANUFACTURER_ID "Skch")
-set(TINY_AAX_PRODUCT_ID "demo")
-set(TINY_AAX_PLUGIN_ID "demo")
-
-# See: https://github.com/free-audio/clap/blob/main/include/clap/plugin-features.h
-set(TINY_CLAP_DESCRIPTION "The tinyplug demo plug-in.")
-set(TINY_CLAP_FEATURES "audio-effect" "stereo")
-
-set(TINY_AUV2_VIEW_CLASS "TinyDemo_viewFactory")
-set(TINY_AUV2_MANUFACTURER "Skch")
-set(TINY_AUV2_TYPE "aufx")
-set(TINY_AUV2_SUBTYPE "tndm")
-set(TINY_AUV2_BUNDLE_VERSION "0x10600")
-set(TINY_AUV2_BUNDLE_TAG "Effect") # Instrument or Effect
-
-# See: https://steinbergmedia.github.io/vst3_doc/vstinterfaces/namespaceSteinberg_1_1Vst_1_1PlugType.html
-set(TINY_VST3_CONTROLLER_UID "tiny" "Skch" "demo" "ctrl")
-set(TINY_VST3_PROCESSOR_UID "tiny" "Skch" "demo" "proc")
-set(TINY_VST3_SUBCATEGORIES "Fx")
-# ---
-
-# CMake helper functions
-include(cmake/helpers.cmake)
-
-# Prepare values for generated header.
-# ---
-prepare_clap_feature_list(
-    TINY_CLAP_FEATURES 
-    TINY_CLAP_FEATURE_COUNT TINY_CLAP_FEATURE_VALUES
-)
-prepare_vst3_uid_array(
-    TINY_VST3_CONTROLLER_UID 
-    TINY_VST3_CONTROLLER_UID_LITERALS
-)
-prepare_vst3_uid_array(
-    TINY_VST3_PROCESSOR_UID 
-    TINY_VST3_PROCESSOR_UID_LITERALS
-)
-# ---
-
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -87,8 +32,9 @@ message(STATUS "TINY_SKIA_ROOT_DIR: ${TINY_SKIA_ROOT_DIR}")
 # AAX SDK path is optional.
 set(TINY_AAX_SDK_DIR "" CACHE PATH "Path to AAX SDK.")
 
-# Shared library.
+# Shared library & user code.
 add_subdirectory(tiny_shared)
+add_subdirectory(tiny_user)
 
 # Plug-in targets.
 add_subdirectory(tiny_aax)

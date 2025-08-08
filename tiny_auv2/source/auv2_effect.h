@@ -9,9 +9,9 @@
 
 #include "tinyplug/tinyplug.h"
 
+#include "dsp_kernel.h"
+#include "param_model.h"
 #include "plug_info.h"
-#include "user/param_model.h"
-#include "user/dsp_kernel.h"
 
 #include "auv2_adapters.h"
 #include "auv2_view.h"

@@ -7,8 +7,8 @@
 #include "tinyplug/tinyplug.h"
 #include "platform/platform_view.h"
 
-#include "user/param_model.h"
-#include "user/custom_view.h"
+#include "custom_view.h"
+#include "param_model.h"
 
 namespace tiny {
 

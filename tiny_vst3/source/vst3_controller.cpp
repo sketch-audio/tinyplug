@@ -5,7 +5,7 @@
 
 #include "tinyplug/tinyplug.h"
 
-#include "user/param_model.h"
+#include "param_model.h"
 
 #include "vst3_adapters.h"
 #include "vst3_controller.h"

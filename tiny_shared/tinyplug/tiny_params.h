@@ -532,11 +532,12 @@ public:
     }
 
     // ...
-    auto make_plain_defaults() const -> std::array<double, num_params>
+    template<typename T>
+    auto make_plain_defaults() const -> std::array<T, num_params>
     {
-        std::array<double, num_params> result{};
+        std::array<T, num_params> result{};
         for (const auto& spec : _kspecs) {
-            result[spec.id] = get_plain_default(spec);
+            result[spec.id] = static_cast<T>(get_plain_default(spec));
         }
         return result;
     }

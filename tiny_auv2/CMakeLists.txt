@@ -27,7 +27,7 @@ target_include_directories(${AUV2_TARGET} SYSTEM PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/
 )
 
-target_link_libraries(${AUV2_TARGET} PRIVATE ${TINY_SHARED_LIB})
+target_link_libraries(${AUV2_TARGET} PRIVATE ${TINY_USER_CODE})
 target_link_libraries(${AUV2_TARGET} PRIVATE "-framework Cocoa" "-framework AudioToolbox")
 
 target_compile_options(${AUV2_TARGET} PRIVATE -Wall -Wextra -pedantic)
