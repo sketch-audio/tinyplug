@@ -29,6 +29,7 @@
 
 ## Todo
 - Mouse events for Windows
+- Handle stream, trig exports
 - Save & restore state
 - Parameter tree versioning
 - Latency reporting
@@ -52,6 +53,8 @@
 ## Consider
 - Use optionals in `Musical_context`
 - Remove max block size from reset
+- How to handle latency changes
+- How to handle events to kernel like match gain
 
 ## Needs tested
 - Test sidechain (add export and visualize?)
