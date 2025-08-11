@@ -8,6 +8,8 @@
 #include <vector>
 
 #include "AAX.h"
+#include "AAX_IEffectParameters.h"
+#include "AAX_IParameter.h"
 
 #include "tinyplug/tinyplug.h"
 
@@ -45,6 +47,23 @@ inline auto aax_id_to_tiny(AAX_CParamID aax_id) noexcept -> std::optional<uint32
     }
 
     return tiny_id;
+}
+
+// MARK: - get AAX param
+
+constexpr auto get_aax_param(AAX_IEffectParameters* params, uint32_t id) -> std::optional<AAX_IParameter*>
+{
+    if (!params) return std::nullopt;
+
+    if (const auto aax_id = tiny_id_to_aax(id)) {
+        const auto* id_cstr = (*aax_id).c_str();
+        AAX_IParameter* param = nullptr;
+        if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS) {
+            return param;
+        };
+    }
+    
+    return std::nullopt;
 }
 
 // MARK: - tree_to_aax_ids

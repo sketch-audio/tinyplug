@@ -29,7 +29,6 @@
 
 ## Todo
 - Mouse events for Windows
-- Handle stream, trig exports
 - Save & restore state
 - Parameter tree versioning
 - Latency reporting
@@ -57,5 +56,6 @@
 - How to handle events to kernel like match gain
 
 ## Needs tested
-- Test sidechain (add export and visualize?)
-- Test musical context
+- Sidechain (add export and visualize?)
+- Musical context
+- Export types (stream, trig)

@@ -5,6 +5,8 @@
 #include <span>
 #include <variant>
 
+#include "tiny_exports.h"
+
 class SkCanvas; // Skia canvas
 
 namespace tiny {
@@ -192,4 +194,88 @@ inline auto print_pointer_state(const Pointer_state& state) -> void
     }, state);
 }
 
+namespace view_impl {
+
+// MARK: - run_frame
+
+template<typename E, typename S, typename A0, typename A1, typename C, typename V>
+constexpr auto run_frame(const S& _receiver, A0& _uiparams, A1& _uiexports, const C& view_context, V* _custom_view) -> void
+{
+    // Pop the exports.
+    auto event = Ui_event{};
+    while (_receiver.pop_event(event)) {
+        std::visit(Inline_visitor{
+            [&](const Set_param& p) {
+                _uiparams[p.id] = p.value;
+            },
+            [&](const Set_export& e) {
+                //
+                auto& uiexport = _uiexports[e.id];
+                const auto type = E::type_for(e.id);
+
+                using enum Export_type;
+                switch (type) {
+                    case peak: {
+                        if (!uiexport.updated) {
+                            uiexport.value = 0; // Reset on first update in frame where we receive an event.
+                        }
+                        uiexport.value = std::max(uiexport.value, e.value);
+                        uiexport.updated = true;
+                        break;
+                    }
+                    case stream: {
+                        uiexport.value = e.value;
+                        uiexport.updated = true;
+                        break;
+                    }
+                    case trig: {
+                        uiexport.value = 1;
+                        uiexport.trigged = true;
+                        break;
+                    }
+                }
+            }
+        }, event);
+    }
+
+    // Adapt tagged exports to values.
+    auto export_arr = std::array<double, E::num_exports>{};
+    const auto value_tx = _uiexports | std::views::transform(&Tagged_export::value);
+    std::ranges::copy(value_tx, export_arr.begin());
+
+    // Create view context.
+    auto app_state = App_state{
+        .params_state = {
+            .params = _uiparams,
+            .exports = export_arr
+        },
+        .action_receiver = Action_receiver{},
+        .view_context = view_context
+    };
+
+    // Tell the user view to draw.
+    _custom_view->on_draw(app_state);
+
+    // Handle actions and update local state.
+    auto& actions = app_state.action_receiver.actions();
+    for (auto& action : actions) {
+        _receiver.action_handler(action);
+        std::visit(Inline_visitor{
+            [&](const Set_param& s) { _uiparams[s.id] = s.value; }, // Update local copy (assume success).
+            [](const auto&) {}
+        }, action);
+    }
+
+    // Reset exports for next frame.
+    for (auto& uiexport : _uiexports) {
+        uiexport.updated = false;
+        if (uiexport.trigged) {
+            uiexport.value = 0;
+            uiexport.trigged = false;
+        }
+    }
 }
+
+} // namespace view_impl
+
+} // namespace tiny

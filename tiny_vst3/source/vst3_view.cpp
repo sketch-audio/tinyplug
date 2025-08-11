@@ -29,10 +29,10 @@ Steinberg::tresult PLUGIN_API Vst3_view::attached(void* parent, Steinberg::FIDSt
     );
     _platform_view = Platform_views::make_owning(delegate);
     _platform_view->receive_parent(parent);
-
-    for (auto i = uint32_t{}; i < num_params; ++i) {
-        _uivalues[i] = _receiver.get_knob_value(i);
-    }
+    
+    _uiparams = make_array_by_indices<double, num_params>(
+        [this](auto i) { return _receiver.get_knob_value(i); }
+    );
     
     return Steinberg::kResultTrue;
 }
@@ -98,48 +98,9 @@ Steinberg::tresult PLUGIN_API Vst3_view::checkSizeConstraint(Steinberg::ViewRect
 
 void Vst3_view::on_draw(View_context& view_context)
 {
-    auto event = Ui_event{};
-    while (_receiver.pop_event(event)) {
-        std::visit(Inline_visitor{
-            [&](const Set_param& p) { _uivalues[p.id] = p.value; },
-            [&](const Set_export& e) {
-                auto& ui_export = _uiexports[e.id];
-                if (!ui_export.updated) {
-                    ui_export.value = 0;
-                }
-                ui_export.value = std::max(ui_export.value, e.value);
-                ui_export.updated = true;
-            }
-        }, event);
-    }
-
-    auto export_arr = std::array<double, User_exports::num_exports>{};
-    const auto value_tx = _uiexports | std::views::transform(&Ui_export::value);
-    std::ranges::copy(value_tx, export_arr.begin());
-
-    auto app_state = App_state{
-        .params_state = {
-            .params = _uivalues,
-            .exports = export_arr
-        },
-        .action_receiver = Action_receiver{},
-        .view_context = view_context
-    };
-
-    _custom_view->on_draw(app_state);
-
-    auto& actions = app_state.action_receiver.actions();
-    for (auto& action : actions) {
-        _receiver.action_handler(action);
-        std::visit(Inline_visitor{
-            [&](const Set_param& s) { _uivalues[s.id] = s.value; },
-            [](const auto&) {}
-        }, action);
-    }
-
-    for (auto& ui_export : _uiexports) {
-        ui_export.updated = false;
-    }
+    view_impl::run_frame<User_exports>(
+        _receiver, _uiparams, _uiexports, view_context, _custom_view.get()
+    );
 }
 
 } // namespace tiny

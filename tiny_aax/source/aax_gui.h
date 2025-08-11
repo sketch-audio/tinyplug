@@ -43,15 +43,11 @@ private:
     Ui_receiver _receiver{};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
-    std::unique_ptr<Custom_view> _view = std::make_unique<Custom_view>();
+    std::unique_ptr<Custom_view> _custom_view = std::make_unique<Custom_view>();
 
-    struct Ui_export {
-        double value{};
-        bool updated{}; // Have we updated the export value this frame?
-    };
     std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults<double>()};
-    std::array<Ui_export, num_exports> _uiexports{};
-
+    std::array<Tagged_export, num_exports> _uiexports{};
+    
 };
 
 } // namespace tiny

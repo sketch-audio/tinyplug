@@ -405,7 +405,7 @@ inline auto get_plain_default(const Param_spec& spec) -> double
 
 // MARK: - parameter model
 
-enum class Export_type; // See `tiny_exports.h`
+enum class Export_type : uint32_t; // See `tiny_exports.h`
 
 template<typename T>
 concept Some_param_model = requires {
@@ -525,12 +525,12 @@ constexpr auto make_array_by_indices_impl(F f, std::index_sequence<I...>)
     return std::array<T, sizeof...(I)>{T{static_cast<U>(f(I))}...};
 }
 
+} // namespace params_impl
+
 template<typename T, size_t N, typename F>
 constexpr auto make_array_by_indices(F f) -> std::array<T, N>
 {
-    return make_array_by_indices_impl<T>(f, std::make_index_sequence<N>{});
-}
-
+    return params_impl::make_array_by_indices_impl<T>(f, std::make_index_sequence<N>{});
 }
 
 // MARK: - params
@@ -565,7 +565,7 @@ public:
     template<typename T>
     constexpr auto make_plain_defaults() const -> std::array<T, num_params>
     {
-        return params_impl::make_array_by_indices<T, num_params>(
+        return make_array_by_indices<T, num_params>(
             [this](auto i) { return get_plain_default(param_for(i)); }
         );
     }
@@ -573,7 +573,7 @@ public:
     template<typename T>
     constexpr auto make_host_defaults() const -> std::array<T, num_params>
     {
-        return params_impl::make_array_by_indices<T, num_params>(
+        return make_array_by_indices<T, num_params>(
             [this](auto i) { return get_host_default(param_for(i)); }
         );
     }
@@ -581,7 +581,7 @@ public:
     template<typename T>
     constexpr auto make_knob_defaults() const -> std::array<T, num_params>
     {
-        return params_impl::make_array_by_indices<T, num_params>(
+        return make_array_by_indices<T, num_params>(
             [this](auto i) { return get_knob_default(param_for(i)); }
         );
     }

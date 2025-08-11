@@ -25,12 +25,8 @@ void Aax_gui::CreateViewContainer()
         auto* params = dynamic_cast<Aax_parameters*>(GetEffectParameters());
         _receiver = {
             .get_knob_value = [params](auto id) {
-                if (const auto aax_id = tiny_id_to_aax(id)) {
-                    const auto* id_cstr = (*aax_id).c_str();
-                    AAX_IParameter* param = nullptr;
-                    if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS) {
-                        return param->GetNormalizedValue();
-                    };
+                if (const auto param = get_aax_param(params, id)) {
+                    return (*param)->GetNormalizedValue();
                 }
                 return double{};
             },
@@ -72,9 +68,9 @@ void Aax_gui::CreateViewContainer()
         };
 
         // Now we have the receiver.
-        for (auto i = uint32_t{}; i < num_params; ++i) {
-            _uiparams[i] = _receiver.get_knob_value(i);
-        }
+        _uiparams = make_array_by_indices<double, num_params>(
+            [this](auto i) { return _receiver.get_knob_value(i); }
+        );
     }
 }
 
@@ -108,55 +104,9 @@ AAX_Result Aax_gui::ParameterUpdated(AAX_CParamID inParamID)
 
 auto Aax_gui::on_draw(View_context& view_context) -> void
 {
-    // Resolve application state
-
-    // Pop UI events.
-    auto event = Ui_event{};
-    while (_receiver.pop_event(event)) {
-        std::visit(Inline_visitor{
-            [&](const Set_param&) {/* use _uiparams directly. */},
-            [&](const Set_export& e) {
-                auto& ui_export = _uiexports[e.id];
-                if (!ui_export.updated) {
-                    ui_export.value = 0; // Reset on first update in frame where we receive an event.
-                }
-                ui_export.value = std::max(ui_export.value, e.value);
-                ui_export.updated = true;
-            }
-        }, event);
-    }
-
-    // Adapt UI exports to values.
-    auto export_arr = std::array<double, num_exports>{};
-    const auto value_tx = _uiexports | std::views::transform(&Ui_export::value);
-    std::ranges::copy(value_tx, export_arr.begin());
-
-    // Create view context.
-    auto app_state = App_state{
-        .params_state = {
-            .params = _uiparams,
-            .exports = export_arr
-        },
-        .action_receiver = {},
-        .view_context = view_context
-    };
-
-    // Tell the user view to draw.
-    _view->on_draw(app_state);
-
-    auto& actions = app_state.action_receiver.actions();
-    for (auto& action : actions) {
-        _receiver.action_handler(action);
-        std::visit(Inline_visitor{
-            [&](const Set_param& s) { _uiparams[s.id] = s.value; },
-            [](const auto&) {}
-        }, action);
-    }
-
-    // Get ready for next frame.
-    for (auto& ui_export : _uiexports) {
-        ui_export.updated = false;
-    }
+    view_impl::run_frame<User_exports>(
+        _receiver, _uiparams, _uiexports, view_context, _custom_view.get()
+    );
 }
 
 } // namespace tiny

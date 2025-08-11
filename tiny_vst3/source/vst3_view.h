@@ -52,12 +52,8 @@ protected:
     std::unique_ptr<Platform_view> _platform_view{nullptr};
     std::unique_ptr<Custom_view> _custom_view = std::make_unique<Custom_view>();
 
-    struct Ui_export {
-        double value{};
-        bool updated{};
-    };
-    std::array<Ui_export, num_exports> _uiexports{};
-    std::array<double, num_params> _uivalues{_param_infos.make_knob_defaults<double>()};
+    std::array<Tagged_export, num_exports> _uiexports{};
+    std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults<double>()};
 
 };
 
