@@ -4,6 +4,8 @@
 
 #include "clap/clap.h"
 
+#include "tinyplug/tinyplug.h"
+
 #include "dsp_kernel.h"
 #include "param_model.h"
 #include "plug_info.h"
@@ -14,13 +16,6 @@ namespace tiny {
 
 class Clap_kernel {
 public:
-
-    Clap_kernel() {
-        // Initialize host values with defaults.
-        for (const auto& param : _param_infos.kernel_specs()) {
-            _hostvalues[param.id] = get_host_default(param);
-        }
-    }
 
     // CLAP
     auto reset(double sample_rate, size_t max_frames) -> void;
@@ -55,8 +50,9 @@ private:
     User_params _param_infos{}; // We have to be able to map the values to plain space.
 
     // Values in host space.
-    using Host_values = std::array<std::atomic<double>, num_params>;
-    Host_values _hostvalues{};
+    using Host_value = std::atomic<double>;
+    using Host_values = std::array<Host_value, num_params>;
+    Host_values _hostvalues{_param_infos.make_host_defaults<Host_value>()};
 
     std::array<double, num_exports> _lexports{};
 

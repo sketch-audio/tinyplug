@@ -39,7 +39,7 @@ private:
         bool updated{};
     };
     std::array<Ui_export, num_exports> _uiexports{};
-    std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults()};
+    std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults<double>()};
 
 };
 

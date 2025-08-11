@@ -49,7 +49,7 @@ private:
         double value{};
         bool updated{}; // Have we updated the export value this frame?
     };
-    std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults()};
+    std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults<double>()};
     std::array<Ui_export, num_exports> _uiexports{};
 
 };

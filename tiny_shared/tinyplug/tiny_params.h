@@ -506,6 +506,31 @@ inline auto sorted_copy(R&& range, Comp comp) -> decltype(auto)
     return copy;
 }
 
+//  MARK: - array builders
+
+template<typename T>
+struct identity_or_atomic_underlying { using type = T; };
+
+template<typename T>
+struct identity_or_atomic_underlying<std::atomic<T>> { using type = T; };
+
+template<typename T>
+using identity_or_atomic_underlying_t = typename identity_or_atomic_underlying<T>::type;
+
+// This allows us to brace-initialize arrays of atomics as well as plain double/float.
+template<typename T, typename F, size_t... I>
+constexpr auto make_array_by_indices_impl(F f, std::index_sequence<I...>)
+{
+    using U = identity_or_atomic_underlying_t<T>;
+    return std::array<T, sizeof...(I)>{T{static_cast<U>(f(I))}...};
+}
+
+template<typename T, size_t N, typename F>
+constexpr auto make_array_by_indices(F f) -> std::array<T, N>
+{
+    return make_array_by_indices_impl<T>(f, std::make_index_sequence<N>{});
+}
+
 }
 
 // MARK: - params
@@ -531,33 +556,34 @@ public:
         return _kspecs;
     }
 
-    // ...
+    auto param_for(uint32_t id) const -> const Param_spec&
+    {
+        TINY_ASSERT(id < num_params, "Parameter ID out of range.");
+        return _kspecs[id];
+    }
+
     template<typename T>
-    auto make_plain_defaults() const -> std::array<T, num_params>
+    constexpr auto make_plain_defaults() const -> std::array<T, num_params>
     {
-        std::array<T, num_params> result{};
-        for (const auto& spec : _kspecs) {
-            result[spec.id] = static_cast<T>(get_plain_default(spec));
-        }
-        return result;
+        return params_impl::make_array_by_indices<T, num_params>(
+            [this](auto i) { return get_plain_default(param_for(i)); }
+        );
     }
 
-    auto make_host_defaults() const -> std::array<double, num_params>
+    template<typename T>
+    constexpr auto make_host_defaults() const -> std::array<T, num_params>
     {
-        std::array<double, num_params> result{};
-        for (const auto& spec : _kspecs) {
-            result[spec.id] = get_host_default(spec);
-        }
-        return result;
+        return params_impl::make_array_by_indices<T, num_params>(
+            [this](auto i) { return get_host_default(param_for(i)); }
+        );
     }
 
-    auto make_knob_defaults() const -> std::array<double, num_params>
+    template<typename T>
+    constexpr auto make_knob_defaults() const -> std::array<T, num_params>
     {
-        std::array<double, num_params> result{};
-        for (const auto& spec : _kspecs) {
-            result[spec.id] = get_knob_default(spec);
-        }
-        return result;
+        return params_impl::make_array_by_indices<T, num_params>(
+            [this](auto i) { return get_knob_default(param_for(i)); }
+        );
     }
 
 private:
