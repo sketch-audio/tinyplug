@@ -4,7 +4,7 @@
 
 namespace tiny {
 
-auto Dsp_kernel::reset(double sample_rate, size_t /*max_frames*/) -> void
+auto Dsp_kernel::reset(double sample_rate) -> void
 {
     _sr = sample_rate;
 }

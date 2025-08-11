@@ -3,9 +3,9 @@
 
 namespace tiny {
 
-auto Clap_kernel::reset(double sample_rate, size_t max_frames) -> void
+auto Clap_kernel::reset(double sample_rate) -> void
 {
-    _kernel->reset(sample_rate, max_frames);
+    _kernel->reset(sample_rate);
     _sr = sample_rate;
 }
 

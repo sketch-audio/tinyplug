@@ -84,7 +84,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setActive(Steinberg::TBool state)
 Steinberg::tresult PLUGIN_API Vst3_processor::setupProcessing(Steinberg::Vst::ProcessSetup& newSetup)
 {
     // Called before any processing.
-    _kernel->reset(newSetup.sampleRate, newSetup.maxSamplesPerBlock);
+    _kernel->reset(newSetup.sampleRate);
     return Steinberg::Vst::AudioEffect::setupProcessing(newSetup);
 }
 

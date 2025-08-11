@@ -9,9 +9,9 @@ namespace tiny {
 
 class Dsp_kernel {
 public:
-    // Receive the sample rate and max block size. 
+    // Receive the sample rate.
     // This a good time to resize some vectors.
-    auto reset(double sample_rate, size_t max_frames) -> void;
+    auto reset(double sample_rate) -> void;
 
     // Receive a render event such as `Set_param`.
     // Events are interleaved with process calls so you can consider them as happening "now".
@@ -21,7 +21,7 @@ public:
     // In the DSP context, you have:
     // - The musical context, e.g. `beat_pos` & `tempo`
     // - Pointers to the input, output, and sidechain buffers (They could be null!)
-    // - The number of frames to render (This could be a small number like one!)
+    // - The number of frames to render (It is the plug-in's responsibility to handle any value here.)
     // - A place to write your exports
     auto process(Dsp_context& context) -> void;
 

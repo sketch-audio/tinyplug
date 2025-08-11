@@ -35,8 +35,7 @@ OSStatus Auv2_effect::Initialize()
 
     const auto format = GetStreamFormat(kAudioUnitScope_Output, 0);
     const auto sample_rate = format.mSampleRate;
-    const auto max_frames = Super::GetMaxFramesPerSlice();
-    _kernel->reset(sample_rate, max_frames);
+    _kernel->reset(sample_rate);
     _sr = sample_rate;
 
     _events.reserve(128);

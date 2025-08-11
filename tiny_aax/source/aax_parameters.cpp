@@ -117,7 +117,7 @@ AAX_Result Aax_parameters::EffectInit()
 
     auto sample_rate = AAX_CSampleRate{};
     Controller()->GetSampleRate(&sample_rate);
-    _kernel->reset(sample_rate, 2048); // How to get max frames?
+    _kernel->reset(sample_rate);
 
     // Pro Tool Bypass
     // const auto bypass_id = AAX_CString{cDefaultMasterBypassID};

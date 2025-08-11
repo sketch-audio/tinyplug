@@ -48,7 +48,7 @@ struct Dsp_context {
 
 template<typename T>
 concept Some_dsp_kernel = requires(T t) {
-    { t.reset(double{/*sample_rate*/}, size_t{/*max_frames*/}) } -> std::same_as<void>;
+    { t.reset(double{/*sample_rate*/}) } -> std::same_as<void>;
     { t.handle_event(std::declval<const Render_event&>(/*event*/)) } -> std::same_as<void>;
     { t.process(std::declval<Dsp_context&>(/*context*/)) } -> std::same_as<void>;
 };

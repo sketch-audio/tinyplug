@@ -13,9 +13,9 @@ bool Clap_plugin::init() noexcept
     return true;
 }
 
-bool Clap_plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t maxFrameCount) noexcept
+bool Clap_plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t /*maxFrameCount*/) noexcept
 {
-    _kernel->reset(sampleRate, maxFrameCount);
+    _kernel->reset(sampleRate);
     return true;
 }
 

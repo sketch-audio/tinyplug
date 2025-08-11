@@ -18,7 +18,7 @@ class Clap_kernel {
 public:
 
     // CLAP
-    auto reset(double sample_rate, size_t max_frames) -> void;
+    auto reset(double sample_rate) -> void;
     auto handle_flushed(const clap_event_header* event) -> void;
     auto get_host_value(clap_id paramId) -> double;
     auto process(const clap_process* process) -> clap_process_status;
