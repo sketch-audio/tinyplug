@@ -51,9 +51,7 @@
 
 ## Consider
 - Use optionals in `Musical_context`
-- Remove max block size from reset
 - How to handle latency changes
-- How to handle events to kernel like match gain
 
 ## Needs tested
 - Sidechain (add export and visualize?)
