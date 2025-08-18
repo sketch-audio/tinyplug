@@ -11,7 +11,6 @@ struct Param_model {
     enum class Param_id : uint32_t {
         enabled = 0,
         gain,
-        cutoff,
         type,
         offset,
         latency_mode,
@@ -39,73 +38,50 @@ struct Param_model {
             Param_spec{
                 .id = enum_raw(enabled),
                 .name = "Enabled",
-                .semantics = Bool_semantics{
-                    .def_val = true,
-                    .knob_adapter = Knob_adapters::make_bool()
-                }
+                .semantics = Bool_semantics{}
             },
             Param_spec{
                 .id = enum_raw(gain),
                 .name = "Gain",
-                .semantics = Float_semantics{
+                .semantics = Real_semantics{
                     .min_val = 0,
                     .def_val = 1,
                     .max_val = 1,
                     .units = Units::generic,
-                    .knob_adapter = Knob_adapters::make_power(3)
+                    .knob_adapter = Adapt_pow{}
                 }
             },
             Param_spec{
                 .id = enum_raw(latency_mode),
                 .name = "Latency",
-                .semantics = List_semantics{
-                    .labels = {"Low", "High"},
-                    .def_val = 0,
-                    .knob_adapter = Knob_adapters::make_list()
-                },
+                .semantics = List_semantics{{"Low", "High"}},
                 .hidden = true
             },
             Param_group{.name = "Advanced", .nodes = {
                 Param_spec{
-                    .id = enum_raw(cutoff),
-                    .name = "Cutoff",
-                    .semantics = Float_semantics{
-                        .min_val = 20,
-                        .def_val = 1000,
-                        .max_val = 20000,
-                        .units = Units::hertz,
-                        .knob_adapter = Knob_adapters::make_tapered(0.05f, false)
-                    }
-                },
-                Param_spec{
                     .id = enum_raw(type),
-                    .name = "Type",
-                    .semantics = List_semantics{
-                        .labels = {"One", "Two", "Three"},
-                        .def_val = 0,
-                        .knob_adapter = Knob_adapters::make_list()
-                    }
+                    .name = "List Demo",
+                    .semantics = List_semantics{}
                 },
                 Param_spec{
                     .id = enum_raw(offset),
-                    .name = "Offset",
+                    .name = "Int Demo",
                     .semantics = Int_semantics{
                         .min_val = -12,
                         .def_val = 0,
                         .max_val = 12,
                         .units = Units::generic,
-                        .knob_adapter = Knob_adapters::make_discrete()
                     }
                 },
             }}
         }};
     }
 
-    // This is so tinyplug knows how to correcly process your exports.
-    // For example, 
-    // - peak meters want the max unconsomed value
-    // - streams simply want the latest value
-    // - trigs want to happen once
+    // This is so the framework knows how to correctly process your exports.
+    // For example: 
+    // - Peak meters want the max unconsumed value.
+    // - Streams simply want the latest value.
+    // - Trigs want to happen exactly once.
     static auto export_type(Export_id id) -> Export_type
     {
         using enum Export_id;

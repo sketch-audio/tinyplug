@@ -21,7 +21,7 @@ AAX_Result Aax_parameters::EffectInit()
 {
     const auto& params = _param_infos.presentation_specs();
     const auto aax_ids = tree_to_aax_ids(_param_infos.tree());
-    TINY_ASSERT(params.size() == aax_ids.size(), "AAX IDs must have same size as param specs.");
+    assert(params.size() == aax_ids.size() && "AAX IDs must have same size as param specs.");
 
     for (size_t i = 0; i < params.size(); ++i) {
         const auto& param = params[i];
@@ -48,13 +48,13 @@ AAX_Result Aax_parameters::EffectInit()
                 mParameterManager.AddParameter(aax_param.release());
             },
             [&](const List_semantics& l) {
-                const auto num_items = l.labels.size();
+                const auto num_items = l.items.size();
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<uint32_t>(
                     aax_id.c_str(),
                     AAX_CString(param.name),
                     static_cast<uint32_t>(l.def_val),
                     AAX_CStateTaperDelegate<uint32_t>(0, num_items - 1),
-                    AAX_CStateDisplayDelegate<uint32_t>(num_items, const_cast<const char**>(l.labels.data()), 0), // Yee haw.
+                    AAX_CStateDisplayDelegate<uint32_t>(num_items, const_cast<const char**>(l.items.data()), 0), // Yee haw.
                     !param.hidden
                 ));
                 if (std::strlen(param.short_name) > 0) {
@@ -62,29 +62,6 @@ AAX_Result Aax_parameters::EffectInit()
                 }
                 aax_param->SetNumberOfSteps(num_items);
                 aax_param->SetType(AAX_eParameterType_Discrete);
-                if (aax_param->Automatable()) {
-                    AddSynchronizedParameter(*aax_param);
-                }
-                mParameterManager.AddParameter(aax_param.release());
-            },
-            [&](const Float_semantics& f) {
-                using TaperDelegate = Float_semanticsTaperDelegate<double>;
-                using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 1, space after: 1
-                const auto units_str = units_string(f.units);
-
-                auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
-                    aax_id.c_str(),
-                    AAX_CString(param.name),
-                    f.def_val,
-                    TaperDelegate(f), // So we can use our own control adapter.
-                    AAX_CUnitDisplayDelegateDecorator<double>(DisplayDelegate(), units_str.c_str()),
-                    !param.hidden
-                ));
-                if (std::strlen(param.short_name) > 0) {
-                    aax_param->AddShortenedName(param.short_name);
-                }
-                aax_param->SetNumberOfSteps(2048); // Is this the most we can have?
-                aax_param->SetType(AAX_eParameterType_Continuous);
                 if (aax_param->Automatable()) {
                     AddSynchronizedParameter(*aax_param);
                 }
@@ -111,7 +88,30 @@ AAX_Result Aax_parameters::EffectInit()
                     AddSynchronizedParameter(*aax_param);
                 }
                 mParameterManager.AddParameter(aax_param.release());
-            }
+            },
+            [&](const Real_semantics& r) {
+                using TaperDelegate = Real_semanticsTaperDelegate<double>;
+                using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 1, space after: 1
+                const auto units_str = units_string(r.units);
+
+                auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
+                    aax_id.c_str(),
+                    AAX_CString(param.name),
+                    r.def_val,
+                    TaperDelegate(r), // So we can use our own control adapter.
+                    AAX_CUnitDisplayDelegateDecorator<double>(DisplayDelegate(), units_str.c_str()),
+                    !param.hidden
+                ));
+                if (std::strlen(param.short_name) > 0) {
+                    aax_param->AddShortenedName(param.short_name);
+                }
+                aax_param->SetNumberOfSteps(2048); // Is this the most we can have?
+                aax_param->SetType(AAX_eParameterType_Continuous);
+                if (aax_param->Automatable()) {
+                    AddSynchronizedParameter(*aax_param);
+                }
+                mParameterManager.AddParameter(aax_param.release());
+            },
         }, param.semantics);
     }
 

@@ -199,22 +199,9 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
                 .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Indexed,
                 .minValue = 0,
-                .maxValue = static_cast<float>(l.labels.size() - 1),
+                .maxValue = static_cast<float>(l.items.size() - 1),
                 .defaultValue = static_cast<float>(l.def_val),
                 .flags = resolve_flags(param, found_clump)
-            };
-        },
-        [&](const Float_semantics& f) {
-            outParameterInfo = {
-                .name = {},
-                .unitName = {},
-                .clumpID = found_clump ? clump->id : UInt32{},
-                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
-                .unit = kAudioUnitParameterUnit_Generic,
-                .minValue = 0,
-                .maxValue = 1,
-                .defaultValue = static_cast<float>(f.knob_adapter.plain_to_norm(f, f.def_val)),
-                .flags = resolve_flags(param, found_clump) | (kAudioUnitParameterFlag_CanRamp | kAudioUnitParameterFlag_IsHighResolution)
             };
         },
         [&](const Int_semantics& i) {
@@ -229,7 +216,20 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
                 .defaultValue = static_cast<float>(i.def_val),
                 .flags = resolve_flags(param, found_clump)
             };
-        }
+        },
+        [&](const Real_semantics&) {
+            outParameterInfo = {
+                .name = {},
+                .unitName = {},
+                .clumpID = found_clump ? clump->id : UInt32{},
+                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
+                .unit = kAudioUnitParameterUnit_Generic,
+                .minValue = 0,
+                .maxValue = 1,
+                .defaultValue = static_cast<float>(get_host_default(param)),
+                .flags = resolve_flags(param, found_clump) | (kAudioUnitParameterFlag_CanRamp | kAudioUnitParameterFlag_IsHighResolution)
+            };
+        },
     }, param.semantics);
 
     return noErr;
@@ -249,7 +249,7 @@ OSStatus Auv2_effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnit
     if (const auto* l = std::get_if<List_semantics>(&param.semantics)) {
         auto array = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
 
-        for (const auto* label : (*l).labels) {
+        for (const auto* label : (*l).items) {
             if (!label) continue;
             const auto str = CFStringCreateWithCString(kCFAllocatorDefault, label, kCFStringEncodingUTF8);
             CFArrayAppendValue(array, str);

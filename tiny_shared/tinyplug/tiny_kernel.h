@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <concepts>
 #include <optional>
 #include <span>
@@ -11,7 +12,7 @@ namespace tiny {
 
 inline auto frames_to_beats(int64_t frames, double tempo, double sample_rate) noexcept -> double
 {
-    TINY_ASSERT(sample_rate > 0, "Sample rate must be greater than zero.");
+    assert(sample_rate > 0 && "Sample rate must be greater than zero.");
     return static_cast<double>(frames) * tempo / (60 * sample_rate);
 }
 

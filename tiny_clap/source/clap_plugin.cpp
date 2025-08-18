@@ -120,33 +120,31 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
     std::strncpy(info->module, path.c_str(), CLAP_NAME_SIZE);
 
     // Set min, max, default based on semantics.
-    std::visit(
-        Inline_visitor{
-            [&](const Bool_semantics& b) {
-                info->flags |= CLAP_PARAM_IS_STEPPED;
-                info->min_value = 0;
-                info->max_value = 1;
-                info->default_value = b.def_val ? 1 : 0;
-            },
-            [&](const List_semantics& l) {
-                info->flags |= (CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_ENUM);
-                info->min_value = 0;
-                info->max_value = l.labels.size() - 1;
-                info->default_value = static_cast<double>(l.def_val);
-            },
-            [&](const Float_semantics& f) {
-                info->min_value = 0;
-                info->max_value = 1;
-                info->default_value = f.knob_adapter.plain_to_norm(f, f.def_val);
-            },
-            [&](const Int_semantics& i) {
-                info->flags |= CLAP_PARAM_IS_STEPPED;
-                info->min_value = i.min_val;
-                info->max_value = i.max_val;
-                info->default_value = i.def_val;
-            }
-        }
-    , param.semantics);
+    std::visit(Inline_visitor{
+        [&](const Bool_semantics& b) {
+            info->flags |= CLAP_PARAM_IS_STEPPED;
+            info->min_value = 0;
+            info->max_value = 1;
+            info->default_value = b.def_val ? 1 : 0;
+        },
+        [&](const List_semantics& l) {
+            info->flags |= (CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_ENUM);
+            info->min_value = 0;
+            info->max_value = l.items.size() - 1;
+            info->default_value = static_cast<double>(l.def_val);
+        },
+        [&](const Int_semantics& i) {
+            info->flags |= CLAP_PARAM_IS_STEPPED;
+            info->min_value = i.min_val;
+            info->max_value = i.max_val;
+            info->default_value = i.def_val;
+        },
+        [&](const Real_semantics& r) {
+            info->min_value = 0;
+            info->max_value = 1;
+            info->default_value = plain_to_norm(r.def_val, r);
+        },
+    }, param.semantics);
 
     return true;
 }

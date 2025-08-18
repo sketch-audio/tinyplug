@@ -28,7 +28,6 @@
     - See: https://www.stroustrup.com/Programming/PPP-style.pdf
 
 ## Todo
-- Refactor with new knob adapter idea
 - Parameter policies: `enum class Host_policy { automation, control, state, interface };`
 - Save & restore state
 - Parameter tree versioning
@@ -40,7 +39,6 @@
 - Breakout dependencies project
 - MIDI events
 - Synth support
-- `enum class Param_scope { preset, project };` ... possible?
 
 ## UI stuff 
 - Draw timestamp
@@ -53,7 +51,6 @@
 
 ## Consider
 - Use optionals in `Musical_context`
-- How to handle latency changes
 
 ## Needs tested
 - Sidechain (add export and visualize?)
