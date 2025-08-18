@@ -28,9 +28,11 @@
     - See: https://www.stroustrup.com/Programming/PPP-style.pdf
 
 ## Todo
-- Mouse events for Windows
+- Refactor with new knob adapter idea
+- Parameter policies: `enum class Host_policy { automation, control, state, interface };`
 - Save & restore state
 - Parameter tree versioning
+- Mouse events for Windows
 - Tail time?
 - Add AUv3 format for iOS and macOS
 - Add Linux support for CLAP, VST3
@@ -38,8 +40,7 @@
 - Breakout dependencies project
 - MIDI events
 - Synth support
-- `enum class Param_scope { preset, project };`
-- `enum class Host_policy { automation, control, state, interface };`
+- `enum class Param_scope { preset, project };` ... possible?
 
 ## UI stuff 
 - Draw timestamp
