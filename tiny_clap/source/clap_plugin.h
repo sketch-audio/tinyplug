@@ -23,8 +23,11 @@ class Clap_plugin : public clap::helpers::Plugin<MisbehaviourHandler::Ignore, Ch
 public:
 
     using Super = clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::Maximal>;
-    Clap_plugin(const clap_host* host) : Super{&descriptor, host} {};
-    ~Clap_plugin() = default;
+    Clap_plugin(const clap_host* host) : Super{&descriptor, host},
+        _host{host},
+        _kernel{std::make_unique<Clap_kernel>(_host)}
+    {};
+    ~Clap_plugin() override = default;
 
     static const inline clap_plugin_descriptor_t descriptor{
         .clap_version = CLAP_VERSION,
@@ -70,7 +73,7 @@ public:
     bool paramsTextToValue(clap_id paramId, const char* display, double* value) noexcept override;
     void paramsFlush(const clap_input_events* in, const clap_output_events* out) noexcept override;
 
-    // clap_plugin_gui 
+    // gui
     bool implementsGui() const noexcept override { return true; }
     bool guiIsApiSupported(const char* api, bool isFloating) noexcept override;
     bool guiGetPreferredApi(const char** api, bool* isFloating) noexcept override;
@@ -88,16 +91,22 @@ public:
     bool guiSetParent(const clap_window* window) noexcept override;
     bool guiSetTransient(const clap_window* window) noexcept override;
 
+    // latency
+    bool implementsLatency() const noexcept override { return true; }
+    uint32_t latencyGet() const noexcept override;
+
     // MARK: - private
 
 private:
+
+    const clap_host* _host{nullptr};
 
     using User_params = Param_infos<Param_model>;
 
     User_params _params{};
     std::vector<std::string> _modules{tree_to_clap_modules(_params.tree())};
 
-    std::unique_ptr<Clap_kernel> _kernel = std::make_unique<Clap_kernel>();
+    std::unique_ptr<Clap_kernel> _kernel = {nullptr}; // Now requires the host.
 
     std::unique_ptr<Clap_view> _view = std::make_unique<Clap_view>(Ui_receiver{
         .get_knob_value = [this](auto id) {

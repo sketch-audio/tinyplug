@@ -227,6 +227,7 @@ AAX_Result	AAX_CMonolithicParameters::StaticDescribe(AAX_IEffectDescriptor* ioDe
         err = properties->AddProperty(AAX_eProperty_HybridOutputStemFormat, static_cast<int32_t>(setupInfo.mHybridOutputStemFormat));
     }
 
+    err = properties->AddProperty(AAX_eProperty_LatencyContribution, setupInfo.mLatency);
     err = properties->AddProperty(AAX_eProperty_InputStemFormat, static_cast<int32_t>(setupInfo.mInputStemFormat));		// maybe this should be none?
     err = properties->AddProperty(AAX_eProperty_OutputStemFormat, static_cast<int32_t>(setupInfo.mOutputStemFormat));
     err = properties->AddProperty(AAX_eProperty_CanBypass, setupInfo.mCanBypass);

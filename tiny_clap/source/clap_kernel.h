@@ -17,18 +17,29 @@ namespace tiny {
 class Clap_kernel {
 public:
 
+    Clap_kernel(const clap_host* host) : _host{host} {};
+
     // CLAP
     auto reset(double sample_rate) -> void;
     auto handle_flushed(const clap_event_header* event) -> void;
     auto get_host_value(clap_id paramId) -> double;
+    auto get_latency() const -> uint32_t;
     auto process(const clap_process* process) -> clap_process_status;
 
     // tiny
     auto pop_export(Ui_event& event) -> bool;
     auto handle_action(const User_action& action) -> void;
 
+    auto wants_latency_change() -> bool
+    {
+        const auto pending = _pending_latency.load(std::memory_order_acquire);
+        return pending.has_value();
+    }
+
 private:
 
+    const clap_host* _host{nullptr};
+    bool _once{false}; // Have we been reset?
     double _sr{48000};
 
     using User_params = Param_infos<Param_model>;
@@ -57,6 +68,16 @@ private:
     std::array<double, num_exports> _lexports{};
 
     std::unique_ptr<Dsp_kernel> _kernel = std::make_unique<Dsp_kernel>();
+    uint32_t _latency{_kernel->latency_samps()};
+
+    using Latency_flag = std::atomic<std::optional<uint32_t>>;
+    static_assert(Latency_flag::is_always_lock_free);
+
+    // Communicates the pending latency from `process` to `setActive`.
+    Latency_flag _pending_latency{};
+
+    // Communicates the accepted latency from `setActive` to `process`.
+    Latency_flag _accepted_latency{};
 
     // TODO: - Use a heuristic for size.
     using From_flush_queue = Lock_free_queue<Render_event, 256>;

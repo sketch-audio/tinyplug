@@ -78,6 +78,16 @@ Steinberg::tresult PLUGIN_API Vst3_processor::terminate()
 Steinberg::tresult PLUGIN_API Vst3_processor::setActive(Steinberg::TBool state)
 {
     // Called when the Plug-in is enable/disable (On/Off).
+    
+    // When activating, we need to see if there is a pending latency.
+    if (state) {
+        const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+        if (pending_latency) {
+            _accepted_latency.store(*pending_latency, std::memory_order_release); // The kernel should manifest on the next process.
+            _latency = *pending_latency;
+        }
+    }
+
     return Steinberg::Vst::AudioEffect::setActive(state);
 }
 
@@ -85,6 +95,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setupProcessing(Steinberg::Vst::Pr
 {
     // Called before any processing.
     _kernel->reset(newSetup.sampleRate);
+    _latency = _kernel->latency_samps();
     return Steinberg::Vst::AudioEffect::setupProcessing(newSetup);
 }
 
@@ -101,6 +112,12 @@ Steinberg::tresult PLUGIN_API Vst3_processor::canProcessSampleSize(Steinberg::in
 
 Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessData& data)
 {
+    const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+    if (accepted_latency) {
+        _kernel->handle_event(Accepted_latency{*accepted_latency});
+        assert(_kernel->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+    }
+
     _events.clear(); // Events only valid for this render cycle.
     this->normalize_input_events(data);
 
@@ -120,6 +137,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     };
 
     // Create the context.
+    _exports.fill(0);
     auto context = Dsp_context{.exports = _exports};
 
     // So we can process with an offset.
@@ -201,21 +219,26 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
         } while (event && event->offset <= now);
     }
 
+    auto add_output_event = [&](int32_t id, double value) {
+        auto event_index = Steinberg::int32{};
+        auto& queue = *data.outputParameterChanges->addParameterData(id, event_index);
+        auto point_index = Steinberg::int32{};
+        queue.addPoint(0, value, point_index); // offset, value, index
+    };
+
     // Send exports as output parameter changes.
     for (size_t i = 0; i < num_exports; ++i) {
         if (context.exports[i] != _lexports[i]) {
-            // Send an output event.
-            auto event_index = Steinberg::int32{};
-            auto& queue = *data.outputParameterChanges->addParameterData(i + EXPORT_OFFSET, event_index);
-
-            auto point_index = Steinberg::int32{};
-            queue.addPoint(0, context.exports[i], point_index); // offset, value, index
-
-            // Cache for next time.
+            add_output_event(export_param_offset + i, context.exports[i]);
             _lexports[i] = context.exports[i];
         }
+    }
 
-        _exports[i] = 0; // Reset for peak meters.
+    // Has the kernel proposed a new latency?
+    if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _latency) {
+        // Notify controller and sit on the pending latency.
+        add_output_event(latency_param_id, static_cast<double>(*proposed_latency));
+        _pending_latency.store(*proposed_latency, std::memory_order_release);
     }
 
     return Steinberg::kResultOk;
@@ -235,6 +258,22 @@ Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* stat
         return Steinberg::kResultFalse;
 
     return Steinberg::kResultOk;
+}
+
+Steinberg::uint32 PLUGIN_API Vst3_processor::getLatencySamples()
+{
+    return _latency;
+}
+
+Steinberg::uint32 PLUGIN_API Vst3_processor::getProcessContextRequirements()
+{
+    auto requirements = Steinberg::Vst::ProcessContextRequirements{};
+    requirements.needProjectTimeMusic();
+    requirements.needCycleMusic();
+    requirements.needTempo();
+    requirements.needTimeSignature();
+    requirements.needTransportState();
+    return requirements.flags;
 }
 
 // MARK: - private

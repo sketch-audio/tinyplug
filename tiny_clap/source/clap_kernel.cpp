@@ -1,12 +1,24 @@
 #include "clap_kernel.h"
+
 #include <cmath>
 
 namespace tiny {
 
 auto Clap_kernel::reset(double sample_rate) -> void
 {
-    _kernel->reset(sample_rate);
-    _sr = sample_rate;
+    // Reset kernel with sample rate only first time and then when sample rate changes.
+    if (!_once || sample_rate != _sr) {
+        _kernel->reset(sample_rate);
+        _latency = _kernel->latency_samps();
+        _sr = sample_rate;
+        _once = true;
+    }
+
+    const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+    if (pending_latency) {
+        _accepted_latency.store(*pending_latency, std::memory_order_release); // The kernel should manifest on the next process.
+        _latency = *pending_latency;
+    }
 }
 
 auto Clap_kernel::handle_flushed(const clap_event_header* event) -> void
@@ -24,6 +36,11 @@ auto Clap_kernel::get_host_value(clap_id paramId) -> double
     return _hostvalues[paramId].load(std::memory_order_relaxed);
 }
 
+auto Clap_kernel::get_latency() const -> uint32_t
+{
+    return _latency;
+}
+
 auto Clap_kernel::pop_export(Ui_event& event) -> bool
 {
     return _to_ui.pop(event);
@@ -31,6 +48,12 @@ auto Clap_kernel::pop_export(Ui_event& event) -> bool
 
 auto Clap_kernel::process(const clap_process* process) -> clap_process_status
 {
+    const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+    if (accepted_latency) {
+        _kernel->handle_event(Accepted_latency{*accepted_latency});
+        assert(_kernel->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+    }
+
     this->_handle_host_flushed();
     this->_handle_user_actions(process->out_events);
 
@@ -52,7 +75,7 @@ auto Clap_kernel::process(const clap_process* process) -> clap_process_status
     };
 
     // Create the context.
-    auto context = Dsp_context{.exports = _exports};
+    auto context = Dsp_context{.exports = _exports, .propose_latency = {}};
 
     // So we can process with an offset.
     auto do_process = [this, &process, &context](size_t num_frames, size_t offset) {
@@ -146,6 +169,13 @@ auto Clap_kernel::process(const clap_process* process) -> clap_process_status
             _lexports[i] = value;
         }
         _exports[i] = 0; // Reset for peak meters.
+    }
+
+    // Has the kernel proposed a new latency?
+    if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _latency) {
+        // Notify controller and sit on the pending latency.
+        _host->request_restart(_host);
+        _pending_latency.store(*proposed_latency, std::memory_order_release);
     }
 
     return CLAP_PROCESS_SLEEP;

@@ -7,6 +7,15 @@
 
 namespace tiny {
 
+template<typename I = size_t, typename R, typename F>
+void enumerate(R&& range, F&& func) {
+    auto i = I{};
+    for (auto&& elem : range) {
+        func(i, elem);
+        ++i;
+    }
+}
+
 #ifdef NDEBUG
     #define TINY_ASSERT(expr, fmt, ...) ((void)0)
 #else

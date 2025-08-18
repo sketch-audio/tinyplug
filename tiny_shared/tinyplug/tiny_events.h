@@ -18,7 +18,13 @@ struct Ramp_param {
     int32_t dur_samples{};
 };
 
-using Render_event = std::variant<Set_param, Ramp_param>;
+// The host has accepted your latency proposal.
+// You should immediately apply the new latency.
+struct Accepted_latency {
+    uint32_t samples{};
+};
+
+using Render_event = std::variant<Set_param, Ramp_param, Accepted_latency>;
 
 struct Tagged_event {
     Render_event event{};

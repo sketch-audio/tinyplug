@@ -36,6 +36,7 @@ OSStatus Auv2_effect::Initialize()
     const auto format = GetStreamFormat(kAudioUnitScope_Output, 0);
     const auto sample_rate = format.mSampleRate;
     _kernel->reset(sample_rate);
+    _latency = _kernel->latency_samps();
     _sr = sample_rate;
 
     _events.reserve(128);
@@ -372,6 +373,12 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
         Input(i).PullInput(ioActionFlags, inTimeStamp, i, nFrames);
     }
 
+    const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+    if (accepted_latency) {
+        _kernel->handle_event(Accepted_latency{*accepted_latency});
+        assert(_kernel->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+    }
+
     _events.clear(); // Events are only valid for the current render cycle.
     auto param_event = Tagged_event{};
     while (_iqueue.pop(param_event)) {
@@ -534,6 +541,13 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
         }
 
         _exports[i] = 0; // Reset for peak meters.
+    }
+
+    // Has the kernel proposed a new latency?
+    if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _latency) {
+        // Notify controller and sit on the pending latency.
+        _pqueue.push({.type = Message_type::latency_changed});
+        _pending_latency.store(*proposed_latency, std::memory_order_release);
     }
 
     return noErr;

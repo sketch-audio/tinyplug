@@ -31,7 +31,6 @@
 - Mouse events for Windows
 - Save & restore state
 - Parameter tree versioning
-- Latency reporting
 - Tail time?
 - Add AUv3 format for iOS and macOS
 - Add Linux support for CLAP, VST3
@@ -39,6 +38,8 @@
 - Breakout dependencies project
 - MIDI events
 - Synth support
+- `enum class Param_scope { preset, project };`
+- `enum class Host_policy { automation, control, state, interface };`
 
 ## UI stuff 
 - Draw timestamp
@@ -57,3 +58,5 @@
 - Sidechain (add export and visualize?)
 - Musical context
 - Export types (stream, trig)
+
+## Demo plug-in

@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <charconv>
+#include <optional>
 
 #include "aax_adapters.h"
 #include "aax_monolith.h"
@@ -25,117 +26,23 @@ public:
     AAX_Result EffectInit() override;
     AAX_Result NotificationReceived(AAX_CTypeID inNotificationType, const void* inNotificationData, uint32_t inNotificationDataSize) override;
 
-    using RenderInfo = AAX_SInstrumentRenderInfo;
-    void RenderAudio(RenderInfo* ioRenderInfo, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues) override
-    {
-        // Handle parameter events.
-        for (auto i = decltype(inNumSynchronizedParamValues){}; i < inNumSynchronizedParamValues; ++i) {
-            const auto* sync_value = inSynchronizedParamValues[i];
-            const auto aax_id = sync_value->first;
-            const auto aax_param = sync_value->second;
-
-            if (const auto tiny_id = aax_id_to_tiny(aax_id); *tiny_id < num_params) {
-                auto value = double{};
-                aax_param->GetValueAsDouble(&value);
-                _kernel->handle_event(Set_param{.id = *tiny_id, .value = value});
-            }
-        }
-
-        // Assign buffer ptrs.
-        for (size_t i = 0; i < num_ichannels; ++i) {
-            _ibuffers[i] = ioRenderInfo->mAudioInputs[i];
-        }
-        for (size_t i = 0; i < num_ochannels; ++i) {
-            _obuffers[i] = ioRenderInfo->mAudioOutputs[i];
-        }
-        if constexpr (Plug_info::wants_sidechain) {
-            if (const auto sc_idx = ioRenderInfo->mSidechainIndex; sc_idx != nullptr) {
-                for (size_t i = 0; i < num_schannels; ++i) {
-                    _sbuffers[i] = ioRenderInfo->mAudioInputs[*sc_idx + i];
-                }
-            }
-        }
-
-        // Read host data.
-        struct {
-            double tempo{};
-            int32_t time_sig_numer{};
-            int32_t time_sig_denom{};
-            bool is_playing{};
-            int64_t tick_pos{};
-            bool is_looping{};
-            int64_t loop_start_tick{};
-            int64_t loop_end_tick{};
-            int64_t sample_pos{};
-            uint32_t ticks_per_beat{};
-            bool is_recording{};
-        } host_data{};
-
-        auto* transport = ioRenderInfo->mTransportNode->GetTransport();
-
-        // TODO: - Optionals 
-        [[maybe_unused]] auto result = AAX_Result{AAX_SUCCESS};
-        result = transport->GetCurrentTempo(&host_data.tempo);
-        result = transport->GetCurrentMeter(&host_data.time_sig_numer, &host_data.time_sig_denom);
-        result = transport->IsTransportPlaying(&host_data.is_playing);
-        result = transport->GetCurrentTickPosition(&host_data.tick_pos);
-        result = transport->GetCurrentLoopPosition(&host_data.is_looping, &host_data.loop_start_tick, &host_data.loop_end_tick);
-        result = transport->GetCurrentNativeSampleLocation(&host_data.sample_pos);
-        result = transport->GetCurrentTicksPerBeat(&host_data.ticks_per_beat);
-
-        host_data.is_recording = recording.load(std::memory_order_relaxed); // From notifications.
-
-        const auto sample_pos = host_data.sample_pos;
-        const auto beat_pos = static_cast<double>(host_data.tick_pos) / host_data.ticks_per_beat;
-        const auto cycle_start = static_cast<double>(host_data.loop_start_tick) / host_data.ticks_per_beat;
-        const auto cycle_end = static_cast<double>(host_data.loop_end_tick) / host_data.ticks_per_beat;
-        const auto tempo = host_data.tempo;
-        const auto ts_numer = host_data.time_sig_numer;
-        const auto ts_denom = host_data.time_sig_denom;
-
-        const auto num_frames = static_cast<size_t>(*ioRenderInfo->mNumSamples);
-
-        // Process kernel.
-        auto context = Dsp_context{
-            .musical_context = {
-                .sample_pos = sample_pos,
-                .beat_pos = beat_pos,
-                .cycle_start = cycle_start,
-                .cycle_end = cycle_end,
-                .tempo_ideal = tempo,
-                .time_sig = {ts_numer, ts_denom},
-                .transport_state = {
-                    .moving = host_data.is_playing,
-                    .cycling = host_data.is_looping,
-                    .recording = host_data.is_recording
-                }
-            },
-            .ibuffers = _ibuffers,
-            .sbuffers = _sbuffers,
-            .obuffers = _obuffers,
-            .num_frames = num_frames,
-            .exports = _exports
-        };
-        _kernel->process(context);
-
-        // Write exports to meters.
-        for (size_t i = 0; i < num_exports; ++i) {
-            if (context.exports[i] != _lexports[i]) {
-                // Send an output event.
-                const auto value = context.exports[i];
-                _oqueue.push(Set_export{.id = static_cast<uint32_t>(i), .value = value});
-
-                // Cache for next time.
-                _lexports[i] = value;
-            }
-
-            _exports[i] = 0; // Reset for peak meters.
-        }
-    }
+    void RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues) override;
 
     auto pop_export(Ui_event& event) -> bool
     {
         return _oqueue.pop(event);
+    }
+
+    auto dump_exports() -> void
+    {
+        enumerate<uint32_t>(_lexports, [this](auto i, const auto& e) {
+            _oqueue.push(Set_export{i, e});
+        });
+    }
+
+    auto push_action(const User_action& action) -> void
+    {
+        _from_ui.push(action);
     }
 
 private:
@@ -150,6 +57,9 @@ private:
     static constexpr auto num_schannels = size_t{1}; // mono sidechain? verify.
     static constexpr auto num_ochannels = size_t{2};
 
+    using From_ui_queue = Lock_free_queue<User_action, 256>;
+    From_ui_queue _from_ui{};
+
     std::atomic<bool> recording{false}; // 
 
     // Pointers to host io buffers.
@@ -162,10 +72,21 @@ private:
 
     User_params _param_infos{};
 
-    using To_ui_queue = Lock_free_queue<Ui_event, 256>;
+    using To_ui_queue = Lock_free_queue<Ui_event, 256, Queue_concurrency::mpsc>;
     To_ui_queue _oqueue{};
 
     std::unique_ptr<Dsp_kernel> _kernel = std::make_unique<Dsp_kernel>();
+
+    using Latency_flag = std::atomic<std::optional<uint32_t>>;
+    static_assert(Latency_flag::is_always_lock_free);
+
+    // Communicates the pending latency from `process` to `setActive`.
+    Latency_flag _pending_latency{};
+
+    // Communicates the accepted latency from `setActive` to `process`.
+    Latency_flag _accepted_latency{};
+
+    std::atomic<bool> _delay_comp{true}; // Track Pro Tools delay compensation mode.
 
 };
 

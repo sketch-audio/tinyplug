@@ -48,6 +48,12 @@ public:
     Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream* state) SMTG_OVERRIDE;
     Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream* state) SMTG_OVERRIDE;
 
+    //
+    Steinberg::uint32 PLUGIN_API getLatencySamples() SMTG_OVERRIDE;
+
+    //
+    Steinberg::uint32 PLUGIN_API getProcessContextRequirements() SMTG_OVERRIDE;
+
 private:
     //
     struct Automation_point {
@@ -79,6 +85,16 @@ private:
     std::vector<Tagged_event> _events{}; // Some fixed size thing.
 
     std::unique_ptr<Dsp_kernel> _kernel = std::make_unique<Dsp_kernel>();
+    uint32_t _latency{_kernel->latency_samps()};
+
+    using Latency_flag = std::atomic<std::optional<uint32_t>>;
+    static_assert(Latency_flag::is_always_lock_free);
+
+    // Communicates the pending latency from `process` to `setActive`.
+    Latency_flag _pending_latency{};
+
+    // Communicates the accepted latency from `setActive` to `process`.
+    Latency_flag _accepted_latency{};
 
     auto normalize_input_events(Steinberg::Vst::ProcessData& data) -> void;
 

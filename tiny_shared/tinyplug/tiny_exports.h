@@ -27,8 +27,6 @@ struct Tagged_export {
     bool trigged{}; // Have we received a trig for this frame?
 };
 
-static constexpr auto EXPORT_OFFSET = int32_t{1 << 30};
-
 template<Some_param_model User_model>
 struct Exports {
 

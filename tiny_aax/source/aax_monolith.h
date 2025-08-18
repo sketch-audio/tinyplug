@@ -103,11 +103,12 @@ struct AAX_SInstrumentSetupInfo
 
 
     //General Properties
+    uint32_t        mLatency;                       /// tiny
     AAX_EStemFormat	mInputStemFormat;               ///< \ref AAX_eProperty_InputStemFormat "Input stem format"
     AAX_EStemFormat	mOutputStemFormat;              ///< \ref AAX_eProperty_OutputStemFormat "Output stem format"
     bool            mUseHostGeneratedGUI;           ///< Allow Pro Tools or other host to generate a generic GUI. This can be useful for early development. \sa \ref AAX_eProperty_UsesClientGUI
     bool			mCanBypass;                     ///< Can this instrument be bypassed? \sa \ref AAX_eProperty_CanBypass
-    bool            mWantsSidechain;
+    bool            mWantsSidechain;                /// tiny
     AAX_CTypeID		mManufacturerID;                ///< \ref AAX_eProperty_ManufacturerID "Manufacturer ID"
     AAX_CTypeID		mProductID;                     ///< \ref AAX_eProperty_ProductID "Product ID"
     AAX_CTypeID		mPluginID;                      ///< \ref AAX_eProperty_PlugInID_Native "Plug-In (Type) ID"
@@ -140,6 +141,7 @@ struct AAX_SInstrumentSetupInfo
         mTransportMIDINodeName = "Transport";
         mNumMeters = 0;
         mMeterIDs = 0;
+        mLatency = 0;
         mInputStemFormat = AAX_eStemFormat_Mono;
         mOutputStemFormat = AAX_eStemFormat_Mono;
         mUseHostGeneratedGUI = false;

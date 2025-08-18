@@ -80,13 +80,8 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
             }
         }, param.semantics);
 
-        // 
-        if (param.hidden) {
-            param_info.flags |= Steinberg::Vst::ParameterInfo::kIsHidden;
-        }
-        else {
-            param_info.flags |= Steinberg::Vst::ParameterInfo::kCanAutomate;
-        }
+        // Flags
+        param_info.flags |= (param.hidden ? Steinberg::Vst::ParameterInfo::kIsHidden : Steinberg::Vst::ParameterInfo::kCanAutomate);
 
         // Shenanigans to get the name.
         Steinberg::Vst::StringConvert::convert(param.name, param_info.title);
@@ -101,7 +96,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
 
     for (auto i = decltype(num_exports){}; i < num_exports; ++i) {
         auto export_info = Steinberg::Vst::ParameterInfo{
-            .id = static_cast<Steinberg::Vst::ParamID>(i + EXPORT_OFFSET),
+            .id = static_cast<Steinberg::Vst::ParamID>(i + export_param_offset),
             .title = u"",
             .shortTitle = u"",
             .stepCount = 0,
@@ -111,6 +106,18 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
         };
         parameters.addParameter(export_info);
     }
+
+    // Add the latency parameter.
+    auto latency_info = Steinberg::Vst::ParameterInfo{
+        .id = latency_param_id,
+        .title = u"Latency",
+        .shortTitle = u"Latency",
+        .stepCount = 0,
+        .defaultNormalizedValue = 0,
+        .unitId = Steinberg::Vst::kRootUnitId,
+        .flags = (Steinberg::Vst::ParameterInfo::kIsReadOnly | Steinberg::Vst::ParameterInfo::kIsHidden)
+    };
+    parameters.addParameter(latency_info);
 
     return result;
 }
@@ -208,13 +215,21 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setParamNormalized(Steinberg::Vst
     // Do not forward setParam to UI during gestures.
     if (_gestured.find(tag) != _gestured.end()) { return result; }
 
-    // This is where we would enqueue the events and send to UI.
-    if (tag >= EXPORT_OFFSET) {
-        const auto id = tag - EXPORT_OFFSET;
-        _oqueue.push(Set_export{.id = id, .value = value}); // TODO: - value space?
-    }
-    else {
+    // Is it a parameter?
+    if (tag < num_params) {
         _oqueue.push(Set_param{.id = tag, .value = value});
+    }
+    // Is it an export?
+    else if (tag >= export_param_offset && tag < export_param_offset + num_exports) {
+        const auto id = tag - export_param_offset;
+        _oqueue.push(Set_export{.id = id, .value = value});
+        _last_exports[id] = value;
+    }
+    // Is it a latency change?
+    else if (tag == latency_param_id) {
+        if (auto* handler = getComponentHandler()) {
+            handler->restartComponent(Steinberg::Vst::kLatencyChanged);
+        }
     }
 
     return result;
@@ -232,7 +247,12 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
     // Here the Host wants to open your editor (if you have one).
     if (Steinberg::FIDStringsEqual(name, Steinberg::Vst::ViewType::kEditor))
     {
-        // Create your editor here and return a IPlugView ptr of it.
+        // A workaround for now, push all exports into the queue.
+        // This is so we can get correct values on first appearance.
+        enumerate<uint32_t>(_last_exports, [this](auto i, const auto& e) {
+            _oqueue.push(Set_export{.id = i, .value = e});
+        });
+
         view = new Vst3_view({
             .get_knob_value = [this](auto id) { return getParamNormalized(id); },
             .pop_event = [this](auto& e) { return _oqueue.pop(e); },

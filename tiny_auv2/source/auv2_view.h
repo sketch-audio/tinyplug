@@ -8,12 +8,14 @@
 #include "custom_view.h"
 #include "param_model.h"
 
+#include "auv2_adapters.h"
+
 namespace tiny {
 
 class Auv2_view {
 public:
 
-    Auv2_view(Ui_receiver receiver) : _receiver{receiver} {}
+    Auv2_view(Ui_receiver receiver, Main_executor executor) : _receiver{receiver}, _executor{executor} {}
 
     auto create_view() -> void*;
 
@@ -30,6 +32,7 @@ private:
 
     User_params _param_infos{};
     Ui_receiver _receiver{};
+    Main_executor _executor{};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
     std::unique_ptr<Custom_view> _custom_view = std::make_unique<Custom_view>();

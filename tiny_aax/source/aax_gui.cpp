@@ -23,6 +23,12 @@ void Aax_gui::CreateViewContainer()
 
         auto* view = GetViewContainer();
         auto* params = dynamic_cast<Aax_parameters*>(GetEffectParameters());
+
+        // Workaround for now, dump the latest exports into the queue so we get correct values on display.
+        if (params) {
+            params->dump_exports();
+        }
+
         _receiver = {
             .get_knob_value = [params](auto id) {
                 if (const auto param = get_aax_param(params, id)) {
@@ -50,6 +56,9 @@ void Aax_gui::CreateViewContainer()
                             AAX_IParameter* param = nullptr;
                             if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS) {
                                 param->SetNormalizedValue(a.value);
+                                if (!param->Automatable()) {
+                                    params->push_action(a);
+                                }
                             };
                         }
                     },

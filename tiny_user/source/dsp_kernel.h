@@ -23,7 +23,11 @@ public:
     // - Pointers to the input, output, and sidechain buffers (They could be null!)
     // - The number of frames to render (It is the plug-in's responsibility to handle any value here.)
     // - A place to write your exports
+    // - The option to propose a latency change
     auto process(Dsp_context& context) -> void;
+
+    // You should only change this when you've received `Accepted_latency`!
+    auto latency_samps() const -> uint32_t { return _latency; }
 
 private:
 
@@ -31,6 +35,8 @@ private:
     static constexpr auto num_params = User_params::num_params;
 
     double _sr{48000};
+    uint32_t _latency{};
+    bool _wants_latency_change{false};
 
     User_params _param_infos{};
     std::array<float, num_params> _values{_param_infos.make_plain_defaults<float>()};

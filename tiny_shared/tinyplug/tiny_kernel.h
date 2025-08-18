@@ -44,6 +44,7 @@ struct Dsp_context {
     std::span<float*> obuffers{};
     size_t num_frames{};
     std::span<float> exports{};
+    std::optional<uint32_t> propose_latency{}; // samples.
 };
 
 template<typename T>
@@ -51,6 +52,7 @@ concept Some_dsp_kernel = requires(T t) {
     { t.reset(double{/*sample_rate*/}) } -> std::same_as<void>;
     { t.handle_event(std::declval<const Render_event&>(/*event*/)) } -> std::same_as<void>;
     { t.process(std::declval<Dsp_context&>(/*context*/)) } -> std::same_as<void>;
+    { t.latency_samps() } -> std::same_as<uint32_t>;
 };
 
 }

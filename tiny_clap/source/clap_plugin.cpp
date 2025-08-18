@@ -15,7 +15,17 @@ bool Clap_plugin::init() noexcept
 
 bool Clap_plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t /*maxFrameCount*/) noexcept
 {
+    // Check whether kernel wants latency change *prior* to reset.
+    const auto wants_latency_change = _kernel->wants_latency_change();
+
     _kernel->reset(sampleRate);
+
+    // Change is now manifested.
+    if (wants_latency_change) {
+        auto* latency_ext = (const clap_host_latency_t*)_host->get_extension(_host, CLAP_EXT_LATENCY);
+        if (latency_ext) latency_ext->changed(_host);
+    }
+    
     return true;
 }
 
@@ -275,6 +285,11 @@ bool Clap_plugin::guiSetParent(const clap_window* window) noexcept
 bool Clap_plugin::guiSetTransient(const clap_window* /*window*/) noexcept
 {
     return false; // floating only
+}
+
+uint32_t Clap_plugin::latencyGet() const noexcept
+{
+    return _kernel->get_latency();
 }
 
 } // namespace tiny

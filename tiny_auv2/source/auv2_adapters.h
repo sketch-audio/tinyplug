@@ -15,6 +15,15 @@
 
 namespace tiny {
 
+enum class Message_type : uint32_t { latency_changed = 0 };
+struct Private_message {
+    Message_type type{};
+};
+struct Main_executor {
+    using On_main = std::function<void(void)>;
+    On_main on_main = [](){};
+};
+
 inline auto cf_to_std(CFStringRef cfStr) -> std::string
 {
     if (!cfStr) return {};

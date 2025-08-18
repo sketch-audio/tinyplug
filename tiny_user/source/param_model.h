@@ -14,6 +14,7 @@ struct Param_model {
         cutoff,
         type,
         offset,
+        latency_mode,
         num_params
     };
 
@@ -23,6 +24,7 @@ struct Param_model {
     enum class Export_id : uint32_t {
         peak_in = 0,
         peak_out,
+        latency_actual,
         num_exports
     };
 
@@ -52,6 +54,16 @@ struct Param_model {
                     .units = Units::generic,
                     .knob_adapter = Knob_adapters::make_power(3)
                 }
+            },
+            Param_spec{
+                .id = enum_raw(latency_mode),
+                .name = "Latency",
+                .semantics = List_semantics{
+                    .labels = {"Low", "High"},
+                    .def_val = 0,
+                    .knob_adapter = Knob_adapters::make_list()
+                },
+                .hidden = true
             },
             Param_group{.name = "Advanced", .nodes = {
                 Param_spec{
@@ -100,6 +112,7 @@ struct Param_model {
         switch (id) {
             case peak_in: return Export_type::peak;
             case peak_out: return Export_type::peak;
+            case latency_actual: return Export_type::stream;
             default: return Export_type::stream;
         }
     }

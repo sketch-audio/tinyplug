@@ -42,22 +42,24 @@ public:
     DEFINE_INTERFACES
         // Here you can add more supported VST3 interfaces
         // DEF_INTERFACE (Vst::IXXX)
-        END_DEFINE_INTERFACES(Super)
-        DELEGATE_REFCOUNT(Super)
+    END_DEFINE_INTERFACES(Steinberg::Vst::EditController)
+    DELEGATE_REFCOUNT(Steinberg::Vst::EditController)
 
 protected:
 
     Vst3_view* view{nullptr}; // Is there any point in keeping this around?
 
-    // Sorted by paramId.
     using User_params = Param_infos<Param_model>;
+    using User_exports = Exports<Param_model>;
     static constexpr auto num_params = User_params::num_params;
+    static constexpr auto num_exports = User_exports::num_exports;
 
     User_params _params{};
 
     // We receive the exports in `setParamNormalized` and let the view pop them here.
     using To_ui_queue = Lock_free_queue<Ui_event, 256>;
     To_ui_queue _oqueue{};
+    std::array<double, num_exports> _last_exports{};
 
     std::unordered_set<uint32_t> _gestured{};
 

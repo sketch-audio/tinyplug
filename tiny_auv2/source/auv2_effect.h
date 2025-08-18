@@ -46,6 +46,22 @@ public:
     OSStatus SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames) override;
     OSStatus ScheduleParameter(const AudioUnitParameterEvent* inParameterEvent, UInt32 inNumEvents) override;
 
+    // latency
+    Float64 GetLatency() override
+    {
+        // Did we get here from a latency change notification?
+        const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+        if (pending_latency) {
+            _accepted_latency.store(*pending_latency, std::memory_order_release); // The kernel should manifest on the next process.
+            _latency = *pending_latency;
+        }
+
+        const auto format = GetStreamFormat(kAudioUnitScope_Output, 0);
+        const auto latency_samps = static_cast<double>(_latency);
+        const auto sample_rate = format.mSampleRate;
+        return latency_samps / sample_rate;
+    }
+
     OSStatus Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTimeStamp& inTimeStamp, UInt32 nFrames) override;
 
     auto create_view() -> void*;
@@ -79,13 +95,25 @@ private:
     // TODO: - Use a heuristic for size.
     using Event_queue = Lock_free_queue<Tagged_event, 256>; // mpsc?
     using To_ui_queue = Lock_free_queue<Ui_event, 256, Queue_concurrency::mpsc>;
+    using Private_queue = Lock_free_queue<Private_message, 256>;
     Event_queue _iqueue{};
     To_ui_queue _oqueue{};
+    Private_queue _pqueue{};
 
     // Render
     std::vector<Tagged_event> _events{}; // Some fixed size thing.
 
     std::unique_ptr<Dsp_kernel> _kernel = std::make_unique<Dsp_kernel>();
+    uint32_t _latency{_kernel->latency_samps()};
+
+    using Latency_flag = std::atomic<std::optional<uint32_t>>;
+    static_assert(Latency_flag::is_always_lock_free);
+
+    // Communicates the pending latency from `process` to `setActive`.
+    Latency_flag _pending_latency{};
+
+    // Communicates the accepted latency from `setActive` to `process`.
+    Latency_flag _accepted_latency{};
 
     // AUv2 view adapter.
     std::unique_ptr<Auv2_view> _view = std::make_unique<Auv2_view>(Ui_receiver{
@@ -135,6 +163,18 @@ private:
                     AUEventListenerNotify(NULL, NULL, &event);
                 },
             }, action);
+        }
+    }, Main_executor{
+        .on_main = [this]() {
+            auto message = Private_message{};
+            while (_pqueue.pop(message)) {
+                switch (message.type) {
+                    case Message_type::latency_changed: {
+                        PropertyChanged(kAudioUnitProperty_Latency, kAudioUnitScope_Global, 0);
+                        break;
+                    }
+                }
+            }
         }
     });
 
