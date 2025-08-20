@@ -27,10 +27,10 @@
     - `Int_semantics`: for integers.
     - `Real_semantics`: for continuous values.
 - Fully enumerated host policies (no flags)
-    | Policy         | Automatable? | Visible? | Persistent?|
-    |---------------:|:------------:|:--------:|:----------:|
+    | Policy         | Automatable? | Visible? | Persistent?| Note |
+    |---------------:|:------------:|:--------:|:----------:|:----:|
     | `automation`   |      ✅      |    ✅    |     ✅     |
-    | `control`      |      ❌      |    ✅    |     ✅     |
+    | `control`      |      ❌      |    ✅    |     ✅     | (do any hosts actually support?)
     | `state`        |      ❌      |    ❌    |     ✅     |
     | `interface`    |      ❌      |    ❌    |     ❌     |
 - Parameter tree versioning
