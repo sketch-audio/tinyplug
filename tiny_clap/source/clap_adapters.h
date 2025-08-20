@@ -8,7 +8,15 @@
 
 namespace tiny {
 
-// Build module paths for the user's parameter tree.
+// CLAP state header:
+// - Framework code
+// - Manufacturer code
+// - Plug-in code
+// - Tree version
+static constexpr auto num_header_items = size_t{4};
+using State_header = std::array<uint32_t, num_header_items>;
+
+// Build module paths for the user's parameter tree. (Presentation order.)
 inline auto tree_to_clap_modules(const Param_node& root) -> std::vector<std::string> {
     auto result = std::vector<std::string>{};
 

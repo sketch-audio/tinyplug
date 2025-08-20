@@ -14,8 +14,11 @@ namespace tiny {
 class Vst3_processor : public Steinberg::Vst::AudioEffect {
 public:
 
-    Vst3_processor();
-    ~Vst3_processor() SMTG_OVERRIDE;
+    using Super = Steinberg::Vst::AudioEffect;
+    Vst3_processor() : Super{} {
+        setControllerClass(tiny::map_to_fuid(tiny::Plug_info::Vst3::controller_uid));
+    }
+    ~Vst3_processor() SMTG_OVERRIDE = default;
 
     // Create function
     static Steinberg::FUnknown* createInstance(void* /*context*/)
@@ -50,8 +53,6 @@ public:
 
     //
     Steinberg::uint32 PLUGIN_API getLatencySamples() SMTG_OVERRIDE;
-
-    //
     Steinberg::uint32 PLUGIN_API getProcessContextRequirements() SMTG_OVERRIDE;
 
 private:
@@ -77,7 +78,10 @@ private:
     std::array<float*, num_ochannels> _obuffers{};
     std::array<float, num_exports> _exports{};
 
-    User_params _params{};
+    User_params _param_infos{};
+
+    using State_queue = Lock_free_queue<Set_param, 256>;
+    State_queue _queue{};
 
     std::array<Automation_point, num_params> _lpoints{};
     std::array<double, num_exports> _lexports{};

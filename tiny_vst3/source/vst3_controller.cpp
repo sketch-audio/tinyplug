@@ -2,6 +2,7 @@
 
 #include "pluginterfaces/base/ibstream.h"
 #include "public.sdk/source/vst/utility/stringconvert.h"
+#include "base/source/fstreamer.h"
 
 #include "tinyplug/tinyplug.h"
 
@@ -23,9 +24,8 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
 
     // Here you could register some parameters.
 
-    const auto& tree = _params.tree();
-    const auto& params = _params.presentation_specs();
-    const auto [units, param_unit_ids] = tree_to_units(tree);
+    const auto& params = _param_infos.presentation_specs();
+    const auto [units, param_unit_ids] = tree_to_units(_param_infos.tree());
 
     for (const auto& unit : units) {
         auto unit_info = Steinberg::Vst::UnitInfo{
@@ -80,8 +80,17 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
             },
         }, param.semantics);
 
-        // Flags
-        param_info.flags |= (param.hidden ? Steinberg::Vst::ParameterInfo::kIsHidden : Steinberg::Vst::ParameterInfo::kCanAutomate);
+        // Resolve flags for policy. 
+        param_info.flags |= [policy = param.policy]() {
+            using enum Host_policy;
+            using Vst3_flags = Steinberg::Vst::ParameterInfo::ParameterFlags;
+            switch (policy) {
+                case automation: return Vst3_flags::kCanAutomate;
+                case control: return Vst3_flags::kNoFlags; // Will any hosts display a control?
+                case state: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly};
+                case interface: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly};
+            }
+        }();
 
         // Shenanigans to get the name.
         Steinberg::Vst::StringConvert::convert(param.name, param_info.title);
@@ -136,6 +145,68 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setComponentState(Steinberg::IBSt
     if (!state)
         return Steinberg::kResultFalse;
 
+    // Streamer convenience wrapper. 
+    auto streamer = Steinberg::IBStreamer{state};
+
+    auto header = State_header{};
+    if (!streamer.readInt32uArray(header.data(), header.size())) {
+        return Steinberg::kResultFalse;
+    }
+
+    // Validate header.
+    assert(header[0] == Plug_info::framework_code && "Unexpected framework code.");
+    assert(header[1] == Plug_info::manufacturer_code && "Unexpected manufacturer code.");
+    assert(header[2] == Plug_info::plugin_code && "Unexpected plug-in code.");
+    assert(header[3] > 0 && "Unexpected tree version.");
+
+    const auto tree_version = max_tree_version(_param_infos.tree());
+    const auto state_version = header[3];
+
+    // Notify view (if not an interface parameter).
+    auto do_notify = [this](auto& param, auto knob_value) {
+        if (param.policy != Host_policy::interface) {
+            setParamNormalized(param.id, knob_value);
+        }
+    };
+
+    if (tree_version <= state_version) {
+        // Implies "num params in tree" <= "num params in state"
+        // We should be able to safely read `num_params` floats.
+        for (auto i = decltype(num_params){}; i < num_params; ++i) {
+            auto knob_value = float{};
+            if (!streamer.readFloat(knob_value)) {
+                return Steinberg::kResultFalse;
+            }
+
+            // Send knob value to view.
+            const auto& param = _param_infos.param_for(i);
+            do_notify(param, knob_value);
+        }
+    }
+    else if (tree_version > state_version) {
+        // Implies "num params in tree" > "num params in state"
+        const auto num_state = num_params_with_version(_param_infos.tree(), state_version);
+
+        // Set values stored in state.
+        for (auto i = decltype(num_state){}; i < num_state; ++i) {
+            auto knob_value = float{};
+            if (!streamer.readFloat(knob_value)) {
+                return Steinberg::kResultFalse;
+            }
+
+            // Send knob value to view.
+            const auto& param = _param_infos.param_for(i);
+            do_notify(param, knob_value);
+        }
+
+        // Set remaining parameters to defaults. 
+        for (auto i = num_state; i < num_params; ++i) {
+            const auto& param = _param_infos.param_for(i);
+            const auto knob_value = get_knob_default(param);
+            do_notify(param, knob_value);
+        }
+    }
+
     return Steinberg::kResultOk;
 }
 
@@ -162,7 +233,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamStringByValue(Steinberg::
     // (without having to set the value!)
     if (tag >= User_params::num_params) return Steinberg::kResultFalse;
 
-    const auto& params = _params.kernel_specs();
+    const auto& params = _param_infos.kernel_specs();
     const auto& param = params[tag];
     const auto host = Value_conv::knob_to_host(valueNormalized, param.semantics);
     const auto str = Host_formatter::format_string(host, param.semantics);
@@ -178,8 +249,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamValueByString(Steinberg::
     // (without having to set the value!)
     if (tag >= User_params::num_params) return Steinberg::kResultFalse;
 
-    const auto& params = _params.kernel_specs();
-    const auto& param = params[tag];
+    const auto& param = _param_infos.param_for(tag);
     const auto str = Steinberg::Vst::StringConvert::convert(string);
     if (const auto plain = Host_formatter::format_value(str, param.semantics)) {
         valueNormalized = Value_conv::plain_to_knob(*plain, param.semantics);
@@ -191,15 +261,13 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamValueByString(Steinberg::
 
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::normalizedParamToPlain(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue valueNormalized)
 {
-    const auto& params = _params.kernel_specs();
-    const auto& param = params[tag];
+    const auto& param = _param_infos.param_for(tag);
     return Value_conv::knob_to_plain(valueNormalized, param.semantics);
 }
 
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::plainParamToNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue plainValue)
 {
-    const auto& params = _params.kernel_specs();
-    const auto& param = params[tag];
+    const auto& param = _param_infos.param_for(tag);
     return Value_conv::plain_to_knob(plainValue, param.semantics);
 }
 

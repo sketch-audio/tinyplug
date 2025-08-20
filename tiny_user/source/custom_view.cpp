@@ -45,33 +45,33 @@ auto Custom_view::on_draw(App_state& app_state) -> void
 
     // Handle user actions.
     std::visit(Inline_visitor{
-        // [&](const Drag_start& s) {
-        //     _ldrag = {};
-        //     const auto to_set = get_next(g, s);
-        //     const auto id = enum_raw(gain);
-        //     actions.add_action(Action_start{id});
-        //     actions.add_action(Set_param{id, to_set});
-        //     _ldrag = s.tpos.y - s.fpos.y;
-        // },
-        // [&](const Drag& s) {
-        //     const auto to_set = get_next(g, s);
-        //     const auto id = enum_raw(gain);
-        //     actions.add_action(Set_param{id, to_set});
-        //     _ldrag = s.tpos.y - s.fpos.y;
-        // },
-        // [&](const Drag_end& s) {
-        //     const auto to_set = get_next(g, s);
-        //     const auto id = enum_raw(gain);
-        //     actions.add_action(Set_param{id, to_set});
-        //     actions.add_action(Action_end{id});
-        //     _ldrag = {};
-        // },
-        [&](const Click& c) {
-            const auto curr = params[enum_raw(latency_mode)];
-            actions.add_action(Action_start{enum_raw(latency_mode)});
-            actions.add_action(Set_param{enum_raw(latency_mode), curr == 0 ? double{1} : double{0}});
-            actions.add_action(Action_end{enum_raw(latency_mode)});
+        [&](const Drag_start& s) {
+            _ldrag = {};
+            const auto to_set = get_next(g, s);
+            const auto id = enum_raw(gain);
+            actions.add_action(Action_start{id});
+            actions.add_action(Set_param{id, to_set});
+            _ldrag = s.tpos.y - s.fpos.y;
         },
+        [&](const Drag& s) {
+            const auto to_set = get_next(g, s);
+            const auto id = enum_raw(gain);
+            actions.add_action(Set_param{id, to_set});
+            _ldrag = s.tpos.y - s.fpos.y;
+        },
+        [&](const Drag_end& s) {
+            const auto to_set = get_next(g, s);
+            const auto id = enum_raw(gain);
+            actions.add_action(Set_param{id, to_set});
+            actions.add_action(Action_end{id});
+            _ldrag = {};
+        },
+        // [&](const Click& c) {
+        //     const auto curr = params[enum_raw(latency_mode)];
+        //     actions.add_action(Action_start{enum_raw(latency_mode)});
+        //     actions.add_action(Set_param{enum_raw(latency_mode), curr == 0 ? double{1} : double{0}});
+        //     actions.add_action(Action_end{enum_raw(latency_mode)});
+        // },
         [](const auto&) {}
     }, interaction.state);
 

@@ -46,6 +46,9 @@ public:
     OSStatus SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames) override;
     OSStatus ScheduleParameter(const AudioUnitParameterEvent* inParameterEvent, UInt32 inNumEvents) override;
 
+    OSStatus SaveState(CFPropertyListRef* outData) override;
+    OSStatus RestoreState(CFPropertyListRef plist) override;
+
     // latency
     Float64 GetLatency() override
     {
@@ -86,7 +89,7 @@ private:
     std::array<float*, num_ochannels> _obuffers{};
     std::array<float, num_exports> _exports{};
 
-    User_params _params{};
+    User_params _param_infos{};
     Clump_map _clumps{};
 
     std::array<double, num_exports> _lexports{};
@@ -118,8 +121,7 @@ private:
     // AUv2 view adapter.
     std::unique_ptr<Auv2_view> _view = std::make_unique<Auv2_view>(Ui_receiver{
         .get_knob_value = [this](auto id) {
-            const auto& params = _params.kernel_specs();
-            const auto& param = params[id];
+            const auto& param = _param_infos.param_for(id);
             const auto host = Globals()->GetParameter(id);
             const auto knob = Value_conv::host_to_knob(host, param.semantics);
             return knob;
@@ -138,8 +140,7 @@ private:
                 },
                 [&](const Set_param& a) {
                     // Notify host
-                    const auto& params = _params.kernel_specs();
-                    const auto& param = params[a.id];
+                    const auto& param = _param_infos.param_for(a.id);
                     const auto plain_value = Value_conv::knob_to_plain(a.value, param.semantics);
                     const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
 

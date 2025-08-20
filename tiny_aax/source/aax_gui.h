@@ -47,7 +47,9 @@ private:
 
     std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults<double>()};
     std::array<Tagged_export, num_exports> _uiexports{};
-    
+
+    std::unordered_set<uint32_t> _gestured{};
+
 };
 
 } // namespace tiny

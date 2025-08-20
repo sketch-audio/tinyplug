@@ -2,6 +2,7 @@
 #include <optional>
 #include <ranges>
 
+#include "pluginterfaces/base/ibstream.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/vst/ivstprocesscontext.h"
 #include "public.sdk/source/vst/utility/stringconvert.h"
@@ -15,16 +16,6 @@
 #include "vst3_processor.h"
 
 namespace tiny {
-
-Vst3_processor::Vst3_processor()
-{
-    setControllerClass(tiny::map_to_fuid(tiny::Plug_info::Vst3::controller_uid));
-}
-
-Vst3_processor::~Vst3_processor()
-{
-    //
-}
 
 // MARK: - initialize
 
@@ -60,7 +51,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* co
     _events.reserve(128); // Want fixed size event vector.
 
     // Get knob defaults for automation points.
-    for (const auto& param : _params.kernel_specs()) {
+    for (const auto& param : _param_infos.kernel_specs()) {
         _lpoints[param.id] = {.offset = -1, .value = get_knob_default(param)};
     }
 
@@ -116,6 +107,12 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     if (accepted_latency) {
         _kernel->handle_event(Accepted_latency{*accepted_latency});
         assert(_kernel->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+    }
+
+    // Process events in state queue.
+    auto state_event = Set_param{};
+    while (_queue.pop(state_event)) {
+        _kernel->handle_event(state_event);
     }
 
     _events.clear(); // Events only valid for this render cycle.
@@ -244,10 +241,76 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     return Steinberg::kResultOk;
 }
 
+// MARK: - state
+
 Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* state)
 {
     if (!state)
         return Steinberg::kResultFalse;
+
+    // Streamer convenience wrapper. 
+    auto streamer = Steinberg::IBStreamer{state};
+
+    auto header = State_header{};
+    if (!streamer.readInt32uArray(header.data(), header.size())) {
+        return Steinberg::kResultFalse;
+    }
+
+    // Validate header.
+    assert(header[0] == Plug_info::framework_code && "Unexpected framework code.");
+    assert(header[1] == Plug_info::manufacturer_code && "Unexpected manufacturer code.");
+    assert(header[2] == Plug_info::plugin_code && "Unexpected plug-in code.");
+    assert(header[3] > 0 && "Unexpected tree version.");
+
+    const auto tree_version = max_tree_version(_param_infos.tree());
+    const auto state_version = header[3];
+
+    // Notify kernel (if not an interface parameter).
+    auto do_notify = [this](const auto& param, auto plain_value) {
+        if (param.policy != Host_policy::interface) {
+            _queue.push({param.id, plain_value});
+        }
+    };
+
+    if (tree_version <= state_version) {
+        // Implies "num params in tree" <= "num params in state"
+        // We should be able to safely read `num_params` floats.
+        for (auto i = decltype(num_params){}; i < num_params; ++i) {
+            auto knob_value = float{};
+            if (!streamer.readFloat(knob_value)) {
+                return Steinberg::kResultFalse;
+            }
+
+            // Convert to plain and send to kernel.
+            const auto& param = _param_infos.param_for(i);
+            const auto plain_value = Value_conv::knob_to_plain(knob_value, param.semantics);
+            do_notify(param, plain_value);
+        }
+    }
+    else if (tree_version > state_version) {
+        // Implies "num params in tree" > "num params in state"
+        const auto num_state = num_params_with_version(_param_infos.tree(), state_version);
+
+        // Set values stored in state.
+        for (auto i = decltype(num_state){}; i < num_state; ++i) {
+            auto knob_value = float{};
+            if (!streamer.readFloat(knob_value)) {
+                return Steinberg::kResultFalse;
+            }
+
+            // Convert to plain and send to kernel.
+            const auto& param = _param_infos.param_for(i);
+            const auto plain_value = Value_conv::knob_to_plain(knob_value, param.semantics);
+            do_notify(param, plain_value);
+        }
+
+        // Set remaining parameters to defaults. 
+        for (auto i = num_state; i < num_params; ++i) {
+            const auto& param = _param_infos.param_for(i);
+            const auto plain_value = get_plain_default(param);
+            do_notify(param, plain_value);
+        }
+    }
 
     return Steinberg::kResultOk;
 }
@@ -256,6 +319,30 @@ Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* stat
 {
     if (!state)
         return Steinberg::kResultFalse;
+
+    // Streamer convenience wrapper. 
+    auto streamer = Steinberg::IBStreamer{state};
+
+    // Generate the header.
+    const auto tree_version = max_tree_version(_param_infos.tree());
+    auto header = State_header{
+        Plug_info::framework_code, // Reserved
+        Plug_info::manufacturer_code,
+        Plug_info::plugin_code,
+        tree_version
+    };
+
+    if (!streamer.writeInt32uArray(header.data(), header.size())) {
+        return Steinberg::kResultFalse;
+    }
+
+    for (auto i = decltype(num_params){}; i < num_params; ++i) {
+        const auto& last_automated = _lpoints[i]; // Grab the latest value from last automation points.
+        const auto knob_value = last_automated.value;
+        if (!streamer.writeFloat(knob_value)) {
+            return Steinberg::kResultFalse;
+        }
+    }
 
     return Steinberg::kResultOk;
 }
@@ -283,15 +370,13 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
     auto& param_changes = *data.inputParameterChanges;
     const auto num_changes = param_changes.getParameterCount();
 
-    const auto& specs = _params.kernel_specs();
-
     for (auto i = decltype(num_changes){}; i < num_changes; ++i) {
         auto& queue = *param_changes.getParameterData(i);
 
         const auto id = queue.getParameterId();
         if (id >= User_params::num_params) continue; // Be defensive.
 
-        const auto& param = specs[id]; // To denormalize the automation values.
+        const auto& param = _param_infos.param_for(id); // To denormalize the automation values.
 
         const auto point_count = queue.getPointCount();
 

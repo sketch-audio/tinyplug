@@ -26,6 +26,13 @@ public:
     AAX_Result EffectInit() override;
     AAX_Result NotificationReceived(AAX_CTypeID inNotificationType, const void* inNotificationData, uint32_t inNotificationDataSize) override;
 
+    AAX_Result GetNumberOfChunks(int32_t* oNumChunks) const AAX_OVERRIDE;
+	AAX_Result GetChunkIDFromIndex(int32_t iIndex, AAX_CTypeID* oChunkID) const AAX_OVERRIDE;
+    AAX_Result GetChunkSize(AAX_CTypeID iChunkID, uint32_t* oSize) const AAX_OVERRIDE;
+	AAX_Result GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChunk) const AAX_OVERRIDE;
+	AAX_Result SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iChunk) AAX_OVERRIDE;
+	AAX_Result CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_CBoolean* oIsEqual) const AAX_OVERRIDE;
+
     void RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues) override;
 
     auto pop_export(Ui_event& event) -> bool
@@ -46,6 +53,9 @@ public:
     }
 
 private:
+
+    const AAX_CTypeID CHUNK_ID = 'tiny'; // ...
+    static constexpr auto tinyplug_tree_version = "tinyplug-tree-version";
 
     using User_params = Param_infos<Param_model>;
     using User_exports = Exports<Param_model>;
@@ -87,6 +97,8 @@ private:
     Latency_flag _accepted_latency{};
 
     std::atomic<bool> _delay_comp{true}; // Track Pro Tools delay compensation mode.
+
+    auto build_tiny_chunk() const -> void;
 
 };
 

@@ -364,6 +364,26 @@ constexpr auto norm_to_plain(double x, const Value_semantics& semantics) -> doub
     }, semantics);
 }
 
+// MARK: - Host policy
+
+enum class Host_policy : uint32_t {
+    // The host should provide a control and an automation lane for this parameter.
+    // E.g. Any standard parameter.
+    automation = 0,
+
+    // The host may provide a control for this parameter, but no automation lane.
+    // E.g. Latency mode.
+    control,
+
+    // Hidden from host UI. Saves with state.
+    // E.g. Any private parameter.
+    state,
+
+    // Hidden from host UI. Does not save with state.
+    // E.g. GUI-only paremters like "mute" or "solo".
+    interface,
+};
+
 // MARK: - Param group, spec
 
 // Forward.
@@ -387,7 +407,7 @@ struct Param_spec {
     uint32_t id{};
 
     // The first tree version containing this parameter.
-    uint32_t version{};
+    uint32_t version{1};
 
     // Name.
     const char* name{""};
@@ -396,10 +416,10 @@ struct Param_spec {
     const char* short_name{""};
 
     // Parameter semantics.
-    Value_semantics semantics{};
+    Value_semantics semantics{Real_semantics{}};
 
     // Host policy.
-    bool hidden{};
+    Host_policy policy{Host_policy::automation};
 
     // Regular.
     bool operator==(const Param_spec&) const = default;
@@ -626,6 +646,50 @@ template<typename T, size_t N, typename F>
 constexpr auto make_array_by_indices(F f) -> std::array<T, N>
 {
     return params_impl::make_array_by_indices_impl<T>(f, std::make_index_sequence<N>{});
+}
+
+// A function that returns the max version of the parameter tree.
+constexpr auto max_tree_version(const Param_node& tree) -> uint32_t
+{
+    auto result = uint32_t{1};
+    
+    const auto visit = [&](const auto& node, const auto& self) -> void {
+        std::visit(Inline_visitor{
+            [&](const Param_spec& spec) {
+                result = std::max(result, spec.version);
+            },
+            [&](const Param_group& group) {
+                for (const auto& child : group.nodes) {
+                    self(child, self);
+                }
+            }
+        }, node);
+    };
+
+    visit(tree, visit);
+    return result;
+}
+
+// A function that returns the number of parameters with version <= arg `version`.
+constexpr auto num_params_with_version(const Param_node& tree, uint32_t version) -> size_t
+{
+    auto count = size_t{0};
+
+    const auto visit = [&](const auto& node, const auto& self) -> void {
+        std::visit(Inline_visitor{
+            [&](const Param_spec& spec) {
+                if (spec.version <= version) ++count;
+            },
+            [&](const Param_group& group) {
+                for (const auto& child : group.nodes) {
+                    self(child, self);
+                }
+            }
+        }, node);
+    };
+
+    visit(tree, visit);
+    return count;
 }
 
 // MARK: - params

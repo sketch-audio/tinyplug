@@ -26,11 +26,6 @@ auto Clap_kernel::handle_flushed(const clap_event_header* event) -> void
     this->_handle_host_event<false>(event); // Not audio thread
 }
 
-auto Clap_kernel::handle_action(const User_action& action) -> void
-{
-    _from_ui.push(action);
-}
-
 auto Clap_kernel::get_host_value(clap_id paramId) -> double
 {
     return _hostvalues[paramId].load(std::memory_order_relaxed);
@@ -41,10 +36,7 @@ auto Clap_kernel::get_latency() const -> uint32_t
     return _latency;
 }
 
-auto Clap_kernel::pop_export(Ui_event& event) -> bool
-{
-    return _to_ui.pop(event);
-}
+// MARK: - process
 
 auto Clap_kernel::process(const clap_process* process) -> clap_process_status
 {
@@ -181,6 +173,28 @@ auto Clap_kernel::process(const clap_process* process) -> clap_process_status
     return CLAP_PROCESS_SLEEP;
 }
 
+auto Clap_kernel::pop_export(Ui_event& event) -> bool
+{
+    return _to_ui.pop(event);
+}
+
+auto Clap_kernel::handle_action(const User_action& action) -> void
+{
+    // Maintain host values immediately.
+    if (const auto* a = std::get_if<Set_param>(&action)) {
+        const auto& param = _param_infos.param_for(a->id);
+        const auto host_value = Value_conv::knob_to_host(a->value, param.semantics);
+        _hostvalues[param.id].store(host_value, std::memory_order_relaxed);
+    }
+    _from_ui.push(action);
+}
+
+auto Clap_kernel::wants_latency_change() const -> bool
+{
+    const auto pending = _pending_latency.load(std::memory_order_acquire);
+    return pending.has_value();
+}
+
 // MARK: - private
 
 auto Clap_kernel::_handle_host_flushed() -> void
@@ -193,50 +207,68 @@ auto Clap_kernel::_handle_host_flushed() -> void
 
 auto Clap_kernel::_handle_user_actions(const clap_output_events_t* out_events) -> void
 {
+    // The host only needs to know about changes where there might be automation or a control in the host UI.
+    auto wants_host_notify = [](Host_policy policy) {
+        using enum Host_policy;
+        return policy == automation || policy == control;
+    };
+    
     auto user_action = User_action{};
     while (_from_ui.pop(user_action)) {
         std::visit(Inline_visitor{
             [&](const Action_start& a) {
-                auto e = clap_event_param_gesture{};
-                e.header.size = sizeof(clap_event_param_gesture);
-                e.header.type = CLAP_EVENT_PARAM_GESTURE_BEGIN;
-                e.header.time = 0;
-                e.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-                e.header.flags = 0;
-                e.param_id = a.id;
-                out_events->try_push(out_events, &e.header);
+                const auto& param = _param_infos.param_for(a.id);
+                if (wants_host_notify(param.policy)) {
+                    const auto e = clap_event_param_gesture{
+                        .header = {
+                            .size = sizeof(clap_event_param_gesture),
+                            .time = {},
+                            .space_id = CLAP_CORE_EVENT_SPACE_ID,
+                            .type = CLAP_EVENT_PARAM_GESTURE_BEGIN,
+                            .flags = {},
+                        },
+                        .param_id = param.id
+                    };
+                    out_events->try_push(out_events, &e.header);
+                }
             },
             [&](const Set_param& a) {
-                // Notify host
-                auto e = clap_event_param_value{};
-                e.header.size = sizeof(clap_event_param_value);
-                e.header.type = CLAP_EVENT_PARAM_VALUE;
-                e.header.time = 0;
-                e.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-                e.header.flags = 0;
-                e.param_id = a.id;
-                e.value = a.value;
-                out_events->try_push(out_events, &e.header);
+                const auto& param = _param_infos.param_for(a.id);
 
-                // Send to DSP
-                const auto& params = _param_infos.kernel_specs();
-                const auto& param = params[a.id];
+                if (wants_host_notify(param.policy)) {
+                    const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
+                    const auto e = clap_event_param_value{
+                        .header = {
+                            .size = sizeof(clap_event_param_value),
+                            .time = {},
+                            .space_id = CLAP_CORE_EVENT_SPACE_ID,
+                            .type = CLAP_EVENT_PARAM_VALUE,
+                            .flags = {},
+                        },
+                        .param_id = param.id,
+                        .value = host_value,
+                    };
+                    out_events->try_push(out_events, &e.header);
+                }
+
                 const auto plain_value = Value_conv::knob_to_plain(a.value, param.semantics);
-                _kernel->handle_event(Set_param{a.id, plain_value});
-
-                // Maintain host values
-                const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
-                _hostvalues[a.id].store(host_value, std::memory_order_relaxed);
+                _kernel->handle_event(Set_param{param.id, plain_value});
             },
             [&](const Action_end& a) {
-                auto e = clap_event_param_gesture{};
-                e.header.size = sizeof(clap_event_param_gesture);
-                e.header.type = CLAP_EVENT_PARAM_GESTURE_END;
-                e.header.time = 0;
-                e.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-                e.header.flags = 0;
-                e.param_id = a.id;
-                out_events->try_push(out_events, &e.header);
+                const auto& param = _param_infos.param_for(a.id);
+                if (wants_host_notify(param.policy)) {
+                    const auto e = clap_event_param_gesture{
+                        .header = {
+                            .size = sizeof(clap_event_param_gesture),
+                            .time = {},
+                            .space_id = CLAP_CORE_EVENT_SPACE_ID,
+                            .type = CLAP_EVENT_PARAM_GESTURE_BEGIN,
+                            .flags = {},
+                        },
+                        .param_id = param.id
+                    };
+                    out_events->try_push(out_events, &e.header);
+                }
             },
         }, user_action);
     }

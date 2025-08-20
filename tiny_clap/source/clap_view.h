@@ -23,6 +23,11 @@ public:
     auto set_size(uint32_t w, uint32_t h) noexcept -> bool;
     auto set_parent(const clap_window* window) noexcept -> bool;
 
+    auto set_param(uint32_t id, double knob_value) -> void
+    {
+        _uiparams[id] = knob_value;
+    }
+
 private:
 
     auto on_draw(View_context& view_context) -> void;

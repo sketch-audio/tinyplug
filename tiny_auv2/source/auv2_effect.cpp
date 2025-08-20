@@ -9,7 +9,7 @@ Auv2_effect::Auv2_effect(AudioUnit component) : Super(component, num_inputs, num
     CreateElements(); // So we can create the sidechain.
 
     // Set up parameters.
-    const auto& params = _params.kernel_specs();
+    const auto& params = _param_infos.kernel_specs();
 
     Globals()->UseIndexedParameters(User_params::num_params);
     for (const auto& param : params) {
@@ -100,7 +100,7 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
             auto* data = static_cast<AudioUnitParameterStringFromValue*>(outData);
 
             const auto id = data->inParamID;
-            const auto& params = _params.kernel_specs();
+            const auto& params = _param_infos.kernel_specs();
             const auto& param = params[id];
             const auto str = Host_formatter::format_string(*data->inValue, param.semantics);
             data->outString = CFStringCreateWithCString(kCFAllocatorDefault, str.c_str(), kCFStringEncodingUTF8);
@@ -111,7 +111,7 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
             auto* data = static_cast<AudioUnitParameterValueFromString*>(outData);
 
             const auto id = data->inParamID;
-            const auto& params = _params.kernel_specs();
+            const auto& params = _param_infos.kernel_specs();
             const auto& param = params[id];
 
             const auto str = cf_to_std(data->inString);
@@ -142,7 +142,7 @@ OSStatus Auv2_effect::GetParameterList(AudioUnitScope inScope, AudioUnitParamete
     // This is so we can determine the presentation order of the parameters by the host.
     outNumParameters = num_params; // Do this first.
     if (!outParameterList) return noErr;
-    const auto& params = _params.presentation_specs();
+    const auto& params = _param_infos.presentation_specs();
     const auto ids = params | std::views::transform([](const auto& spec) { return spec.id; });
     std::ranges::copy(ids, outParameterList);
 
@@ -165,14 +165,30 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
             flags |= kAudioUnitParameterFlag_HasClump;
         }
 
-        if (!param.hidden) {
-            flags |= (kAudioUnitParameterFlag_IsReadable | kAudioUnitParameterFlag_IsWritable);
+        using enum Host_policy;
+        switch (param.policy) {
+            case automation: {
+                flags |= (kAudioUnitParameterFlag_IsReadable | kAudioUnitParameterFlag_IsWritable);
+                break;
+            }
+            case control: {
+                flags |= kAudioUnitParameterFlag_IsReadable; // Logic shows a uneditable control.
+                break;
+            }
+            case state: {
+                // Hidden but part of state.
+                break;
+            }
+            case interface: {
+                flags |= kAudioUnitParameterFlag_OmitFromPresets;
+                break;
+            }
         }
 
         return flags;
     };
 
-    const auto& params = _params.kernel_specs();
+    const auto& params = _param_infos.kernel_specs();
     const auto& param = params[inParameterID];
     const auto* clump = find_clump_for_parameter(_clumps, param.id);
     const auto found_clump = clump != nullptr;
@@ -242,7 +258,7 @@ OSStatus Auv2_effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnit
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
     if (!outStrings) return noErr;
 
-    const auto& params = _params.kernel_specs();
+    const auto& params = _param_infos.kernel_specs();
     const auto& param = params[inParameterID];
 
 
@@ -289,7 +305,7 @@ OSStatus Auv2_effect::GetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
 OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames)
 {
-    const auto& params = _params.kernel_specs();
+    const auto& params = _param_infos.kernel_specs();
     const auto& param = params[inID];
 
     const auto plain_value = Value_conv::host_to_plain(inValue, param.semantics);
@@ -306,7 +322,7 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
 OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEvent, UInt32 inNumEvents)
 {
-    const auto& params = _params.kernel_specs();
+    const auto& params = _param_infos.kernel_specs();
 
     for (auto i = decltype(inNumEvents){}; i < inNumEvents; ++i) {
         const auto& event = inParameterEvent[i];
@@ -362,6 +378,73 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
         }
     }
     return noErr;
+}
+
+// MARK: - State
+
+#define tinyplug_tree_version "tinyplug-tree-version"
+
+OSStatus Auv2_effect::SaveState(CFPropertyListRef* outData)
+{
+    const auto result = Super::SaveState(outData);
+    if (result != noErr) return result;
+
+    // Cast to mutable dictionary and add the tree version.
+    auto dict = const_cast<CFMutableDictionaryRef>(reinterpret_cast<CFDictionaryRef>(*outData)); // Yee haw.
+    if (CFGetTypeID(dict) == CFDictionaryGetTypeID()) {
+        const auto max_version = static_cast<int32_t>(max_tree_version(_param_infos.tree()));
+        const auto num = CFNumberCreate(nullptr, kCFNumberSInt32Type, &max_version);
+        CFDictionarySetValue(dict, CFSTR(tinyplug_tree_version), num);
+        CFRelease(num);
+    }
+
+    return result;
+}
+
+OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
+{
+    const auto result = Super::RestoreState(plist);
+    if (result != noErr) return result;
+
+    // Cast to dictionary and read the tree version.
+    auto dict = reinterpret_cast<CFDictionaryRef>(plist);
+    if (CFGetTypeID(dict) == CFDictionaryGetTypeID()) {
+        const auto value = CFDictionaryGetValue(dict, CFSTR(tinyplug_tree_version));
+        if (value && CFGetTypeID(value) == CFNumberGetTypeID()) {
+            int32_t state_version = 0;
+            CFNumberGetValue(static_cast<CFNumberRef>(value), kCFNumberSInt32Type, &state_version);
+
+            const auto tree_version = static_cast<int32_t>(max_tree_version(_param_infos.tree()));
+
+            // The base implementation already set the Globals() contained in state.
+            // We just have to set the rest to their defaults.
+            if (tree_version > state_version) {
+                // Implies "num params in tree" > "num params in state"
+                const auto num_state = num_params_with_version(_param_infos.tree(), state_version);
+
+                // Set remaining parameters to defaults.
+                for (auto i = num_state; i < num_params; ++i) {
+                    const auto& param = _param_infos.param_for(i);
+                    const auto host_value = get_host_default(param);
+                    Globals()->SetParameter(i, host_value);
+                }
+            }
+        }
+    }
+
+    // Globals now contains the right state. Notify all.
+    // Interface parameters were omitted for us by the base implementation!
+    for (auto i = decltype(num_params){}; i < num_params; ++i) {
+        const auto& param = _param_infos.param_for(i);
+        const auto host_value = Globals()->GetParameter(i);
+        const auto plain_value = Value_conv::host_to_plain(host_value, param.semantics);
+        const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
+
+        _iqueue.push({.offset = {}, .event = Set_param{param.id, plain_value}});
+        _oqueue.push(Set_param{param.id, knob_value});
+    }
+
+    return result;
 }
 
 // MARK: - Render

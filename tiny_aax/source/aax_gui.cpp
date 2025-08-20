@@ -36,15 +36,18 @@ void Aax_gui::CreateViewContainer()
                 }
                 return double{};
             },
-            .pop_event = [params](auto& e) -> bool { return params ? params->pop_export(e) : false; },
-            .action_handler = [view, params](auto& action) {
+            .pop_event = [params](auto& e) -> bool {
+                return params ? params->pop_export(e) : false;
+            },
+            .action_handler = [this, view, params](auto& action) {
                 std::visit(Inline_visitor{
                     [&](const Action_start& a) {
+                        _gestured.insert(a.id);
                         if (const auto aax_id = tiny_id_to_aax(a.id)) {
                             const auto* id_cstr = (*aax_id).c_str();
                             view->HandleParameterMouseDown(id_cstr, 0);
                             AAX_IParameter* param = nullptr;
-                            if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS) {
+                            if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS && param->Automatable()) {
                                 param->Touch();
                             };
                         }
@@ -57,9 +60,9 @@ void Aax_gui::CreateViewContainer()
                             if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS) {
                                 param->SetNormalizedValue(a.value);
                                 if (!param->Automatable()) {
-                                    params->push_action(a);
+                                    params->push_action(a); // Non-automatable params are not synchronized.
                                 }
-                            };
+                            }
                         }
                     },
                     [&](const Action_end& a) {
@@ -67,10 +70,11 @@ void Aax_gui::CreateViewContainer()
                             const auto* id_cstr = (*aax_id).c_str();
                             view->HandleParameterMouseUp(id_cstr, 0);
                             AAX_IParameter* param = nullptr;
-                            if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS) {
+                            if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS && param->Automatable()) {
                                 param->Release();
                             };
                         }
+                        _gestured.erase(a.id);
                     },
                 }, action);
             }
@@ -99,6 +103,9 @@ AAX_Result Aax_gui::GetViewSize(AAX_Point* view_size) const
 AAX_Result Aax_gui::ParameterUpdated(AAX_CParamID inParamID)
 {
     if (const auto tiny_id = aax_id_to_tiny(inParamID)) {
+        // Ignore updates for gestured params.
+        if (_gestured.find(*tiny_id) != _gestured.end()) { return AAX_SUCCESS; }
+
         auto* aax_params = GetEffectParameters();
         AAX_IParameter* param = nullptr;
         if (aax_params->GetParameter(inParamID, &param) == AAX_SUCCESS) {

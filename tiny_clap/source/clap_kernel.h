@@ -28,13 +28,13 @@ public:
 
     // tiny
     auto pop_export(Ui_event& event) -> bool;
+
+    // Events handled via the action queue are forwarded to the host automatically on next process call.
+    // We're also using this for loading state.
+    // Expects knob values.
     auto handle_action(const User_action& action) -> void;
 
-    auto wants_latency_change() -> bool
-    {
-        const auto pending = _pending_latency.load(std::memory_order_acquire);
-        return pending.has_value();
-    }
+    auto wants_latency_change() const -> bool;
 
 private:
 
@@ -93,34 +93,37 @@ private:
     auto _handle_host_flushed() -> void;
     auto _handle_user_actions(const clap_output_events_t* out_events) -> void;
 
+    // This is where we handle host events from automation or flush.
+    // - Kernel needs the plain value.
+    // - Host-facing atomics need updated.
+    // - UI needs the knob value.
     template<bool on_audio_thread>
     auto _handle_host_event(const clap_event_header* event) -> void
     {
         if (event->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
 
-        const auto& params = _param_infos.kernel_specs();
-
         switch (event->type) {
             case CLAP_EVENT_PARAM_VALUE: {
                 const auto* value_event = reinterpret_cast<const clap_event_param_value*>(event);
                 const auto id = value_event->param_id;
-                const auto& param = params[id];
+                const auto& param = _param_infos.param_for(id);
+
+                // Send plain value to kernel.
                 const auto plain_value = Value_conv::host_to_plain(value_event->value, param.semantics);
-                const auto knob_value = Value_conv::host_to_knob(value_event->value, param.semantics);
-
-                const auto kernel_event = Set_param{.id = id, .value = plain_value};
-
                 if constexpr (on_audio_thread) {
                     // On the audio thread we can handle the event now.
-                    _kernel->handle_event(kernel_event);
+                    _kernel->handle_event(Set_param{.id = id, .value = plain_value});
                 }
                 else {
                     // On flush, we need to push into a queue for later.
-                    _from_flush.push(kernel_event);
+                    _from_flush.push(Set_param{.id = id, .value = plain_value});
                 }
 
-                // Either way we need to update the host values and notify the UI.
+                // Maintain host atomics.
                 _hostvalues[id].store(value_event->value, std::memory_order_relaxed);
+
+                // Notify UI.
+                const auto knob_value = Value_conv::host_to_knob(value_event->value, param.semantics);
                 _to_ui.push(Set_param{.id = id, .value = knob_value});
 
                 break;

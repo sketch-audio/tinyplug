@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "clap/helpers/plugin.hh"
 #include "clap/helpers/plugin.hxx"
@@ -16,14 +18,14 @@
 
 using MisbehaviourHandler = clap::helpers::MisbehaviourHandler; // Studio One appears to be misbehaving.
 using CheckingLevel = clap::helpers::CheckingLevel;
+using PluginBase = clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal>;
 
 namespace tiny {
 
-class Clap_plugin : public clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::Maximal> {
+class Clap_plugin : public PluginBase {
 public:
 
-    using Super = clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::Maximal>;
-    Clap_plugin(const clap_host* host) : Super{&descriptor, host},
+    Clap_plugin(const clap_host* host) : PluginBase{&descriptor, host},
         _host{host},
         _kernel{std::make_unique<Clap_kernel>(_host)}
     {};
@@ -56,8 +58,8 @@ public:
 
     // state
     bool implementsState() const noexcept override { return true; }
-    bool stateSave(const clap_ostream* /*stream*/) noexcept override { return true; }
-    bool stateLoad(const clap_istream* /*stream*/) noexcept override { return true; }
+    bool stateSave(const clap_ostream* stream) noexcept override;
+    bool stateLoad(const clap_istream* stream) noexcept override;
 
     // audio ports
     bool implementsAudioPorts() const noexcept override;
@@ -102,22 +104,26 @@ private:
     const clap_host* _host{nullptr};
 
     using User_params = Param_infos<Param_model>;
+    static constexpr auto num_params = User_params::num_params;
 
-    User_params _params{};
-    std::vector<std::string> _modules{tree_to_clap_modules(_params.tree())};
+    User_params _param_infos{};
+    std::vector<std::string> _modules{tree_to_clap_modules(_param_infos.tree())};
 
     std::unique_ptr<Clap_kernel> _kernel = {nullptr}; // Now requires the host.
 
     std::unique_ptr<Clap_view> _view = std::make_unique<Clap_view>(Ui_receiver{
         .get_knob_value = [this](auto id) {
-            const auto& params = _params.kernel_specs();
-            const auto& param = params[id];
-            const auto host = _kernel->get_host_value(id);
-            const auto knob = Value_conv::host_to_knob(host, param.semantics);
-            return knob;
+            const auto& param = _param_infos.param_for(id);
+            const auto host_value = _kernel->get_host_value(id);
+            const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
+            return knob_value;
         },
-        .pop_event = [this](auto& event) { return _kernel->pop_export(event); }, // kernel exports -> UI
-        .action_handler = [this](auto& action) { _kernel->handle_action(action); } // user actions -> DSP
+        .pop_event = [this](auto& event) {
+            return _kernel->pop_export(event);
+        },
+        .action_handler = [this](auto& action) {
+            _kernel->handle_action(action);
+        }
     });
 
     // MARK: - gui api
@@ -129,6 +135,9 @@ private:
         }
         else if (Platform::resolved == Platform::Type::windows) {
             return CLAP_WINDOW_API_WIN32;
+        }
+        else {
+            return CLAP_WINDOW_API_X11; // Not yet supported.
         }
     }();
 

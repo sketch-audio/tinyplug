@@ -54,7 +54,7 @@ protected:
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_exports = User_exports::num_exports;
 
-    User_params _params{};
+    User_params _param_infos{};
 
     // We receive the exports in `setParamNormalized` and let the view pop them here.
     using To_ui_queue = Lock_free_queue<Ui_event, 256>;

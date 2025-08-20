@@ -14,6 +14,7 @@ struct Param_model {
         type,
         offset,
         latency_mode,
+        hidden,
         num_params
     };
 
@@ -30,7 +31,7 @@ struct Param_model {
     // Here you declare your parameters.
     // Your parameters will be displayed in the host in the order which they are declared here. (preorder depth-first traversal)
     // Once you ship a plug-in, you can rearrange the tree, but you can't remove parameters!
-    // You can always hide a parameter by marking it `hidden`.
+    // You can always hide a parameter by marking its policy as `state` or `interface`. 
     static auto build_tree() -> Param_node
     {
         using enum Param_id;
@@ -55,7 +56,7 @@ struct Param_model {
                 .id = enum_raw(latency_mode),
                 .name = "Latency",
                 .semantics = List_semantics{{"Low", "High"}},
-                .hidden = true
+                .policy = Host_policy::control 
             },
             Param_group{.name = "Advanced", .nodes = {
                 Param_spec{
@@ -73,6 +74,12 @@ struct Param_model {
                         .units = Units::generic,
                     }
                 },
+                Param_spec{
+                    .id = enum_raw(hidden),
+                    .name = "Hidden Demo",
+                    .semantics = Real_semantics{},
+                    .policy = Host_policy::state
+                }
             }}
         }};
     }

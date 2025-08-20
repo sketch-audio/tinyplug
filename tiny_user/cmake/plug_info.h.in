@@ -23,6 +23,10 @@ struct Plug_info {
 
     static constexpr auto wants_sidechain = bool{@TINY_PLUGIN_WANTS_SIDECHAIN@};
 
+    static constexpr auto framework_code = uint32_t{'tiny'};
+    static constexpr auto manufacturer_code = uint32_t{'@TINY_MANUFACTURER_CODE@'};
+    static constexpr auto plugin_code = uint32_t{'@TINY_PLUGIN_CODE@'};
+
     // Windows
     static constexpr wchar_t wproduct_name[] = L"@TINY_PRODUCT_NAME@";
     static constexpr wchar_t wbase_identifier[] = L"@TINY_BASE_IDENTIFIER@";
