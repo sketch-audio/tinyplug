@@ -5,8 +5,9 @@
 #include <concepts>
 #include <format>
 #include <functional>
-#include <type_traits>
+#include <optional>
 #include <ranges>
+#include <type_traits>
 #include <unordered_set>
 #include <variant>
 #include <vector>
@@ -60,6 +61,8 @@ inline auto units_string(Units units) -> std::string
             return "dB";
         case hertz:
             return "Hz";
+        default:
+            return "";
     }
 }
 
@@ -518,8 +521,8 @@ inline auto get_knob_default(const Param_spec& spec) -> double
 {
     return std::visit(Inline_visitor{
         [](const Bool_semantics& b) { return static_cast<double>(b.def_val ? 1 : 0); },
-        [](const List_semantics& l) { return plain_to_norm(l.def_val, l); },
-        [](const Int_semantics& i) { return plain_to_norm(i.def_val, i); },
+        [](const List_semantics& l) { return plain_to_norm(static_cast<double>(l.def_val), l); },
+        [](const Int_semantics& i) { return plain_to_norm(static_cast<double>(i.def_val), i); },
         [](const Real_semantics& r) { return plain_to_norm(r.def_val, r); },
     }, spec.semantics);
 }
@@ -725,7 +728,7 @@ public:
     constexpr auto make_plain_defaults() const -> std::array<T, num_params>
     {
         return make_array_by_indices<T, num_params>(
-            [this](auto i) { return get_plain_default(param_for(i)); }
+            [this](auto i) { return get_plain_default(param_for(static_cast<uint32_t>(i))); }
         );
     }
 
@@ -733,7 +736,7 @@ public:
     constexpr auto make_host_defaults() const -> std::array<T, num_params>
     {
         return make_array_by_indices<T, num_params>(
-            [this](auto i) { return get_host_default(param_for(i)); }
+            [this](auto i) { return get_host_default(param_for(static_cast<uint32_t>(i))); }
         );
     }
 
@@ -741,7 +744,7 @@ public:
     constexpr auto make_knob_defaults() const -> std::array<T, num_params>
     {
         return make_array_by_indices<T, num_params>(
-            [this](auto i) { return get_knob_default(param_for(i)); }
+            [this](auto i) { return get_knob_default(param_for(static_cast<uint32_t>(i))); }
         );
     }
 

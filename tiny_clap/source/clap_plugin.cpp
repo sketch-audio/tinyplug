@@ -229,6 +229,7 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
             case control: return uint32_t{}; // Do any hosts actually show a control here?
             case state: return uint32_t{CLAP_PARAM_IS_HIDDEN | CLAP_PARAM_IS_READONLY};
             case interface: return uint32_t{CLAP_PARAM_IS_HIDDEN | CLAP_PARAM_IS_READONLY};
+            default: return uint32_t{};
         }
     }();
     info->cookie = nullptr;

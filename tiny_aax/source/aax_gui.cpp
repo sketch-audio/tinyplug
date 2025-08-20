@@ -82,7 +82,7 @@ void Aax_gui::CreateViewContainer()
 
         // Now we have the receiver.
         _uiparams = make_array_by_indices<double, num_params>(
-            [this](auto i) { return _receiver.get_knob_value(i); }
+            [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
         );
     }
 }
@@ -96,8 +96,8 @@ void Aax_gui::DeleteViewContainer()
 AAX_Result Aax_gui::GetViewSize(AAX_Point* view_size) const
 {
     const auto size = _platform_view ? _platform_view->get_size() : initial_size;
-    view_size->horz = size.w;
-    view_size->vert = size.h;
+    view_size->horz = static_cast<float>(size.w);
+    view_size->vert = static_cast<float>(size.h);
     return AAX_SUCCESS;
 }
 

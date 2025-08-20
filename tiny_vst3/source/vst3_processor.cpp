@@ -226,7 +226,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     // Send exports as output parameter changes.
     for (size_t i = 0; i < num_exports; ++i) {
         if (context.exports[i] != _lexports[i]) {
-            add_output_event(export_param_offset + i, context.exports[i]);
+            add_output_event(export_param_offset + static_cast<int32_t>(i), context.exports[i]);
             _lexports[i] = context.exports[i];
         }
     }
@@ -252,7 +252,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* stat
     auto streamer = Steinberg::IBStreamer{state};
 
     auto header = State_header{};
-    if (!streamer.readInt32uArray(header.data(), header.size())) {
+    if (!streamer.readInt32uArray(header.data(), static_cast<int32_t>(header.size()))) {
         return Steinberg::kResultFalse;
     }
 
@@ -332,7 +332,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* stat
         tree_version
     };
 
-    if (!streamer.writeInt32uArray(header.data(), header.size())) {
+    if (!streamer.writeInt32uArray(header.data(), static_cast<int32_t>(header.size()))) {
         return Steinberg::kResultFalse;
     }
 
@@ -397,22 +397,22 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
             // Set param
             if (ramp_dur <= 1) {
                 _events.push_back({
-                    .offset = std::max(previous.offset, {}),
                     .event = Set_param{
                         .id = id,
                         .value = Value_conv::knob_to_plain(value, param.semantics)
-                    }
+                    },
+                    .offset = std::max(previous.offset, {}),
                 });
             }
             // Ramp param
             else {
                 _events.push_back({
-                    .offset = std::max(previous.offset, {}),
                     .event = Ramp_param{
                         .id = id,
                         .target = Value_conv::knob_to_plain(value, param.semantics),
                         .dur_samples = ramp_dur
-                    }
+                    },
+                    .offset = std::max(previous.offset, {}),
                 });
             }
 

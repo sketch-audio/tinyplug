@@ -25,9 +25,9 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
     // Here you could register some parameters.
 
     const auto& params = _param_infos.presentation_specs();
-    const auto [units, param_unit_ids] = tree_to_units(_param_infos.tree());
+    const auto [unit_infos, param_unit_ids] = tree_to_units(_param_infos.tree());
 
-    for (const auto& unit : units) {
+    for (const auto& unit : unit_infos) {
         auto unit_info = Steinberg::Vst::UnitInfo{
             .id = unit.unit_id,
             .parentUnitId = unit.parent_id,
@@ -89,6 +89,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
                 case control: return Vst3_flags::kNoFlags; // Will any hosts display a control?
                 case state: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly};
                 case interface: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly};
+                default: return Vst3_flags::kNoFlags;
             }
         }();
 
@@ -100,8 +101,6 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
 
         parameters.addParameter(param_info);
     }
-
-    const auto num_exports = enum_raw(Param_model::Export_id::num_exports);
 
     for (auto i = decltype(num_exports){}; i < num_exports; ++i) {
         auto export_info = Steinberg::Vst::ParameterInfo{
@@ -149,7 +148,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setComponentState(Steinberg::IBSt
     auto streamer = Steinberg::IBStreamer{state};
 
     auto header = State_header{};
-    if (!streamer.readInt32uArray(header.data(), header.size())) {
+    if (!streamer.readInt32uArray(header.data(), static_cast<int32_t>(header.size()))) {
         return Steinberg::kResultFalse;
     }
 

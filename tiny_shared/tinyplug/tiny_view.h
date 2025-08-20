@@ -249,8 +249,8 @@ constexpr auto run_frame(const S& _receiver, A0& _uiparams, A1& _uiexports, cons
             .params = _uiparams,
             .exports = export_arr
         },
+        .view_context = view_context,
         .action_receiver = Action_receiver{},
-        .view_context = view_context
     };
 
     // Tell the user view to draw.

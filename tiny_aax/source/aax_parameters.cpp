@@ -48,7 +48,7 @@ AAX_Result Aax_parameters::EffectInit()
                 mParameterManager.AddParameter(aax_param.release());
             },
             [&](const List_semantics& l) {
-                const auto num_items = l.items.size();
+                const auto num_items = static_cast<uint32_t>(l.items.size());
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<uint32_t>(
                     aax_id.c_str(),
                     AAX_CString(param.name),
@@ -230,7 +230,7 @@ AAX_Result Aax_parameters::GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChu
 	//Set the version on the chunk data structure.  The other manID, prodID, PlugID, and fSize are populated already, coming from AAXCollection.
 	oChunk->fVersion = mChunkParser.GetChunkVersion();
 	memset(oChunk->fName, 0, 32);		//Just in case, lets make sure unused chars are null.
-	strncpy(reinterpret_cast<char *>(oChunk->fName), "AAX Plug-in State", 31);
+	std::strncpy(reinterpret_cast<char *>(oChunk->fName), "AAX Plug-in State", 31);
 	return mChunkParser.GetChunkData(oChunk);
 }
 
@@ -282,7 +282,7 @@ AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk
     }
     else {
         // Implies "num params in tree" > "num params in state"
-        const auto num_state = num_params_with_version(_param_infos.tree(), state_version);
+        const auto num_state = static_cast<uint32_t>(num_params_with_version(_param_infos.tree(), state_version));
 
         // Set values stored in state.
         for (auto i = decltype(num_state){}; i < num_state; ++i) {
@@ -328,8 +328,8 @@ AAX_Result Aax_parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, A
 
     const auto tree_version = static_cast<int32_t>(max_tree_version(_param_infos.tree()));
     auto chunk_version = int32_t{};
-    const auto found = mChunkParser.FindInt32(tinyplug_tree_version, &chunk_version);
-    if (!found || (found && tree_version != chunk_version))
+    const auto found_version = mChunkParser.FindInt32(tinyplug_tree_version, &chunk_version);
+    if (!found_version || (found_version && tree_version != chunk_version))
         return AAX_SUCCESS;
 
     

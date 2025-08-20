@@ -1,9 +1,9 @@
-#include "plug_info.h" // window class name
-
 #include "platform.h"
 #include "platform_view.h"
 
 #if PLATFORM_WINDOWS
+
+#include <random>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -17,6 +17,30 @@
 #include "../skia/win/WindowContextFactory_win.h"
 
 #define CALLBACK_TIMER_ID 1001
+
+namespace tiny {
+
+inline auto gen_random_name() -> std::wstring
+{
+    static constexpr const wchar_t prefix[] = L"tiny_";
+    static constexpr auto body_len = size_t{16};
+
+    // Random engine
+    static thread_local auto rng = std::mt19937{std::random_device{}()};
+    static constexpr const wchar_t charset[] = L"abcdefghijklmnopqrstuvwxyz0123456789";
+    static constexpr auto charset_size = sizeof(charset) / sizeof(charset[0]) - 1;
+
+   auto dist = std::uniform_int_distribution<size_t>{0, charset_size - 1};
+
+    // Build the result
+    auto result = std::wstring{prefix};
+    result.reserve(result.size() + body_len);
+    for (size_t i = 0; i < body_len; ++i) {
+        result.push_back(charset[dist(rng)]);
+    }
+
+    return result;
+}
 
 inline auto get_monitor_refresh_rate(HWND window) -> int32_t
 {
@@ -45,7 +69,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wParam, LPARA
             if (delegate) {
                 auto ps = PAINTSTRUCT{};
                 BeginPaint(window, &ps);
-                delegate->draw(); // Delegate window context handles everything.
+                delegate->draw(User_interaction{}); // Delegate window context handles everything.
                 EndPaint(window, &ps);
             }
             return 0;
@@ -73,8 +97,8 @@ struct Window_registrar {
         return _instance;
     }
     
-    const wchar_t* class_name = tiny::Plug_info::wbase_identifier;
-    const wchar_t* window_name = tiny::Plug_info::wproduct_name;
+    const std::wstring class_name = gen_random_name();
+    const std::wstring window_name = gen_random_name();
 
 private:
 
@@ -83,7 +107,7 @@ private:
         const auto window_class = WNDCLASSW{
             .style = CS_DBLCLKS | CS_OWNDC,
             .lpfnWndProc = window_callback,
-            .lpszClassName = class_name,
+            .lpszClassName = class_name.c_str(),
         };
 		RegisterClassW(&window_class);
     };
@@ -92,7 +116,7 @@ public:
 
     ~Window_registrar()
     {
-        UnregisterClassW(class_name, 0);
+        UnregisterClassW(class_name.c_str(), 0);
     }
 
 };
@@ -104,13 +128,13 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
     const auto size = delegate->get_size();
 
     auto* window = CreateWindowW(
-        registrar.class_name, 
-        registrar.window_name, 
+        registrar.class_name.c_str(), 
+        registrar.window_name.c_str(), 
         WS_CHILD | WS_CLIPSIBLINGS, 
         CW_USEDEFAULT, 
         CW_USEDEFAULT, 
-        size.width,
-        size.height, 
+        size.w,
+        size.h, 
         GetDesktopWindow(), 
         nullptr, 
         nullptr, // hInstance optional per Microsoft Docs.
@@ -151,12 +175,17 @@ auto Platform_view::receive_parent(void* parent) -> void
     UpdateWindow(window);
 }
 
+auto Platform_view::teardown() -> void
+{
+    //
+}
+
 auto Platform_view::resize(int32_t w, int32_t h) -> void
 {
     auto window = static_cast<HWND>(_view);
     // Update window size based on delegate
     const auto size = _delegate->get_size();
-    SetWindowPos(window, nullptr, 0, 0, size.width, size.height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(window, nullptr, 0, 0, size.w, size.h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 auto Platform_view::redraw() -> void
@@ -165,4 +194,7 @@ auto Platform_view::redraw() -> void
     InvalidateRect(window, nullptr, TRUE);
     UpdateWindow(window); 
 }
+
+} // namespace tiny
+
 #endif

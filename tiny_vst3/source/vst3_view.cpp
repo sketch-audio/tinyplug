@@ -12,6 +12,8 @@ Steinberg::tresult PLUGIN_API Vst3_view::isPlatformTypeSupported(Steinberg::FIDS
                 return Steinberg::kPlatformTypeUIView;
             case Platform::Type::windows:
                 return Steinberg::kPlatformTypeHWND;
+            default:
+                return Steinberg::kPlatformTypeX11EmbedWindowID; // Not yet supported.
         }
     }();
 
