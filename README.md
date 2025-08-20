@@ -57,7 +57,6 @@
 - Mouse events for Windows
 - Tail time?
 - Merge various user CMake plug-in codes
-- Need gestured parameter set for AAX too (see VST3 controller)
 - Add AUv3 format for iOS and macOS
 - Add Linux support for CLAP, VST3
 - Add LV2 format for Linux
