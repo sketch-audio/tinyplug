@@ -12,6 +12,7 @@ struct Platform_view {
     Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view);
     ~Platform_view();
     auto receive_parent(void* parent) -> void;
+    auto teardown() -> void; // You might not get this.
     auto resize(int32_t w, int32_t h) -> void;
     auto redraw() -> void;
     auto native_handle() -> void* { return _view; }

@@ -9,7 +9,7 @@
 #include "../skia/mac/GaneshMetalWindowContext_mac.h"
 #include "../skia/mac/MacWindowInfo.h"
 
-#define MAC_VIEW_RENDER_MAIN_THREAD 1 // Still some issues with background thread for AUv2 in Logic? I think I actually fixed this...
+#define MAC_VIEW_RENDER_MAIN_THREAD 0 // Main thread was slowing down Pro Tools UI.
 
 // MacView
 @interface MacView : NSView
@@ -80,9 +80,14 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 }
 
 - (void)dealloc {
-    [self stopDisplayLink];
-    CVDisplayLinkRelease(_displayLink);
-
+    if(_displayLink) {
+        // Stop the display link BEFORE releasing anything in the view otherwise the display link
+        // thread may call into the view and crash when it encounters something that no longer
+        // exists
+        CVDisplayLinkStop(_displayLink);
+        CVDisplayLinkRelease(_displayLink);
+    }
+    
 #if MAC_VIEW_RENDER_MAIN_THREAD
     dispatch_source_cancel(_displaySource);
 #endif
@@ -98,6 +103,10 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     if (_displayLink) {
         CVDisplayLinkStop(_displayLink);
     }
+
+#if MAC_VIEW_RENDER_MAIN_THREAD
+    dispatch_source_cancel(_displaySource);
+#endif
 }
 
 - (void)render {
@@ -259,6 +268,12 @@ Platform_view::~Platform_view()
 auto Platform_view::receive_parent(void* parent) -> void
 {
     [(NSView*)parent addSubview: (NSView*)_view];
+}
+
+auto Platform_view::teardown() -> void
+{
+    MacView* view = (MacView*)_view;
+    [view stopDisplayLink];
 }
 
 auto Platform_view::resize(int32_t w, int32_t h) -> void

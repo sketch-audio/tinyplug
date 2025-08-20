@@ -89,6 +89,7 @@ void Aax_gui::CreateViewContainer()
 
 void Aax_gui::DeleteViewContainer()
 {
+    _platform_view->teardown(); // Force stop display link.
     _platform_view = nullptr;
 }
 
