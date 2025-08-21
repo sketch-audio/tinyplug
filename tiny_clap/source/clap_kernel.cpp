@@ -36,6 +36,11 @@ auto Clap_kernel::get_latency() const -> uint32_t
     return _latency;
 }
 
+auto Clap_kernel::get_tail() const -> uint32_t
+{
+    return _kernel->tail_samps();
+}
+
 // MARK: - process
 
 auto Clap_kernel::process(const clap_process* process) -> clap_process_status
@@ -168,6 +173,13 @@ auto Clap_kernel::process(const clap_process* process) -> clap_process_status
         // Notify controller and sit on the pending latency.
         _host->request_restart(_host);
         _pending_latency.store(*proposed_latency, std::memory_order_release);
+    }
+
+    const auto tail = _kernel->tail_samps();
+    if (tail != _tail) {
+        const auto* tail_ext = (const clap_host_tail*)_host->get_extension(_host, CLAP_EXT_TAIL);
+        if (tail_ext) tail_ext->changed(_host);
+        _tail = tail;
     }
 
     return CLAP_PROCESS_SLEEP;

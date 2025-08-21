@@ -24,6 +24,7 @@ public:
     auto handle_flushed(const clap_event_header* event) -> void;
     auto get_host_value(clap_id paramId) -> double;
     auto get_latency() const -> uint32_t;
+    auto get_tail() const -> uint32_t;
     auto process(const clap_process* process) -> clap_process_status;
 
     // tiny
@@ -41,6 +42,7 @@ private:
     const clap_host* _host{nullptr};
     bool _once{false}; // Have we been reset?
     double _sr{48000};
+    uint32_t _tail{};
 
     using User_params = Param_infos<Param_model>;
     using User_exports = Exports<Param_model>;

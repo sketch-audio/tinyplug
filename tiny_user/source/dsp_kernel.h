@@ -29,6 +29,9 @@ public:
     // You should only change this when you've received `Accepted_latency`!
     auto latency_samps() const -> uint32_t { return _latency; }
 
+    // You can get an infinite tail by returning `std::numeric_limits<uint32_t>::max()`.
+    auto tail_samps() const -> uint32_t { return 0; }
+
 private:
 
     using User_params = Param_infos<Param_model>;

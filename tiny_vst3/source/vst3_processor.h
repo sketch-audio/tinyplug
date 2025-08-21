@@ -53,6 +53,7 @@ public:
 
     //
     Steinberg::uint32 PLUGIN_API getLatencySamples() SMTG_OVERRIDE;
+    Steinberg::uint32 PLUGIN_API getTailSamples() SMTG_OVERRIDE;
     Steinberg::uint32 PLUGIN_API getProcessContextRequirements() SMTG_OVERRIDE;
 
 private:

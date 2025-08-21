@@ -400,9 +400,17 @@ bool Clap_plugin::guiSetTransient(const clap_window* /*window*/) noexcept
     return false; // floating only
 }
 
+// MARK: - latency, tail
+
 uint32_t Clap_plugin::latencyGet() const noexcept
 {
     return _kernel->get_latency();
+}
+
+uint32_t Clap_plugin::tailGet() const noexcept
+{
+    // CLAP will interpret anything >= INT32_MAX as infinite.
+    return _kernel->get_tail();
 }
 
 } // namespace tiny

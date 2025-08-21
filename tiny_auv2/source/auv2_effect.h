@@ -60,10 +60,22 @@ public:
         }
 
         const auto format = GetStreamFormat(kAudioUnitScope_Output, 0);
-        const auto latency_samps = static_cast<double>(_latency);
         const auto sample_rate = format.mSampleRate;
+        assert(sample_rate > 0 && "Invalid sample rate.");
+        const auto latency_samps = static_cast<double>(_latency);
         return latency_samps / sample_rate;
     }
+
+    Float64 GetTailTime() override
+    {
+        const auto tail = _kernel->tail_samps();
+        const auto inf_tail = std::numeric_limits<uint32_t>::max();
+        const auto format = GetStreamFormat(kAudioUnitScope_Output, 0);
+        const auto sample_rate = format.mSampleRate;
+        assert(sample_rate > 0 && "Invalid sample rate.");
+        return tail != inf_tail ? tail / sample_rate : std::numeric_limits<double>::infinity();
+    }
+    bool SupportsTail() override { return true; }
 
     OSStatus Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTimeStamp& inTimeStamp, UInt32 nFrames) override;
 

@@ -347,9 +347,20 @@ Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* stat
     return Steinberg::kResultOk;
 }
 
+// MARK: - latency, tail
+
 Steinberg::uint32 PLUGIN_API Vst3_processor::getLatencySamples()
 {
     return _latency;
+}
+
+Steinberg::uint32 PLUGIN_API Vst3_processor::getTailSamples()
+{
+    // Resolve to Steinberg's named constants.
+    using namespace Steinberg::Vst;
+    const auto tail = _kernel->tail_samps();
+    const auto inf_tail = std::numeric_limits<uint32_t>::max();
+    return tail == 0 ? kNoTail : (tail == inf_tail ? kInfiniteTail : tail);
 }
 
 Steinberg::uint32 PLUGIN_API Vst3_processor::getProcessContextRequirements()

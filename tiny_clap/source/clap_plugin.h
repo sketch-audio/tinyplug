@@ -97,6 +97,9 @@ public:
     bool implementsLatency() const noexcept override { return true; }
     uint32_t latencyGet() const noexcept override;
 
+    bool implementsTail() const noexcept override { return true; }
+    uint32_t tailGet() const noexcept override;
+
     // MARK: - private
 
 private:
