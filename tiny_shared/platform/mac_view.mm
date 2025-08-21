@@ -146,12 +146,14 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 }
 
 - (void)mouseDown:(NSEvent *)event {
-    _left_pos = tiny::Coords{event.locationInWindow.x, event.locationInWindow.y};
+    const auto y = self.bounds.size.height - event.locationInWindow.y;
+    _left_pos = tiny::Coords{event.locationInWindow.x, y};
     [super mouseDown:event];
 }
 
 - (void)mouseUp:(NSEvent *)event {
-    const auto pos = tiny::Coords{event.locationInWindow.x, event.locationInWindow.y};
+    const auto y = self.bounds.size.height - event.locationInWindow.y;
+    const auto pos = tiny::Coords{event.locationInWindow.x, y};
     if (_drag_start) {
         tiny::try_set(_interaction.state, tiny::Drag_end{*_drag_start, pos});
         _over_pos = std::nullopt;
@@ -172,7 +174,8 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 }
 
 - (void)mouseMoved:(NSEvent *)event {
-    const auto pos = tiny::Coords{event.locationInWindow.x, event.locationInWindow.y};
+    const auto y = self.bounds.size.height - event.locationInWindow.y;
+    const auto pos = tiny::Coords{event.locationInWindow.x, y};
     tiny::try_set(_interaction.state, tiny::Over{pos});
 
     // Update dwell.
@@ -185,7 +188,8 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 }
 
 - (void)mouseDragged:(NSEvent *)event {
-    const auto pos = tiny::Coords{event.locationInWindow.x, event.locationInWindow.y};
+    const auto y = self.bounds.size.height - event.locationInWindow.y;
+    const auto pos = tiny::Coords{event.locationInWindow.x, y};
     if (_left_pos && !_drag_start) {
         _drag_start = *_left_pos;
         _left_pos = std::nullopt;
@@ -200,7 +204,8 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 }
 
 - (void)rightMouseDown:(NSEvent *)event {
-    _right_pos = tiny::Coords{event.locationInWindow.x, event.locationInWindow.y};
+    const auto y = self.bounds.size.height - event.locationInWindow.y;
+    _right_pos = tiny::Coords{event.locationInWindow.x, y};
     [super rightMouseDown:event];
 }
 
@@ -225,7 +230,8 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 }
 
 - (void)mouseEntered:(NSEvent *)event {
-    const auto pos = tiny::Coords{event.locationInWindow.x, event.locationInWindow.y};
+    const auto y = self.bounds.size.height - event.locationInWindow.y;
+    const auto pos = tiny::Coords{event.locationInWindow.x, y};
     tiny::try_set(_interaction.state, tiny::Over{pos});
     _over_pos = std::nullopt;
     [super mouseEntered:event];
