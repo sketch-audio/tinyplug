@@ -41,7 +41,6 @@
 - Decoupled processor (`Dsp_kernel`) and editor (`Custom_view`)
 - Structured communication between processor and editor.
 
-
 ## Style
 - Herb Sutter AAA style
     - Most lines of code begin with `const auto`.
@@ -54,25 +53,37 @@
     - See: https://www.stroustrup.com/Programming/PPP-style.pdf
 
 ## Todo
-- Tail time?
 - Merge various user CMake plug-in codes
+- Add timestamp to draw callback
 - Add AUv3 format for iOS and macOS
+- Multitouch
+    - iOS
+    - Windows
+- Keyboard input
+- System dialogs
+    - Alert
+    - Alert with text input
+    - File load/save
 - Add Linux support for CLAP, VST3
 - Add LV2 format for Linux
 - Breakout dependencies project
 - MIDI events
 - Synth support
+- Presets system
+    - New user actions?
+- Preferences system
+    - E.g. light mode/dark mode.
+    - Scopes: manufacturer, plug-in
+- Non-parameter persistence.
+    - E.g. last loaded preset name, other UI-only data.
 
-## UI stuff 
-- Draw timestamp
-- Logical & real size?
-
-## Wants
+## Goals 
 - No shared_ptr
 - No singletons
 - No raw loops
 
 ## Consider
+- How to handle logical vs. real size?
 - Use optionals in `Musical_context`
 
 ## Needs tested
@@ -81,3 +92,10 @@
 - Export types (stream, trig)
 
 ## Demo plug-in
+- Demo plug-in should demonstrate & test all stated features.
+    - Sidechain input
+    - Musical context
+    - Value semantics
+    - Host policies
+    - Export types
+    - Latency changes
