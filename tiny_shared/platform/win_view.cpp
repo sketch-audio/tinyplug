@@ -12,6 +12,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <Windows.h>
+#include <Windowsx.h>
 
 #define SK_DIRECT3D
 #include "../skia/win/WindowContextFactory_win.h"
@@ -60,8 +61,11 @@ inline auto get_monitor_refresh_rate(HWND window) -> int32_t
 LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     // Retrieve the graphics delegate stored in window's user data.
-    auto* delegate = reinterpret_cast<View_delegate*>(GetWindowLongPtrW(window, GWLP_USERDATA));
-    if (!delegate) return DefWindowProcW(window, message, wParam, lParam);
+    auto* binder = reinterpret_cast<Platform_binder*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (!binder) return DefWindowProcW(window, message, wParam, lParam);
+
+    auto* delegate = binder->delegate;
+    const auto h = delegate ? delegate->get_size().h : 0;
     
     switch (message)
     {
@@ -69,7 +73,20 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wParam, LPARA
             if (delegate) {
                 auto ps = PAINTSTRUCT{};
                 BeginPaint(window, &ps);
-                delegate->draw(User_interaction{}); // Delegate window context handles everything.
+                // Should we dwell?
+                if (const auto over_pos = binder->over_pos; over_pos && !binder->dwelt) {
+                    const auto now = std::chrono::steady_clock::now();
+                    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - binder->over_time);
+                    if (elapsed.count() > 2000) {
+                        binder->dwelt = try_set(binder->interaction.state, Dwell{*over_pos});
+                    }
+                }
+                delegate->draw(binder->interaction); // Delegate window context handles everything.
+                try_set(binder->interaction.state, Consumed{});
+                if (binder->dwelt) {
+                    binder->over_pos = std::nullopt;
+                    binder->dwelt = false;
+                }
                 EndPaint(window, &ps);
             }
             return 0;
@@ -78,6 +95,113 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wParam, LPARA
         case WM_TIMER: {
             InvalidateRect(window, nullptr, TRUE);
             UpdateWindow(window);
+            return 0;
+        }
+
+        case WM_LBUTTONDOWN: {
+            SetCapture(window);
+            const auto x = static_cast<double>(GET_X_LPARAM(lParam));
+            const auto y = static_cast<double>(GET_Y_LPARAM(lParam));
+            binder->left_pos = Coords{x, y};
+            return 0;
+        }
+
+        case WM_LBUTTONUP: {
+            const auto x = static_cast<double>(GET_X_LPARAM(lParam));
+            const auto y = static_cast<double>(GET_Y_LPARAM(lParam));
+            const auto pos = Coords{x, y};
+            if (const auto drag_start = binder->drag_start) {
+                try_set(binder->interaction.state, Drag_end{*drag_start, pos});
+                binder->over_pos = std::nullopt;
+                binder->drag_start = std::nullopt;
+            } 
+            else if (const auto left_pos = binder->left_pos) {
+                try_set(binder->interaction.state, Click{pos});
+                binder->over_pos = std::nullopt;
+            }
+            binder->left_pos = std::nullopt;
+            ReleaseCapture();
+            return 0;
+        }
+
+        case WM_LBUTTONDBLCLK: {
+            const auto x = static_cast<double>(GET_X_LPARAM(lParam));
+            const auto y = static_cast<double>(GET_Y_LPARAM(lParam));
+            const auto pos = Coords{x, y};
+            try_set(binder->interaction.state, tiny::Double_click{pos});
+            binder->over_pos = std::nullopt; 
+            return 0;
+        }
+
+        case WM_MOUSEMOVE: {
+            const auto x = static_cast<double>(GET_X_LPARAM(lParam));
+            const auto y = static_cast<double>(GET_Y_LPARAM(lParam));
+            const auto pos = Coords{x, y};
+            // Drag or drag start.
+            if (const auto left_pos = binder->left_pos) {
+                if (const auto drag_start = binder->drag_start) {
+                    try_set(binder->interaction.state, Drag{*drag_start, pos});
+                    binder->over_pos = std::nullopt;
+                }
+                else {
+                    binder->drag_start = *left_pos;
+                    try_set(binder->interaction.state, Drag_start{*left_pos, pos});
+                    binder->over_pos = std::nullopt;
+                }
+            }
+            // Over.
+            else {
+                try_set(binder->interaction.state, Over{pos});
+
+                // Update dwell.
+                const auto& over_pos = binder->over_pos;
+                if (!over_pos || *over_pos != pos) {
+                    binder->over_pos = pos;
+                    binder->over_time = std::chrono::steady_clock::now();
+                    binder->dwelt = false;
+                }
+            }
+            
+            return 0;
+        }
+
+        case WM_RBUTTONDOWN: {
+            SetCapture(window);
+            const auto x = static_cast<double>(GET_X_LPARAM(lParam));
+            const auto y = static_cast<double>(GET_Y_LPARAM(lParam));
+            binder->right_pos = Coords{x, y};
+            return 0;
+        }
+
+        case WM_RBUTTONUP: {
+            const auto x = static_cast<double>(GET_X_LPARAM(lParam));
+            const auto y = static_cast<double>(GET_Y_LPARAM(lParam));
+            const auto pos = Coords{x, y};
+            if (const auto right_pos = binder->right_pos) {
+                try_set(binder->interaction.state, Right_click{pos});
+                binder->over_pos = std::nullopt;
+                binder->right_pos = std::nullopt;
+            }
+            ReleaseCapture();
+            return 0;
+        }
+
+        case WM_MOUSEWHEEL: {
+            const auto delta = GET_WHEEL_DELTA_WPARAM(wParam) * 1.f / WHEEL_DELTA;
+            binder->interaction.scroll_deltas.y = delta;
+            return 0;
+        }
+
+        case WM_MOUSEHWHEEL: {
+            const auto delta = GET_WHEEL_DELTA_WPARAM(wParam) * 1.f / WHEEL_DELTA;
+            binder->interaction.scroll_deltas.x = delta;
+            return 0;
+        }
+
+        case WM_MOUSELEAVE: {
+            binder->interaction.state = Consumed{};
+            binder->over_pos = std::nullopt;
+            binder->left_pos = std::nullopt;
             return 0;
         }
         
@@ -140,7 +264,9 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
         nullptr, // hInstance optional per Microsoft Docs.
         nullptr
     );
-    SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(_delegate.get()));
+
+    _binder.delegate = _delegate.get();
+    SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&_binder));
 
     auto display_params = std::make_unique<const skwindow::DisplayParams>();
     auto context = skwindow::MakeD3D12ForWin(window, std::move(display_params));

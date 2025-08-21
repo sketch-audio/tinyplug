@@ -40,7 +40,7 @@ auto Custom_view::on_draw(App_state& app_state) -> void
         const auto drag_y = d.tpos.y - d.fpos.y;
         const auto drag_dy = drag_y - _ldrag;
         const auto norm_dy = drag_dy / lsize.h;
-        return std::clamp(x + norm_dy, double{}, double{1});
+        return std::clamp(x - norm_dy, double{}, double{1});
     };
 
     // Handle user actions.
