@@ -54,7 +54,6 @@
     - See: https://www.stroustrup.com/Programming/PPP-style.pdf
 
 ## Todo
-- Mouse events for Windows
 - Tail time?
 - Merge various user CMake plug-in codes
 - Add AUv3 format for iOS and macOS
