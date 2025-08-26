@@ -55,4 +55,10 @@ struct Platform_views {
 #endif
 };
 
+struct Platform_dialogs {
+    using Callback = std::function<void(bool, std::string)>;
+    static auto alert(const std::string& title, const std::string& message) -> void;
+    static auto text_input(const std::string& title, const std::string& message, Callback on_text) -> void;
+};
+
 } // namespace tiny

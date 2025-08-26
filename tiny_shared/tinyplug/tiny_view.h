@@ -100,6 +100,17 @@ inline auto try_set(Pointer_state& old_state, Pointer_state new_state) -> bool
     return false;
 }
 
+struct Modifier_keys {
+    // The primary platform modifier: Ctrl (Windows), command (Apple).
+    bool primary{};
+
+    // The alternate modifier: Alt (Windows), option (Apple).
+    bool alt{};
+
+    // The shift key.
+    bool shift{};
+};
+
 // MARK: - user interaction
 
 // A user interaction includes an id (for future multi-touch), pointer state, and scroll deltas.
@@ -107,6 +118,7 @@ struct User_interaction {
     int64_t id{};
     Pointer_state state{};
     Coords scroll_deltas{};
+    Modifier_keys modifier_keys{};
     bool operator==(const User_interaction&) const = default;
 };
 

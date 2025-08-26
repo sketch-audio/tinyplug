@@ -5,6 +5,8 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkSurface.h"
 
+#include "platform/platform_view.h"
+
 namespace tiny {
 
 auto Custom_view::on_draw(App_state& app_state) -> void
@@ -66,12 +68,25 @@ auto Custom_view::on_draw(App_state& app_state) -> void
             actions.add_action(Action_end{id});
             _ldrag = {};
         },
-        // [&](const Click& c) {
-        //     const auto curr = params[enum_raw(latency_mode)];
-        //     actions.add_action(Action_start{enum_raw(latency_mode)});
-        //     actions.add_action(Set_param{enum_raw(latency_mode), curr == 0 ? double{1} : double{0}});
-        //     actions.add_action(Action_end{enum_raw(latency_mode)});
-        // },
+        [&](const Click& c) {
+            // const auto curr = params[enum_raw(latency_mode)];
+            // actions.add_action(Action_start{enum_raw(latency_mode)});
+            // actions.add_action(Set_param{enum_raw(latency_mode), curr == 0 ? double{1} : double{0}});
+            // actions.add_action(Action_end{enum_raw(latency_mode)});
+
+            if (interaction.modifier_keys.shift) {
+                Platform_dialogs::alert("Tinyplug", "This is a tinyplug example.\nHello");
+
+            } else if (interaction.modifier_keys.alt){
+                Platform_dialogs::text_input("TinyDemo", "Enter value for gain between 0 and 1.", [](bool ok, std::string text){
+                    if (ok) {
+                        std::cout << "You entered: " << text << "\n";
+                    } else {
+                        std::cout << "You cancelled the input.\n";
+                    }
+                });
+            }            
+        },
         [](const auto&) {}
     }, interaction.state);
 
@@ -87,6 +102,10 @@ auto Custom_view::on_draw(App_state& app_state) -> void
     // does param != export latency
     if (params[enum_raw(latency_mode)] != exports[enum_raw(latency_actual)]) {
         paint.setColor(SK_ColorRED);
+    }
+
+    if (interaction.modifier_keys.shift) {
+        paint.setColor(SK_ColorBLUE);
     }
 
     // Draw gain value.

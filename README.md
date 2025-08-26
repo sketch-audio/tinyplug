@@ -77,6 +77,17 @@
 - Non-parameter persistence.
     - E.g. last loaded preset name, other UI-only data.
 
+## Platform library
+- Alert
+- Text input
+- File load/store
+- Open browser
+- Dark mode
+
+### Windows TODO:
+- Measure number of lines needed and get appropriate size.
+- Dialog font size preference?
+
 ## Goals 
 - No shared_ptr
 - No singletons
