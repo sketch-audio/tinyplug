@@ -74,18 +74,22 @@ auto Custom_view::on_draw(App_state& app_state) -> void
             // actions.add_action(Set_param{enum_raw(latency_mode), curr == 0 ? double{1} : double{0}});
             // actions.add_action(Action_end{enum_raw(latency_mode)});
 
-            if (interaction.modifier_keys.shift) {
-                Platform_dialogs::alert("Tinyplug", "This is a tinyplug example.\nHello");
-
-            } else if (interaction.modifier_keys.alt){
-                Platform_dialogs::text_input("TinyDemo", "Enter value for gain between 0 and 1.", [](bool ok, std::string text){
-                    if (ok) {
-                        std::cout << "You entered: " << text << "\n";
-                    } else {
-                        std::cout << "You cancelled the input.\n";
-                    }
+            if (interaction.modifier_keys.primary) {
+                Platform_dialogs::message("Tiny Demo", "This is a message dialog.");
+            }
+            else if (interaction.modifier_keys.shift) {
+                Platform_dialogs::confirm("Are you sure?", "This is a confirm dialog.", [](auto confirmed) {
+                    std::cout << "User confirmed: " << (confirmed ? "yes" : "no") << "\n";
                 });
-            }            
+            }
+            else if (interaction.modifier_keys.alt) {
+                Platform_dialogs::text_input("TinyDemo", "This is a text input dialog.", [](auto text) {
+                    std::cout << "User entered: " << text << "\n";
+                });
+            }
+            else {
+                Platform_dialogs::open_url("https://www.sketchaudio.com");
+            }
         },
         [](const auto&) {}
     }, interaction.state);

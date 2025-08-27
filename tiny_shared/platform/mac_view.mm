@@ -119,6 +119,14 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
         }
     }
 
+    // Resolve modifiers
+    NSEventModifierFlags flags = [NSEvent modifierFlags];
+    _interaction.modifier_keys = tiny::Modifier_keys{
+        .primary = (flags & NSEventModifierFlagCommand) != 0,
+        .alt = (flags & NSEventModifierFlagOption) != 0,
+        .shift = (flags & NSEventModifierFlagShift) != 0,
+    };
+
     graphics_delegate->draw(_interaction);
     tiny::try_set(_interaction.state, tiny::Consumed{});
 
@@ -290,6 +298,105 @@ auto Platform_view::resize(int32_t w, int32_t h) -> void
 
 auto Platform_view::redraw() -> void
 {
+}
+
+// MARK: - alert
+
+auto Platform_dialogs::message(const std::string& title, const std::string& message, Callback<> on_done) -> void
+{
+    // Copy to locals.
+    const auto title_copy = title;
+    const auto message_copy = message;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSAlert* alert = [[NSAlert alloc] init];
+        [alert setMessageText:[NSString stringWithUTF8String:title_copy.c_str()]];
+        [alert setInformativeText:[NSString stringWithUTF8String:message_copy.c_str()]];
+        [alert addButtonWithTitle:@"OK"];
+
+        NSWindow* keyWindow = [[NSApplication sharedApplication] keyWindow];
+        [alert beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse returnCode) {
+            on_done();
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [keyWindow makeKeyAndOrderFront:nil];
+            });
+        }];
+        [alert release];
+    });
+}
+
+auto Platform_dialogs::confirm(const std::string& title, const std::string& message, Callback<bool> on_confirm) -> void
+{
+    // Copy to locals.
+    const auto title_copy = title;
+    const auto message_copy = message;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSAlert* alert = [[NSAlert alloc] init];
+        [alert setMessageText:[NSString stringWithUTF8String:title_copy.c_str()]];
+        [alert setInformativeText:[NSString stringWithUTF8String:message_copy.c_str()]];
+        [alert addButtonWithTitle:@"OK"];
+        [alert addButtonWithTitle:@"Cancel"];
+
+        NSWindow* keyWindow = [[NSApplication sharedApplication] keyWindow];
+        [alert beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse returnCode) {
+            on_confirm(returnCode == NSAlertFirstButtonReturn);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [keyWindow makeKeyAndOrderFront:nil];
+            });
+        }];
+
+        [alert release];
+    });
+}
+
+auto Platform_dialogs::text_input(const std::string& title, const std::string& message, Callback<std::string> on_text) -> void
+{
+    // Copy to locals. 
+    const auto title_copy = title;
+    const auto message_copy = message;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSAlert* alert = [[NSAlert alloc] init];
+        [alert setMessageText:[NSString stringWithUTF8String:title_copy.c_str()]];
+        [alert setInformativeText:[NSString stringWithUTF8String:message_copy.c_str()]];
+        [alert addButtonWithTitle:@"OK"];
+        [alert addButtonWithTitle:@"Cancel"];
+
+        NSTextField* input = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 200, 24)];
+        [alert setAccessoryView:input];
+
+        NSWindow* keyWindow = [[NSApplication sharedApplication] keyWindow];
+        [alert beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse returnCode) {
+            if (returnCode == NSAlertFirstButtonReturn) {
+                NSString* inputString = [input stringValue];
+                if (inputString) {
+                    const std::string result = std::string([inputString UTF8String]);
+                    on_text(result);
+                }
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [keyWindow makeKeyAndOrderFront:nil];
+            });
+        }];
+
+        [input release];
+        [alert release];
+    });
+}
+
+auto Platform_dialogs::open_url(const std::string& url) -> void
+{
+    // Copy to locals.
+    const auto url_copy = url;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSString* ns_url = [NSString stringWithUTF8String:url_copy.c_str()];
+        NSURL* nsurl = [NSURL URLWithString:ns_url];
+        if (nsurl) {
+            [[NSWorkspace sharedWorkspace] openURL:nsurl];
+        }
+    });
 }
 
 } // namespace tiny

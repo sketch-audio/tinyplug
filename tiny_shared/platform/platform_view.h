@@ -56,9 +56,12 @@ struct Platform_views {
 };
 
 struct Platform_dialogs {
-    using Callback = std::function<void(bool, std::string)>;
-    static auto alert(const std::string& title, const std::string& message) -> void;
-    static auto text_input(const std::string& title, const std::string& message, Callback on_text) -> void;
+    template<typename... Args>
+    using Callback = std::function<void(Args...)>;
+    static auto message(const std::string& title, const std::string& message, Callback<> on_done = []() {}) -> void;
+    static auto confirm(const std::string& title, const std::string& message, Callback<bool> on_done = [](auto) {}) -> void;
+    static auto text_input(const std::string& title, const std::string& message, Callback<std::string> on_text = [](auto) {}) -> void;
+    static auto open_url(const std::string& url) -> void;
 };
 
 } // namespace tiny

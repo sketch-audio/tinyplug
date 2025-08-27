@@ -109,6 +109,9 @@ struct Modifier_keys {
 
     // The shift key.
     bool shift{};
+    
+    // Regular.
+    bool operator==(const Modifier_keys&) const = default;
 };
 
 // MARK: - user interaction
