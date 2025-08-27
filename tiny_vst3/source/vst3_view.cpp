@@ -41,6 +41,7 @@ Steinberg::tresult PLUGIN_API Vst3_view::attached(void* parent, Steinberg::FIDSt
 
 Steinberg::tresult PLUGIN_API Vst3_view::removed()
 {
+    _platform_view->teardown();
     _platform_view = nullptr;
     return Steinberg::kResultTrue;
 }
