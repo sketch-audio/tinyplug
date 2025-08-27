@@ -59,10 +59,7 @@
 - Multitouch
     - iOS
     - Windows
-- Keyboard input
 - System dialogs
-    - Alert
-    - Alert with text input
     - File load/save
 - Add Linux support for CLAP, VST3
 - Add LV2 format for Linux
@@ -87,6 +84,7 @@
 ## Platform TODO
 - File open
 - File save
+- Need to figure out a thread-safe executor for platform callbacks.
 
 ## Goals 
 - No shared_ptr
