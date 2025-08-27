@@ -43,6 +43,8 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     std::optional<tiny::Coords> _drag_start;
     bool _dwelt;
 
+    bool _dark_mode;
+
     CVDisplayLinkRef _displayLink;
 #if MAC_VIEW_RENDER_MAIN_THREAD
     dispatch_source_t _displaySource;
@@ -75,6 +77,11 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 #endif
         
         [self startDisplayLink];
+
+        // Dark mode
+        NSString* mode = [[NSUserDefaults standardUserDefaults] stringForKey:@"AppleInterfaceStyle"];
+        _dark_mode = [mode isEqualToString:@"Dark"];
+        [NSDistributedNotificationCenter.defaultCenter addObserver:self selector:@selector(themeChanged:) name:@"AppleInterfaceThemeChangedNotification" object: nil];
     }
     return self;
 }
@@ -109,6 +116,11 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 #endif
 }
 
+-(void)themeChanged:(NSNotification *) notification {
+    NSString* mode = [[NSUserDefaults standardUserDefaults] stringForKey:@"AppleInterfaceStyle"];
+    _dark_mode = [mode isEqualToString:@"Dark"];
+}
+
 - (void)render {
     // Should we dwell?
     if (_over_pos && !_dwelt) {
@@ -118,6 +130,9 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
             _dwelt = tiny::try_set(_interaction.state, tiny::Dwell{*_over_pos});
         }
     }
+
+    // Set dark mode
+    _interaction.dark_mode = _dark_mode;
 
     // Resolve modifiers
     NSEventModifierFlags flags = [NSEvent modifierFlags];

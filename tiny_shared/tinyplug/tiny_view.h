@@ -122,6 +122,7 @@ struct User_interaction {
     Pointer_state state{};
     Coords scroll_deltas{};
     Modifier_keys modifier_keys{};
+    bool dark_mode{}; // TODO: - move
     bool operator==(const User_interaction&) const = default;
 };
 
