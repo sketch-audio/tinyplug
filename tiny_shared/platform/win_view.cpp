@@ -1,7 +1,7 @@
 #include "platform.h"
-#include "platform_view.h"
-
 #if PLATFORM_WINDOWS
+
+#include "platform_view.h"
 
 #include <algorithm>
 #include <random>
@@ -30,33 +30,143 @@
 #define SK_DIRECT3D
 #include "../skia/win/WindowContextFactory_win.h"
 
-#define CALLBACK_TIMER_ID 1001
+#define WM_TINY_SETCURSOR (WM_APP + 1) // Reset cursor message for dialogs.
 
 namespace tiny {
 
+// MARK: - dark mode
+
 inline auto is_dark_mode() -> bool
 {
-    DWORD value = 1;
-    DWORD size = sizeof(value);
-    if (RegGetValueW(HKEY_CURRENT_USER,
-                     L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
-                     L"AppsUseLightTheme",
-                     RRF_RT_REG_DWORD,
-                     nullptr,
-                     &value,
-                     &size) == ERROR_SUCCESS) {
+    auto value = DWORD{1};
+    auto size = DWORD{sizeof(value)};
+
+    const auto* path = L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+    const auto* name = L"AppsUseLightTheme";
+
+    if (RegGetValueW(HKEY_CURRENT_USER, path, name, RRF_RT_REG_DWORD, nullptr, &value, &size) == ERROR_SUCCESS) {
         return value == 0; // 0 = dark
     }
+
     return false;
 }
 
-void enable_dark_title_bar(HWND hwnd, bool dark) {
-    BOOL useDark = dark ? TRUE : FALSE;
-    DwmSetWindowAttribute(hwnd,
-        DWMWA_USE_IMMERSIVE_DARK_MODE, // value = 20 on 1809, 19 on 1903+
-        &useDark,
-        sizeof(useDark));
+inline auto enable_dark_title_bar(HWND hwnd, bool dark) -> void
+{
+    auto useDark = dark ? TRUE : FALSE;
+    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDark, sizeof(useDark));
 }
+
+class Dark_mode_watcher {
+public:
+
+    explicit Dark_mode_watcher(std::function<void(bool)> callback) : _callback{std::move(callback)} {
+        _worker = std::thread([this]() { watch_loop(); });
+    }
+
+    ~Dark_mode_watcher() {
+        _stop.store(true, std::memory_order_release);
+        if (_hevent) {
+            SetEvent(_hevent); // Don't hang.
+        }
+        if (_worker.joinable()) {
+            _worker.join();
+        }
+    }
+
+    // no copy no move
+    Dark_mode_watcher(const Dark_mode_watcher&) = delete;
+    Dark_mode_watcher& operator=(const Dark_mode_watcher&) = delete;
+    Dark_mode_watcher(Dark_mode_watcher&&) = delete;
+    Dark_mode_watcher& operator=(Dark_mode_watcher&&) = delete;
+
+private:
+
+    auto watch_loop() -> void
+    {
+        auto hkey = HKEY{};
+        const auto* path = L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_READ, &hkey) != ERROR_SUCCESS)
+            return;
+
+        _hevent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (!_hevent) {
+            RegCloseKey(hkey);
+            return;
+        }
+
+        while (!_stop.load(std::memory_order_acquire)) {
+
+            if (RegNotifyChangeKeyValue(hkey, FALSE, REG_NOTIFY_CHANGE_LAST_SET, _hevent, TRUE) != ERROR_SUCCESS)
+                break;
+
+            const auto wait = WaitForSingleObject(_hevent, INFINITE);
+
+            if (wait == WAIT_OBJECT_0 && !_stop.load(std::memory_order_acquire))
+            {
+                const auto dark = is_dark_mode();
+                _callback(dark);
+            }
+        }
+
+        CloseHandle(_hevent);
+        _hevent = nullptr;
+        RegCloseKey(hkey);
+    }
+
+    HANDLE _hevent{nullptr}; // So we can wake up the thread on destruction.
+    std::atomic<bool> _stop{false};
+    std::function<void(bool)> _callback;
+    std::thread _worker;
+
+};
+
+// MARK: - vsync
+
+class Vsync_loop {
+public:
+
+    explicit Vsync_loop(std::function<void()> callback) : _thread{[this, callback]() { run(callback); }} {}
+
+    ~Vsync_loop() {
+        stop();
+    }
+
+    // no copy no move
+    Vsync_loop(const Vsync_loop&) = delete;
+    Vsync_loop& operator=(const Vsync_loop&) = delete;
+    Vsync_loop(Vsync_loop&& other) noexcept = delete;
+    Vsync_loop& operator=(Vsync_loop&& other) noexcept = delete;
+
+private:
+
+    std::atomic<bool> _stop{false};
+    std::thread _thread;
+
+    auto run(std::function<void()> callback) -> void
+    {
+        while (!_stop.load(std::memory_order_acquire)) {
+            auto hr = DwmFlush();
+            if (SUCCEEDED(hr)) {
+                callback();
+            } 
+            else {
+                Sleep(16); // Fallback to ~60 Hz sleep
+                callback();
+            }
+        }
+    }
+
+    auto stop() -> void
+    {
+        _stop.store(true, std::memory_order_release);
+        if (_thread.joinable()) {
+            _thread.join();
+        }
+    }
+};
+
+// MARK: - random name
 
 inline auto gen_random_name() -> std::wstring
 {
@@ -68,7 +178,7 @@ inline auto gen_random_name() -> std::wstring
     static constexpr const wchar_t charset[] = L"abcdefghijklmnopqrstuvwxyz0123456789";
     static constexpr auto charset_size = sizeof(charset) / sizeof(charset[0]) - 1;
 
-   auto dist = std::uniform_int_distribution<size_t>{0, charset_size - 1};
+    auto dist = std::uniform_int_distribution<size_t>{0, charset_size - 1};
 
     // Build the result
     auto result = std::wstring{prefix};
@@ -80,21 +190,7 @@ inline auto gen_random_name() -> std::wstring
     return result;
 }
 
-inline auto get_monitor_refresh_rate(HWND window) -> int32_t
-{
-    auto monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
-    auto info = MONITORINFOEXW{sizeof(MONITORINFOEXW)};
-    if (GetMonitorInfoW(monitor, &info)) {
-        auto dev_mode = DEVMODEW{};
-        dev_mode.dmSize = sizeof(DEVMODEW);
-        if (EnumDisplaySettingsW(info.szDevice, ENUM_CURRENT_SETTINGS, &dev_mode)) {
-            return dev_mode.dmDisplayFrequency;
-        }
-    }
-    return 60; // fallback
-}
-
-#define WM_TINY_SETCURSOR (WM_APP + 1)
+// MARK: - modifiers
 
 inline auto resolve_modifiers() -> Modifier_keys
 {
@@ -105,7 +201,8 @@ inline auto resolve_modifiers() -> Modifier_keys
     };
 }
 
-// C-style window callback
+// MARK: - window callback
+
 LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
     // Retrieve the graphics delegate stored in window's user data.
@@ -115,8 +212,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
     auto* delegate = binder->delegate;
     const auto h = delegate ? delegate->get_size().h : 0;
     
-    switch (message)
-    {
+    switch (message) {
         case WM_PAINT: {
             if (delegate) {
                 auto ps = PAINTSTRUCT{};
@@ -138,12 +234,6 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
                 }
                 EndPaint(window, &ps);
             }
-            return 0;
-        }
-
-        case WM_TIMER: {
-            InvalidateRect(window, nullptr, TRUE);
-            UpdateWindow(window);
             return 0;
         }
 
@@ -256,7 +346,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
 
         case WM_TINY_SETCURSOR: {
             SetCursor(LoadCursor(nullptr, IDC_ARROW));
-            return TRUE;
+            return 0;
         }
         
         // Add other message handlers as needed
@@ -265,6 +355,8 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             return DefWindowProcW(window, message, wparam, lparam);
     }
 }
+
+// MARK: - window registrar
 
 // Singleton to handle registration/unregistration of window class.
 struct Window_registrar {
@@ -299,6 +391,8 @@ public:
 
 };
 
+// MARK: - platform view
+
 Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view) : _delegate{delegate}, _owns_view{owns_view}
 {
     const auto& registrar = Window_registrar::instance(); // Register/unregisters the window class.
@@ -319,6 +413,12 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
         nullptr
     );
 
+    // Dark mode
+    const auto dark = is_dark_mode();
+    _binder.interaction.dark_mode = dark;
+    enable_dark_title_bar(window, dark);
+    _dark_watcher = std::make_unique<Dark_mode_watcher>([this](auto dark) { _binder.interaction.dark_mode = dark; });
+
     _binder.delegate = _delegate.get();
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&_binder));
 
@@ -326,10 +426,8 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
     auto context = skwindow::MakeD3D12ForWin(window, std::move(display_params));
     _delegate->set_context(std::move(context));
 
-    // Start timer for refresh rate synchronization
-    const auto refreshRate = get_monitor_refresh_rate(window);
-    const auto timerInterval = 1000 / refreshRate;
-    SetTimer(window, CALLBACK_TIMER_ID, timerInterval, nullptr);
+    // Setup vsync
+    _vsync_loop = std::make_unique<Vsync_loop>([this]() { InvalidateRect(static_cast<HWND>(_view), nullptr, TRUE); });
 
     _view = window;
 }
@@ -337,7 +435,6 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
 Platform_view::~Platform_view()
 {
     auto* window = static_cast<HWND>(_view);
-    KillTimer(window, CALLBACK_TIMER_ID);
     SetWindowLongPtrW(window, GWLP_USERDATA, 0);
     DestroyWindow(window);
 }
@@ -565,15 +662,10 @@ static INT_PTR CALLBACK dialog_proc(HWND hdlg, UINT message, WPARAM wparam, LPAR
 	return FALSE;
 }
 
-LPWORD lpwAlign(LPWORD lpIn)
-{
-    uintptr_t ul = reinterpret_cast<uintptr_t>(lpIn);
-    ul = (ul + 3) & ~static_cast<uintptr_t>(3); // align to 4 bytes
-    return reinterpret_cast<LPWORD>(ul);
-}
+// MARK: - measure text
 
 // Splits a string into vector of strings splitting by newline charachter.
-auto split_newline(const std::string& string) -> std::vector<std::string>
+inline auto split_newline(const std::string& string) -> std::vector<std::string>
 {
     auto result = std::vector<std::string>{};
     auto stream = std::istringstream{string};
@@ -585,7 +677,7 @@ auto split_newline(const std::string& string) -> std::vector<std::string>
 }
 
 // Returns the longest line and the number of lines in a string containing 0 or more newline characters.
-auto string_extent(const std::string& string) -> std::pair<std::string, size_t>
+inline auto string_extent(const std::string& string) -> std::pair<std::string, size_t>
 {
     auto lines = split_newline(string);
     auto longest = std::string{};
@@ -602,7 +694,7 @@ struct Font_info {
     int size;
 };
 
-auto measure_text(const std::string& string, const Font_info& font) -> std::pair<int, int>
+inline auto measure_text(const std::string& string, const Font_info& font) -> std::pair<int, int>
 {
     const auto [longest_line, line_count] = string_extent(string);
 
@@ -619,9 +711,16 @@ auto measure_text(const std::string& string, const Font_info& font) -> std::pair
     DeleteObject(hfont);
     ReleaseDC(nullptr, hdc);
 
-    return {size.cx, line_count * size.cy};
+    return {size.cx, static_cast<int>(line_count) * size.cy};
 }
 
+// Thanks, GPT
+inline auto align_dword(LPWORD lpIn) -> LPWORD
+{
+    auto ul = reinterpret_cast<uintptr_t>(lpIn);
+    ul = (ul + 3) & ~static_cast<uintptr_t>(3); // align to 4 bytes
+    return reinterpret_cast<LPWORD>(ul);
+}
 
 // MARK: - message 
 
@@ -682,7 +781,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
             //-----------------------
             // Define an OK button.
             //-----------------------
-            lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
             lpdit->x  = padding; lpdit->y  = padding + text_h + padding;
             lpdit->cx = button_w; lpdit->cy = button_h;
@@ -701,7 +800,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
             //-----------------------
             // Define a static text control.
             //-----------------------
-            lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
             lpdit->x  = padding; lpdit->y  = padding;
             lpdit->cx = text_w; lpdit->cy = text_h;
@@ -793,7 +892,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
             //-----------------------
             // Define an OK button.
             //-----------------------
-            lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
             lpdit->x  = padding; lpdit->y  = padding + text_h + padding;
             lpdit->cx = button_w; lpdit->cy = button_h;
@@ -812,7 +911,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
             //-----------------------
             // Define a cancel button.
             //-----------------------
-            lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
             lpdit->x  = padding + button_w + padding; lpdit->y  = padding + text_h + padding;
             lpdit->cx = button_w; lpdit->cy = button_h;
@@ -831,7 +930,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
             //-----------------------
             // Define a static text control.
             //-----------------------
-            lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
             lpdit->x  = padding; lpdit->y  = padding;
             lpdit->cx = text_w; lpdit->cy = text_h;
@@ -923,7 +1022,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             //-----------------------
             // Define an OK button.
             //-----------------------
-            lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
             lpdit->x = padding; 
             lpdit->y = padding + text_h + padding + edit_h + padding;
@@ -944,7 +1043,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             //-----------------------
             // Define a cancel button.
             //-----------------------
-            lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
             lpdit->x = padding + button_w + padding; 
             lpdit->y = padding + text_h + padding + edit_h + padding;
@@ -965,7 +1064,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             //-----------------------
             // Define an edit control.
             //-----------------------
-            lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
             lpdit->x = padding; 
             lpdit->y = padding + text_h + padding;
@@ -986,7 +1085,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             //-----------------------
             // Define a static text control.
             //-----------------------
-            lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
             lpdit->x = padding;
             lpdit->y = padding;

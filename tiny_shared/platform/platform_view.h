@@ -21,6 +21,8 @@ struct Platform_binder {
     std::optional<Coords> drag_start{};
     bool dwelt{};
 };
+class Dark_mode_watcher; // Have to manually watch dark mode.
+class Vsync_loop; // Vsync drawing.
 #endif
 
 struct Platform_view {
@@ -39,6 +41,8 @@ private:
 
 #if PLATFORM_WINDOWS
     Platform_binder _binder{};
+    std::unique_ptr<Dark_mode_watcher> _dark_watcher{nullptr};
+    std::unique_ptr<Vsync_loop> _vsync_loop{nullptr};
 #endif
 };
 
