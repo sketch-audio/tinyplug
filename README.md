@@ -78,15 +78,15 @@
     - E.g. last loaded preset name, other UI-only data.
 
 ## Platform library
-- Alert
+- Message 
+- Confirm
 - Text input
-- File load/store
-- Open browser
+- Open url in browser
 - Dark mode
 
-### Windows TODO:
-- Measure number of lines needed and get appropriate size.
-- Dialog font size preference?
+## Platform TODO
+- File open
+- File save
 
 ## Goals 
 - No shared_ptr
