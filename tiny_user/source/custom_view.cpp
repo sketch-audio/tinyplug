@@ -78,7 +78,7 @@ auto Custom_view::on_draw(App_state& app_state) -> void
                 Platform_dialogs::message("Tiny Demo", "This is a message dialog.");
             }
             else if (interaction.modifier_keys.shift) {
-                Platform_dialogs::confirm("Are you sure?", "This is a confirm dialog.", [](auto confirmed) {
+                Platform_dialogs::confirm("Are you sure?", "This is a confirm dialog.\nThis one has a long message.\nWith several lines in fact.\nWhat happens?", [](auto confirmed) {
                     std::cout << "User confirmed: " << (confirmed ? "yes" : "no") << "\n";
                 });
             }

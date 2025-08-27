@@ -20,8 +20,11 @@
 
 #include <CommCtrl.h>
 #include <dwmapi.h>
+#include <shellapi.h>
+
 #pragma comment(lib,"comctl32.lib")
 #pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "Shell32.lib")
 #pragma comment(linker,"/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 #define SK_DIRECT3D
@@ -472,6 +475,8 @@ inline auto draw_button(DRAWITEMSTRUCT* draw_item) -> void
     DeleteBrush(button_bg);
 }
 
+// MARK: - dialog_proc 
+
 static INT_PTR CALLBACK dialog_proc(HWND hdlg, UINT message, WPARAM wparam, LPARAM lparam) 
 {
 	switch (message) {
@@ -503,12 +508,12 @@ static INT_PTR CALLBACK dialog_proc(HWND hdlg, UINT message, WPARAM wparam, LPAR
 			switch (wparam) {
 				case IDOK: {
 					SendDlgItemMessageW(hdlg, ID_EDIT, WM_GETTEXT, prompt_max_length, reinterpret_cast<LPARAM>(prompt_buffer));
-					EndDialog(hdlg, 1);
+					EndDialog(hdlg, IDOK);
 					return TRUE;
 				}
 
 				case IDCANCEL: {
-					EndDialog(hdlg, 0);
+					EndDialog(hdlg, IDCANCEL);
 					return TRUE;
 				}
 
@@ -560,7 +565,6 @@ static INT_PTR CALLBACK dialog_proc(HWND hdlg, UINT message, WPARAM wparam, LPAR
 	return FALSE;
 }
 
-
 LPWORD lpwAlign(LPWORD lpIn)
 {
     uintptr_t ul = reinterpret_cast<uintptr_t>(lpIn);
@@ -568,15 +572,78 @@ LPWORD lpwAlign(LPWORD lpIn)
     return reinterpret_cast<LPWORD>(ul);
 }
 
-// MARK: - alert
-
-auto Platform_dialogs::alert(const std::string& title, const std::string& message) -> void
+// Splits a string into vector of strings splitting by newline charachter.
+auto split_newline(const std::string& string) -> std::vector<std::string>
 {
-    auto thread = std::thread([title, message](){
-        HINSTANCE hInstance = GetModuleHandle(nullptr);
+    auto result = std::vector<std::string>{};
+    auto stream = std::istringstream{string};
+    auto line = std::string{};
+    while (std::getline(stream, line)) {
+        result.push_back(line);
+    }
+    return result;
+}
 
+// Returns the longest line and the number of lines in a string containing 0 or more newline characters.
+auto string_extent(const std::string& string) -> std::pair<std::string, size_t>
+{
+    auto lines = split_newline(string);
+    auto longest = std::string{};
+    for (const auto& line : lines) {
+        if (line.size() > longest.size()) {
+            longest = line;
+        }
+    }
+    return {longest, lines.size()};
+}
+
+struct Font_info {
+    std::string name;
+    int size;
+};
+
+auto measure_text(const std::string& string, const Font_info& font) -> std::pair<int, int>
+{
+    const auto [longest_line, line_count] = string_extent(string);
+
+    auto hdc = GetDC(nullptr);
+    auto wname = string_to_wstring(font.name);
+    auto hfont = CreateFontW(font.size, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, wname.c_str());
+    auto horiginal = reinterpret_cast<HFONT>(SelectObject(hdc, hfont));
+
+    auto wline = string_to_wstring(longest_line);
+    auto size = SIZE{};
+    GetTextExtentPoint32W(hdc, wline.c_str(), wline.size(), &size);
+
+    SelectObject(hdc, horiginal);
+    DeleteObject(hfont);
+    ReleaseDC(nullptr, hdc);
+
+    return {size.cx, line_count * size.cy};
+}
+
+
+// MARK: - message 
+
+auto Platform_dialogs::message(const std::string& title, const std::string& message, Callback<> on_done) -> void
+{
+    auto thread = std::thread([title, message, on_done]() {
         if (const auto plugin_window = find_plugin_window()) {
+            // calculate message size
+            const auto font = Font_info{.name = "Segoe UI", .size = 9};
+            auto [measured_w, text_h] = measure_text(message, font);
+
+            const auto padding = 10;
+            const auto button_h = 15;
+
+            const auto dialog_w = std::max(120, padding + measured_w + padding);
+            const auto dialog_h = padding + text_h + padding + button_h + padding;
+
+            const auto text_w = dialog_w - 2 * padding; // So we center properly.
+            const auto button_w = dialog_w - 2 * padding;
+
             // See: https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes
+            HINSTANCE hInstance = GetModuleHandle(nullptr);
             HGLOBAL hgbl;
             LPDLGTEMPLATE lpdt;
             LPDLGITEMTEMPLATE lpdit;
@@ -596,31 +663,29 @@ auto Platform_dialogs::alert(const std::string& title, const std::string& messag
             lpdt->dwExtendedStyle = WS_EX_NOPARENTNOTIFY;
             lpdt->cdit = 2;         // Number of controls
             lpdt->x  = 0;  lpdt->y  = 0;
-            lpdt->cx = 120; lpdt->cy = 60;
+            lpdt->cx = dialog_w; lpdt->cy = dialog_h;
 
             lpw = (LPWORD)(lpdt + 1);
             *lpw++ = 0;             // No menu
             *lpw++ = 0;             // Predefined dialog box class (by default)
 
             lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_ACP, 0, title.c_str(), -1, lpwsz, 50);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, title.size() + 1);
             lpw += nchar;
-            //if (nchar % 2 == 0) *lpw++ = 0;
             
 
-            *lpw++ = 9;             // Font size
+            *lpw++ = font.size;             // Font size
             lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_ACP, 0, "Segoe UI", -1, lpwsz, 50);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, font.name.size() + 1);
             lpw += nchar;
-            //if (nchar % 2 == 0) *lpw++ = 0;
 
             //-----------------------
             // Define an OK button.
             //-----------------------
             lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = 10; lpdit->y  = 35;
-            lpdit->cx = 100; lpdit->cy = 15;
+            lpdit->x  = padding; lpdit->y  = padding + text_h + padding;
+            lpdit->cx = button_w; lpdit->cy = button_h;
             lpdit->id = IDOK;       // OK button identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW;
 
@@ -629,7 +694,7 @@ auto Platform_dialogs::alert(const std::string& title, const std::string& messag
             *lpw++ = 0x0080;        // Button class
 
             lpwsz = (LPWSTR)lpw;
-            nchar = 1 + MultiByteToWideChar(CP_ACP, 0, "OK", -1, lpwsz, 50);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, "OK", -1, lpwsz, 50);
             lpw += nchar;
             *lpw++ = 0;             // No creation data
 
@@ -638,8 +703,8 @@ auto Platform_dialogs::alert(const std::string& title, const std::string& messag
             //-----------------------
             lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = 10; lpdit->y  = 10;
-            lpdit->cx = 100; lpdit->cy = 20;
+            lpdit->x  = padding; lpdit->y  = padding;
+            lpdit->cx = text_w; lpdit->cy = text_h;
             lpdit->id = ID_TEXT;    // Text identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
 
@@ -648,7 +713,7 @@ auto Platform_dialogs::alert(const std::string& title, const std::string& messag
             *lpw++ = 0x0082;        // Static class
 
             lpwsz = (LPWSTR)lpw;
-            nchar = 1 + MultiByteToWideChar(CP_ACP, 0, message.c_str(), -1, lpwsz, 50);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, message.size() + 1);
             lpw += nchar;
             *lpw++ = 0;             // No creation data
 
@@ -659,21 +724,168 @@ auto Platform_dialogs::alert(const std::string& title, const std::string& messag
                                         (DLGPROC)dialog_proc, 0); 
             GlobalFree(hgbl);
 
+            on_done();
+
             SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
         }        
     });
     thread.detach();
 }
 
+// MARK: - confirm
+
+auto Platform_dialogs::confirm(const std::string& title, const std::string& message, Callback<bool> on_done) -> void
+{
+    auto thread = std::thread([title, message, on_done]() {
+        if (const auto plugin_window = find_plugin_window()) {
+            
+            // calculate message size
+            const auto font = Font_info{.name = "Segoe UI", .size = 9};
+            auto [measured_w, text_h] = measure_text(message, font);
+
+            const auto padding = 10;
+            const auto button_h = 15;
+
+            const auto dialog_w = std::max(120, padding + measured_w + padding);
+            const auto dialog_h = padding + text_h + padding + button_h + padding;
+
+            const auto text_w = dialog_w - 2 * padding; // So we center properly.
+            const auto button_w = (dialog_w - 3 * padding) / 2;
+
+
+            // See: https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes
+            HINSTANCE hInstance = GetModuleHandle(nullptr);
+            HGLOBAL hgbl;
+            LPDLGTEMPLATE lpdt;
+            LPDLGITEMTEMPLATE lpdit;
+            LPWORD lpw;
+            LPWSTR lpwsz;
+            LRESULT ret;
+            int nchar;
+
+            hgbl = GlobalAlloc(GMEM_ZEROINIT, 1024);
+            if (!hgbl) return;
+        
+            lpdt = (LPDLGTEMPLATE)GlobalLock(hgbl);
+        
+            // Define a dialog box.
+        
+            lpdt->style = WS_POPUP | WS_BORDER | WS_SYSMENU | DS_MODALFRAME | WS_CAPTION | DS_SETFONT;
+            lpdt->dwExtendedStyle = WS_EX_NOPARENTNOTIFY;
+            lpdt->cdit = 3;         // Number of controls
+            lpdt->x  = 0;  lpdt->y  = 0;
+            lpdt->cx = dialog_w; lpdt->cy = dialog_h;
+
+            lpw = (LPWORD)(lpdt + 1);
+            *lpw++ = 0;             // No menu
+            *lpw++ = 0;             // Predefined dialog box class (by default)
+
+            lpwsz = (LPWSTR)lpw;
+            nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, title.size() + 1);
+            lpw += nchar;
+            
+
+            *lpw++ = font.size;             // Font size
+            lpwsz = (LPWSTR)lpw;
+            nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, font.name.size() + 1);
+            lpw += nchar;
+
+            //-----------------------
+            // Define an OK button.
+            //-----------------------
+            lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+            lpdit = (LPDLGITEMTEMPLATE)lpw;
+            lpdit->x  = padding; lpdit->y  = padding + text_h + padding;
+            lpdit->cx = button_w; lpdit->cy = button_h;
+            lpdit->id = IDOK;       // OK button identifier
+            lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW;
+
+            lpw = (LPWORD)(lpdit + 1);
+            *lpw++ = 0xFFFF;
+            *lpw++ = 0x0080;        // Button class
+
+            lpwsz = (LPWSTR)lpw;
+            nchar = MultiByteToWideChar(CP_UTF8, 0, "OK", -1, lpwsz, 50);
+            lpw += nchar;
+            *lpw++ = 0;             // No creation data
+
+            //-----------------------
+            // Define a cancel button.
+            //-----------------------
+            lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+            lpdit = (LPDLGITEMTEMPLATE)lpw;
+            lpdit->x  = padding + button_w + padding; lpdit->y  = padding + text_h + padding;
+            lpdit->cx = button_w; lpdit->cy = button_h;
+            lpdit->id = IDCANCEL;       // Cancel button identifier
+            lpdit->style = WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW;
+
+            lpw = (LPWORD)(lpdit + 1);
+            *lpw++ = 0xFFFF;
+            *lpw++ = 0x0080;        // Button class
+
+            lpwsz = (LPWSTR)lpw;
+            nchar = MultiByteToWideChar(CP_UTF8, 0, "Cancel", -1, lpwsz, 50);
+            lpw += nchar;
+            *lpw++ = 0;             // No creation data
+
+            //-----------------------
+            // Define a static text control.
+            //-----------------------
+            lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+            lpdit = (LPDLGITEMTEMPLATE)lpw;
+            lpdit->x  = padding; lpdit->y  = padding;
+            lpdit->cx = text_w; lpdit->cy = text_h;
+            lpdit->id = ID_TEXT;    // Text identifier
+            lpdit->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
+
+            lpw = (LPWORD)(lpdit + 1);
+            *lpw++ = 0xFFFF;
+            *lpw++ = 0x0082;        // Static class
+
+            lpwsz = (LPWSTR)lpw;
+            nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, message.size() + 1);
+            lpw += nchar;
+            *lpw++ = 0;             // No creation data
+
+
+            GlobalUnlock(hgbl); 
+            ret = DialogBoxIndirectParamW(hInstance, 
+                                        (LPDLGTEMPLATE)hgbl, 
+                                        plugin_window->hwnd, 
+                                        (DLGPROC)dialog_proc, 0); 
+            GlobalFree(hgbl);
+
+            on_done(ret == IDOK);
+
+            SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
+        }
+    });
+    thread.detach();
+}
+
 // MARK: - text_input
 
-auto Platform_dialogs::text_input(const std::string& title, const std::string& message, Callback callback) -> void
+auto Platform_dialogs::text_input(const std::string& title, const std::string& message, Callback<std::string> on_text) -> void
 {
-    auto thread = std::thread([title, message, callback](){
-        HINSTANCE hInstance = GetModuleHandle(nullptr);
-
+    auto thread = std::thread([title, message, on_text]() {
         if (const auto plugin_window = find_plugin_window()) {
+            // calculate message size
+            const auto font = Font_info{.name = "Segoe UI", .size = 9};
+            auto [measured_w, text_h] = measure_text(message, font);
+
+            const auto padding = 10;
+            const auto button_h = 15;
+            const auto edit_h = font.size + 2;
+
+            const auto dialog_w = std::max(160, padding + measured_w + padding);
+            const auto dialog_h = padding + text_h + padding + button_h + padding + edit_h + padding;
+
+            const auto text_w = dialog_w - 2 * padding; // So we center properly.
+            const auto button_w = (dialog_w - 3 * padding) / 2;
+            const auto edit_w = dialog_w - 2 * padding;
+
             // See: https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes
+            HINSTANCE hInstance = GetModuleHandle(nullptr);
             HGLOBAL hgbl;
             LPDLGTEMPLATE lpdt;
             LPDLGITEMTEMPLATE lpdit;
@@ -693,31 +905,30 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             lpdt->dwExtendedStyle = WS_EX_NOPARENTNOTIFY;
             lpdt->cdit = 4;         // Number of controls
             lpdt->x  = 0;  lpdt->y  = 0;
-            lpdt->cx = 160; lpdt->cy = 76;
+            lpdt->cx = dialog_w; lpdt->cy = dialog_h;
 
             lpw = (LPWORD)(lpdt + 1);
             *lpw++ = 0;             // No menu
             *lpw++ = 0;             // Predefined dialog box class (by default)
 
             lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_ACP, 0, title.c_str(), -1, lpwsz, 50);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, title.size() + 1);
             lpw += nchar;
-            //if (nchar % 2 == 0) *lpw++ = 0;
-            
 
-            *lpw++ = 9;             // Font size
+            *lpw++ = font.size;             // Font size
             lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_ACP, 0, "Segoe UI", -1, lpwsz, 50);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, font.name.size() + 1);
             lpw += nchar;
-            //if (nchar % 2 == 0) *lpw++ = 0;
 
             //-----------------------
             // Define an OK button.
             //-----------------------
             lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = 10; lpdit->y  = 51;
-            lpdit->cx = 65; lpdit->cy = 15;
+            lpdit->x = padding; 
+            lpdit->y = padding + text_h + padding + edit_h + padding;
+            lpdit->cx = button_w; 
+            lpdit->cy = button_h;
             lpdit->id = IDOK;       // OK button identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW;
 
@@ -726,7 +937,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             *lpw++ = 0x0080;        // Button class
 
             lpwsz = (LPWSTR)lpw;
-            nchar = 1 + MultiByteToWideChar(CP_ACP, 0, "OK", -1, lpwsz, 50);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, "OK", -1, lpwsz, 50);
             lpw += nchar;
             *lpw++ = 0;             // No creation data
 
@@ -735,8 +946,10 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             //-----------------------
             lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = 85; lpdit->y  = 51;
-            lpdit->cx = 65; lpdit->cy = 15;
+            lpdit->x = padding + button_w + padding; 
+            lpdit->y = padding + text_h + padding + edit_h + padding;
+            lpdit->cx = button_w; 
+            lpdit->cy = button_h;
             lpdit->id = IDCANCEL;       // Cancel button identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW;
 
@@ -745,7 +958,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             *lpw++ = 0x0080;        // Button class
 
             lpwsz = (LPWSTR)lpw;
-            nchar = 1 + MultiByteToWideChar(CP_ACP, 0, "Cancel", -1, lpwsz, 50);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, "Cancel", -1, lpwsz, 50);
             lpw += nchar;
             *lpw++ = 0;             // No creation data
 
@@ -754,8 +967,10 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             //-----------------------
             lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = 10; lpdit->y  = 30;
-            lpdit->cx = 140; lpdit->cy = 11;
+            lpdit->x = padding; 
+            lpdit->y = padding + text_h + padding;
+            lpdit->cx = edit_w;
+            lpdit->cy = edit_h;
             lpdit->id = ID_EDIT;    // Help button identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL;
 
@@ -764,7 +979,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             *lpw++ = 0x0081;        // Button class atom
 
             lpwsz = (LPWSTR)lpw;
-            nchar = 1 + MultiByteToWideChar(CP_ACP, 0, "", -1, lpwsz, 50);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, "", -1, lpwsz, 50);
             lpw += nchar;
             *lpw++ = 0;             // No creation data
 
@@ -773,17 +988,19 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             //-----------------------
             lpw = lpwAlign(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = 10; lpdit->y  = 10;
-            lpdit->cx = 140; lpdit->cy = 20;
+            lpdit->x = padding;
+            lpdit->y = padding;
+            lpdit->cx = text_w;
+            lpdit->cy = text_h;
             lpdit->id = ID_TEXT;    // Text identifier
-            lpdit->style = WS_CHILD | WS_VISIBLE | SS_LEFT;
+            lpdit->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
 
             lpw = (LPWORD)(lpdit + 1);
             *lpw++ = 0xFFFF;
             *lpw++ = 0x0082;        // Static class
 
             lpwsz = (LPWSTR)lpw;
-            nchar = 1 + MultiByteToWideChar(CP_ACP, 0, message.c_str(), -1, lpwsz, 50);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, message.size() + 1);
             lpw += nchar;
             *lpw++ = 0;             // No creation data
 
@@ -798,13 +1015,25 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
                                         (DLGPROC)dialog_proc, 0); 
             GlobalFree(hgbl);
 
-            if (ret) {
+            if (ret == IDOK) {
                 const auto text = wstring_to_string(prompt_buffer);
-                callback(true, text);
+                on_text(text);
             }
 
             SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
         }        
+    });
+    thread.detach();
+}
+
+auto Platform_dialogs::open_url(const std::string& url) -> void
+{
+    auto thread = std::thread([url]() {
+        if (const auto plugin_window = find_plugin_window()) {
+            const auto wurl = string_to_wstring(url);
+            ShellExecuteW(nullptr, L"open", wurl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
+        }
     });
     thread.detach();
 }
