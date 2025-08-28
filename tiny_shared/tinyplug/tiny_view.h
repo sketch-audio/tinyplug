@@ -1,10 +1,13 @@
 #pragma once
 
+#include <chrono>
 #include <concepts>
 #include <functional>
+#include <iostream>
 #include <span>
 #include <variant>
 
+#include "tiny_events.h"
 #include "tiny_exports.h"
 
 class SkCanvas; // Skia canvas
@@ -126,10 +129,22 @@ struct User_interaction {
     bool operator==(const User_interaction&) const = default;
 };
 
+// MARK: - time
+
+using System_clock = std::chrono::system_clock;
+using Time_point = std::chrono::time_point<System_clock>;
+struct Durations {
+    static auto delta_secs(Time_point ti, Time_point tf) -> double
+    {
+        return std::chrono::duration<double>(tf - ti).count();
+    }
+};
+
 // MARK: - app state
 
-// The view context consists of the user interaction(s), a Skia canvas, a logical size, and scale.
+// The view context consists of the current time, user interaction(s), a Skia canvas, a logical size, and scale.
 struct View_context {
+    Time_point time_now{};
     User_interaction interaction{};
     SkCanvas* canvas{nullptr};
     Rect_size logical_size{};

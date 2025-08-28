@@ -21,6 +21,10 @@ private:
     User_params _params{};
     double _ldrag{}; // norm
 
+    // Input smoothing.
+    double _x{};
+    Time_point _t{System_clock::now()};
+
 };
 
 } // namespace tiny

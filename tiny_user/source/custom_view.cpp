@@ -118,7 +118,16 @@ auto Custom_view::on_draw(App_state& app_state) -> void
     canvas->drawRect(SkRect::MakeXYWH(0, g_y, div, g_h), paint);
 
     // Draw peak meters.
-    const auto in_h = pk_x * rsize.h;
+
+    // Smooth input meter
+    const auto dt = Durations::delta_secs(_t, view_context.time_now);
+    const auto alpha = std::exp(-dt / 0.25f);
+    const auto x = pk_x;
+    const auto xs = x > _x ? x : std::max(x, _x * alpha);
+    _x = xs;
+    _t = view_context.time_now;
+
+    const auto in_h = xs * rsize.h;
     const auto in_y = rsize.h - in_h;
     canvas->drawRect(SkRect::MakeXYWH(div, in_y, div, in_h), paint);
 

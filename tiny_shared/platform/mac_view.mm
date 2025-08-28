@@ -122,6 +122,8 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 }
 
 - (void)render {
+    const auto time_now = tiny::System_clock::now();
+
     // Should we dwell?
     if (_over_pos && !_dwelt) {
         const auto now = std::chrono::steady_clock::now();
@@ -142,7 +144,7 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
         .shift = (flags & NSEventModifierFlagShift) != 0,
     };
 
-    graphics_delegate->draw(_interaction);
+    graphics_delegate->draw(_interaction, time_now);
     tiny::try_set(_interaction.state, tiny::Consumed{});
 
     if (_dwelt) {

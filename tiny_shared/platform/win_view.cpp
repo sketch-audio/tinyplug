@@ -215,6 +215,8 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
     switch (message) {
         case WM_PAINT: {
             if (delegate) {
+                const auto time_now = System_clock::now();
+
                 auto ps = PAINTSTRUCT{};
                 BeginPaint(window, &ps);
                 // Should we dwell?
@@ -226,7 +228,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
                     }
                 }
                 binder->interaction.modifier_keys = resolve_modifiers();
-                delegate->draw(binder->interaction); // Delegate window context handles everything.
+                delegate->draw(binder->interaction, time_now); // Delegate window context handles everything.
                 try_set(binder->interaction.state, Consumed{});
                 if (binder->dwelt) {
                     binder->over_pos = std::nullopt;

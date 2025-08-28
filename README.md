@@ -53,7 +53,6 @@
     - See: https://www.stroustrup.com/Programming/PPP-style.pdf
 
 ## Todo
-- Add timestamp to draw callback
 - Add AUv3 format for iOS and macOS
 - Multitouch
     - iOS

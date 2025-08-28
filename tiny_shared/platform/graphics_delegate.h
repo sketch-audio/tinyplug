@@ -26,7 +26,7 @@ public:
         resize_context();
     }
 
-    auto draw(const User_interaction& interaction) -> void
+    auto draw(const User_interaction& interaction, const Time_point& time_now) -> void
     {
         // Should we resize?
         if (_do_resize.exchange(false, std::memory_order_acq_rel)) {
@@ -43,6 +43,7 @@ public:
 
         // Create the view context and draw.
         auto view_context = View_context{
+            .time_now = time_now,
             .interaction = interaction,
             .canvas = canvas,
             .logical_size = _size,
