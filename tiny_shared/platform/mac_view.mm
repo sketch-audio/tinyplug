@@ -330,12 +330,19 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
         [alert addButtonWithTitle:@"OK"];
 
         NSWindow* keyWindow = [[NSApplication sharedApplication] keyWindow];
-        [alert beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse returnCode) {
+        if (keyWindow != nil) {
+            [alert beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse returnCode) {
+                on_done();
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [keyWindow makeKeyAndOrderFront:nil];
+                });
+            }];
+        } 
+        else {
+            [alert runModal];
             on_done();
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [keyWindow makeKeyAndOrderFront:nil];
-            });
-        }];
+        };
+
         [alert release];
     });
 }
@@ -354,12 +361,18 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
         [alert addButtonWithTitle:@"Cancel"];
 
         NSWindow* keyWindow = [[NSApplication sharedApplication] keyWindow];
-        [alert beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse returnCode) {
-            on_confirm(returnCode == NSAlertFirstButtonReturn);
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [keyWindow makeKeyAndOrderFront:nil];
-            });
-        }];
+        if (keyWindow != nil) {
+            [alert beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse returnCode) {
+                on_confirm(returnCode == NSAlertFirstButtonReturn);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [keyWindow makeKeyAndOrderFront:nil];
+                });
+            }];
+        }
+        else {
+            NSModalResponse response = [alert runModal];
+            on_confirm(response == NSAlertFirstButtonReturn);
+        }
 
         [alert release];
     });
@@ -382,18 +395,30 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
         [alert setAccessoryView:input];
 
         NSWindow* keyWindow = [[NSApplication sharedApplication] keyWindow];
-        [alert beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse returnCode) {
-            if (returnCode == NSAlertFirstButtonReturn) {
+        if (keyWindow != nil) {
+            [alert beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse returnCode) {
+                if (returnCode == NSAlertFirstButtonReturn) {
+                    NSString* inputString = [input stringValue];
+                    if (inputString) {
+                        const std::string result = std::string([inputString UTF8String]);
+                        on_text(result);
+                    }
+                }
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [keyWindow makeKeyAndOrderFront:nil];
+                });
+            }];
+        } 
+        else {
+            NSModalResponse response = [alert runModal];
+            if (response == NSAlertFirstButtonReturn) {
                 NSString* inputString = [input stringValue];
                 if (inputString) {
                     const std::string result = std::string([inputString UTF8String]);
                     on_text(result);
                 }
             }
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [keyWindow makeKeyAndOrderFront:nil];
-            });
-        }];
+        }
 
         [input release];
         [alert release];
