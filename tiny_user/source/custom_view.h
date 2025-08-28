@@ -19,6 +19,8 @@ private:
     using User_params = Param_infos<Param_model>;
 
     User_params _params{};
+
+    bool _down{};
     double _ldrag{}; // norm
 
     // Input smoothing.

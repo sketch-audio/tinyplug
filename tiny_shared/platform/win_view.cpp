@@ -243,7 +243,9 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             SetCapture(window);
             const auto x = static_cast<double>(GET_X_LPARAM(lparam));
             const auto y = static_cast<double>(GET_Y_LPARAM(lparam));
-            binder->left_pos = Coords{x, y};
+            const auto pos = Coords{x, y};
+            try_set(binder->interaction.state, Down{pos});
+            binder->left_pos = pos;
             return 0;
         }
 
@@ -309,7 +311,9 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             SetCapture(window);
             const auto x = static_cast<double>(GET_X_LPARAM(lparam));
             const auto y = static_cast<double>(GET_Y_LPARAM(lparam));
-            binder->right_pos = Coords{x, y};
+            const auto pos = Coords{x, y};
+            try_set(binder->interaction.state, Down{pos, true});
+            binder->right_pos = pos;
             return 0;
         }
 

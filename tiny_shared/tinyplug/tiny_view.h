@@ -19,6 +19,21 @@ namespace tiny {
 struct Coords {
     double x{}; double y{};
     bool operator==(const Coords&) const = default;
+
+    auto relative_to(const Coords& p) const -> Coords
+    {
+        return {x - p.x, y - p.y};
+    }
+};
+
+struct Frame {
+    double x{}; double y{}; double w{}; double h{};
+    bool operator==(const Frame&) const = default;
+
+    auto contains(const Coords& p) const -> bool
+    {
+        return x <= p.x && p.x <= (x + w) && y <= p.y && p.y <= (y + h);
+    }
 };
 
 struct Rect_size {
@@ -37,6 +52,12 @@ struct Consumed {
 struct Over {
     Coords pos{};
     bool operator==(const Over&) const = default;
+};
+
+// The pointer went down at `pos`. Sent once.
+struct Down {
+    Coords pos{}; bool right{};
+    bool operator==(const Down&) const = default;
 };
 
 // The pointer has been over `pos` for 2000 ms. Sent once.
@@ -82,7 +103,7 @@ struct Right_click {
 };
 
 // The state of the user's pointer (a mouse or a finger).
-using Pointer_state = std::variant<Consumed, Over, Dwell, Click, Double_click, Drag_start, Drag, Drag_end, Right_click>;
+using Pointer_state = std::variant<Consumed, Over, Down, Dwell, Click, Double_click, Drag_start, Drag, Drag_end, Right_click>;
 
 // Try to set the pointer state. Returns whether or not the pointer state was set.
 // - You can always consume the pointer state.
@@ -103,6 +124,19 @@ inline auto try_set(Pointer_state& old_state, Pointer_state new_state) -> bool
     return false;
 }
 
+// Since down is transient, we need to be able to track it.
+inline auto track_is_down(const Pointer_state& state, bool& is_down)
+{
+    const auto implies_down = std::holds_alternative<Down>(state) || std::holds_alternative<Drag_start>(state) || std::holds_alternative<Drag>(state);
+    const auto implies_up = !(implies_down || std::holds_alternative<Consumed>(state));
+    if (implies_down) {
+        is_down = true;
+    }
+    else if (implies_up) {
+        is_down = false;
+    }
+}
+
 struct Modifier_keys {
     // The primary platform modifier: Ctrl (Windows), command (Apple).
     bool primary{};
@@ -112,6 +146,11 @@ struct Modifier_keys {
 
     // The shift key.
     bool shift{};
+
+    auto any() -> bool
+    {
+        return primary || alt || shift;
+    }
     
     // Regular.
     bool operator==(const Modifier_keys&) const = default;
@@ -197,6 +236,9 @@ inline auto print_pointer_state(const Pointer_state& state) -> void
         [](const Consumed&) {/* skip */},
         [](const Over& s) {
             std::cout << "Over at (" << s.pos.x << ", " << s.pos.y << ")\n";
+        },
+        [](const Down& s) {
+            std::cout << "Down at (" << s.pos.x << ", " << s.pos.y << ")\n";
         },
         [](const Dwell& s) {
             std::cout << "Dwell at (" << s.pos.x << ", " << s.pos.y << ")\n";

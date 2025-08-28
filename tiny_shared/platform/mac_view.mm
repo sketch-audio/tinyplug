@@ -172,7 +172,9 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 
 - (void)mouseDown:(NSEvent *)event {
     const auto y = self.bounds.size.height - event.locationInWindow.y;
-    _left_pos = tiny::Coords{event.locationInWindow.x, y};
+    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+    tiny::try_set(_interaction.state, tiny::Down{pos});
+    _left_pos = pos;
     [super mouseDown:event];
 }
 
@@ -230,7 +232,9 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 
 - (void)rightMouseDown:(NSEvent *)event {
     const auto y = self.bounds.size.height - event.locationInWindow.y;
-    _right_pos = tiny::Coords{event.locationInWindow.x, y};
+    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+    tiny::try_set(_interaction.state, tiny::Down{pos, true});
+    _right_pos = pos;
     [super rightMouseDown:event];
 }
 

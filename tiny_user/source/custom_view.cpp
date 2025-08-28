@@ -88,11 +88,13 @@ auto Custom_view::on_draw(App_state& app_state) -> void
                 });
             }
             else {
-                Platform_dialogs::open_url("https://www.sketchaudio.com");
+                //Platform_dialogs::open_url("https://www.sketchaudio.com");
             }
         },
         [](const auto&) {}
     }, interaction.state);
+
+    track_is_down(interaction.state, _down);
 
     // Draw background.
     auto paint = SkPaint{};
@@ -108,7 +110,7 @@ auto Custom_view::on_draw(App_state& app_state) -> void
         paint.setColor(SK_ColorRED);
     }
 
-    if (interaction.modifier_keys.shift) {
+    if (interaction.modifier_keys.any() || _down) {
         paint.setColor(SK_ColorBLUE);
     }
 
