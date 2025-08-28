@@ -137,6 +137,26 @@ inline auto track_is_down(const Pointer_state& state, bool& is_down)
     }
 }
 
+// Controls can only consume the pointer state if it originates in their frame.
+inline auto try_consume(Pointer_state& state, const Frame& frame) -> std::optional<Pointer_state>
+{
+    using Opt = std::optional<Pointer_state>;
+    auto get_pos = [](const auto& s) -> Coords {
+        if constexpr (requires { s.fpos; }) return s.fpos;
+        else return s.pos;
+    };
+    return std::visit(Inline_visitor{
+        [&](const Consumed&) { return Opt{}; },
+        [&](const auto& s) {
+            if (frame.contains(get_pos(s))) {
+                state = Consumed{};
+                return Opt{s};
+            }
+            return Opt{};
+        },
+    }, state);
+}
+
 struct Modifier_keys {
     // The primary platform modifier: Ctrl (Windows), command (Apple).
     bool primary{};
