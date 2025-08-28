@@ -2,7 +2,6 @@
 
 #include <array>
 #include <cstddef>
-#include <string>
 
 #define TINY_AUV2_VIEW_CLASS @TINY_AUV2_VIEW_CLASS@
 static const unsigned int kAudioUnitProperty_UserPlugin = 64000; // User properties have to be >= 64000.
@@ -14,6 +13,10 @@ struct Plug_info {
     static constexpr const char company_website[] = "@TINY_COMPANY_WEBSITE@";
     static constexpr const char company_email[] = "@TINY_COMPANY_EMAIL@";
 
+    static constexpr auto framework_code = uint32_t{'@TINY_FRAMEWORK_CODE@'};
+    static constexpr auto manufacturer_code = uint32_t{'@TINY_MANUFACTURER_CODE@'};
+    static constexpr auto plugin_code = uint32_t{'@TINY_PLUGIN_CODE@'};
+
     static constexpr const char product_name[] = "@TINY_PRODUCT_NAME@";
     static constexpr const char product_short_name[] = "@TINY_PRODUCT_SHORT_NAME@";
     static constexpr const char base_file_name[] = "@TINY_BASE_FILENAME@";
@@ -23,26 +26,18 @@ struct Plug_info {
 
     static constexpr auto wants_sidechain = bool{@TINY_PLUGIN_WANTS_SIDECHAIN@};
 
-    static constexpr auto framework_code = uint32_t{'tiny'};
-    static constexpr auto manufacturer_code = uint32_t{'@TINY_MANUFACTURER_CODE@'};
-    static constexpr auto plugin_code = uint32_t{'@TINY_PLUGIN_CODE@'};
-
-    // Windows
-    static constexpr wchar_t wproduct_name[] = L"@TINY_PRODUCT_NAME@";
-    static constexpr wchar_t wbase_identifier[] = L"@TINY_BASE_IDENTIFIER@";
-
     struct Aax {
-        static constexpr auto manufacturer_id = uint32_t{'@TINY_AAX_MANUFACTURER_ID@'};
-        static constexpr auto product_id = uint32_t{'@TINY_AAX_PRODUCT_ID@'};
-        static constexpr auto plugin_id = uint32_t{'@TINY_AAX_PLUGIN_ID@'};
+        static constexpr auto manufacturer_id = uint32_t{'@TINY_MANUFACTURER_CODE@'};
+        static constexpr auto product_id = uint32_t{'@TINY_PLUGIN_CODE@'};
+        static constexpr auto plugin_id = uint32_t{}; // One plug-in per product.
     };
 
     struct Auv2 {
         static constexpr const char bundle_id[] = "@TINY_BASE_IDENTIFIER@.component";
         static constexpr const char view_class[] = "@TINY_AUV2_VIEW_CLASS@";
-        static constexpr auto manufacturer = uint32_t{'@TINY_AUV2_MANUFACTURER@'};
+        static constexpr auto manufacturer = uint32_t{'@TINY_MANUFACTURER_CODE@'};
         static constexpr auto type = uint32_t{'@TINY_AUV2_TYPE@'};
-        static constexpr auto subtype = uint32_t{'@TINY_AUV2_SUBTYPE@'};
+        static constexpr auto subtype = uint32_t{'@TINY_PLUGIN_CODE@'};
     };
 
     struct Clap {

@@ -53,7 +53,6 @@
     - See: https://www.stroustrup.com/Programming/PPP-style.pdf
 
 ## Todo
-- Merge various user CMake plug-in codes
 - Add timestamp to draw callback
 - Add AUv3 format for iOS and macOS
 - Multitouch

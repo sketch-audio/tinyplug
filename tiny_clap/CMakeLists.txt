@@ -22,7 +22,7 @@ target_include_directories(${CLAP_TARGET} SYSTEM PRIVATE
 )
 
 target_link_libraries(${CLAP_TARGET} PRIVATE clap clap-helpers)
-target_link_libraries(${CLAP_TARGET} PRIVATE ${TINY_USER_CODE})
+target_link_libraries(${CLAP_TARGET} PRIVATE ${TINY_USER_LIB})
 
 if(APPLE)
     target_link_libraries(${CLAP_TARGET} PRIVATE "-framework Cocoa")

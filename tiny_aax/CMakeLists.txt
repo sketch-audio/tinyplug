@@ -51,7 +51,7 @@ elseif(WIN32)
 endif()
 
 target_link_libraries(${AAX_TARGET} PRIVATE ${AAX_LIB})
-target_link_libraries(${AAX_TARGET} PRIVATE ${TINY_USER_CODE})
+target_link_libraries(${AAX_TARGET} PRIVATE ${TINY_USER_LIB})
 
 if(APPLE)
     target_link_libraries(${AAX_TARGET} PRIVATE "-framework Cocoa")

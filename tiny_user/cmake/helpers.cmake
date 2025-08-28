@@ -20,19 +20,16 @@ function(prepare_clap_feature_list list_var_name out_count_var out_array_var)
     set(${out_array_var} "${joined_list}, nullptr" PARENT_SCOPE)
 endfunction()
 
-function(prepare_vst3_uid_array list_var_name out_array_var)
-    set(char_literals "")
-    foreach(item IN LISTS "${list_var_name}")
-        # Validate length (optional, skip if you want looser input)
-        string(LENGTH "${item}" len)
+function(prepare_vst3_uid_array item1 item2 item3 item4 out_array_var)
+    # Validate length for each item
+    foreach(item IN ITEMS item1 item2 item3 item4)
+        string(LENGTH "${${item}}" len)
         if(NOT len EQUAL 4)
-            message(FATAL_ERROR "Item '${item}' must be exactly 4 characters long.")
+            message(FATAL_ERROR "Item '${${item}}' must be exactly 4 characters long.")
         endif()
-
-        # Wrap in single quotes
-        list(APPEND char_literals "'${item}'")
     endforeach()
 
-    string(JOIN ", " joined ${char_literals})
+    # Wrap in single quotes and join
+    set(joined "'${item1}', '${item2}', '${item3}', '${item4}'")
     set(${out_array_var} "${joined}" PARENT_SCOPE)
 endfunction()
