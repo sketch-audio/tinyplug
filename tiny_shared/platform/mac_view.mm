@@ -322,7 +322,7 @@ auto Platform_view::redraw() -> void
 
 // MARK: - alert
 
-auto Platform_dialogs::message(const std::string& title, const std::string& message, Callback<> on_done) -> void
+auto Platform_dialogs::message(const std::string& title, const std::string& message, Later<> on_done) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -352,7 +352,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
     });
 }
 
-auto Platform_dialogs::confirm(const std::string& title, const std::string& message, Callback<bool> on_confirm) -> void
+auto Platform_dialogs::confirm(const std::string& title, const std::string& message, Later<bool> on_confirm) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -383,7 +383,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
     });
 }
 
-auto Platform_dialogs::text_input(const std::string& title, const std::string& message, Callback<std::string> on_text) -> void
+auto Platform_dialogs::text_input(const std::string& title, const std::string& message, Later<std::string> on_text) -> void
 {
     // Copy to locals. 
     const auto title_copy = title;

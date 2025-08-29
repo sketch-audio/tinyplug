@@ -14,6 +14,8 @@ void* Auv2_view::create_view()
         [this](auto i) { return _receiver.get_knob_value(i); }
     );
 
+    _custom_view->on_create(_actions.make_receiver(), _tasks.make_receiver());
+
     return _platform_view->native_handle();
 }
 
@@ -21,7 +23,7 @@ void Auv2_view::on_draw(View_context& view_context)
 {
     _executor.on_main();
     view_impl::run_frame<User_exports>(
-        _receiver, _uiparams, _uiexports, view_context, _custom_view.get()
+        _receiver, _uiparams, _uiexports, view_context, _custom_view.get(), _actions, _tasks
     );
 }
 

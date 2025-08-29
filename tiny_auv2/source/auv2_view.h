@@ -31,6 +31,8 @@ private:
     static constexpr auto num_exports = User_exports::num_exports;
 
     User_params _param_infos{};
+    Action_queue _actions{};
+    Task_queue _tasks{};
     Ui_receiver _receiver{};
     Main_executor _executor{};
 

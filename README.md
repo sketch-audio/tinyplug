@@ -82,7 +82,6 @@
 ## Platform TODO
 - File open
 - File save
-- Need to figure out a thread-safe executor for platform callbacks.
 
 ## Goals 
 - No shared_ptr

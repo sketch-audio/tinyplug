@@ -63,8 +63,6 @@ struct Platform_views {
 };
 
 struct Platform_dialogs {
-    template<typename... Args>
-    using Callback = std::function<void(Args...)>;
     static auto message(const std::string& title, const std::string& message, Later<> on_done = {}) -> void;
     static auto confirm(const std::string& title, const std::string& message, Later<bool> on_done = {}) -> void;
     static auto text_input(const std::string& title, const std::string& message, Later<std::string> on_text = {}) -> void;
