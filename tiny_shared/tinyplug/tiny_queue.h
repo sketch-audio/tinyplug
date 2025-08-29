@@ -9,6 +9,7 @@
 #include <utility>
 
 // This is a detemplated version of the farbot queue, but only implements return false on full/empty.
+// There is a separate, `Overwrite_queue` that wraps an SPMC queue so the producer can discard elements when empty.
 // Original code: https://github.com/hogliux/farbot
 // Algorithm here: https://natsys-lab.blogspot.com/2013/05/lock-free-multi-producer-multi-consumer.html?m=1
 // See also: https://www.youtube.com/watch?v=PoZAo2Vikbo
@@ -162,8 +163,6 @@ struct Lock_free_queue<T, min_slots, Queue_concurrency::spmc> {
 
         return true;
     }
-
-    // writer? single? overwrite?
 
     auto pop(T& output) -> bool
     {
@@ -373,6 +372,30 @@ private:
     queue_impl::Thread_registry<> reader_infos{};
     queue_impl::Thread_registry<> writer_infos{};
 
+};
+
+// MARK: - overwrite queue
+
+// An SPSC queue where pushing always succeeds. 
+template<typename T, size_t min_slots>
+struct Overwrite_queue {
+
+    auto push(const T& value) -> void
+    {
+        while (!_queue.push(value)) {
+            auto discarded = T{};
+            _queue.pop(discarded);
+        }
+    }
+
+    auto pop(T& output) -> bool
+    {
+        return _queue.pop(output);
+    }
+
+private:
+    using Queue = Lock_free_queue<T, min_slots, Queue_concurrency::spmc>;
+    Queue _queue{};
 };
 
 } // namespace tiny
