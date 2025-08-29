@@ -92,6 +92,7 @@
 ## Consider
 - How to handle logical vs. real size?
 - Use optionals in `Musical_context`
+- View notification system? For example, dark mode.
 
 ## Needs tested
 - Sidechain (add export and visualize?)
