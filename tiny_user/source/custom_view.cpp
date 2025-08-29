@@ -91,6 +91,9 @@ auto Custom_view::on_draw(App_state& app_state) -> void
                 //Platform_dialogs::open_url("https://www.sketchaudio.com");
             }
         },
+        [&](const Right_click& c) {
+            Platform_dialogs::message("Tiny Demo", "A right click occurred.");
+        },
         [](const auto&) {}
     }, interaction.state);
 
