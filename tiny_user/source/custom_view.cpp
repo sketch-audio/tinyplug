@@ -101,11 +101,11 @@ auto Custom_view::on_draw(App_state& app_state) -> void
 
     // Draw background.
     auto paint = SkPaint{};
-    paint.setColor(interaction.dark_mode ? SK_ColorBLACK : SK_ColorWHITE);
+    paint.setColor(view_context.dark_mode ? SK_ColorBLACK : SK_ColorWHITE);
     paint.setStyle(SkPaint::kFill_Style);
     canvas->drawRect(SkRect::MakeXYWH(0, 0, rsize.w, rsize.h), paint);
 
-    paint.setColor(interaction.dark_mode ? SK_ColorWHITE : SK_ColorBLACK);
+    paint.setColor(view_context.dark_mode ? SK_ColorWHITE : SK_ColorBLACK);
     const auto div = rsize.w / 3;
 
     // does param != export latency

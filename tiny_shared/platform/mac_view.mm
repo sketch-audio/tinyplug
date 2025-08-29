@@ -133,9 +133,6 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
         }
     }
 
-    // Set dark mode
-    _interaction.dark_mode = _dark_mode;
-
     // Resolve modifiers
     NSEventModifierFlags flags = [NSEvent modifierFlags];
     _interaction.modifier_keys = tiny::Modifier_keys{
@@ -144,7 +141,7 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
         .shift = (flags & NSEventModifierFlagShift) != 0,
     };
 
-    graphics_delegate->draw(_interaction, time_now);
+    graphics_delegate->draw(_interaction, time_now, _dark_mode);
     tiny::try_set(_interaction.state, tiny::Consumed{});
 
     if (_dwelt) {

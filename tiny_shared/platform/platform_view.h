@@ -20,6 +20,7 @@ struct Platform_binder {
     std::optional<Coords> right_pos{};
     std::optional<Coords> drag_start{};
     bool dwelt{};
+    bool dark_mode{};
 };
 class Dark_mode_watcher; // Have to manually watch dark mode.
 class Vsync_loop; // Vsync drawing.

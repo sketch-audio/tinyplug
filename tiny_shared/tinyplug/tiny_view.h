@@ -184,7 +184,6 @@ struct User_interaction {
     Pointer_state state{};
     Coords scroll_deltas{};
     Modifier_keys modifier_keys{};
-    bool dark_mode{}; // TODO: - move
     bool operator==(const User_interaction&) const = default;
 };
 
@@ -208,6 +207,7 @@ struct View_context {
     SkCanvas* canvas{nullptr};
     Rect_size logical_size{};
     double scale{1};
+    bool dark_mode{};
     bool operator==(const View_context&) const = default;
 };
 

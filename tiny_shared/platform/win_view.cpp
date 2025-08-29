@@ -228,7 +228,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
                     }
                 }
                 binder->interaction.modifier_keys = resolve_modifiers();
-                delegate->draw(binder->interaction, time_now); // Delegate window context handles everything.
+                delegate->draw(binder->interaction, time_now, binder->dark_mode); // Delegate window context handles everything.
                 try_set(binder->interaction.state, Consumed{});
                 if (binder->dwelt) {
                     binder->over_pos = std::nullopt;
@@ -421,9 +421,9 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
 
     // Dark mode
     const auto dark = is_dark_mode();
-    _binder.interaction.dark_mode = dark;
+    _binder.dark_mode = dark;
     enable_dark_title_bar(window, dark);
-    _dark_watcher = std::make_unique<Dark_mode_watcher>([this](auto dark) { _binder.interaction.dark_mode = dark; });
+    _dark_watcher = std::make_unique<Dark_mode_watcher>([this](auto dark) { _binder.dark_mode = dark; });
 
     _binder.delegate = _delegate.get();
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&_binder));

@@ -26,7 +26,7 @@ public:
         resize_context();
     }
 
-    auto draw(const User_interaction& interaction, const Time_point& time_now) -> void
+    auto draw(const User_interaction& interaction, const Time_point& time_now, bool dark_mode) -> void
     {
         // Should we resize?
         if (_do_resize.exchange(false, std::memory_order_acq_rel)) {
@@ -48,6 +48,7 @@ public:
             .canvas = canvas,
             .logical_size = _size,
             .scale = _scale,
+            .dark_mode = dark_mode
         };
         _callback(view_context);
 
