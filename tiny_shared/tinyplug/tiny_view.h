@@ -9,6 +9,7 @@
 
 #include "tiny_events.h"
 #include "tiny_exports.h"
+#include "tiny_queue.h"
 
 class SkCanvas; // Skia canvas
 
@@ -211,40 +212,115 @@ struct View_context {
     bool operator==(const View_context&) const = default;
 };
 
-// Typically the plug-in format's view will have a draw callback.
-// This is where it will resolve the application state and pass it to your custom view.
-using Draw_callback = std::function<void(View_context&)>;
-
 // Read-only access to some param (and export) values.
 struct Params_state {
     std::span<const double> params{};
     std::span<const double> exports{};
 };
 
-// A place to send your UI element's actions.
-struct Action_receiver {
-    // Add an action that took place in the current frame.
-    auto add_action(const User_action& action) -> void
-    {
-        _actions.push_back(action);
-    }
-    // The plug-in format's view will use this to send your actions where they need to go.
-    auto actions() const -> const std::vector<User_action>&
-    {
-        return _actions;
-    }
-private:
-    std::vector<User_action> _actions{};
-};
-
 // The app state gives you
 // - Read-only access to the param and export values.
 // - A view context with the interaction state and a canvas in which to draw.
-// - A receiver for your control's actions.
 struct App_state {
     Params_state params_state{};
     View_context view_context{};
-    Action_receiver action_receiver{};
+};
+
+// The plug-in format's view will have a draw callback.
+// This is where it will resolve the application state and pass it to your custom view.
+using Draw_callback = std::function<void(View_context&)>;
+
+// MARK: action queue
+
+struct Action_queue {
+
+    using Actions = std::vector<User_action>;
+
+    struct Receiver {
+        explicit Receiver(Actions* actions = nullptr) : _actions{actions} {}
+        auto push(const User_action& action) const -> void
+        {
+            if (_actions) {
+                _actions->push_back(action);
+            }
+        }
+    private:
+        Actions* _actions;
+    };
+
+    auto make_receiver() -> Receiver
+    {
+        return Receiver{&_actions};
+    }
+
+    auto actions() const -> const Actions&
+    {
+        return _actions;
+    }
+
+    auto clear() -> void
+    {
+        _actions.clear();
+    }
+
+private:
+
+    Actions _actions = Actions(16); // initial size
+
+};
+
+// MARK: - task queue
+
+struct Task_queue {
+    using Task = std::function<void()>;
+    using Queue = Lock_free_queue<Task, 16>;
+
+    struct Receiver {
+        explicit Receiver(Queue* queue = nullptr) : _queue{queue} {}
+        auto push(Task task) const -> void
+        {
+            if (_queue) {
+                [[maybe_unused]] const auto success = _queue->push(std::move(task));
+                assert(success && "Queue not big enough!");
+            }
+        }
+    private:
+        Queue* _queue{nullptr};
+    };
+
+    auto make_receiver() -> Receiver
+    {
+        return Receiver{&_queue};
+    }
+
+    auto execute_all() -> void
+    {
+        auto task = Task{};
+        while (_queue.pop(task)) task();
+    }
+
+private:
+
+    Queue _queue{};
+
+};
+
+template<typename... Args>
+struct Later {
+
+    std::function<void(Args...)> callback{[](Args...) {}};
+    std::optional<Task_queue::Receiver> receiver{};
+
+    template<typename... Cargs>
+    void operator()(Cargs&&... args) const {
+        if (receiver) {
+            receiver->push([cb = callback, ...a = std::forward<Cargs>(args)]() {
+                cb(std::move(a)...);
+            });
+        } else {
+            callback(std::forward<Cargs>(args)...);
+        }
+    }
 };
 
 // MARK: - debug
@@ -291,8 +367,16 @@ namespace view_impl {
 
 // MARK: - run_frame
 
-template<typename E, typename S, typename A0, typename A1, typename C, typename V>
-constexpr auto run_frame(const S& _receiver, A0& _uiparams, A1& _uiexports, const C& view_context, V* _custom_view) -> void
+template<typename E, typename S, typename A0, typename A1, typename C, typename V, typename A, typename T>
+constexpr auto run_frame(
+    const S& _receiver, 
+    A0& _uiparams, 
+    A1& _uiexports, 
+    const C& view_context, 
+    V* _custom_view,
+    A& _actions,
+    T& _tasks
+) -> void
 {
     // Pop the exports.
     auto event = Ui_event{};
@@ -338,26 +422,23 @@ constexpr auto run_frame(const S& _receiver, A0& _uiparams, A1& _uiexports, cons
 
     // Create view context.
     auto app_state = App_state{
-        .params_state = {
-            .params = _uiparams,
-            .exports = export_arr
-        },
+        .params_state = {_uiparams, export_arr},
         .view_context = view_context,
-        .action_receiver = Action_receiver{},
     };
 
     // Tell the user view to draw.
     _custom_view->on_draw(app_state);
 
+    _tasks.execute_all(); // Execute laters (might push into actions).
+
     // Handle actions and update local state.
-    auto& actions = app_state.action_receiver.actions();
-    for (auto& action : actions) {
+    for (auto& action : _actions.actions()) {
         _receiver.action_handler(action);
-        std::visit(Inline_visitor{
-            [&](const Set_param& s) { _uiparams[s.id] = s.value; }, // Update local copy (assume success).
-            [](const auto&) {}
-        }, action);
+        if (const auto* s = std::get_if<Set_param>(&action)) {
+            _uiparams[s->id] = s->value; // Update the local copy.
+        }
     }
+    _actions.clear();
 
     // Reset exports for next frame.
     for (auto& uiexport : _uiexports) {

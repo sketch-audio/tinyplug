@@ -7,6 +7,8 @@
 #include "platform.h"
 #include "graphics_delegate.h"
 
+#include "../tinyplug/tinyplug.h"
+
 namespace tiny {
 
 #if PLATFORM_WINDOWS
@@ -63,9 +65,9 @@ struct Platform_views {
 struct Platform_dialogs {
     template<typename... Args>
     using Callback = std::function<void(Args...)>;
-    static auto message(const std::string& title, const std::string& message, Callback<> on_done = []() {}) -> void;
-    static auto confirm(const std::string& title, const std::string& message, Callback<bool> on_done = [](auto) {}) -> void;
-    static auto text_input(const std::string& title, const std::string& message, Callback<std::string> on_text = [](auto) {}) -> void;
+    static auto message(const std::string& title, const std::string& message, Later<> on_done = {}) -> void;
+    static auto confirm(const std::string& title, const std::string& message, Later<bool> on_done = {}) -> void;
+    static auto text_input(const std::string& title, const std::string& message, Later<std::string> on_text = {}) -> void;
     static auto open_url(const std::string& url) -> void;
 };
 

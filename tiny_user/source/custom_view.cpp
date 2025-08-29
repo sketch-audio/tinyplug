@@ -9,6 +9,16 @@
 
 namespace tiny {
 
+// MARK: - on create
+
+auto Custom_view::on_create(const Action_queue::Receiver& actions, const Task_queue::Receiver& tasks) -> void
+{
+    _actions = actions;
+    _task_receiver = tasks;
+}
+
+// MARK: - on draw
+
 auto Custom_view::on_draw(App_state& app_state) -> void
 {
     using enum Param_model::Param_id;
@@ -16,7 +26,6 @@ auto Custom_view::on_draw(App_state& app_state) -> void
 
     auto& params_state = app_state.params_state;
     auto& view_context = app_state.view_context;
-    auto& actions = app_state.action_receiver;
 
     auto& interaction = view_context.interaction;
     auto* canvas = view_context.canvas;
@@ -51,21 +60,21 @@ auto Custom_view::on_draw(App_state& app_state) -> void
             _ldrag = {};
             const auto to_set = get_next(g, s);
             const auto id = enum_raw(gain);
-            actions.add_action(Action_start{id});
-            actions.add_action(Set_param{id, to_set});
+            _actions.push(Action_start{id});
+            _actions.push(Set_param{id, to_set});
             _ldrag = s.tpos.y - s.fpos.y;
         },
         [&](const Drag& s) {
             const auto to_set = get_next(g, s);
             const auto id = enum_raw(gain);
-            actions.add_action(Set_param{id, to_set});
+            _actions.push(Set_param{id, to_set});
             _ldrag = s.tpos.y - s.fpos.y;
         },
         [&](const Drag_end& s) {
             const auto to_set = get_next(g, s);
             const auto id = enum_raw(gain);
-            actions.add_action(Set_param{id, to_set});
-            actions.add_action(Action_end{id});
+            _actions.push(Set_param{id, to_set});
+            _actions.push(Action_end{id});
             _ldrag = {};
         },
         [&](const Click& c) {
@@ -78,13 +87,23 @@ auto Custom_view::on_draw(App_state& app_state) -> void
                 Platform_dialogs::message("Tiny Demo", "This is a message dialog.");
             }
             else if (interaction.modifier_keys.shift) {
-                Platform_dialogs::confirm("Are you sure?", "This is a confirm dialog.\nThis one has a long message.\nWith several lines in fact.\nWhat happens?", [](auto confirmed) {
-                    std::cout << "User confirmed: " << (confirmed ? "yes" : "no") << "\n";
+                Platform_dialogs::confirm("Are you sure?", "This is a confirm dialog.", {
+                    .callback = [](bool confirmed) { std::cout << "User confirmed: " << (confirmed ? "yes" : "no") << "\n"; },
+                    .receiver = _task_receiver
                 });
             }
             else if (interaction.modifier_keys.alt) {
-                Platform_dialogs::text_input("TinyDemo", "This is a text input dialog.", [](auto text) {
-                    std::cout << "User entered: " << text << "\n";
+                Platform_dialogs::text_input("TinyDemo", "This is a text input dialog.", {
+                    .callback = [this](auto text) {
+                        const auto& param = _params.param_for(enum_raw(gain));
+                        if (const auto value = Host_formatter::format_value(text, param.semantics)) {
+                            const auto knob = Value_conv::plain_to_knob(*value, param.semantics);
+                            _actions.push(Action_start{param.id});
+                            _actions.push(Set_param{param.id, knob});
+                            _actions.push(Action_end{param.id});
+                        }
+                    },
+                    .receiver = _task_receiver 
                 });
             }
             else {

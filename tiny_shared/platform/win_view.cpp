@@ -730,7 +730,7 @@ inline auto align_dword(LPWORD lpIn) -> LPWORD
 
 // MARK: - message 
 
-auto Platform_dialogs::message(const std::string& title, const std::string& message, Callback<> on_done) -> void
+auto Platform_dialogs::message(const std::string& title, const std::string& message, Later<> on_done) -> void
 {
     auto thread = std::thread([title, message, on_done]() {
         if (const auto plugin_window = find_plugin_window()) {
@@ -839,7 +839,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
 
 // MARK: - confirm
 
-auto Platform_dialogs::confirm(const std::string& title, const std::string& message, Callback<bool> on_done) -> void
+auto Platform_dialogs::confirm(const std::string& title, const std::string& message, Later<bool> on_done) -> void
 {
     auto thread = std::thread([title, message, on_done]() {
         if (const auto plugin_window = find_plugin_window()) {
@@ -970,7 +970,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
 
 // MARK: - text_input
 
-auto Platform_dialogs::text_input(const std::string& title, const std::string& message, Callback<std::string> on_text) -> void
+auto Platform_dialogs::text_input(const std::string& title, const std::string& message, Later<std::string> on_text) -> void
 {
     auto thread = std::thread([title, message, on_text]() {
         if (const auto plugin_window = find_plugin_window()) {

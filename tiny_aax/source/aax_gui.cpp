@@ -84,6 +84,8 @@ void Aax_gui::CreateViewContainer()
         _uiparams = make_array_by_indices<double, num_params>(
             [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
         );
+
+        _custom_view->on_create(_actions.make_receiver(), _tasks.make_receiver());
     }
 }
 
@@ -122,7 +124,7 @@ AAX_Result Aax_gui::ParameterUpdated(AAX_CParamID inParamID)
 auto Aax_gui::on_draw(View_context& view_context) -> void
 {
     view_impl::run_frame<User_exports>(
-        _receiver, _uiparams, _uiexports, view_context, _custom_view.get()
+        _receiver, _uiparams, _uiexports, view_context, _custom_view.get(), _actions, _tasks
     );
 }
 

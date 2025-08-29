@@ -35,6 +35,8 @@ Steinberg::tresult PLUGIN_API Vst3_view::attached(void* parent, Steinberg::FIDSt
     _uiparams = make_array_by_indices<double, num_params>(
         [this](auto i) { return _receiver.get_knob_value(i); }
     );
+
+    _custom_view->on_create(_actions.make_receiver(), _tasks.make_receiver());
     
     return Steinberg::kResultTrue;
 }
@@ -102,7 +104,7 @@ Steinberg::tresult PLUGIN_API Vst3_view::checkSizeConstraint(Steinberg::ViewRect
 void Vst3_view::on_draw(View_context& view_context)
 {
     view_impl::run_frame<User_exports>(
-        _receiver, _uiparams, _uiexports, view_context, _custom_view.get()
+        _receiver, _uiparams, _uiexports, view_context, _custom_view.get(), _actions, _tasks
     );
 }
 

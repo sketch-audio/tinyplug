@@ -15,6 +15,7 @@ auto Clap_view::create() noexcept -> void
         [this](auto& context) { this->on_draw(context); }
     );
     _platform_view = Platform_views::make_owning(delegate);
+    _custom_view->on_create(_actions.make_receiver(), _tasks.make_receiver());
 }
 
 auto Clap_view::destroy() noexcept -> void
@@ -55,7 +56,7 @@ auto Clap_view::set_parent(const clap_window* window) noexcept -> bool
 auto Clap_view::on_draw(View_context& view_context) -> void
 {
     view_impl::run_frame<User_exports>(
-        _receiver, _uiparams, _uiexports, view_context, _custom_view.get()
+        _receiver, _uiparams, _uiexports, view_context, _custom_view.get(), _actions, _tasks
     );
 }
 
