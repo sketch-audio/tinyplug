@@ -6,28 +6,27 @@ endif()
 # AUv2 target
 set(AUV2_TARGET ${TINY_BASE_FILENAME}_auv2)
 
-file(GLOB TARGET_HEADERS
-    "${CMAKE_CURRENT_SOURCE_DIR}/source/*.h"
+include(cmake/auv2_deps.cmake)
+
+set(TARGET_HEADERS
+    source/auv2_adapters.h
+    source/auv2_effect.h
+    source/auv2_view.h
 )
 
-# AudioUnitSDK
-file(GLOB SDK_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/AudioUnitSDK/*.h")
-file(GLOB SDK_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/sdk/src/AudioUnitSDK/*.cpp")
-
-add_library(${AUV2_TARGET} MODULE
-    ${TARGET_HEADERS}
+set(TARGET_SOURCES
     source/auv2_effect.cpp
     source/auv2_view_factory.mm
     source/auv2_view.cpp
-    ${SDK_HEADERS}
-    ${SDK_SOURCES}
 )
 
-target_include_directories(${AUV2_TARGET} SYSTEM PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/include/
+add_library(${AUV2_TARGET} MODULE
+    ${TARGET_HEADERS}
+    ${TARGET_SOURCES}
 )
 
 target_link_libraries(${AUV2_TARGET} PRIVATE ${TINY_USER_LIB})
+target_link_libraries(${AUV2_TARGET} PRIVATE AudioUnitSDK)
 target_link_libraries(${AUV2_TARGET} PRIVATE "-framework Cocoa" "-framework AudioToolbox")
 
 target_compile_options(${AUV2_TARGET} PRIVATE -Wall -Wextra -pedantic)
