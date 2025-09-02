@@ -1,0 +1,72 @@
+set(PLUGIN_TARGET gain_demo) # Generated.
+
+add_library(${PLUGIN_TARGET} STATIC)
+
+# Your plug-in information goes here.
+# ---
+add_property(${PLUGIN_TARGET} TINY_COMPANY_NAME "Sketch Audio")
+add_property(${PLUGIN_TARGET} TINY_COMPANY_WEBSITE "www.sketchaudio.com")
+add_property(${PLUGIN_TARGET} TINY_COMPANY_EMAIL "ryan@sketchaudio.com")
+
+add_property(${PLUGIN_TARGET} TINY_FRAMEWORK_CODE "tiny") # These need to be four-character codes.
+add_property(${PLUGIN_TARGET} TINY_MANUFACTURER_CODE "Skch") # At least one capital letter.
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_CODE "gain")
+
+add_property(${PLUGIN_TARGET} TINY_PRODUCT_NAME "Gain Demo")
+add_property(${PLUGIN_TARGET} TINY_PRODUCT_SHORT_NAME "GnDm") # Must be <= 16 chars, for Pro Tools.
+add_property(${PLUGIN_TARGET} TINY_BASE_FILENAME "GainDemo")
+add_property(${PLUGIN_TARGET} TINY_BASE_IDENTIFIER "com.sketch-audio.GainDemo")
+add_property(${PLUGIN_TARGET} TINY_VERSION_STRING "1.0.0")
+add_property(${PLUGIN_TARGET} TINY_BUILD_NUMBER "1")
+
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_SIDECHAIN "false")
+# add_property(${PLUGIN_TARGET} TINY_PLUGIN_CAN_PROCESS_MONO "false") # Not yet supported. 
+
+# CLAP
+# See: https://github.com/free-audio/clap/blob/main/include/clap/plugin-features.h
+add_property(${PLUGIN_TARGET} TINY_CLAP_DESCRIPTION "The tinyplug gain demo plug-in.")
+add_property(${PLUGIN_TARGET} TINY_CLAP_FEATURES "audio-effect;stereo")
+
+# AUv2
+add_property(${PLUGIN_TARGET} TINY_AUV2_VIEW_CLASS "GainDemo_viewFactory") # Audio Unit must have a unique view factory!
+add_property(${PLUGIN_TARGET} TINY_AUV2_TYPE "aufx")
+add_property(${PLUGIN_TARGET} TINY_AUV2_BUNDLE_VERSION "0x10600")
+add_property(${PLUGIN_TARGET} TINY_AUV2_BUNDLE_TAG "Effect")
+
+# VST3
+# See: https://steinbergmedia.github.io/vst3_doc/vstinterfaces/namespaceSteinberg_1_1Vst_1_1PlugType.html
+add_property(${PLUGIN_TARGET} TINY_VST3_SUBCATEGORIES "Fx")
+# ---
+
+# Your plug-in's sources
+# ---
+target_sources(${PLUGIN_TARGET} PRIVATE
+    src/custom_view.cpp
+    src/custom_view.h
+    src/dsp_kernel.cpp
+    src/dsp_kernel.h
+    src/param_model.h
+)
+# ---
+
+# Generate your plug-in's `plug_info.h`
+# ---
+configure_plug_info(
+    ${PLUGIN_TARGET}
+    ${CMAKE_CURRENT_BINARY_DIR}/plug_info.h
+)
+# ---
+
+target_include_directories(${PLUGIN_TARGET} PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_BINARY_DIR} # for plug_info.h
+)
+target_link_libraries(${PLUGIN_TARGET} PUBLIC ${TINY_SHARED_LIB})
+
+# Build the wrappers
+# ---
+make_aax_plugin(${PLUGIN_TARGET} ${AAX_SDK_ROOT_DIR}) # Skips build if not specified.
+make_auv2_plugin(${PLUGIN_TARGET} ${AUV2_SDK})
+make_clap_plugin(${PLUGIN_TARGET} ${CLAP_SDK} ${CLAP_HELPERS})
+make_vst3_plugin(${PLUGIN_TARGET} ${VST3_SDK} ${VST3_SDK_ROOT_DIR})
+# ---

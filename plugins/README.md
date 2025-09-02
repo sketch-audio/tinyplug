@@ -1,0 +1,1 @@
+Run `python3 new_plugin.py my_plugin_name` from project root to add a new plug-in.

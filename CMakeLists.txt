@@ -41,3 +41,25 @@ add_subdirectory(tiny_aax)
 add_subdirectory(tiny_auv2)
 add_subdirectory(tiny_clap)
 add_subdirectory(tiny_vst3)
+
+# NEW BUILD
+include(cmake/helpers.cmake)
+include(formats/formats.cmake)
+
+set(AAX_SDK_ROOT_DIR ${TINY_AAX_SDK_DIR})
+message(STATUS "[tiny] AAX SDK Root Directory: ${AAX_SDK_ROOT_DIR}")
+
+# Enable SDKs.
+enable_auv2_sdk(AUV2_SDK)
+message(STATUS "[tiny] AUv2 SDK: ${AUV2_SDK}")
+
+enable_clap_sdk(CLAP_SDK CLAP_HELPERS)
+message(STATUS "[tiny] CLAP SDK: ${CLAP_SDK}")
+message(STATUS "[tiny] CLAP Helpers: ${CLAP_HELPERS}")
+
+enable_vst3_sdk(VST3_SDK VST3_SDK_ROOT_DIR)
+message(STATUS "[tiny] VST3 SDK: ${VST3_SDK}")
+message(STATUS "[tiny] VST3 SDK Root Directory: ${VST3_SDK_ROOT_DIR}")
+
+# Build the plug-ins.
+add_subdirectory(plugins)

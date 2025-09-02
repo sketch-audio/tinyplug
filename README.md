@@ -115,3 +115,49 @@ The automation test plug-in should make it easy to demonstrate and test automati
 - View notification system? For example, dark mode.
 - Use a heuristic for queue sizes.
 - Remove `Clap_kernel` and consolidate code.
+
+# CMake Refactorings
+- Refactor to allow multiple user plugins
+    - Format builds -> CMake functions
+- Set up dependencies project and move the window contexts there (tiny_shared/skia)
+- Idea: tiny_aax, etc. -> formats, tiny_shared -> shared, tiny_user -> user?
+- Idea: move platform into tinyplug proper?
+- No globbing
+
+//
+
+tinyplug
+- formats/
+    - aax/
+        - cmake/
+        - source/
+        - CMakeLists.txt
+    - auv2/
+    - auv3/
+    - clap/
+    - lv2/
+    - vst3/
+- shared/
+    - tinyplug/
+        - impl/
+            - ios_...
+            - lin_...
+            - mac_...
+            - win_...
+        - tiny_....h
+- plugins/
+    - automation_tester/
+        - source/
+            - custom_view.h/.cpp
+            - dsp_kernel.h/.cpp
+            - param_model.h
+        - CMake_lists.txt
+    - gain_demo/
+        - ...
+    - latency_demo/
+        - ...
+    - etc.
+
+tinydeps
+- skia proper
+- skia window contexts
