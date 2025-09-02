@@ -17,10 +17,6 @@
 			<true/>
 			<key>subtype</key>
 			<string>${TINY_PLUGIN_CODE}</string>
-			<key>tags</key>
-			<array>
-				${TINY_AUDIO_COMPONENT_TAGS}
-			</array>
 			<key>type</key>
 			<string>${TINY_AUV2_TYPE}</string>
 			<key>version</key>

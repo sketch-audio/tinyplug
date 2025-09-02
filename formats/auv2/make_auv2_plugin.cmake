@@ -44,6 +44,20 @@ function(enable_auv2_sdk OUT_AUV2_SDK)
     set(${OUT_AUV2_SDK} AudioUnitSDK PARENT_SCOPE)
 endfunction()
 
+function(derive_build_number version_string out_var)
+    # Split version string into major, minor, patch
+    string(REPLACE "." ";" _version_list "${version_string}")
+    list(GET _version_list 0 _major)
+    list(GET _version_list 1 _minor)
+    list(GET _version_list 2 _patch)
+
+    # Calculate integer value
+    math(EXPR _int "(${_major} << 16) | (${_minor} << 8) | ${_patch}")
+
+    # Set output variable
+    set(${out_var} "${_int}" PARENT_SCOPE)
+endfunction()
+
 # Make an AUv2 plug-in from a user target.
 function(make_auv2_plugin USER_TARGET AUV2_SDK)
     if(NOT APPLE)
@@ -62,9 +76,9 @@ function(make_auv2_plugin USER_TARGET AUV2_SDK)
     read_property(${USER_TARGET} TINY_MANUFACTURER_CODE)
     read_property(${USER_TARGET} TINY_PLUGIN_CODE)
     read_property(${USER_TARGET} TINY_AUV2_TYPE)
-    read_property(${USER_TARGET} TINY_AUV2_BUNDLE_VERSION)
-    read_property(${USER_TARGET} TINY_AUV2_BUNDLE_TAG)
 
+    derive_build_number(${TINY_VERSION_STRING} TINY_AUV2_BUNDLE_VERSION)
+    
     set(AUV2_TARGET ${TINY_BASE_FILENAME}_auv2)
     set(SOURCE_DIR ${CMAKE_SOURCE_DIR}/formats/auv2) # Assumes a certain structure!
 

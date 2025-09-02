@@ -1,61 +1,112 @@
-import sys
+from argparse import ArgumentParser
 import os
 import shutil
+import sys
+
+# Convert a name to pascal case. (Ex. "My Plug-in" -> "MyPlugin")
+def to_pascal_case(name: str) -> str:
+    name = name.replace("-", "")
+    name = name.title().replace(" ", "")
+    return name
+
+# Convert a name to snake case. (Ex. "My Plug-in" -> "my_plugin")
+def to_snake_case(name: str) -> str:
+    name = name.replace("-", "")
+    name = name.lower().replace(" ", "_")
+    return name
+
+# Generate a four-character string from a name.
+def make_short_name(name: str) -> str:
+    name = to_pascal_case(name)
+    return name[:4]
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python new_plugin.py <plugin_name>")
+    # arguments
+    parser = ArgumentParser(
+        prog="new_plugin.py",
+        description="Create a new plug-in."
+    )
+    parser.add_argument("name", help="Display name of the plug-in (spaces OK).")
+    parser.add_argument("--manu", help="Four-character manufacturer code.", default="Tiny")
+    parser.add_argument("--id", help="Four-character plug-in identifier.", default="demo")
+
+    args = parser.parse_args()
+    print("-- Parsing args.")
+
+    # check that args.manu, args.id are four-character codes
+    if len(args.manu) != 4:
+        print("Error: Manufacturer code must be four characters.")
+        sys.exit(1)
+    if len(args.id) != 4:
+        print("Error: Plug-in identifier must be four characters.")
         sys.exit(1)
 
-    plugin_name = sys.argv[1]
-    root_dir = os.path.dirname(__file__)
-    plugins_dir = os.path.join(root_dir, "plugins")
-    template_dir = os.path.join(root_dir, "template")
+    # generate derived names
+    display_name = args.name
+    dir_name = to_snake_case(display_name)
+    file_name = to_pascal_case(display_name)
+    short_name = make_short_name(display_name)
 
-    cmake_template = os.path.join(template_dir, "CMakeLists.txt.in")
+    manufacturer_code = args.manu
+    plugin_code = args.id
 
-    target_dir = os.path.join(plugins_dir, plugin_name)
-    target_cmake = os.path.join(target_dir, "CMakeLists.txt")
+    # get current directory
+    here = os.path.dirname(__file__)
 
-    cmake_file = os.path.join(plugins_dir, "CMakeLists.txt")
-
-    # try create target directory
+    # try to create a new directory
+    print(f"-- Creating directory '{dir_name}' in 'plugins'.")
+    dest_dir = os.path.join(here, "plugins", dir_name)
     try:
-        os.makedirs(target_dir)
+        os.makedirs(dest_dir)
     except FileExistsError:
-        print(f"Error: Directory '{target_dir}' already exists.")
+        print(f"Error: Directory '{dir_name}' already exists.")
         sys.exit(1)
 
-    # copy files at template/source to plugins/<plugin_name>/source
-    source_dir = os.path.join(template_dir, "source")
-    try:
-        shutil.copytree(source_dir, os.path.join(target_dir, "source"))
-        print(f"Copied source files from {source_dir} to {os.path.join(target_dir, 'source')}")
-    except FileExistsError:
-        print(f"Error: Directory '{os.path.join(target_dir, 'source')}' already exists.")
-        sys.exit(1)
-
-    # format CMakeLists.txt.in and write to target CMakeLists.txt
+    # format the cmake
+    print("-- Formatting CMakeLists.txt.")
+    cmake_template = os.path.join(here, "template", "CMakeLists.txt.in")
     with open(cmake_template, "r") as f:
         content = f.read()
-    content = content.replace("{plugin_name}", plugin_name)
-    with open(target_cmake, "w") as f:
+
+    content = content.replace("{display_name}", display_name)\
+                     .replace("{file_name}", file_name)\
+                     .replace("{short_name}", short_name)\
+                     .replace("{manu}", manufacturer_code)\
+                     .replace("{id}", plugin_code)
+
+    cmake_target = os.path.join(dest_dir, "CMakeLists.txt")
+    with open(cmake_target, "w") as f:
         f.write(content)
 
-    # Read existing lines, add new line, sort, and write back
-    new_line = f"add_subdirectory({plugin_name})\n"
-    lines = []
-    if os.path.exists(cmake_file):
-        with open(cmake_file, "r") as f:
-            lines = f.readlines()
-    if new_line not in lines:
-        lines.append(new_line)
-    # Remove duplicates and sort
-    lines = sorted(set(line.strip() for line in lines if line.strip()))
-    with open(cmake_file, "w") as f:
-        for line in lines:
-            f.write(line + "\n")
-    print(f"Updated {cmake_file} with add_subdirectory({plugin_name})")
+    # create the source directory
+    source_dir = os.path.join(dest_dir, "source")
+    os.makedirs(source_dir)
+
+    # copy files from ./template/source to `source_dir`
+    print("-- Copying source files.")
+    template_sources = os.path.join(here, "template", "source")
+    for item in os.listdir(template_sources):
+        s = os.path.join(template_sources, item)
+        d = os.path.join(source_dir, item)
+        if os.path.isdir(s):
+            shutil.copytree(s, d)
+        else:
+            shutil.copy2(s, d)
+
+    print("-- Adding to build.")
+    build_file = os.path.join(here, "plugins", "CMakeLists.txt")
+    # append 'add_subdirectory'
+    with open(build_file, "a") as f:
+        f.write(f"add_subdirectory({dir_name})\n")
+
+    # sort lines alphabetically
+    with open(build_file, "r") as f:
+        lines = f.readlines()
+    lines.sort()
+    with open(build_file, "w") as f:
+        f.writelines(lines)
+
+    print("-- Success!")
 
 if __name__ == "__main__":
     main()
