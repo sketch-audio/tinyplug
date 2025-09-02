@@ -1,1 +1,2 @@
 add_subdirectory(gain_demo)
+add_subdirectory(latency_demo)
