@@ -40,7 +40,7 @@ auto Custom_view::on_draw(App_state& app_state) -> void
     auto& exports = params_state.exports;
 
     const auto id = enum_raw(Param_id::gain);
-    const auto g = params[id];
+    const auto g = static_cast<float>(params[id]);
 
     // Get incremented parameter value from a drag.
     auto get_next = [=, this](auto x, auto& d) -> double {
@@ -78,7 +78,7 @@ auto Custom_view::on_draw(App_state& app_state) -> void
     auto paint = SkPaint{};
     paint.setColor(view_context.dark_mode ? SK_ColorBLACK : SK_ColorWHITE);
     paint.setStyle(SkPaint::kFill_Style);
-    canvas->drawRect(SkRect::MakeXYWH(0, 0, rsize.w, rsize.h), paint);
+    canvas->drawRect(SkRect::MakeXYWH(0, 0, static_cast<float>(rsize.w), static_cast<float>(rsize.h)), paint);
 
     // Draw gain value.
     paint.setColor(view_context.dark_mode ? SK_ColorWHITE : SK_ColorBLACK);
@@ -88,7 +88,7 @@ auto Custom_view::on_draw(App_state& app_state) -> void
 
     const auto g_h = g * rsize.h;
     const auto g_y = rsize.h - g_h;
-    canvas->drawRect(SkRect::MakeXYWH(0, g_y, rsize.w, g_h), paint);
+    canvas->drawRect(SkRect::MakeXYWH(0, g_y, static_cast<float>(rsize.w), g_h), paint);
 }
 
 } // namespace tiny

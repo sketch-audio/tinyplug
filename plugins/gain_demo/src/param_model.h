@@ -47,12 +47,9 @@ struct Param_model {
     // - Peak meters want the max unconsumed value.
     // - Streams simply want the latest value.
     // - Trigs want to happen exactly once.
-    static auto export_type(Export_id id) -> Export_type
+    static auto export_type(Export_id /*id*/) -> Export_type
     {
-        using enum Export_id;
-        switch (id) {
-            default: return Export_type::stream;
-        }
+        return Export_type::stream; // You could switch on `id` here.
     }
 };
 static_assert(Some_param_model<Param_model>); // Check your interface.

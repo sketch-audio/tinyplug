@@ -1,7 +1,7 @@
 # Enable the Audio Unit (v2) SDK. Only need to do this once.
 function(enable_auv2_sdk OUT_AUV2_SDK)
     if(NOT APPLE)
-        message(STATUS "[tiny] Skipping AUv2 SDK build.")
+        set(${OUT_AUV2_SDK} "n/a" PARENT_SCOPE)
         return()
     endif()
 
@@ -47,7 +47,7 @@ endfunction()
 # Make an AUv2 plug-in from a user target.
 function(make_auv2_plugin USER_TARGET AUV2_SDK)
     if(NOT APPLE)
-        message(STATUS "-- [tiny] Skipping AUv2 build.")
+        message(STATUS "[tiny] Skipping AUv2 build.")
         return()
     endif()
 

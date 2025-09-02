@@ -13,10 +13,10 @@ auto Dsp_kernel::handle_event(const Render_event& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Set_param& e) {
-            _values[e.id] = e.value;
+            _values[e.id] = static_cast<float>(e.value);
         },
         [this](const Ramp_param& e) {
-            _values[e.id] = e.target; // You might want to handle this differently.
+            _values[e.id] = static_cast<float>(e.target); // You might want to handle this differently.
         },
         [this](const auto&) { /* Handle other events as needed. */ }
     }, event);

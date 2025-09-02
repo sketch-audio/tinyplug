@@ -135,7 +135,7 @@ function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
         if(TINY_INSTALL_PLUGINS)
             add_custom_command(
                 TARGET ${VST3_TARGET} POST_BUILD
-                COMMAND "${CMAKE_CURRENT_LIST_DIR}/cmake/postbuild_copy.bat" "${VST3_BUNDLE_OUTPUT_DIR}"
+                COMMAND "${SOURCE_DIR}/cmake/postbuild_copy.bat" "${VST3_BUNDLE_OUTPUT_DIR}"
                 COMMENT "Copying VST3 plugin to system folder (will prompt for administrator)"
                 VERBATIM
             )
