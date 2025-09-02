@@ -41,11 +41,11 @@ add_property(${PLUGIN_TARGET} TINY_VST3_SUBCATEGORIES "Fx")
 # Your plug-in's sources
 # ---
 target_sources(${PLUGIN_TARGET} PRIVATE
-    src/custom_view.cpp
-    src/custom_view.h
-    src/dsp_kernel.cpp
-    src/dsp_kernel.h
-    src/param_model.h
+    source/custom_view.cpp
+    source/custom_view.h
+    source/dsp_kernel.cpp
+    source/dsp_kernel.h
+    source/param_model.h
 )
 # ---
 
@@ -58,7 +58,7 @@ configure_plug_info(
 # ---
 
 target_include_directories(${PLUGIN_TARGET} PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/source
     ${CMAKE_CURRENT_BINARY_DIR} # for plug_info.h
 )
 target_link_libraries(${PLUGIN_TARGET} PUBLIC ${TINY_SHARED_LIB})
