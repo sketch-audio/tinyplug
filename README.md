@@ -95,19 +95,22 @@ The style actually developed over several years of writing C++ alongside Swift a
 - Add Linux support for CLAP, VST3
 - Add LV2 format for Linux
 
-## Demo Plug-in (TODO)
-The demo plug-in should demonstrate & test all stated features.
-- Sidechain input
-- Musical context
-- Value semantics
-- Host policies
-- Export types
-- Latency changes
-
-## Automation Test Plug-in (TODO)
-The automation test plug-in should make it easy to demonstrate and test automation playback behavior.
-- Output automation data as DC
-- Log all automation events received (idea)
+## Test Plug-ins
+Tinyplug ships with some test plug-ins that can be useful for making sure things are working as advertised.
+### Done (ish)
+- Automation Tester
+- Gain Demo
+- Latency Demo
+### Todo
+- Exports Demo
+- Musical Context Demo
+- Params Demo
+    - Semantics
+    - Policy
+- Platform Demo
+    - Dialogs
+    - ...
+- Sidechain Demo
 
 ## Consider
 - How to handle logical vs. real size?
@@ -117,8 +120,6 @@ The automation test plug-in should make it easy to demonstrate and test automati
 - Remove `Clap_kernel` and consolidate code.
 
 # CMake Refactorings
-- Refactor to allow multiple user plugins
-    - Format builds -> CMake functions
 - Set up dependencies project and move the window contexts there (tiny_shared/skia)
 - Idea: tiny_aax, etc. -> formats, tiny_shared -> shared, tiny_user -> user?
 - Idea: move platform into tinyplug proper?

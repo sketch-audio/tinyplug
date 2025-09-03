@@ -1,9 +1,9 @@
 # Latency Demo
-The latency demo plug-in can be used to test that latency reporting works correctly in tinyplug.
+A plug-in that demonstrates how to report latency, change it midstream.
 
-The plug-in should:
-- Start up with a non-zero latency (0.5 ms)
-- Toggle between that and a high-latency path on click. (5.0 ms)
+The plug-in:
+- Starts up with a non-zero latency (0.5 ms)
+- Toggles between that and a high-latency path on click. (5.0 ms)
 
 The UI should display:
 - Green when the low-latency path is active.
