@@ -27,7 +27,7 @@ set(TINY_SKIA_ROOT_DIR "" CACHE PATH "Path to Skia library.")
 if(NOT TINY_SKIA_ROOT_DIR)
     message(FATAL_ERROR "TINY_SKIA_ROOT_DIR must be set.")
 endif()
-message(STATUS "TINY_SKIA_ROOT_DIR: ${TINY_SKIA_ROOT_DIR}")
+message(STATUS "[tiny] Skia Root Directory: ${TINY_SKIA_ROOT_DIR}")
 
 # AAX SDK path is optional.
 set(TINY_AAX_SDK_DIR "" CACHE PATH "Path to AAX SDK.")
@@ -50,14 +50,20 @@ include(formats/formats.cmake)
 set(AAX_SDK_ROOT_DIR ${TINY_AAX_SDK_DIR})
 message(STATUS "[tiny] AAX SDK Root Directory: ${AAX_SDK_ROOT_DIR}")
 
-enable_auv2_sdk(AUV2_SDK)
+set(AUV2_SDK_VER 1.3.0) # See: https://github.com/apple/AudioUnitSDK/tags
+enable_auv2_sdk(${AUV2_SDK_VER} AUV2_SDK)
+message(STATUS "[tiny] AUv2 SDK Version: ${AUV2_SDK_VER}")
 message(STATUS "[tiny] AUv2 SDK: ${AUV2_SDK}")
 
-enable_clap_sdk(CLAP_SDK CLAP_HELPERS)
+set(CLAP_SDK_VER 1.2.6) # See: https://github.com/free-audio/clap/tags
+enable_clap_sdk(${CLAP_SDK_VER} CLAP_SDK CLAP_HELPERS)
+message(STATUS "[tiny] CLAP SDK Version: ${CLAP_SDK_VER}")
 message(STATUS "[tiny] CLAP SDK: ${CLAP_SDK}")
 message(STATUS "[tiny] CLAP Helpers: ${CLAP_HELPERS}")
 
-enable_vst3_sdk(VST3_SDK VST3_SDK_ROOT_DIR)
+set(VST3_SDK_VER v3.7.14_build_55) # See: https://github.com/steinbergmedia/vst3sdk/tags
+enable_vst3_sdk(${VST3_SDK_VER} VST3_SDK VST3_SDK_ROOT_DIR)
+message(STATUS "[tiny] VST3 SDK Version: ${VST3_SDK_VER}")
 message(STATUS "[tiny] VST3 SDK: ${VST3_SDK}")
 message(STATUS "[tiny] VST3 SDK Root Directory: ${VST3_SDK_ROOT_DIR}")
 

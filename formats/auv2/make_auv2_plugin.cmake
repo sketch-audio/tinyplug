@@ -1,5 +1,5 @@
 # Enable the Audio Unit (v2) SDK. Only need to do this once.
-function(enable_auv2_sdk OUT_AUV2_SDK)
+function(enable_auv2_sdk AUV2_SDK_VER OUT_AUV2_SDK)
     if(NOT APPLE)
         set(${OUT_AUV2_SDK} "n/a" PARENT_SCOPE)
         return()
@@ -15,7 +15,6 @@ function(enable_auv2_sdk OUT_AUV2_SDK)
     include(ExternalProject)
 
     add_library(AudioUnitSDK INTERFACE)
-    set(AUV2_SDK_VERSION 1.3.0)
 
     set(AUV2_SDK_EXT AudioUnitSDK_Ext)
     set(AUV2_SDK_PROJ ${CMAKE_CURRENT_BINARY_DIR}/${AUV2_SDK_EXT}-prefix/src/${AUV2_SDK_EXT})
@@ -28,7 +27,7 @@ function(enable_auv2_sdk OUT_AUV2_SDK)
     
     ExternalProject_Add(${AUV2_SDK_EXT}
         GIT_REPOSITORY https://github.com/apple/AudioUnitSDK.git
-        GIT_TAG AudioUnitSDK-${AUV2_SDK_VERSION}
+        GIT_TAG AudioUnitSDK-${AUV2_SDK_VER}
         CONFIGURE_COMMAND ""
         BUILD_COMMAND ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/build_sdk.sh 
             ${AUV2_SDK_PROJ} 

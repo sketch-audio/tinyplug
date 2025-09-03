@@ -1,20 +1,18 @@
 # Enable the CLAP SDK. Only need to do this once.
-function(enable_clap_sdk OUT_CLAP_SDK OUT_CLAP_HELPERS)
+function(enable_clap_sdk CLAP_SDK_VER OUT_CLAP_SDK OUT_CLAP_HELPERS)
     include(FetchContent)
 
     FetchContent_Declare(
         clap
         GIT_REPOSITORY https://github.com/free-audio/clap.git
-        GIT_TAG main
-        # 'FIND_PACKAGE_ARGS' will skip download if
-        # the target is already available in the system
+        GIT_TAG ${CLAP_SDK_VER}
         FIND_PACKAGE_ARGS NAMES clap
     )
 
     FetchContent_Declare(
         clap-helpers
         GIT_REPOSITORY https://github.com/free-audio/clap-helpers.git
-        GIT_TAG main
+        GIT_TAG main # clap-helpers not tagged...
         FIND_PACKAGE_ARGS NAMES clap-helpers
     )
 

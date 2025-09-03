@@ -1,5 +1,5 @@
 # Enable the VST3 SDK. Only need to do this once.
-function(enable_vst3_sdk OUT_VST3_SDK OUT_VST3_SDK_ROOT_DIR)
+function(enable_vst3_sdk VST3_SDK_VER OUT_VST3_SDK OUT_VST3_SDK_ROOT_DIR)
     include(FetchContent)
 
     # https://github.com/kunitoki/yup
@@ -17,12 +17,10 @@ function(enable_vst3_sdk OUT_VST3_SDK OUT_VST3_SDK_ROOT_DIR)
     FetchContent_Declare(
         vst3sdk
         GIT_REPOSITORY https://github.com/steinbergmedia/vst3sdk.git
-        GIT_TAG v3.7.13_build_42
+        GIT_TAG ${VST3_SDK_VER}
     )
 
-    FetchContent_MakeAvailable(
-        vst3sdk
-    )
+    FetchContent_MakeAvailable(vst3sdk)
 
     # Don't issue warnings when building VST3 sdk.
     target_compile_options(sdk PRIVATE -w)
