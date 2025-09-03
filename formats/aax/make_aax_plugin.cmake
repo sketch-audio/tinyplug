@@ -1,8 +1,7 @@
 # Make an AAX plug-in from a user target.
 function(make_aax_plugin USER_TARGET AAX_SDK_ROOT_DIR)
     # Requires AAX SDK path.
-    if(NOT AAX_SDK_ROOT_DIR)
-        message(STATUS "[tiny] No AAX_SDK_ROOT_DIR specified, skipping AAX build.")
+    if(AAX_SDK_ROOT_DIR STREQUAL "n/a") # !!!
         return()
     endif()
 

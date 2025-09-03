@@ -7,7 +7,7 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkSurface.h"
 
-#include "../skia/WindowContext.h"
+#include "tools/window/WindowContext.h"
 
 #include "../tinyplug/tinyplug.h"
 

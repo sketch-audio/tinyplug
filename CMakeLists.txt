@@ -22,32 +22,32 @@ elseif(WIN32)
     endif()
 endif()
 
-# We need a path to the prebuilt Skia library.
-set(TINY_SKIA_ROOT_DIR "" CACHE PATH "Path to Skia library.")
-if(NOT TINY_SKIA_ROOT_DIR)
-    message(FATAL_ERROR "TINY_SKIA_ROOT_DIR must be set.")
+# tiny_deps path is required.
+set(TINY_DEPS_PATH "" CACHE PATH "Path to tiny_deps.")
+if (NOT TINY_DEPS_PATH)
+    message(FATAL_ERROR "TINY_DEPS_PATH must be set.")
 endif()
-message(STATUS "[tiny] Skia Root Directory: ${TINY_SKIA_ROOT_DIR}")
+message(STATUS "[tiny] tiny_deps path: ${TINY_DEPS_PATH}")
+
+include(FetchContent)
+FetchContent_Declare(
+    tiny_deps
+    SOURCE_DIR ${TINY_DEPS_PATH}
+)
+FetchContent_MakeAvailable(tiny_deps) # skia skia-window-contexts
 
 # AAX SDK path is optional.
-set(TINY_AAX_SDK_DIR "" CACHE PATH "Path to AAX SDK.")
-
-# # Shared library & user code.
-# add_subdirectory(tiny_shared)
-# add_subdirectory(tiny_user)
-
-# # Plug-in targets.
-# add_subdirectory(tiny_aax)
-# add_subdirectory(tiny_auv2)
-# add_subdirectory(tiny_clap)
-# add_subdirectory(tiny_vst3)
+set(TINY_AAX_SDK_PATH "" CACHE PATH "Path to AAX SDK.")
+if (NOT TINY_AAX_SDK_PATH)
+    set(TINY_AAX_SDK_PATH "n/a") # !!!
+endif()
 
 # NEW BUILD
 include(cmake/helpers.cmake)
 include(formats/formats.cmake)
 
 # Enable SDKs.
-set(AAX_SDK_ROOT_DIR ${TINY_AAX_SDK_DIR})
+set(AAX_SDK_ROOT_DIR ${TINY_AAX_SDK_PATH})
 message(STATUS "[tiny] AAX SDK Root Directory: ${AAX_SDK_ROOT_DIR}")
 
 set(AUV2_SDK_VER 1.3.0) # See: https://github.com/apple/AudioUnitSDK/tags

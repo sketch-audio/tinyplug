@@ -6,8 +6,8 @@
 #import <Cocoa/Cocoa.h>
 #import <CoreVideo/CVDisplayLink.h>
 
-#include "../skia/mac/GaneshMetalWindowContext_mac.h"
-#include "../skia/mac/MacWindowInfo.h"
+#include "tools/window/mac/GaneshMetalWindowContext_mac.h"
+#include "tools/window/mac/MacWindowInfo.h"
 
 #define MAC_VIEW_RENDER_MAIN_THREAD 0 // Main thread was slowing down Pro Tools UI.
 

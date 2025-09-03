@@ -120,9 +120,4 @@ Tinyplug ships with some test plug-ins that can be useful for making sure things
 - Remove `Clap_kernel` and consolidate code.
 
 ## CMake Refactorings
-- Set up dependencies project and move the window contexts there (tiny_shared/skia)
 - Idea: move platform into tinyplug proper?
-
-tinydeps
-- skia proper
-- skia window contexts
