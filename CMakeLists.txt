@@ -32,24 +32,24 @@ message(STATUS "TINY_SKIA_ROOT_DIR: ${TINY_SKIA_ROOT_DIR}")
 # AAX SDK path is optional.
 set(TINY_AAX_SDK_DIR "" CACHE PATH "Path to AAX SDK.")
 
-# Shared library & user code.
-add_subdirectory(tiny_shared)
-add_subdirectory(tiny_user)
+# # Shared library & user code.
+# add_subdirectory(tiny_shared)
+# add_subdirectory(tiny_user)
 
-# Plug-in targets.
-add_subdirectory(tiny_aax)
-add_subdirectory(tiny_auv2)
-add_subdirectory(tiny_clap)
-add_subdirectory(tiny_vst3)
+# # Plug-in targets.
+# add_subdirectory(tiny_aax)
+# add_subdirectory(tiny_auv2)
+# add_subdirectory(tiny_clap)
+# add_subdirectory(tiny_vst3)
 
 # NEW BUILD
 include(cmake/helpers.cmake)
 include(formats/formats.cmake)
 
+# Enable SDKs.
 set(AAX_SDK_ROOT_DIR ${TINY_AAX_SDK_DIR})
 message(STATUS "[tiny] AAX SDK Root Directory: ${AAX_SDK_ROOT_DIR}")
 
-# Enable SDKs.
 enable_auv2_sdk(AUV2_SDK)
 message(STATUS "[tiny] AUv2 SDK: ${AUV2_SDK}")
 
@@ -60,6 +60,9 @@ message(STATUS "[tiny] CLAP Helpers: ${CLAP_HELPERS}")
 enable_vst3_sdk(VST3_SDK VST3_SDK_ROOT_DIR)
 message(STATUS "[tiny] VST3 SDK: ${VST3_SDK}")
 message(STATUS "[tiny] VST3 SDK Root Directory: ${VST3_SDK_ROOT_DIR}")
+
+# Add shared library.
+add_subdirectory(shared)
 
 # Build the plug-ins.
 add_subdirectory(plugins)
