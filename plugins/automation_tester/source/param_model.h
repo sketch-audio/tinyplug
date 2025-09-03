@@ -33,10 +33,10 @@ struct Param_model {
                 .name = "Gain",
                 .semantics = Real_semantics{
                     .min_val = 0,
-                    .def_val = 1,
+                    .def_val = 0,
                     .max_val = 1,
                     .units = Units::generic,
-                    .knob_adapter = Adapt_pow{3}
+                    .knob_adapter = Adapt_lin{}
                 }
             }
         }};

@@ -5,6 +5,8 @@
 #include "tinyplug/tinyplug.h"
 #include "param_model.h"
 
+#include "dsp/linear_ramper.h"
+
 namespace tiny {
 
 class Dsp_kernel {
@@ -40,6 +42,8 @@ private:
 
     User_params _param_infos{};
     std::array<float, num_params> _values{_param_infos.make_plain_defaults<float>()};
+
+    Linear_ramper _ramper{};
 
 };
 static_assert(Some_dsp_kernel<Dsp_kernel>); // Check your interface.

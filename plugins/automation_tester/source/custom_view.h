@@ -27,10 +27,7 @@ private:
     User_params _params{};
     Action_queue::Receiver _actions{};
     Task_queue::Receiver _task_receiver{};
-
-    bool _down{};
-    double _ldrag{}; // norm
-
+    
 };
 
 } // namespace tiny
