@@ -1,7 +1,0 @@
-_ACFRegisterPlugin
-_ACFRegisterComponent
-_ACFGetClassFactory
-_ACFCanUnloadNow
-_ACFStartup
-_ACFShutdown
-_ACFGetSDKVersion
