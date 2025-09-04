@@ -47,7 +47,7 @@ auto Clap_view::set_parent(const clap_window* window) noexcept -> bool
     _platform_view->receive_parent(platform_window);
     
     _uiparams = make_array_by_indices<double, num_params>(
-        [this](auto i) { return _receiver.get_knob_value(i); }
+        [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
     );
 
     return true;
