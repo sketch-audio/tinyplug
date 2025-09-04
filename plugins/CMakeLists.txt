@@ -2,3 +2,4 @@
 add_subdirectory(automation_tester)
 add_subdirectory(gain_demo)
 add_subdirectory(latency_demo)
+add_subdirectory(platform_demo)
