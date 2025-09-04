@@ -157,14 +157,14 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
             }
 
             // Convert to knob and send to action queue.
-            const auto& param = _param_infos.param_for(i);
+            const auto& param = _param_infos.param_for(static_cast<uint32_t>(i));
             const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
             do_notify(param, knob_value);
         }
 
         // Set remaining parameters to defaults. 
         for (auto i = num_state; i < num_params; ++i) {
-            const auto& param = _param_infos.param_for(i);
+            const auto& param = _param_infos.param_for(static_cast<uint32_t>(i));
             const auto knob_value = get_knob_default(param);
             do_notify(param, knob_value);
         }
@@ -247,7 +247,7 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
         [&](const List_semantics& l) {
             info->flags |= (CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_ENUM);
             info->min_value = 0;
-            info->max_value = l.items.size() - 1;
+            info->max_value = static_cast<double>(l.items.size() - 1);
             info->default_value = static_cast<double>(l.def_val);
         },
         [&](const Int_semantics& i) {

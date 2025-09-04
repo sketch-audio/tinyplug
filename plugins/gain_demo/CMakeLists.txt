@@ -1,4 +1,4 @@
-set(PLUGIN_TARGET GainDemo) # Generated.
+set(PLUGIN_TARGET GainDemo_lib) # Generated.
 
 add_library(${PLUGIN_TARGET} STATIC)
 

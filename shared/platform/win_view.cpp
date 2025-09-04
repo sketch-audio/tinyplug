@@ -27,8 +27,7 @@
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(linker,"/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
-#define SK_DIRECT3D
-#include "../skia/win/WindowContextFactory_win.h"
+#include "WindowContextFactory_tiny.h" // tiny_deps
 
 #define WM_TINY_SETCURSOR (WM_APP + 1) // Reset cursor message for dialogs.
 
@@ -568,7 +567,7 @@ inline auto draw_button(DRAWITEMSTRUCT* draw_item) -> void
     SetBkMode(hdc, TRANSPARENT);
 
     auto button_text = std::array<wchar_t, 256>{};
-    GetWindowTextW(draw_item->hwndItem, button_text.data(), button_text.size());
+    GetWindowTextW(draw_item->hwndItem, button_text.data(), static_cast<int>(button_text.size()));
     DrawTextW(hdc, button_text.data(), -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     if (draw_item->itemState & ODS_FOCUS) {
@@ -711,7 +710,7 @@ inline auto measure_text(const std::string& string, const Font_info& font) -> st
 
     auto wline = string_to_wstring(longest_line);
     auto size = SIZE{};
-    GetTextExtentPoint32W(hdc, wline.c_str(), wline.size(), &size);
+    GetTextExtentPoint32W(hdc, wline.c_str(), static_cast<int>(wline.size()), &size);
 
     SelectObject(hdc, horiginal);
     DeleteObject(hfont);
@@ -775,13 +774,13 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
             *lpw++ = 0;             // Predefined dialog box class (by default)
 
             lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, title.size() + 1);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, static_cast<int>(title.size()) + 1);
             lpw += nchar;
             
 
             *lpw++ = font.size;             // Font size
             lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, font.name.size() + 1);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, static_cast<int>(font.name.size()) + 1);
             lpw += nchar;
 
             //-----------------------
@@ -818,7 +817,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
             *lpw++ = 0x0082;        // Static class
 
             lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, message.size() + 1);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, static_cast<int>(message.size()) + 1);
             lpw += nchar;
             *lpw++ = 0;             // No creation data
 
@@ -886,13 +885,13 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
             *lpw++ = 0;             // Predefined dialog box class (by default)
 
             lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, title.size() + 1);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, static_cast<int>(title.size()) + 1);
             lpw += nchar;
             
 
             *lpw++ = font.size;             // Font size
             lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, font.name.size() + 1);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, static_cast<int>(font.name.size()) + 1);
             lpw += nchar;
 
             //-----------------------
@@ -948,7 +947,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
             *lpw++ = 0x0082;        // Static class
 
             lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, message.size() + 1);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, static_cast<int>(message.size()) + 1);
             lpw += nchar;
             *lpw++ = 0;             // No creation data
 
@@ -1017,12 +1016,12 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             *lpw++ = 0;             // Predefined dialog box class (by default)
 
             lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, title.size() + 1);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, static_cast<int>(title.size()) + 1);
             lpw += nchar;
 
             *lpw++ = font.size;             // Font size
             lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, font.name.size() + 1);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, static_cast<int>(font.name.size()) + 1);
             lpw += nchar;
 
             //-----------------------
@@ -1105,7 +1104,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             *lpw++ = 0x0082;        // Static class
 
             lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, message.size() + 1);
+            nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, static_cast<int>(message.size()) + 1);
             lpw += nchar;
             *lpw++ = 0;             // No creation data
 

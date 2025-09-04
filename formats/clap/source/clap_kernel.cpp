@@ -58,7 +58,7 @@ auto Clap_kernel::process(const clap_process* process) -> clap_process_status
     const auto* events = process->in_events;
     const auto event_count = events->size(events);
 
-    auto event_index = size_t{};
+    auto event_index = uint32_t{};
     const auto* event = event_count > 0 ? events->get(events, event_index) : nullptr;
 
     auto next_event = [&]() {

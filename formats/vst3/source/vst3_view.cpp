@@ -33,7 +33,7 @@ Steinberg::tresult PLUGIN_API Vst3_view::attached(void* parent, Steinberg::FIDSt
     _platform_view->receive_parent(parent);
     
     _uiparams = make_array_by_indices<double, num_params>(
-        [this](auto i) { return _receiver.get_knob_value(i); }
+        [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
     );
 
     _custom_view->on_create(_actions.make_receiver(), _tasks.make_receiver());

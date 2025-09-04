@@ -56,7 +56,7 @@ auto Dsp_kernel::process(Dsp_context& context) -> void
     }
 
     // Export `latency_actual` so we can see if there are discrepancies in the UI.
-    context.exports[enum_raw(Export_id::latency_actual)] = (_curr == &_low) ? double{} : double{1};
+    context.exports[enum_raw(Export_id::latency_actual)] = (_curr == &_low) ? float{} : float{1};
 }
 
 } // namespace tiny

@@ -14,12 +14,12 @@ auto Dsp_kernel::handle_event(const Render_event& event) -> void
     std::visit(Inline_visitor{
         [this](const Set_param& e) {
             if (e.id == enum_raw(Param_id::gain)) {
-                _ramper.set_immediate(e.value);
+                _ramper.set_immediate(static_cast<float>(e.value));
             }
         },
         [this](const Ramp_param& e) {
             if (e.id == enum_raw(Param_id::gain)) {
-                _ramper.set_ramp(e.target, e.dur_samples);
+                _ramper.set_ramp(static_cast<float>(e.target), e.dur_samples);
             }
         },
         [this](const auto&) { /* Handle other events as needed. */ }

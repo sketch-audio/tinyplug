@@ -1,4 +1,4 @@
-set(PLUGIN_TARGET AutomationTester) # Generated.
+set(PLUGIN_TARGET AutomationTester_lib) # Generated.
 
 add_library(${PLUGIN_TARGET} STATIC)
 

@@ -60,7 +60,6 @@ endfunction()
 # Make an AUv2 plug-in from a user target.
 function(make_auv2_plugin USER_TARGET AUV2_SDK)
     if(NOT APPLE)
-        message(STATUS "[tiny] Skipping AUv2 build.")
         return()
     endif()
 

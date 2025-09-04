@@ -1,18 +1,3 @@
-# --- SKIA ---
-# This is leftover from initial iPlug2 integration. 
-# Might want to revisit this and/or move it elsewhere.
-# See: https://github.com/iPlug2/iPlug2
-
-# Enable Link Time Optimization if supported (and not using Emscripten).
-include(CheckIPOSupported)
-check_ipo_supported(RESULT supported OUTPUT error)
-if(supported)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-else()
-    message(STATUS "IPO is not supported: ${error}")
-endif()
-# --- SKIA ---
-
 if(APPLE)
     set(PLATFORM_SOURCES
         platform/mac_view.mm

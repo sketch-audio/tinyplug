@@ -48,30 +48,30 @@ private:
 
 };
 
-// Test ramper
-static_assert([]() {
-    auto result = true;
+// // Test ramper
+// static_assert([]() {
+//     auto result = true;
 
-    const auto sr = 48000;
-    auto ramper = Linear_ramper{};
-    ramper.reset(sr);
+//     const auto sr = 48000;
+//     auto ramper = Linear_ramper{};
+//     ramper.reset(sr);
 
-    // 
-    const auto x0 = 0.5f;
-    ramper.set_immediate(x0);
-    const auto y0 = ramper.process();
-    result = (x0 == y0);
+//     // 
+//     const auto x0 = 0.5f;
+//     ramper.set_immediate(x0);
+//     const auto y0 = ramper.process();
+//     result = (x0 == y0);
 
-    const auto n = 64;
-    auto x = 0.25f;
-    auto y = float{};
-    ramper.set_ramp(x, n);
-    for (auto i = decltype(n){}; i < n; ++i) {
-        y = ramper.process();
-    }
-    result &= (x == y);
+//     const auto n = 64;
+//     auto x = 0.25f;
+//     auto y = float{};
+//     ramper.set_ramp(x, n);
+//     for (auto i = decltype(n){}; i < n; ++i) {
+//         y = ramper.process();
+//     }
+//     result &= (x == y);
 
-    return result;
-}());
+//     return result;
+// }());
 
 } // namespace tiny

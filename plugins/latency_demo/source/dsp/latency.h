@@ -11,8 +11,8 @@ struct Latency {
 
     constexpr auto reset(double sr) -> void
     {
-        this->sr = sr;
-        const auto latency_samples = _latency_ms * 1e-3f * sr;
+        _sr = sr;
+        const auto latency_samples = _latency_ms * 1e-3f * _sr;
         const auto min_samples = latency_samples + 2; // So we can have zero latency.
         auto n = size_t{1};
         while (n < min_samples) n *= 2;
@@ -20,7 +20,7 @@ struct Latency {
         _idx = 0;
         _msk = n - 1;
         _off = static_cast<size_t>(latency_samples);
-        _frac = latency_samples - _off;
+        _frac = static_cast<float>(latency_samples - _off);
         _eta = (1 - _frac) / (1 + _frac);
         _z = 0;
     }
@@ -33,12 +33,12 @@ struct Latency {
     
     constexpr auto latency_samps() -> uint32_t
     {
-        return static_cast<uint32_t>(_latency_ms * 1e-3f * sr);
+        return static_cast<uint32_t>(_latency_ms * 1e-3f * _sr);
     }
 
 private:
     
-    double sr{48000};
+    double _sr{48000};
     double _latency_ms{};
 
     std::vector<float> _samples{};

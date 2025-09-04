@@ -1,4 +1,4 @@
-set(PLUGIN_TARGET LatencyDemo) # Generated.
+set(PLUGIN_TARGET LatencyDemo_lib) # Generated.
 
 add_library(${PLUGIN_TARGET} STATIC)
 
