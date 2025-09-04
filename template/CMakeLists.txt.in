@@ -1,4 +1,4 @@
-set(PLUGIN_TARGET {file_name}) # Generated.
+set(PLUGIN_TARGET {file_name}_lib) # Generated.
 
 add_library(${PLUGIN_TARGET} STATIC)
 
