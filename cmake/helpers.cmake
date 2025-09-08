@@ -76,6 +76,13 @@ function(configure_plug_info plugin_target output)
 
     read_property(${plugin_target} TINY_VST3_SUBCATEGORIES)
 
+    # So use a define for AUv3
+    if(TINY_PLUGIN_WANTS_SIDECHAIN STREQUAL "true")
+        set(TINY_WANTS_SIDECHAIN 1)
+    else()
+        set(TINY_WANTS_SIDECHAIN 0)
+    endif()
+
     # Generate the CLAP feature list.
     prepare_clap_feature_list(
         TINY_CLAP_FEATURES 
@@ -97,4 +104,19 @@ function(configure_plug_info plugin_target output)
         ${CMAKE_SOURCE_DIR}/cmake/plug_info.h.in
         ${output}
     )
+endfunction()
+
+# Generate build number for AUv2 and AUv3 target plists.
+function(derive_build_number version_string out_var)
+    # Split version string into major, minor, patch
+    string(REPLACE "." ";" _version_list "${version_string}")
+    list(GET _version_list 0 _major)
+    list(GET _version_list 1 _minor)
+    list(GET _version_list 2 _patch)
+
+    # Calculate integer value
+    math(EXPR _int "(${_major} << 16) | (${_minor} << 8) | ${_patch}")
+
+    # Set output variable
+    set(${out_var} "${_int}" PARENT_SCOPE)
 endfunction()

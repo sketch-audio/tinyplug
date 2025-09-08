@@ -11,6 +11,10 @@ if (APPLE)
     enable_language(OBJC)
     enable_language(OBJCXX)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64") # Universal build.
+
+    # If you want to run AUv3 on device.
+    set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer")
+    set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "") # You will need to set your team ID.
 elseif(WIN32)
     # Use the static CRT. (This is how we built skia.)
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")

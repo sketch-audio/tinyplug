@@ -1,5 +1,6 @@
 set(HERE ${CMAKE_CURRENT_LIST_DIR})
 include(${HERE}/aax/make_aax_plugin.cmake)
 include(${HERE}/auv2/make_auv2_plugin.cmake)
+include(${HERE}/auv3/make_auv3_plugin.cmake)
 include(${HERE}/clap/make_clap_plugin.cmake)
 include(${HERE}/vst3/make_vst3_plugin.cmake)

@@ -6,6 +6,8 @@
 #define TINY_AUV2_VIEW_CLASS @TINY_AUV2_VIEW_CLASS@
 static const unsigned int kAudioUnitProperty_UserPlugin = 64000; // User properties have to be >= 64000.
 
+#define TINY_WANTS_SIDECHAIN @TINY_WANTS_SIDECHAIN@
+
 namespace tiny {
 
 struct Plug_info {

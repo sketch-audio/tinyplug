@@ -121,3 +121,5 @@ Tinyplug ships with some test plug-ins that can be useful for making sure things
 
 ## CMake Refactorings
 - Idea: move platform into tinyplug proper?
+- TINY_AUV2_TYPE -> TINY_AU_TYPE
+- TINY_PLUGIN_CODE for AUv3 same as AUv2?

@@ -43,20 +43,6 @@ function(enable_auv2_sdk AUV2_SDK_VER OUT_AUV2_SDK)
     set(${OUT_AUV2_SDK} AudioUnitSDK PARENT_SCOPE)
 endfunction()
 
-function(derive_build_number version_string out_var)
-    # Split version string into major, minor, patch
-    string(REPLACE "." ";" _version_list "${version_string}")
-    list(GET _version_list 0 _major)
-    list(GET _version_list 1 _minor)
-    list(GET _version_list 2 _patch)
-
-    # Calculate integer value
-    math(EXPR _int "(${_major} << 16) | (${_minor} << 8) | ${_patch}")
-
-    # Set output variable
-    set(${out_var} "${_int}" PARENT_SCOPE)
-endfunction()
-
 # Make an AUv2 plug-in from a user target.
 function(make_auv2_plugin USER_TARGET AUV2_SDK)
     if(NOT APPLE)
