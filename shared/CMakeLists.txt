@@ -1,7 +1,9 @@
 if(APPLE)
-    set(PLATFORM_SOURCES
-        platform/mac_view.mm
-    )
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        set(PLATFORM_SOURCES platform/ios_view.mm)
+    else()
+        set(PLATFORM_SOURCES platform/mac_view.mm)
+    endif()
 elseif(WIN32)
     set(PLATFORM_SOURCES
         platform/win_view.cpp
@@ -32,13 +34,21 @@ target_include_directories(
 
 target_link_libraries(${TINY_SHARED_LIB} PUBLIC skia skia-window-contexts) # from tiny_deps
 if(APPLE)
-    target_link_libraries(${TINY_SHARED_LIB} PUBLIC
-        "-framework Cocoa"
-        "-framework CoreFoundation"
-        "-framework Metal"
-        "-framework QuartzCore"
-        "-framework CoreVideo"
-    )
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        target_link_libraries(${TINY_SHARED_LIB} PUBLIC
+            "-framework Metal"
+            "-framework QuartzCore"
+            "-framework UIKit"
+        )
+    else()
+        target_link_libraries(${TINY_SHARED_LIB} PUBLIC
+            "-framework Cocoa"
+            "-framework CoreFoundation"
+            "-framework Metal"
+            "-framework QuartzCore"
+            "-framework CoreVideo"
+        )
+    endif()
 elseif(WIN32)
     target_link_libraries(${TINY_SHARED_LIB} PUBLIC d3d12.lib dxgi.lib d3dcompiler.lib)
 endif()

@@ -6,7 +6,7 @@
         #ifndef PLATFORM_MACOS
         #define PLATFORM_MACOS 1
         #endif
-    #elif TARGET_OS_IPHONE
+    #elif TARGET_OS_IOS
         #ifndef PLATFORM_IOS
         #define PLATFORM_IOS 1
         #endif

@@ -55,7 +55,7 @@ struct Platform_views {
         return std::make_unique<Platform_view>(delegate, true);
     }
 
-#if PLATFORM_MACOS
+#if PLATFORM_MACOS || PLATFORM_IOS
     static auto make_autoreleasing(std::shared_ptr<View_delegate> delegate) -> std::unique_ptr<Platform_view> {
         return std::make_unique<Platform_view>(delegate, false);
     }

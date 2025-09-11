@@ -5,8 +5,10 @@
 #include <concepts>
 #include <format>
 #include <functional>
+#include <iomanip>
 #include <optional>
 #include <ranges>
+#include <sstream>
 #include <type_traits>
 #include <unordered_set>
 #include <variant>
@@ -400,6 +402,9 @@ struct Param_group {
     // The group name.
     const char* name{""};
 
+    // AUv3 string identifier.
+    const char* string_id{nullptr}; // Required if supporting AUv3!
+
     // The group nodes.
     std::vector<Param_node> nodes{};
 };
@@ -408,6 +413,9 @@ struct Param_group {
 struct Param_spec {
     // The parameter's unique identifier.
     uint32_t id{};
+
+    // AUv3 string identifier.
+    const char* string_id{nullptr}; // Required if supporting AUv3!
 
     // The first tree version containing this parameter.
     uint32_t version{1};
@@ -779,37 +787,53 @@ struct Host_formatter {
                 return std::string{l.items[idx]};
             },
             [&](const Int_semantics&) {
-                return std::format("{:.0f}", plain_value); // TODO: - Units
+                // We were using std::format but it requires iOS 16.3 for float formatting.
+                // https://developer.apple.com/xcode/cpp/ (see std::to_chars)
+                auto format_float = [](double value, int precision, bool fixed = true) {
+                    auto oss = std::ostringstream{};
+                    if (fixed)
+                        oss << std::fixed;
+                    oss << std::setprecision(precision) << value;
+                    return oss.str();
+                };
+                return format_float(plain_value, 0); // TODO: - Units
             },
             [&](const Real_semantics& r) {
                 using enum Units;
+
+                auto format_float = [](double value, int precision, bool fixed = true) {
+                    auto oss = std::ostringstream{};
+                    if (fixed)
+                        oss << std::fixed;
+                    oss << std::setprecision(precision) << value;
+                    return oss.str();
+                };
+
                 switch (r.units) {
                     case generic:
-                        return std::format("{:.{}f}", plain_value, 2);
+                        return format_float(plain_value, 2);
                     case percent: {
-                        const auto suffix = std::string{include_units ? " %" : ""};
-                        return std::format("{:.{}f}", plain_value, 0) + suffix;
+                        const auto suffix = include_units ? " %" : "";
+                        return format_float(plain_value, 0) + suffix;
                     }
                     case decibels: {
-                        const auto prefix = std::string{plain_value >= 0 ? "+" : ""};
-                        const auto suffix = std::string{include_units ? " dB" : ""};
-                        return prefix + std::format("{:.{}f}", plain_value, 1) + suffix;
+                        const auto prefix = (plain_value >= 0 ? "+" : "");
+                        const auto suffix = include_units ? " dB" : "";
+                        return prefix + format_float(plain_value, 1) + suffix;
                     }
                     case hertz: {
-                        // If the host doesn't want us to include units, we should just send back the plain value in Hertz.
                         if (plain_value > 1000 && include_units) {
-                            const auto suffix = std::string{include_units ? " kHz" : ""};
-                            return std::format("{:.{}f}", plain_value / 1000, 1) + suffix;
-                        }
-                        else {
-                            const auto suffix = std::string{include_units ? " Hz" : ""};
-                            return std::format("{:.{}f}", plain_value, 0) + suffix;
+                            const auto suffix = " kHz";
+                            return format_float(plain_value / 1000, 1) + suffix;
+                        } else {
+                            const auto suffix = include_units ? " Hz" : "";
+                            return format_float(plain_value, 0) + suffix;
                         }
                     }
                     default:
                         return std::string{};
                 }
-            },
+            }
         }, semantics);
     }
 
