@@ -36,6 +36,7 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 
     // Interaction state
     tiny::User_interaction _interaction;
+    tiny::Pointer _pointer; // On macOS there is only one pointer.
     std::chrono::steady_clock::time_point _over_time;
     std::optional<tiny::Coords> _over_pos;
     std::optional<tiny::Coords> _left_pos;
@@ -129,7 +130,7 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
         const auto now = std::chrono::steady_clock::now();
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - _over_time);
         if (elapsed.count() > 2000) {
-            _dwelt = tiny::try_set(_interaction.state, tiny::Dwell{*_over_pos});
+            _dwelt = tiny::try_set(_pointer.state, tiny::Dwell{*_over_pos});
         }
     }
 
@@ -141,8 +142,11 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
         .shift = (flags & NSEventModifierFlagShift) != 0,
     };
 
+    // Copy pointer state into the interaction.
+    _interaction.pointers = {_pointer};
+
     graphics_delegate->draw(_interaction, time_now, _dark_mode);
-    tiny::try_set(_interaction.state, tiny::Consumed{});
+    tiny::try_set(_pointer.state, tiny::Consumed{});
 
     if (_dwelt) {
         _over_pos = std::nullopt;
@@ -172,11 +176,11 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
     const auto ctrl = (event.modifierFlags & NSEventModifierFlagControl) != 0;
     if (ctrl) {
-        tiny::try_set(_interaction.state, tiny::Right_click{pos});
+        tiny::try_set(_pointer.state, tiny::Right_click{pos});
         _over_pos = std::nullopt;
     } 
     else {
-        tiny::try_set(_interaction.state, tiny::Down{pos});
+        tiny::try_set(_pointer.state, tiny::Down{pos});
         _over_pos = std::nullopt;
         _left_pos = pos;
     }
@@ -187,17 +191,17 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
     if (_drag_start) {
-        tiny::try_set(_interaction.state, tiny::Drag_end{*_drag_start, pos});
+        tiny::try_set(_pointer.state, tiny::Drag_end{*_drag_start, pos});
         _over_pos = std::nullopt;
         _drag_start = std::nullopt;
     } 
     else if (_left_pos) {
         if (event.clickCount == 2) {
-            tiny::try_set(_interaction.state, tiny::Double_click{pos});
+            tiny::try_set(_pointer.state, tiny::Double_click{pos});
             _over_pos = std::nullopt;
         } 
         else {
-            tiny::try_set(_interaction.state, tiny::Click{pos});
+            tiny::try_set(_pointer.state, tiny::Click{pos});
             _over_pos = std::nullopt;
         }
         _left_pos = std::nullopt;
@@ -208,7 +212,7 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 - (void)mouseMoved:(NSEvent *)event {
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
-    tiny::try_set(_interaction.state, tiny::Over{pos});
+    tiny::try_set(_pointer.state, tiny::Over{pos});
 
     // Update dwell.
     if (!_over_pos || *_over_pos != pos) {
@@ -225,11 +229,11 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     if (_left_pos && !_drag_start) {
         _drag_start = *_left_pos;
         _left_pos = std::nullopt;
-        tiny::try_set(_interaction.state, tiny::Drag_start{*_drag_start, pos});
+        tiny::try_set(_pointer.state, tiny::Drag_start{*_drag_start, pos});
         _over_pos = std::nullopt;
     } 
     else if (_drag_start) {
-        tiny::try_set(_interaction.state, tiny::Drag{*_drag_start, pos});
+        tiny::try_set(_pointer.state, tiny::Drag{*_drag_start, pos});
         _over_pos = std::nullopt;
     }
     [super mouseDragged:event];
@@ -238,7 +242,7 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 - (void)rightMouseDown:(NSEvent *)event {
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
-    tiny::try_set(_interaction.state, tiny::Right_click{pos});
+    tiny::try_set(_pointer.state, tiny::Right_click{pos});
     _over_pos = std::nullopt;
     [super rightMouseDown:event];
 }
@@ -260,13 +264,13 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 - (void)mouseEntered:(NSEvent *)event {
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
-    tiny::try_set(_interaction.state, tiny::Over{pos});
+    tiny::try_set(_pointer.state, tiny::Over{pos});
     _over_pos = std::nullopt;
     [super mouseEntered:event];
 }
 
 - (void)mouseExited:(NSEvent *)event {
-    tiny::try_set(_interaction.state, tiny::Consumed{});
+    tiny::try_set(_pointer.state, tiny::Consumed{});
     _over_pos = std::nullopt;
     [super mouseExited:event];
 }

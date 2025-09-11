@@ -31,6 +31,8 @@ private:
     bool _down{};
     double _ldrag{}; // norm
 
+    std::optional<uintptr_t> _pointer{};
+
 };
 
 } // namespace tiny

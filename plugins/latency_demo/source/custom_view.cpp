@@ -42,15 +42,17 @@ auto Custom_view::on_draw(App_state& app_state) -> void
     const auto id = enum_raw(Param_id::latency_mode);
     const auto curr = params[id];
 
-    // Handle user actions.
-    std::visit(Inline_visitor{
-        [&](const Click&) {
-            _actions.push(Action_start{id});
-            _actions.push(Set_param{id, curr == 0 ? double{1} : double{0}}); // Toggle.
-            _actions.push(Action_end{id});
-        },
-        [](const auto&) {}
-    }, interaction.state);
+    for (auto& pointer : interaction.pointers) {
+        // Handle user actions. (Should we bind on down?)
+        std::visit(Inline_visitor{
+            [&](const Click&) {
+                _actions.push(Action_start{id});
+                _actions.push(Set_param{id, curr == 0 ? double{1} : double{0}}); // Toggle.
+                _actions.push(Action_end{id});
+            },
+            [](const auto&) {}
+        }, pointer.state);
+    }
 
     // Draw background.
     auto paint = SkPaint{};

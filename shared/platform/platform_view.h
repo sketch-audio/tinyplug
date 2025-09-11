@@ -16,6 +16,7 @@ namespace tiny {
 struct Platform_binder {
     View_delegate* delegate{};
     User_interaction interaction{};
+    Pointer pointer{};
     std::chrono::steady_clock::time_point over_time{};
     std::optional<Coords> over_pos{};
     std::optional<Coords> left_pos{};

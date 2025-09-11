@@ -3,6 +3,7 @@
 #if PLATFORM_IOS
 #include <chrono>
 #include <unordered_map>
+#include <unordered_set>
 
 #import <UIKit/UIKit.h>
 
@@ -18,22 +19,17 @@
 @implementation IosView {
     std::shared_ptr<tiny::View_delegate> _delegate;
     CADisplayLink* _displayLink;
-
-    // Interaction state
-    tiny::User_interaction _interaction;
-    std::optional<tiny::Coords> _touch_down;
-    bool _pending_gesture;
-    bool _started_drag;
     
-    struct Tagged_interaction {
-        tiny::User_interaction interaction;
+    tiny::User_interaction _interaction;
+    struct Pointer_data {
+        tiny::Pointer pointer;
         std::optional<tiny::Coords> pos_down;
         std::optional<tiny::Coords> pos_last;
         bool pending_gesture;
         bool started_drag;
     };
-    std::unordered_map<UITouch*, Tagged_interaction> _interactions;
-
+    
+    std::unordered_map<UITouch*, Pointer_data> _active_pointers;
     std::unordered_map<UITouch*, CGPoint> _activeTouches;
 }
 
@@ -45,22 +41,27 @@
         _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onDisplayLink:)];
         [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 
+        self.multipleTouchEnabled = YES;
+
         //
         UITapGestureRecognizer *singleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleSingleTap:)];
         singleTap.delaysTouchesEnded = false;
         singleTap.cancelsTouchesInView = false;
         [self addGestureRecognizer:singleTap];
+        [singleTap release];
 
         UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleDoubleTap:)];
         doubleTap.numberOfTapsRequired = 2;
         doubleTap.delaysTouchesEnded = false;
         doubleTap.cancelsTouchesInView = false;
         [self addGestureRecognizer:doubleTap];
+        [doubleTap release];
 
         UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
         longPress.delaysTouchesEnded = false;
         longPress.cancelsTouchesInView = false;
         [self addGestureRecognizer:longPress];
+        [longPress release];
     }
     return self;
 }
@@ -81,9 +82,28 @@
 
 - (void)drawRect:(CGRect)rect {
     const auto time_now = tiny::System_clock::now();
+    
+    _interaction.pointers.clear();
+    for (const auto& [touch, pointer_data] : _active_pointers) {
+        _interaction.pointers.push_back(pointer_data.pointer);
+    }
+
     _delegate->draw(_interaction, time_now, false);
-    tiny::try_set(_interaction.state, tiny::Consumed{});
-    _pending_gesture = false;
+    
+    // Remove terminated pointers. (Drag_end, Click, Double_click, Right_click)
+    // I think we could move this to touchesEnded/touchesCancelled
+    std::erase_if(_active_pointers, [](auto const& pair) {
+        const auto& pointer = pair.second.pointer;
+        return std::holds_alternative<tiny::Drag_end>(pointer.state) ||
+               std::holds_alternative<tiny::Click>(pointer.state) ||
+               std::holds_alternative<tiny::Double_click>(pointer.state) ||
+               std::holds_alternative<tiny::Right_click>(pointer.state);
+    });
+    
+    for (auto& [touch, pointer_data] : _active_pointers) {
+        tiny::try_set(pointer_data.pointer.state, tiny::Consumed{});
+        pointer_data.pending_gesture = false;
+    }
 }
 
 - (void)handleSingleTap:(UITapGestureRecognizer *)gesture {
@@ -91,26 +111,34 @@
         // for touch in gesture touches (have to go by index and get location)
         // find closest tagged interaction
         // try set that interaction
-        // etc.
-        // TODO: -
-        
-        CGPoint location = [gesture locationInView:self];
-        tiny::try_set(_interaction.state, tiny::Click{{location.x, location.y}});
-        _pending_gesture = true;
-        _touch_down = std::nullopt;
-        _started_drag = false;
-        
-        // get number of touches
         NSUInteger touches = [gesture numberOfTouches];
         for (NSUInteger i = 0; i < touches; ++i) {
             CGPoint location = [gesture locationOfTouch:i inView:self];
-            // log the location
-            NSLog(@"Single tap touch %lu at (%f, %f)", (unsigned long)i, location.x, location.y);
-        }
-
-        // log current touch map:
-        for (auto const& [touch, point] : _activeTouches) {
-            NSLog(@"Active touch at (%f, %f)", point.x, point.y);
+            // find the closest pointer in _active_pointes
+            tiny::Coords loc{location.x, location.y};
+            UITouch* closest_touch = nullptr;
+            float closest_dist = std::numeric_limits<float>::max();
+            for (const auto& [touch, pointer_data] : _active_pointers) {
+                if (const auto last_pos = pointer_data.pos_last) {
+                    float dx = last_pos->x - loc.x;
+                    float dy = last_pos->y - loc.y;
+                    float dist = dx * dx + dy * dy;
+                    if (dist < closest_dist) {
+                        closest_dist = dist;
+                        closest_touch = touch;
+                    }
+                }
+            }
+            if (closest_touch) {
+                auto it = _active_pointers.find(closest_touch);
+                if (it != _active_pointers.end()) {
+                    auto& pointer_data = it->second;
+                    tiny::try_set(pointer_data.pointer.state, tiny::Click{loc});
+                    pointer_data.pending_gesture = true;
+                    pointer_data.pos_down = std::nullopt;
+                    pointer_data.started_drag = false;
+                }
+            }
         }
     }
 }
@@ -120,26 +148,34 @@
         // for touch in gesture touches (have to go by index and get location)
         // find closest tagged interaction
         // try set that interaction
-        // etc.
-        // TODO: -
-        
-        CGPoint location = [gesture locationInView:self];
-        tiny::try_set(_interaction.state, tiny::Double_click{{location.x, location.y}});
-        _pending_gesture = true;
-        _touch_down = std::nullopt;
-        _started_drag = false;
-        
-        // get number of touches
         NSUInteger touches = [gesture numberOfTouches];
         for (NSUInteger i = 0; i < touches; ++i) {
             CGPoint location = [gesture locationOfTouch:i inView:self];
-            // log the location
-            NSLog(@"Double tap touch %lu at (%f, %f)", (unsigned long)i, location.x, location.y);
-        }
-
-        // log current touch map:
-        for (auto const& [touch, point] : _activeTouches) {
-            NSLog(@"Active touch at (%f, %f)", point.x, point.y);
+            // find the closest pointer in _active_pointes
+            tiny::Coords loc{location.x, location.y};
+            UITouch* closest_touch = nullptr;
+            float closest_dist = std::numeric_limits<float>::max();
+            for (const auto& [touch, pointer_data] : _active_pointers) {
+                if (const auto last_pos = pointer_data.pos_last) {
+                    float dx = last_pos->x - loc.x;
+                    float dy = last_pos->y - loc.y;
+                    float dist = dx * dx + dy * dy;
+                    if (dist < closest_dist) {
+                        closest_dist = dist;
+                        closest_touch = touch;
+                    }
+                }
+            }
+            if (closest_touch) {
+                auto it = _active_pointers.find(closest_touch);
+                if (it != _active_pointers.end()) {
+                    auto& pointer_data = it->second;
+                    tiny::try_set(pointer_data.pointer.state, tiny::Double_click{loc});
+                    pointer_data.pending_gesture = true;
+                    pointer_data.pos_down = std::nullopt;
+                    pointer_data.started_drag = false;
+                }
+            }
         }
     }
 }
@@ -149,26 +185,34 @@
         // for touch in gesture touches (have to go by index and get location)
         // find closest tagged interaction
         // try set that interaction
-        // etc.
-        // TODO: -
-        
-        CGPoint location = [gesture locationInView:self];
-        tiny::try_set(_interaction.state, tiny::Right_click{{location.x, location.y}});
-        _pending_gesture = true;
-        _touch_down = std::nullopt;
-        _started_drag = false;
-        
-        // get number of touches
         NSUInteger touches = [gesture numberOfTouches];
         for (NSUInteger i = 0; i < touches; ++i) {
             CGPoint location = [gesture locationOfTouch:i inView:self];
-            // log the location
-            NSLog(@"Long press touch %lu at (%f, %f)", (unsigned long)i, location.x, location.y);
-        }
-
-        // log current touch map:
-        for (auto const& [touch, point] : _activeTouches) {
-            NSLog(@"Active touch at (%f, %f)", point.x, point.y);
+            // find the closest pointer in _active_pointes
+            tiny::Coords loc{location.x, location.y};
+            UITouch* closest_touch = nullptr;
+            float closest_dist = std::numeric_limits<float>::max();
+            for (const auto& [touch, pointer_data] : _active_pointers) {
+                if (const auto last_pos = pointer_data.pos_last) {
+                    float dx = last_pos->x - loc.x;
+                    float dy = last_pos->y - loc.y;
+                    float dist = dx * dx + dy * dy;
+                    if (dist < closest_dist) {
+                        closest_dist = dist;
+                        closest_touch = touch;
+                    }
+                }
+            }
+            if (closest_touch) {
+                auto it = _active_pointers.find(closest_touch);
+                if (it != _active_pointers.end()) {
+                    auto& pointer_data = it->second;
+                    tiny::try_set(pointer_data.pointer.state, tiny::Right_click{loc});
+                    pointer_data.pending_gesture = true;
+                    pointer_data.pos_down = std::nullopt;
+                    pointer_data.started_drag = false;
+                }
+            }
         }
     }
 }
@@ -180,136 +224,84 @@
     
     // for touch in touches
     // insert new tagged interaction with state down
-//    for (UITouch* touch in touches) {
-//        CGPoint location = [touch locationInView:self];
-//        const auto pos = tiny::Coords{location.x, location.y};
-//        
-//        _interactions[touch] = Tagged_interaction{
-//            .interaction = {.state = tiny::Down{pos}},
-//            .pos_down = pos,
-//            .pos_last = pos,
-//            .pending_gesture = false,
-//            .started_drag = false,
-//        };
-//    }
-    
-    UITouch* touch = [touches anyObject];
-    CGPoint location = [touch locationInView:self];
-    const auto pos = tiny::Coords{location.x, location.y};
-    tiny::try_set(_interaction.state, tiny::Down{pos});
-    _touch_down = pos;
-    _started_drag = false;
-
-    for (UITouch* t in touches) {
-        CGPoint loc = [t locationInView:self];
-        _activeTouches[t] = loc;
+    for (UITouch* touch in touches) {
+        CGPoint location = [touch locationInView:self];
+        const auto tag = (uintptr_t)touch;
+        const auto pos = tiny::Coords{location.x, location.y};
+        _active_pointers[touch] = Pointer_data{
+            .pointer = {.tag = tag, .state = tiny::Down{pos}},
+            .pos_down = pos,
+            .pos_last = pos,
+            .pending_gesture = false,
+            .started_drag = false,
+        };
+        _activeTouches[touch] = location;
     }
-    
-    NSLog(@"touches began:");
 }
 
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesMoved:touches withEvent:event];
     
-    // for touch in touches, find the tagged interaction and try_set the state.
-//    for (UITouch* touch in touches) {
-//        CGPoint location = [touch locationInView:self];
-//        const auto pos = tiny::Coords{location.x, location.y};
-//        auto it = _interactions.find(touch);
-//        if (it != _interactions.end()) {
-//            auto& tagged = it->second;
-//            if (const auto down_pos = tagged.pos_down; down_pos && tagged.started_drag) {
-//                tiny::try_set(tagged.interaction.state, tiny::Drag{.fpos = *down_pos, .tpos = pos});
-//                tagged.pos_last = pos;
-//            }
-//            else if (const auto down_pos = tagged.pos_down){
-//                tiny::try_set(tagged.interaction.state, tiny::Drag_start{.fpos = *down_pos, .tpos = pos});
-//                tagged.pos_last = pos;
-//                tagged.started_drag = true;
-//            }
-//        }
-//    }
-    
-    UITouch* touch = [touches anyObject];
-    CGPoint location = [touch locationInView:self];
-    const auto pos = tiny::Coords{location.x, location.y};
-    if (const auto down_pos = _touch_down; down_pos && _started_drag) {
-        tiny::try_set(_interaction.state, tiny::Drag{.fpos = *down_pos, .tpos = pos});
+    for (UITouch* touch in touches) {
+        CGPoint location = [touch locationInView:self];
+        const auto pos = tiny::Coords{location.x, location.y};
+        auto it = _active_pointers.find(touch);
+        if (it != _active_pointers.end()) {
+            auto& pointer_data = it->second;
+            if (const auto down_pos = pointer_data.pos_down; down_pos && pointer_data.started_drag) {
+                tiny::try_set(pointer_data.pointer.state, tiny::Drag{.fpos = *down_pos, .tpos = pos});
+                pointer_data.pos_last = pos;
+            }
+            else if (const auto down_pos = pointer_data.pos_down){
+                tiny::try_set(pointer_data.pointer.state, tiny::Drag_start{.fpos = *down_pos, .tpos = pos});
+                pointer_data.pos_last = pos;
+                pointer_data.started_drag = true;
+            }
+        }
+        _activeTouches[touch] = location;
     }
-    else if (const auto down_pos = _touch_down){
-        tiny::try_set(_interaction.state, tiny::Drag_start{.fpos = *down_pos, .tpos = pos});
-        _started_drag = true;
-    }
-
-    for (UITouch* t in touches) {
-        CGPoint loc = [t locationInView:self];
-        _activeTouches[t] = loc;
-    }
-    
-    NSLog(@"touches moved:");
 }
 
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesEnded:touches withEvent:event];
 
-    // for touch in touches, find the tagged interaction and try_set the state.
-//    for (UITouch* touch in touches) {
-//        CGPoint location = [touch locationInView:self];
-//        const auto pos = tiny::Coords{location.x, location.y};
-//        auto it = _interactions.find(touch);
-//        if (it != _interactions.end()) {
-//            auto& tagged = it->second;
-//            if (const auto down_pos = tagged.pos_down; down_pos && tagged.started_drag) {
-//                tiny::try_set(tagged.interaction.state, tiny::Drag_end{.fpos = *down_pos, .tpos = pos});
-//            }
-//            else if (!tagged.pending_gesture) {
-//                tiny::try_set(tagged.interaction.state, tiny::Consumed{});
-//            }
-//            //_interactions.erase(it); // Don't dispose we have to process it!
-//        }
-//    }
-
-    UITouch* touch = [touches anyObject];
-    CGPoint location = [touch locationInView:self];
-    const auto pos = tiny::Coords{location.x, location.y};
-    if (const auto down_pos = _touch_down; down_pos && _started_drag) {
-        tiny::try_set(_interaction.state, tiny::Drag_end{.fpos = *down_pos, .tpos = pos});
+    for (UITouch* touch in touches) {
+        CGPoint location = [touch locationInView:self];
+        const auto pos = tiny::Coords{location.x, location.y};
+        auto it = _active_pointers.find(touch);
+        if (it != _active_pointers.end()) {
+            auto& pointer_data = it->second;
+            if (const auto down_pos = pointer_data.pos_down; down_pos && pointer_data.started_drag) {
+                tiny::try_set(pointer_data.pointer.state, tiny::Drag_end{.fpos = *down_pos, .tpos = pos});
+            }
+            else if (!pointer_data.pending_gesture) {
+                tiny::try_set(pointer_data.pointer.state, tiny::Consumed{});
+            }
+        }
+        _activeTouches.erase(touch); // Gesture should be processed before touch end/cancel.
     }
-    else if (!_pending_gesture) {
-        tiny::try_set(_interaction.state, tiny::Consumed{});
-    }
-    _touch_down = std::nullopt;
-    _started_drag = false;
-
-    for (UITouch* t in touches) {
-        _activeTouches.erase(t);
-    }
-    
-    NSLog(@"touches ended:");
 }
 
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesCancelled:touches withEvent:event];
 
-    // for touch in touches, find the tagged interaction and try_set the state to consumed.
-//    for (UITouch* touch in touches) {
-//        auto it = _interactions.find(touch);
-//        if (it != _interactions.end()) {
-//            auto& tagged = it->second;
-//            tiny::try_set(tagged.interaction.state, tiny::Consumed{});
-//            //_interactions.erase(it); // Don't dispose we have to process it!
-//        }
-//    }
-    
-    tiny::try_set(_interaction.state, tiny::Consumed{});
-    _touch_down = std::nullopt;
-    _started_drag = false;
-
-    for (UITouch* t in touches) {
-        _activeTouches.erase(t);
+    for (UITouch* touch in touches) {
+        auto it = _active_pointers.find(touch);
+        if (it != _active_pointers.end()) {
+            auto& pointer_data = it->second;
+            tiny::try_set(pointer_data.pointer.state, tiny::Consumed{});
+        }
+        _activeTouches.erase(touch); // Gesture should be processed before touch end/cancel.
     }
-    
-    NSLog(@"touches cancelled:");
+}
+
+- (void)pressesChanged:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
+    UIKeyModifierFlags flags = event.modifierFlags;
+    _interaction.modifier_keys = {
+        .primary = (flags & UIKeyModifierCommand) != 0,
+        .alt = (flags & UIKeyModifierAlternate) != 0,
+        .shift = (flags & UIKeyModifierShift) != 0,
+    };
 }
 
 @end
@@ -361,6 +353,113 @@ auto Platform_view::redraw() -> void
 }
 
 // MARK: - alert
+
+auto Platform_dialogs::message(const std::string& title, const std::string& message, Later<> on_done) -> void
+{
+    // Copy to locals.
+    const auto title_copy = title;
+    const auto message_copy = message;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:title_copy.c_str()]
+                                                                       message:[NSString stringWithUTF8String:message_copy.c_str()]
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertAction* okAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
+                                                         handler:^(UIAlertAction* action) {
+            on_done();
+        }];
+        [alert addAction:okAction];
+        
+        // Find the topmost view controller
+        UIViewController* rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
+        UIViewController* topViewController = rootViewController;
+        while (topViewController.presentedViewController) {
+            topViewController = topViewController.presentedViewController;
+        }
+        
+        [topViewController presentViewController:alert animated:YES completion:nil];
+    });
+}
+
+auto Platform_dialogs::confirm(const std::string& title, const std::string& message, Later<bool> on_confirm) -> void
+{
+    // Copy to locals.
+    const auto title_copy = title;
+    const auto message_copy = message;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:title_copy.c_str()]
+                                                                       message:[NSString stringWithUTF8String:message_copy.c_str()]
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertAction* yesAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
+                                                          handler:^(UIAlertAction* action) {
+            on_confirm(true);
+        }];
+        UIAlertAction* noAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
+                                                         handler:^(UIAlertAction* action) {
+            on_confirm(false);
+        }];
+        [alert addAction:yesAction];
+        [alert addAction:noAction];
+        
+        // Find the topmost view controller
+        UIViewController* rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
+        UIViewController* topViewController = rootViewController;
+        while (topViewController.presentedViewController) {
+            topViewController = topViewController.presentedViewController;
+        }
+        
+        [topViewController presentViewController:alert animated:YES completion:nil];
+    });
+}
+
+auto Platform_dialogs::text_input(const std::string& title, const std::string& message, Later<std::string> on_text) -> void
+{
+    // Copy to locals.
+    const auto title_copy = title;
+    const auto message_copy = message;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:title_copy.c_str()]
+                                                                       message:[NSString stringWithUTF8String:message_copy.c_str()]
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addTextFieldWithConfigurationHandler:^(UITextField* textField) {
+            textField.placeholder = @"";
+        }];
+        UIAlertAction* okAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
+                                                         handler:^(UIAlertAction* action) {
+            UITextField* textField = alert.textFields.firstObject;
+            on_text(std::string([textField.text UTF8String]));
+        }];
+        UIAlertAction* cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
+                                                             handler:^(UIAlertAction* action) {
+            //...
+        }];
+        [alert addAction:okAction];
+        [alert addAction:cancelAction];
+        
+        // Find the topmost view controller
+        UIViewController* rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
+        UIViewController* topViewController = rootViewController;
+        while (topViewController.presentedViewController) {
+            topViewController = topViewController.presentedViewController;
+        }
+        
+        [topViewController presentViewController:alert animated:YES completion:nil];
+    });
+}
+
+auto Platform_dialogs::open_url(const std::string& url) -> void
+{
+    // Copy to locals.
+    const auto url_copy = url;
+
+    if (const auto nsurl = [NSURL URLWithString:[NSString stringWithUTF8String:url_copy.c_str()]]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [[UIApplication sharedApplication] openURL:nsurl options:@{} completionHandler:nil];
+        });
+    }
+}
 
 } // namespace tiny
 #endif

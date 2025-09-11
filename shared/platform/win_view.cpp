@@ -223,12 +223,13 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
                     const auto now = std::chrono::steady_clock::now();
                     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - binder->over_time);
                     if (elapsed.count() > 2000) {
-                        binder->dwelt = try_set(binder->interaction.state, Dwell{*over_pos});
+                        binder->dwelt = try_set(binder->pointer.state, Dwell{*over_pos});
                     }
                 }
+                binder->interaction.pointers = {binder->pointer}; // Copy pointer state to interaction.
                 binder->interaction.modifier_keys = resolve_modifiers();
                 delegate->draw(binder->interaction, time_now, binder->dark_mode); // Delegate window context handles everything.
-                try_set(binder->interaction.state, Consumed{});
+                try_set(binder->pointer.state, Consumed{});
                 if (binder->dwelt) {
                     binder->over_pos = std::nullopt;
                     binder->dwelt = false;
@@ -243,7 +244,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             const auto x = static_cast<double>(GET_X_LPARAM(lparam));
             const auto y = static_cast<double>(GET_Y_LPARAM(lparam));
             const auto pos = Coords{x, y};
-            try_set(binder->interaction.state, Down{pos});
+            try_set(binder->pointer.state, Down{pos});
             binder->left_pos = pos;
             return 0;
         }
@@ -253,12 +254,12 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             const auto y = static_cast<double>(GET_Y_LPARAM(lparam));
             const auto pos = Coords{x, y};
             if (const auto drag_start = binder->drag_start) {
-                try_set(binder->interaction.state, Drag_end{*drag_start, pos});
+                try_set(binder->pointer.state, Drag_end{*drag_start, pos});
                 binder->over_pos = std::nullopt;
                 binder->drag_start = std::nullopt;
             } 
             else if (const auto left_pos = binder->left_pos) {
-                try_set(binder->interaction.state, Click{pos});
+                try_set(binder->pointer.state, Click{pos});
                 binder->over_pos = std::nullopt;
             }
             binder->left_pos = std::nullopt;
@@ -270,7 +271,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             const auto x = static_cast<double>(GET_X_LPARAM(lparam));
             const auto y = static_cast<double>(GET_Y_LPARAM(lparam));
             const auto pos = Coords{x, y};
-            try_set(binder->interaction.state, tiny::Double_click{pos});
+            try_set(binder->pointer.state, tiny::Double_click{pos});
             binder->over_pos = std::nullopt;
             return 0;
         }
@@ -282,18 +283,18 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             // Drag or drag start.
             if (const auto left_pos = binder->left_pos) {
                 if (const auto drag_start = binder->drag_start) {
-                    try_set(binder->interaction.state, Drag{*drag_start, pos});
+                    try_set(binder->pointer.state, Drag{*drag_start, pos});
                     binder->over_pos = std::nullopt;
                 }
                 else {
                     binder->drag_start = *left_pos;
-                    try_set(binder->interaction.state, Drag_start{*left_pos, pos});
+                    try_set(binder->pointer.state, Drag_start{*left_pos, pos});
                     binder->over_pos = std::nullopt;
                 }
             }
             // Over.
             else {
-                try_set(binder->interaction.state, Over{pos});
+                try_set(binder->pointer.state, Over{pos});
 
                 // Update dwell.
                 const auto& over_pos = binder->over_pos;
@@ -311,7 +312,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             const auto x = static_cast<double>(GET_X_LPARAM(lparam));
             const auto y = static_cast<double>(GET_Y_LPARAM(lparam));
             const auto pos = Coords{x, y};
-            try_set(binder->interaction.state, Down{pos, true});
+            try_set(binder->pointer.state, Down{pos, true});
             binder->right_pos = pos;
             return 0;
         }
@@ -321,7 +322,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             const auto y = static_cast<double>(GET_Y_LPARAM(lparam));
             const auto pos = Coords{x, y};
             if (const auto right_pos = binder->right_pos) {
-                try_set(binder->interaction.state, Right_click{pos});
+                try_set(binder->pointer.state, Right_click{pos});
                 binder->over_pos = std::nullopt;
                 binder->right_pos = std::nullopt;
             }
@@ -342,7 +343,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
         }
 
         case WM_MOUSELEAVE: {
-            binder->interaction.state = Consumed{};
+            binder->pointer.state = Consumed{};
             binder->over_pos = std::nullopt;
             binder->left_pos = std::nullopt;
             binder->interaction.modifier_keys = {};

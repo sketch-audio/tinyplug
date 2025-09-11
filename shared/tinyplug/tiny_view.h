@@ -106,6 +106,12 @@ struct Right_click {
 // The state of the user's pointer (a mouse or a finger).
 using Pointer_state = std::variant<Consumed, Over, Down, Dwell, Click, Double_click, Drag_start, Drag, Drag_end, Right_click>;
 
+struct Pointer {
+    uintptr_t tag{};
+    Pointer_state state{};
+    bool operator==(const Pointer&) const = default;
+};
+
 // Try to set the pointer state. Returns whether or not the pointer state was set.
 // - You can always consume the pointer state.
 // - You can only set a new pointer state if it has already been consumed.
@@ -181,8 +187,7 @@ struct Modifier_keys {
 
 // A user interaction includes an id (for future multi-touch), pointer state, and scroll deltas.
 struct User_interaction {
-    int64_t id{};
-    Pointer_state state{};
+    std::vector<Pointer> pointers{};
     Coords scroll_deltas{};
     Modifier_keys modifier_keys{};
     bool operator==(const User_interaction&) const = default;

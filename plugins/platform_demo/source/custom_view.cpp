@@ -50,37 +50,61 @@ auto Custom_view::on_draw(App_state& app_state) -> void
         return std::clamp(x - norm_dy, double{}, double{1});
     };
 
-    // Handle user actions.
-    std::visit(Inline_visitor{
-        [&](const Drag_start& s) {
-            _ldrag = {};
-            const auto to_set = get_next(g, s);
-            _actions.push(Action_start{id});
-            _actions.push(Set_param{id, to_set});
-            _ldrag = s.tpos.y - s.fpos.y;
-        },
-        [&](const Drag& s) {
-            const auto to_set = get_next(g, s);
-            _actions.push(Set_param{id, to_set});
-            _ldrag = s.tpos.y - s.fpos.y;
-        },
-        [&](const Drag_end& s) {
-            const auto to_set = get_next(g, s);
-            _actions.push(Set_param{id, to_set});
-            _actions.push(Action_end{id});
-            _ldrag = {};
-        },
-        [&](const Click& c) {
-            if (interaction.modifier_keys.primary) {
-                Platform_dialogs::message("Tiny Demo", "This is a message dialog.");
-            }
-            else if (interaction.modifier_keys.shift) {
-                Platform_dialogs::confirm("Are you sure?", "This is a confirm dialog.", {
-                    .callback = [](bool confirmed) { std::cout << "User confirmed: " << (confirmed ? "yes" : "no") << "\n"; },
-                    .receiver = _task_receiver
-                });
-            }
-            else if (interaction.modifier_keys.alt) {
+    for (auto& pointer : interaction.pointers) {
+        if (_pointer && *_pointer != pointer.tag) continue; // Haven't bound yet.
+
+        // Handle user actions.
+        std::visit(Inline_visitor{
+            [&](const Down&) { _pointer = pointer.tag; }, // Bind on down.
+            [&](const Drag_start& s) {
+                _ldrag = {};
+                const auto to_set = get_next(g, s);
+                _actions.push(Action_start{id});
+                _actions.push(Set_param{id, to_set});
+                _ldrag = s.tpos.y - s.fpos.y;
+            },
+            [&](const Drag& s) {
+                const auto to_set = get_next(g, s);
+                _actions.push(Set_param{id, to_set});
+                _ldrag = s.tpos.y - s.fpos.y;
+            },
+            [&](const Drag_end& s) {
+                const auto to_set = get_next(g, s);
+                _actions.push(Set_param{id, to_set});
+                _actions.push(Action_end{id});
+                _ldrag = {};
+                _pointer = std::nullopt;
+            },
+            [&](const Click& c) {
+                if (interaction.modifier_keys.primary) {
+                    Platform_dialogs::message("Tiny Demo", "This is a message dialog.");
+                }
+                else if (interaction.modifier_keys.shift) {
+                    Platform_dialogs::confirm("Are you sure?", "This is a confirm dialog.", {
+                        .callback = [](bool confirmed) { std::cout << "User confirmed: " << (confirmed ? "yes" : "no") << "\n"; },
+                        .receiver = _task_receiver
+                    });
+                }
+                else if (interaction.modifier_keys.alt) {
+                    Platform_dialogs::text_input("TinyDemo", "This is a text input dialog.", {
+                        .callback = [this](auto text) {
+                            const auto& param = _params.param_for(enum_raw(Param_id::gain));
+                            if (const auto value = Host_formatter::format_value(text, param.semantics)) {
+                                const auto knob = Value_conv::plain_to_knob(*value, param.semantics);
+                                _actions.push(Action_start{param.id});
+                                _actions.push(Set_param{param.id, knob});
+                                _actions.push(Action_end{param.id});
+                            }
+                        },
+                        .receiver = _task_receiver 
+                    });
+                }
+                else {
+                    //Platform_dialogs::open_url("https://www.sketchaudio.com");
+                }
+                _pointer = std::nullopt;
+            },
+            [&](const Double_click&) {
                 Platform_dialogs::text_input("TinyDemo", "This is a text input dialog.", {
                     .callback = [this](auto text) {
                         const auto& param = _params.param_for(enum_raw(Param_id::gain));
@@ -91,19 +115,18 @@ auto Custom_view::on_draw(App_state& app_state) -> void
                             _actions.push(Action_end{param.id});
                         }
                     },
-                    .receiver = _task_receiver 
+                    .receiver = _task_receiver
                 });
-            }
-            else {
-                //Platform_dialogs::open_url("https://www.sketchaudio.com");
-            }
-        },
-        [&](const Right_click& c) {
-            Platform_dialogs::message("Tiny Demo", "A right click occurred.");
-        },
-        [](const auto&) {}
-    }, interaction.state);
-    track_is_down(interaction.state, _down); // Track down.
+                _pointer = std::nullopt;
+            },
+            [&](const Right_click& c) {
+                Platform_dialogs::message("Tiny Demo", "A right click occurred.");
+                _pointer = std::nullopt;
+            },
+            [](const auto&) {}
+        }, pointer.state);
+        track_is_down(pointer.state, _down); // Track down.
+    }
 
     // Draw background.
     auto paint = SkPaint{};

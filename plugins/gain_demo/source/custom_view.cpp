@@ -50,29 +50,35 @@ auto Custom_view::on_draw(App_state& app_state) -> void
         return std::clamp(x - norm_dy, double{}, double{1});
     };
 
-    // Handle user actions.
-    std::visit(Inline_visitor{
-        [&](const Drag_start& s) {
-            _ldrag = {};
-            const auto to_set = get_next(g, s);
-            _actions.push(Action_start{id});
-            _actions.push(Set_param{id, to_set});
-            _ldrag = s.tpos.y - s.fpos.y;
-        },
-        [&](const Drag& s) {
-            const auto to_set = get_next(g, s);
-            _actions.push(Set_param{id, to_set});
-            _ldrag = s.tpos.y - s.fpos.y;
-        },
-        [&](const Drag_end& s) {
-            const auto to_set = get_next(g, s);
-            _actions.push(Set_param{id, to_set});
-            _actions.push(Action_end{id});
-            _ldrag = {};
-        },
-        [](const auto&) {}
-    }, interaction.state);
-    track_is_down(interaction.state, _down); // Track down.
+    for (auto& pointer : interaction.pointers) {
+        if (_pointer && *_pointer != pointer.tag) continue; // Haven't bound yet.
+
+        // Handle user actions.
+        std::visit(Inline_visitor{
+            [&](const Drag_start& s) {
+                _ldrag = {};
+                const auto to_set = get_next(g, s);
+                _actions.push(Action_start{id});
+                _actions.push(Set_param{id, to_set});
+                _ldrag = s.tpos.y - s.fpos.y;
+                _pointer = pointer.tag; // Bind to pointer tag. (Should this be on down?)
+            },
+            [&](const Drag& s) {
+                const auto to_set = get_next(g, s);
+                _actions.push(Set_param{id, to_set});
+                _ldrag = s.tpos.y - s.fpos.y;
+            },
+            [&](const Drag_end& s) {
+                const auto to_set = get_next(g, s);
+                _actions.push(Set_param{id, to_set});
+                _actions.push(Action_end{id});
+                _ldrag = {};
+                _pointer = std::nullopt;
+            },
+            [](const auto&) {}
+        }, pointer.state);
+        track_is_down(pointer.state, _down); // Track down.
+    }    
 
     // Draw background.
     auto paint = SkPaint{};

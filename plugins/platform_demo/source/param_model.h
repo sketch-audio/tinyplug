@@ -30,6 +30,7 @@ struct Param_model {
         return Param_group{.nodes = {
             Param_spec{
                 .id = enum_raw(gain),
+                .string_id = "gain",
                 .name = "Gain",
                 .semantics = Real_semantics{
                     .min_val = 0,
