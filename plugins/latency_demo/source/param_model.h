@@ -31,6 +31,7 @@ struct Param_model {
         return Param_group{.nodes = {
             Param_spec{
                 .id = enum_raw(latency_mode),
+                .string_id = "latency",
                 .name = "Latency",
                 .semantics = List_semantics{{"Low", "High"}},
                 .policy = Host_policy::control // No automation.
