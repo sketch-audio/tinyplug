@@ -33,7 +33,7 @@
         Auv3_AUAudioUnit* tiny_au = (Auv3_AUAudioUnit*)self.audioUnit;
         auto receiver = [tiny_au makeReceiver];
         _view_adapter = std::make_unique<tiny::Auv3_view>(receiver);
-        auto* custom_view = (__bridge UIView*)_view_adapter->create_view();
+        auto* custom_view = (__bridge PlatformView*)_view_adapter->create_view();
         [self.view addSubview:custom_view];
         const auto size = self.view.bounds.size;
         _view_adapter->on_resize(static_cast<int32_t>(size.width), static_cast<int32_t>(size.height)); // Also requests a redraw.
@@ -42,15 +42,24 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    [self setupViewAdapter]; // 
+    [self setupViewAdapter]; //
 }
 
+#if TARGET_OS_IOS
 - (void)viewWillLayoutSubviews {
     [super viewWillLayoutSubviews];
     if (!_view_adapter) return;
     const auto size = self.view.bounds.size;
     _view_adapter->on_resize(static_cast<int32_t>(size.width), static_cast<int32_t>(size.height)); // Also requests a redraw.
 }
+#elif TARGET_OS_OSX
+- (void)viewWillLayout {
+    [super viewWillLayout];
+    if (!_view_adapter) return;
+    const auto size = self.view.bounds.size;
+    _view_adapter->on_resize(static_cast<int32_t>(size.width), static_cast<int32_t>(size.height)); // Also requests a redraw.
+}
+#endif
 
 - (void)dealloc {
     _view_adapter->teardown(); // Stop the timer!

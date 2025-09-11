@@ -74,9 +74,8 @@ The style actually developed over several years of writing C++ alongside Swift a
 - Most member variables are prefixed with an underscore
 
 ## TODO
-- Add AUv3 format for iOS and macOS
-- Multitouch
-    - Both iOS and Windows!
+- Mac view has threading issues.
+- Multitouch (Windows)
 - Non-parameter persistence
     - E.g. last loaded preset name, other UI-only data
 - Mono processing
@@ -123,15 +122,6 @@ Tinyplug ships with some test plug-ins that can be useful for making sure things
 - Idea: move platform into tinyplug proper?
 - TINY_AUV2_TYPE -> TINY_AU_TYPE
 - TINY_PLUGIN_CODE for AUv3 same as AUv2?
-
-## AUv3 TODO:
-- Persistence
-    - Add the tree version
-- Latency handshake
-- Tail time
-- Multitouch
-- Platform dialogs
-- Check macOS build
 
 ## Build
 - Be sure to also set `-DTINY_DEPS_PATH=../tiny_deps`

@@ -26,6 +26,7 @@ public:
     void initialize(int inputChannelCount, int outputChannelCount, double inSampleRate) {
         mSampleRate = inSampleRate;
         _kernel->reset(mSampleRate);
+        _latency = _kernel->latency_samps();
     }
     
     void deInitialize() {
@@ -89,18 +90,24 @@ public:
          */
         assert(inputBuffers.size() == outputBuffers.size());
         
+        // Handle set_param events.
+        auto event = tiny::Render_event{};
+        while(_param_queue.pop(event)) {
+            _kernel->handle_event(event);
+        }
+        
+        const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+        if (accepted_latency) {
+            _kernel->handle_event(tiny::Accepted_latency{*accepted_latency});
+            assert(_kernel->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+        }
+        
         if (mBypassed) {
             // Pass the samples through
             for (UInt32 channel = 0; channel < inputBuffers.size(); ++channel) {
                 std::copy_n(inputBuffers[channel], frameCount, outputBuffers[channel]);
             }
             return;
-        }
-        
-        // Handle set_param events.
-        auto event = tiny::Render_event{};
-        while(_param_queue.pop(event)) {
-            _kernel->handle_event(event);
         }
         
         auto context = tiny::Dsp_context{.exports = _exports, .propose_latency = {}};
@@ -125,7 +132,7 @@ public:
 
         // Has the kernel proposed a new latency?
         if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _latency) {
-            // TODO: - notify or something
+            // Audio unit is polling. Could possibly fix.
             _pending_latency.store(*proposed_latency, std::memory_order_release);
         }
 
@@ -168,8 +175,20 @@ public:
     // tiny
     auto latency_secs() -> double 
     {
+        // Did we get here from a latency change notification?
+        const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+        if (pending_latency) {
+            _accepted_latency.store(*pending_latency, std::memory_order_release); // The kernel should manifest on the next process.
+            _latency = *pending_latency;
+        }
+        
         // _latency in samples
         return _latency / mSampleRate;
+    }
+    
+    auto tail_secs() -> double
+    {
+        return _kernel->tail_samps() / mSampleRate;
     }
     
     auto pop_event(tiny::Ui_event& event) -> bool

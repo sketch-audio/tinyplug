@@ -331,6 +331,10 @@
     return _latency;
 }
 
+- (NSTimeInterval)tailTime {
+    return _kernel.tail_secs();
+}
+
 - (NSIndexSet *)supportedViewConfigurations:(NSArray<AUAudioUnitViewConfiguration *> *)availableViewConfigurations {
     // https://forum.juce.com/t/auv3-resizing-issue-on-macos-not-ios/43811/10
     if (availableViewConfigurations.count == 0) {
@@ -484,11 +488,37 @@
 // MARK: - Full State
 
 -(NSDictionary<NSString *,id> *)fullState {
-    return [super fullState];
+    NSMutableDictionary<NSString *, id> *state = [[super fullState] mutableCopy];
+    
+    const auto tree_version = static_cast<int32_t>(tiny::max_tree_version(_param_infos.tree()));
+    NSNumber *versionNumber = [NSNumber numberWithInt:tree_version];
+    [state setObject:versionNumber forKey:@"tiny-tree-version"]; // !!!
+
+    return [state copy];
 }
 
 - (void)setFullState:(NSDictionary<NSString *,id> *)fullState {
     [super setFullState:fullState];
+
+    const auto tree_version = static_cast<int32_t>(tiny::max_tree_version(_param_infos.tree()));
+
+    id version  = [fullState objectForKey:@"tiny-tree-version"]; // !!!
+    if ([version isKindOfClass:[NSNumber class]]) {
+        const auto state_version = [version intValue];
+
+        // The base implementation already set parameters contained in state.
+        // We just have to set the rest to their defaults.
+        if (tree_version > state_version) {
+            const auto num_state = tiny::num_params_with_version(_param_infos.tree(), state_version);
+            
+            using User_params = tiny::Param_infos<tiny::Param_model>;
+            for (auto i = num_state; i < User_params::num_params; ++i) {
+                const auto& param = _param_infos.param_for(static_cast<uint32_t>(i));
+                const auto def_val = tiny::get_host_default(param);
+                [[_parameterTree parameterWithAddress:i] setValue:def_val];
+            }
+        }
+    }
 }
 
 // MARK: - Timer
