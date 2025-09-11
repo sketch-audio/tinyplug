@@ -2,16 +2,20 @@
 *Hypermodern C++ Audio Plug-in Framework*
 
 ## Features
-- Write your plug-in once, run it everywhere.
-    - Supported platforms: macOS and Windows.
-    - GPU-backed graphics via Google's Skia Library.
-        - macOS: Metal
-        - Windows: Direct3D 12
-    - Supported plug-in formats: AAX, AUv2, CLAP, VST3.
-    - Supported plug-in types:
-        - Stereo in/out effect
-        - Optional sidechain
-        - Mono in/out effect (TODO)
+Tinyplug is a modern C++ audio plug-in framework that makes it easy to build your plug-in for different platforms and formats.
+
+- Supported platforms & formats:
+    | Platform | AAX | AUv2 | AUv3 | CLAP | LV2  | VST3 |
+    |---------:|:---:|:----:|:----:|:----:|:----:|:----:|
+    | iOS      |     |      |  ✔   |      |      |      |
+    | Linux    |     |      |      | TODO | TODO | TODO |
+    | macOS    |  ✔  |  ✔   |  ✔   |  ✔   |      |  ✔   |
+    | Windows  |  ✔  |      |      |  ✔   |      |  ✔   |
+- GPU-backed graphics via Google's Skia Library.
+- Supported plug-in types:
+    - Stereo in/out effect
+    - Optional sidechain
+    - Mono in/out effect (TODO)
 - Sample-accurate events & automation
     - Tinyplug automatically interleaves host events (including ramps) with calls to your process function for precise automation playback.
 
@@ -87,8 +91,8 @@ The style actually developed over several years of writing C++ alongside Swift a
     - Scopes: manufacturer, plug-in
 - System dialogs
     - File load & save
-- Breakout dependencies project
-- Update CMake to build multiple user plug-ins
+- Licensing helpers
+    - System ID, name
 - MIDI events
 - Synth support
 - Add Linux support for CLAP, VST3
