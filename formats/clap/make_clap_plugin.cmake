@@ -1,5 +1,11 @@
 # Enable the CLAP SDK. Only need to do this once.
 function(enable_clap_sdk CLAP_SDK_VER OUT_CLAP_SDK OUT_CLAP_HELPERS)
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        set(${OUT_CLAP_SDK} "n/a" PARENT_SCOPE)
+        set(${OUT_CLAP_HELPERS} "n/a" PARENT_SCOPE)
+        return()
+    endif()
+
     include(FetchContent)
 
     FetchContent_Declare(
@@ -30,6 +36,10 @@ endfunction()
 
 # Make a CLAP plug-in from a user target.
 function(make_clap_plugin USER_TARGET CLAP_SDK CLAP_HELPERS)
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        return()
+    endif()
+
     read_property(${USER_TARGET} TINY_BASE_FILENAME)
     read_property(${USER_TARGET} TINY_BASE_IDENTIFIER)
     read_property(${USER_TARGET} TINY_PRODUCT_NAME)

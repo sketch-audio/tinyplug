@@ -1,5 +1,11 @@
 # Enable the VST3 SDK. Only need to do this once.
 function(enable_vst3_sdk VST3_SDK_VER OUT_VST3_SDK OUT_VST3_SDK_ROOT_DIR)
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        set(${OUT_VST3_SDK} "n/a" PARENT_SCOPE)
+        set(${OUT_VST3_SDK_ROOT_DIR} "n/a" PARENT_SCOPE)
+        return()
+    endif()
+
     include(FetchContent)
 
     # https://github.com/kunitoki/yup
@@ -44,6 +50,10 @@ endfunction()
 
 # Make a VST3 plug-in from a user target.
 function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        return()
+    endif()
+
     read_property(${USER_TARGET} TINY_BASE_FILENAME)
     read_property(${USER_TARGET} TINY_BASE_IDENTIFIER)
     read_property(${USER_TARGET} TINY_PRODUCT_NAME)

@@ -1,7 +1,7 @@
 # Make an AAX plug-in from a user target.
 function(make_aax_plugin USER_TARGET AAX_SDK_ROOT_DIR)
     # Requires AAX SDK path.
-    if(AAX_SDK_ROOT_DIR STREQUAL "n/a") # !!!
+    if(AAX_SDK_ROOT_DIR STREQUAL "n/a" OR CMAKE_SYSTEM_NAME STREQUAL "iOS") # !!!
         return()
     endif()
 
