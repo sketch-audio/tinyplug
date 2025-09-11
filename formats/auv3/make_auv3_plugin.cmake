@@ -60,11 +60,17 @@ function(make_auv3_plugin USER_TARGET)
         MACOSX_PACKAGE_LOCATION "Resources"
     )
 
-    target_link_libraries(${APP_TARGET} 
-        "-framework Foundation"
-        $<$<PLATFORM_ID:IOS>:-framework UIKit>
-        $<$<PLATFORM_ID:MACOSX>:-framework AppKit>
-    )
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        target_link_libraries(${APP_TARGET} PRIVATE
+            "-framework Foundation"
+            "-framework UIKit"
+        )
+    else()
+        target_link_libraries(${APP_TARGET} PRIVATE
+            "-framework AppKit"
+            "-framework Foundation"
+        )
+    endif()
     target_include_directories(${APP_TARGET} PUBLIC ${SOURCE_DIR}/source/shared)
 
     # Configure Info.plist
@@ -79,8 +85,8 @@ function(make_auv3_plugin USER_TARGET)
         MACOSX_BUNDLE YES
         MACOSX_BUNDLE_INFO_PLIST ${INFO_APP_PLIST}
         XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2" # iPhone and iPad
-        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "13.0"
-        XCODE_ATTRIBUTE_MACOSX_DEPLOYMENT_TARGET "10.15"
+        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "14.0"
+        XCODE_ATTRIBUTE_MACOSX_DEPLOYMENT_TARGET "11.0"
         XCODE_ATTRIBUTE_LAUNCH_SCREEN_STORYBOARD "NO"
         XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER ${TINY_BASE_IDENTIFIER}
         XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
@@ -102,22 +108,31 @@ function(make_auv3_plugin USER_TARGET)
         ${SOURCE_DIR}/source/extension/auv3_AUAudioUnit.h
         ${SOURCE_DIR}/source/extension/auv3_AUAudioUnit.mm
         ${SOURCE_DIR}/source/extension/auv3_AUViewController.mm
+        ${SOURCE_DIR}/source/extension/auv3_view.cpp
+        ${SOURCE_DIR}/source/extension/auv3_view.h
         ${SOURCE_DIR}/source/extension/BufferedAudioBus.hpp
         ${SOURCE_DIR}/source/extension/DSPKernel.hpp
         ${SOURCE_DIR}/source/shared/TargetPlatforms.h
     )
 
-    # For some reason I couldn't get this to work with UIKit/AppKit using the Xcode generator...
-    # Used Xcode attributes (below) instead.
-    # target_link_libraries(${EXT_TARGET} PRIVATE
-    #     "-framework AudioToolbox"
-    #     "-framework AVFoundation"
-    #     "-framework CoreAudioKit"
-    #     "-framework Foundation"
-    #     $<$<PLATFORM_ID:IOS>:-framework UIKit>
-    #     $<$<PLATFORM_ID:MACOSX>:-framework AppKit>
-    # )
-    target_link_libraries(${EXT_TARGET} PRIVATE ${USER_TARGET})
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        target_link_libraries(${EXT_TARGET} PRIVATE
+            "-framework AudioToolbox"
+            "-framework AVFoundation"
+            "-framework CoreAudioKit"
+            "-framework Foundation"
+            "-framework UIKit"
+        )
+    else()
+        target_link_libraries(${EXT_TARGET} PRIVATE
+            "-framework AppKit"
+            "-framework AudioToolbox"
+            "-framework AVFoundation"
+            "-framework CoreAudioKit"
+            "-framework Foundation"
+        )
+    endif()
+    target_link_libraries(${EXT_TARGET} PUBLIC ${USER_TARGET})
     target_include_directories(${EXT_TARGET} PUBLIC ${SOURCE_DIR}/source/shared)
 
     # Configure Info.plist
@@ -138,8 +153,8 @@ function(make_auv3_plugin USER_TARGET)
         XCODE_PRODUCT_TYPE "com.apple.product-type.app-extension"
         XCODE_ATTRIBUTE_EMBEDDED_CONTENT_CONTAINS_SWIFT "NO"
         XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2" # iPhone and iPad
-        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "13.0"
-        XCODE_ATTRIBUTE_MACOSX_DEPLOYMENT_TARGET "10.15"
+        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "14.0"
+        XCODE_ATTRIBUTE_MACOSX_DEPLOYMENT_TARGET "11.0"
         XCODE_ATTRIBUTE_LAUNCH_SCREEN_STORYBOARD "NO"
         XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER ${TINY_AUV3_IDENTIFIER}
         XCODE_ATTRIBUTE_ENABLE_TESTABILITY[variant=Debug] "YES"
@@ -149,9 +164,6 @@ function(make_auv3_plugin USER_TARGET)
         XCODE_ATTRIBUTE_SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD "NO"
         XCODE_ATTRIBUTE_ENABLE_APP_SANDBOX[sdk=macosx*] "YES"
         XCODE_ATTRIBUTE_ENABLE_USER_SELECTED_FILES[sdk=macosx*] "Read-Only"
-        # `target_link_libraries` wasn't working for some reason, so set linker flags directly.
-        XCODE_ATTRIBUTE_OTHER_LDFLAGS[sdk=iphoneos*] "-framework AudioToolbox -framework AVFoundation -framework CoreAudioKit -framework UIKit"
-        XCODE_ATTRIBUTE_OTHER_LDFLAGS[sdk=macosx*] "-framework AudioToolbox -framework AVFoundation -framework CoreAudioKit -framework AppKit"
     )
     # ---
 

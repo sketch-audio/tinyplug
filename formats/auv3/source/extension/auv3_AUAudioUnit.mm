@@ -14,6 +14,7 @@
 @property AUAudioUnitBusArray *inputBusArray;
 @property AUAudioUnitBusArray *outputBusArray;
 @property (nonatomic, readonly) AUAudioUnitBus *outputBus;
+@property NSMutableDictionary<NSNumber*, id>* observerTokens;
 @end
 
 @implementation Auv3_AUAudioUnit {
@@ -23,6 +24,7 @@
     
     // C++ members need to be ivars; they would be copied on access if they were properties.
     bool _parameterTreeSetup;
+    tiny::Param_infos<tiny::Param_model> _param_infos;
     DSPKernel _kernel;
     
     BufferedInputBus _inputBus;
@@ -83,8 +85,45 @@
 }
 
 - (void)setupParameterTree {
+    using namespace tiny;
+    
     if (_parameterTreeSetup == false) {
-        _parameterTree = [AUParameterTree createTreeWithChildren:@[]];
+        // Build the tree
+        _param_infos = Param_infos<Param_model>{};
+        const auto tree = _param_infos.tree();
+        
+        // Traverse the tree, creating parameters and groups along the way.
+        auto make_node = [&](auto&& self_, const Param_node& node) -> AUParameterNode* {
+            return std::visit(Inline_visitor{
+                [&](const Param_spec& spec) -> AUParameterNode* {
+                    return [self makeParameterFor:spec];
+                },
+                [&](const Param_group& group) -> AUParameterNode* {
+                    NSMutableArray<AUParameterNode*>* children = [NSMutableArray array];
+                    for (const auto& child : group.nodes) {
+                        [children addObject:self_(self_, child)];
+                    }
+                    NSString* identifier = [NSString stringWithUTF8String:group.string_id];
+                    NSString* name = [NSString stringWithUTF8String:group.name];
+                    return [AUParameterTree createGroupWithIdentifier:identifier name:name children:children];
+                }
+            }, node);
+        };
+        
+        // Most likely the root is a group, don't create a named group for it.
+        if (const auto* g = std::get_if<Param_group>(&tree)) {
+            NSMutableArray<AUParameterNode*>* rootChildren = [NSMutableArray array];
+            for (auto const& child : g->nodes) {
+                [rootChildren addObject:make_node(make_node, child)];
+            }
+            AUParameterTree* parameter_tree = [AUParameterTree createTreeWithChildren:rootChildren];
+            _parameterTree = parameter_tree;
+        }
+        else if (const auto* s = std::get_if<Param_spec>(&tree)) {
+            AUParameter *parameter = [self makeParameterFor:*s];
+            AUParameterTree *parameter_tree = [AUParameterTree createTreeWithChildren:@[parameter]];
+            _parameterTree = parameter_tree;
+        }
         
         // Send the Parameter default values to the Kernel before setting up the parameter callbacks, so that the defaults set in the Kernel.hpp don't propagate back to the AUParameters via GetParameter
         for (AUParameter *param in _parameterTree.allParameters) {
@@ -97,9 +136,140 @@
     }
 }
 
+// MARK: - makeReceiver
+
+- (tiny::Ui_receiver)makeReceiver {
+    using namespace tiny;
+    __weak typeof(self) self_ = self;
+    return Ui_receiver{
+        .get_knob_value = [self_](uint32_t addr) {
+            auto s = self_;
+            if (!s) return double{};
+            const auto& spec = s->_param_infos.param_for(addr);
+            const auto host = s->_kernel.getParameter(addr);
+            const auto knob = Value_conv::host_to_knob(host, spec.semantics);
+            return knob;
+        },
+        .pop_event = [self_](Ui_event& event) {
+            auto s = self_;
+            if (!s) return false;
+            return s->_kernel.pop_event(event);
+        },
+        .action_handler = [self_](const User_action& action) {
+            auto s = self_;
+            if (!s) return;
+            std::visit(Inline_visitor{
+                [&](const Action_start& a) {
+                    auto current = s->_kernel.getParameter(a.id);
+                    auto* auparam = [s->_parameterTree parameterWithAddress:a.id];
+                    auto token = (__bridge AUParameterObserverToken)s->_observerTokens[@(auparam.address)];
+                    [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeTouch];
+                },
+                [&](const Set_param& a) {
+                    const auto& param = s->_param_infos.param_for(a.id);
+                    const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
+                    auto* auparam = [s->_parameterTree parameterWithAddress:a.id];
+                    auto token = (__bridge AUParameterObserverToken)s->_observerTokens[@(auparam.address)];
+                    [auparam setValue:host_value originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeValue];
+                },
+                [&](const Action_end& a) {
+                    auto current = s->_kernel.getParameter(a.id);
+                    auto* auparam = [s->_parameterTree parameterWithAddress:a.id];
+                    auto token = (__bridge AUParameterObserverToken)s->_observerTokens[@(auparam.address)];
+                    [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeRelease];
+                },
+            }, action);
+        }
+    };
+}
+
+// MARK: - makeParameterFor
+
+- (AUParameter*)makeParameterFor:(tiny::Param_spec)spec {
+    using namespace tiny;
+
+    NSString* identifier = [NSString stringWithUTF8String:spec.string_id];
+    NSString* name = [NSString stringWithUTF8String:spec.name];
+
+    auto flags_for = [](Host_policy policy) -> AudioUnitParameterOptions {
+        switch (policy) {
+            case Host_policy::automation: return kAudioUnitParameterFlag_IsWritable | kAudioUnitParameterFlag_IsReadable;
+            case Host_policy::control: return kAudioUnitParameterFlag_IsReadable;
+            case Host_policy::state: return {};
+            case Host_policy::interface: return kAudioUnitParameterFlag_OmitFromPresets;
+            default: return kAudioUnitParameterFlag_IsWritable | kAudioUnitParameterFlag_IsReadable;
+        }
+    };
+
+    AUParameter* parameter = std::visit(Inline_visitor{
+        [&](const Bool_semantics& b) {
+            AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
+                                                                           name:name
+                                                                        address:spec.id
+                                                                            min:0
+                                                                            max:1
+                                                                            unit:kAudioUnitParameterUnit_Boolean
+                                                                        unitName:nil
+                                                                            flags:flags_for(spec.policy) | kAudioUnitParameterFlag_ValuesHaveStrings
+                                                                    valueStrings:nil
+                                                            dependentParameters:nil];
+            param.value = b.def_val ? 1.f : 0.f;
+            return param;
+        },
+        [&](const List_semantics& l) {
+            NSMutableArray<NSString*>* valueStrings = [NSMutableArray array];
+            for (const auto& item : l.items) {
+                [valueStrings addObject:[NSString stringWithUTF8String:item]];
+            }
+            AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
+                                                                           name:name
+                                                                        address:spec.id
+                                                                            min:0
+                                                                            max:static_cast<float>(l.items.size() - 1)
+                                                                           unit:kAudioUnitParameterUnit_Indexed
+                                                                       unitName:nil
+                                                                          flags:flags_for(spec.policy) | kAudioUnitParameterFlag_ValuesHaveStrings
+                                                                   valueStrings:valueStrings
+                                                            dependentParameters:nil];
+            param.value = static_cast<float>(l.def_val);
+            return param;
+        },
+        [&](const Int_semantics& i) {
+            AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
+                                                                           name:name
+                                                                        address:spec.id
+                                                                            min:static_cast<float>(i.min_val)
+                                                                            max:static_cast<float>(i.max_val)
+                                                                           unit:kAudioUnitParameterUnit_Indexed
+                                                                       unitName:nil
+                                                                          flags:flags_for(spec.policy) | kAudioUnitParameterFlag_ValuesHaveStrings
+                                                                   valueStrings:nil
+                                                            dependentParameters:nil];
+            param.value = static_cast<float>(i.def_val);
+            return param;
+        },
+        [&](const Real_semantics& r) {
+            AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
+                                                                           name:name
+                                                                        address:spec.id
+                                                                            min:0
+                                                                            max:1
+                                                                           unit:kAudioUnitParameterUnit_Generic
+                                                                       unitName:nil
+                                                                          flags:flags_for(spec.policy) | kAudioUnitParameterFlag_ValuesHaveStrings
+                                                                   valueStrings:nil
+                                                            dependentParameters:nil];
+            param.value = static_cast<float>(Value_conv::plain_to_host(r.def_val, r));
+            return param;
+        },
+    }, spec.semantics);
+    
+    return parameter;
+}
+
 - (void)setupParameterCallbacks {
     // Make a local pointer to the kernel to avoid capturing self.
-    
+    __block tiny::Param_infos<tiny::Param_model> *param_infos = &_param_infos;
     __block DSPKernel *kernel = &_kernel;
     
     // implementorValueObserver is called when a parameter changes value.
@@ -115,7 +285,9 @@
     // A function to provide string representations of parameter values.
     _parameterTree.implementorStringFromValueCallback = ^(AUParameter *param, const AUValue *__nullable valuePtr) {
         AUValue value = valuePtr == nil ? param.value : *valuePtr;
-        return [NSString stringWithFormat:@"%.1f", value];
+        const auto& spec = param_infos->param_for(static_cast<uint32_t>(param.address));
+        const auto str_value = tiny::Host_formatter::format_string(param.value, spec.semantics);
+        return [NSString stringWithUTF8String:str_value.c_str()];
     };
 }
 
@@ -194,6 +366,16 @@
     _kernel.initialize(inputChannelCount, outputChannelCount, _outputBus.format.sampleRate);
     _processHelper = std::make_unique<AUProcessHelper>(_kernel, inputChannelCount, outputChannelCount);
     [self startDispatchTimer];
+
+    // go through all parameters
+    __block DSPKernel *kernel = &_kernel;
+    for (AUParameter *param in _parameterTree.allParameters) {
+        AUParameterObserverToken token = [param tokenByAddingParameterObserver:^(AUParameterAddress address, AUValue value) {
+            kernel->onHostUpdated(address, value);
+        }];
+        _observerTokens[@(param.address)] = (__bridge id)token;
+    }
+
     return [super allocateRenderResourcesAndReturnError:outError];
 }
 
@@ -204,6 +386,14 @@
     
     // Deallocate your resources.
     _kernel.deInitialize();
+
+    for (AUParameter *param in self.parameterTree.allParameters) {
+        AUParameterObserverToken token = (__bridge AUParameterObserverToken)_observerTokens[@(param.address)];
+        if (token) {
+            [param removeParameterObserver:token];
+        }
+    }
+    [_observerTokens removeAllObjects];
     
     [super deallocateRenderResources];
 }
@@ -325,7 +515,7 @@
         if (strongSelf == nil) { return; }
         
         // Latency reporting
-        const auto latency_secs = kernel->latency_ms() / 1000;
+        const auto latency_secs = kernel->latency_secs();
         
         if (weakSelf.latency != latency_secs) {
             [weakSelf willChangeValueForKey:@"latency"];

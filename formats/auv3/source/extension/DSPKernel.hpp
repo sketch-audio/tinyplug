@@ -1,11 +1,16 @@
 #pragma once
 
 #include <atomic>
+#include <array>
 
 #import <AudioToolbox/AudioToolbox.h>
 #import <algorithm>
 #import <vector>
 #import <span>
+
+#include "dsp_kernel.h"
+#include "param_model.h"
+#include "plug_info.h"
 
 /*
  DSPKernel
@@ -13,9 +18,14 @@
  */
 class DSPKernel {
 public:
-    
+
+    ~DSPKernel() {
+        // ...
+    }
+
     void initialize(int inputChannelCount, int outputChannelCount, double inSampleRate) {
         mSampleRate = inSampleRate;
+        _kernel->reset(mSampleRate);
     }
     
     void deInitialize() {
@@ -32,11 +42,20 @@ public:
     
     // MARK: - Parameter Getter / Setter
     void setParameter(AUParameterAddress address, AUValue value) {
-        //
+        if (address >= num_params) return;
+        const auto addr = static_cast<uint32_t>(address);
+        const auto& spec = _param_infos.param_for(addr);
+        const auto plain = tiny::Value_conv::host_to_plain(value, spec.semantics);
+        _param_queue.push(tiny::Set_param{
+            .id = addr,
+            .value = plain
+        });
+        _hostvalues[address].store(value, std::memory_order_release);
     }
     
     AUValue getParameter(AUParameterAddress address) {
-        return 0;
+        if (address >= num_params) return 0;
+        return _hostvalues[address].load(std::memory_order_acquire);
     }
     
     // MARK: - Max Frames
@@ -69,7 +88,7 @@ public:
          modify the check in [Galaxy_Brain_AUAudioUnit allocateRenderResourcesAndReturnError]
          */
         assert(inputBuffers.size() == outputBuffers.size());
-
+        
         if (mBypassed) {
             // Pass the samples through
             for (UInt32 channel = 0; channel < inputBuffers.size(); ++channel) {
@@ -78,18 +97,62 @@ public:
             return;
         }
         
-        // Also bypass.
-        for (UInt32 channel = 0; channel < inputBuffers.size(); ++channel) {
-            std::copy_n(inputBuffers[channel], frameCount, outputBuffers[channel]);
+        // Handle set_param events.
+        auto event = tiny::Render_event{};
+        while(_param_queue.pop(event)) {
+            _kernel->handle_event(event);
         }
+        
+        auto context = tiny::Dsp_context{.exports = _exports, .propose_latency = {}};
+        context.musical_context = resolve_musical_context(frameCount);
+        context.ibuffers = inputBuffers;
+        context.obuffers = outputBuffers;
+        context.sbuffers = sidechainBuffers;
+        context.num_frames = frameCount;
+        
+        _kernel->process(context);
+        
+        // Send exports.
+        for (auto i = decltype(num_exports){}; i < num_exports; ++i) {
+            if (context.exports[i] != _lexports[i]) {
+                const auto value = context.exports[i];
+                // TODO: - push to some outgoing queue
+                _out_queue.push(tiny::Set_export{.id = i, .value = value});
+                _lexports[i] = value;
+            }
+            _exports[i] = 0; // Reset for peak meters.
+        }
+
+        // Has the kernel proposed a new latency?
+        if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _latency) {
+            // TODO: - notify or something
+            _pending_latency.store(*proposed_latency, std::memory_order_release);
+        }
+
+//        const auto tail = _kernel->tail_samps();
+//        if (tail != _tail) {
+//            // tail changed
+//        }
     }
     
+    // Called by the process helper on the audio thread so we can send events to kernel directly.
     void handleOneEvent(AUEventSampleTime now, AURenderEvent const *event) {
         switch (event->head.eventType) {
             case AURenderEventParameter: {
+                const auto address = static_cast<uint32_t>(event->parameter.parameterAddress);
+                const auto& spec = _param_infos.param_for(address);
+                const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
+                _kernel->handle_event(tiny::Set_param{.id = address, .value = plain});
+                _out_queue.push(tiny::Set_param{.id = address, .value = plain});
                 break;
             }
             case AURenderEventParameterRamp: {
+                const auto address = static_cast<uint32_t>(event->parameter.parameterAddress);
+                const auto dur_samples = static_cast<int32_t>(event->parameter.rampDurationSampleFrames);
+                const auto& spec = _param_infos.param_for(address);
+                const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
+                _kernel->handle_event(tiny::Ramp_param{.id = address, .target = plain, .dur_samples = dur_samples});
+                _out_queue.push(tiny::Set_param{.id = address, .value = plain});
                 break;
             }
                 
@@ -103,9 +166,20 @@ public:
     }
     
     // tiny
-    auto latency_ms() -> double 
+    auto latency_secs() -> double 
     {
-        return 0;
+        // _latency in samples
+        return _latency / mSampleRate;
+    }
+    
+    auto pop_event(tiny::Ui_event& event) -> bool
+    {
+        return _out_queue.pop(event);
+    }
+    
+    auto onHostUpdated(AUParameterAddress address, AUValue value) -> void
+    {
+        _out_queue.push(tiny::Set_param{.id = static_cast<uint32_t>(address), .value = value});
     }
     
 private:
@@ -117,5 +191,129 @@ private:
     double mSampleRate = 48000;
     bool mBypassed = false;
     AUAudioFrameCount mMaxFramesToRender = 1024;
+    
+    using User_params = tiny::Param_infos<tiny::Param_model>;
+    using User_exports = tiny::Exports<tiny::Param_model>;
+
+    static constexpr auto num_params = User_params::num_params;
+    static constexpr auto num_exports = User_exports::num_exports;
+
+    static constexpr auto num_ichannels = size_t{2};
+    static constexpr auto num_schannels = size_t{2};
+    static constexpr auto num_ochannels = size_t{2};
+
+    // Pointers to host io buffers.
+    std::array<const float*, num_ichannels> _ibuffers{};
+    std::array<const float*, num_schannels> _sbuffers{};
+    std::array<float*, num_ochannels> _obuffers{};
+    std::array<float, num_exports> _exports{};
+    
+    // TODO: - Use a heuristic for size.
+    using Set_param_queue = tiny::Lock_free_queue<tiny::Render_event, 256>;
+    using To_ui_queue = tiny::Lock_free_queue<tiny::Ui_event, 256, tiny::Queue_concurrency::mpsc>; // We could have host param changes coming in from multiple queues.
+    Set_param_queue _param_queue{};
+    To_ui_queue _out_queue{};
+    
+    User_params _param_infos{}; // We have to be able to map the values to plain space.
+    
+    // Values in host space.
+    using Host_value = std::atomic<float>;
+    using Host_values = std::array<Host_value, num_params>;
+    Host_values _hostvalues{_param_infos.make_host_defaults<Host_value>()};
+    
+    std::array<float, num_exports> _lexports{};
+    
+    std::unique_ptr<tiny::Dsp_kernel> _kernel = std::make_unique<tiny::Dsp_kernel>();
+    uint32_t _latency{_kernel->latency_samps()};
+
+    using Latency_flag = std::atomic<std::optional<uint32_t>>;
+    static_assert(Latency_flag::is_always_lock_free);
+
+    // Communicates the pending latency from `process` to `setActive`.
+    Latency_flag _pending_latency{};
+
+    // Communicates the accepted latency from `setActive` to `process`.
+    Latency_flag _accepted_latency{};
+    
+    tiny::Musical_context _context{};
+    
+    // MARK: - Musical Context Helpers
+    
+    auto frames_to_beats(double frames, double tempo, double sr) -> double
+    {
+        const auto beats_per_frame = tempo / (60 * sr);
+        return frames * beats_per_frame;
+    }
+    
+    auto resolve_musical_context(uint32_t frame_count) -> tiny::Musical_context
+    {
+        if (mTransportStateBlock && mMusicalContextBlock) {
+            // Buid the host context.
+            auto flags = AUHostTransportStateFlags{};
+            auto samplePos = double{};
+            auto cycleStart = double{};
+            auto cycleEnd = double{};
+            mTransportStateBlock(&flags, &samplePos, &cycleStart, &cycleEnd);
+            
+            // Resolve flags
+            const auto changed = (flags & AUHostTransportStateChanged) > 0; // If there is a discontinuity, for example.
+            const auto moving = (flags & AUHostTransportStateMoving) > 0;
+            const auto recording = (flags & AUHostTransportStateRecording) > 0;
+            const auto cycling = (flags & AUHostTransportStateCycling) > 0;
+            
+            _context.transport_state.moving = moving;
+            _context.transport_state.recording = recording;
+            _context.transport_state.cycling = cycling;
+            
+            _context.cycle_start = cycleStart;
+            _context.cycle_end = cycleEnd;
+
+            //
+            auto tempo = double{};
+            auto timeSigNumer = double{};
+            auto timeSigDenom = long{};
+            auto beatPos = double{};
+            
+            mMusicalContextBlock(&tempo,
+                                 &timeSigNumer,
+                                 &timeSigDenom,
+                                 &beatPos,
+                                 nullptr,     // sampleOffsetToNextBeat
+                                 nullptr);    // currentMeasureDownbeatPosition
+            
+            // Grab the time signature info.
+            _context.time_sig.numer = timeSigNumer;
+            _context.time_sig.denom = static_cast<int32_t>(timeSigDenom);
+            
+            // Resolve tempo and beat time.
+            if (moving) {
+                // At this time, mBeatPos holds the expected beat time for the current buffer.
+                const auto isDiscontinuity = fabs(beatPos - _context.beat_pos) > 1e-3;
+                
+                if (changed || isDiscontinuity) {
+                    // Use the host tempo and beat position.
+                    _context.tempo_ideal = tempo;
+                    _context.tempo_real = tempo;
+                    _context.beat_pos = beatPos;
+                }
+                else {
+                    // Adjust real tempo so we can have a continuous beat position.
+                    const auto idealBufferBeatDur = frames_to_beats(frame_count, tempo, mSampleRate);
+                    const auto hostBeatPosEnd = beatPos + idealBufferBeatDur;
+                    const auto actualBufferBeatDur = hostBeatPosEnd - _context.beat_pos;
+                    const auto rateScalar = actualBufferBeatDur / idealBufferBeatDur;
+                    
+                    // Use the incremented beat position.
+                    _context.tempo_ideal = tempo;
+                    _context.tempo_real = tempo * rateScalar;
+                }
+            } else {
+                _context.tempo_ideal = tempo;
+                _context.tempo_real = tempo;
+            }
+        }
+        
+        return _context; // take a copy.
+    }
 
 };

@@ -123,3 +123,20 @@ Tinyplug ships with some test plug-ins that can be useful for making sure things
 - Idea: move platform into tinyplug proper?
 - TINY_AUV2_TYPE -> TINY_AU_TYPE
 - TINY_PLUGIN_CODE for AUv3 same as AUv2?
+
+## AUv3 TODO:
+- Persistence
+    - Add the tree version
+- Latency handshake
+- Tail time
+- Multitouch
+- Platform dialogs
+- Check macOS build
+
+## Build
+- Be sure to also set `-DTINY_DEPS_PATH=../tiny_deps`
+- Unix makefiles: 
+    - `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug|Release`
+    - `cmake --build build`
+- iOS AUv3: `cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS`
+- macOS AUv3: `cmake -S . -B build-macos -G Xcode`

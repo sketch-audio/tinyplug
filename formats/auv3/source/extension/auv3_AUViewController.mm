@@ -4,54 +4,56 @@
 
 #import "auv3_AUAudioUnit.h"
 
+#include "auv3_view.h"
+
 @interface Auv3_AUViewController : AUViewController <AUAudioUnitFactory>
 @property (nonatomic, retain) AUAudioUnit* audioUnit;
 @end
 
-@implementation Auv3_AUViewController
+@implementation Auv3_AUViewController {
+    std::unique_ptr<tiny::Auv3_view> _view_adapter;
+}
 - (AUAudioUnit*)createAudioUnitWithComponentDescription:(AudioComponentDescription) desc error:(NSError **)error {
     self.audioUnit = [[Auv3_AUAudioUnit alloc] initWithComponentDescription:desc error:error];
 
     Auv3_AUAudioUnit* tiny_au = (Auv3_AUAudioUnit*)self.audioUnit;
     [tiny_au setupParameterTree];
+    
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self setupViewAdapter];
+    });
 
     return self.audioUnit;
 }
 
+// main thread
+- (void)setupViewAdapter {
+    if (!self.audioUnit) return;
+    if (!_view_adapter) {
+        Auv3_AUAudioUnit* tiny_au = (Auv3_AUAudioUnit*)self.audioUnit;
+        auto receiver = [tiny_au makeReceiver];
+        _view_adapter = std::make_unique<tiny::Auv3_view>(receiver);
+        auto* custom_view = (__bridge UIView*)_view_adapter->create_view();
+        [self.view addSubview:custom_view];
+        const auto size = self.view.bounds.size;
+        _view_adapter->on_resize(static_cast<int32_t>(size.width), static_cast<int32_t>(size.height)); // Also requests a redraw.
+    }
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
-#if TARGET_OS_IOS
-    self.view.backgroundColor = [UIColor systemBackgroundColor];
+    [self setupViewAdapter]; // 
+}
 
-    // Add label to center of screen
-    UILabel *label = [[UILabel alloc] init];
-    label.text = @"Hello from tinyplug AUv3.";
-    label.font = [UIFont systemFontOfSize:17];
-    label.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:label];
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    if (!_view_adapter) return;
+    const auto size = self.view.bounds.size;
+    _view_adapter->on_resize(static_cast<int32_t>(size.width), static_cast<int32_t>(size.height)); // Also requests a redraw.
+}
 
-    [NSLayoutConstraint activateConstraints:@[
-        [label.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [label.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor]
-    ]];
-#elif TARGET_OS_OSX
-    // Add label to center of screen
-    NSTextField *label = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 0, 0)];
-    label.stringValue = @"Hello from tinyplug AUv3.";
-    label.font = [NSFont systemFontOfSize:17];
-    label.alignment = NSTextAlignmentCenter;
-    label.bezeled = NO;
-    label.drawsBackground = NO;
-    label.editable = NO;
-    label.selectable = NO;
-    label.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:label];
-
-    [NSLayoutConstraint activateConstraints:@[
-        [label.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [label.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor]
-    ]];
-#endif
+- (void)dealloc {
+    _view_adapter->teardown(); // Stop the timer!
+    //[super dealloc];
 }
 @end
-
