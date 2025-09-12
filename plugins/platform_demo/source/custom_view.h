@@ -3,10 +3,15 @@
 #include "tinyplug/tinyplug.h"
 #include "param_model.h"
 
+#include "include/core/SkFont.h"
+
 namespace tiny {
 
 class Custom_view {
 public:
+    //
+    Custom_view();
+
     // This is where your view is "created" (maybe presented is a better term).
     // You receive some things that will persist until the next `on_create`.
     // - Action receiver: In `on_draw` you can push user actions like `Set_param` to the host/DSP.
@@ -32,6 +37,8 @@ private:
     double _ldrag{}; // norm
 
     std::optional<uintptr_t> _pointer{};
+
+    SkFont _font{};
 
 };
 

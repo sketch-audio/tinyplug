@@ -7,9 +7,41 @@
 
 #include "platform/platform_view.h"
 
+#include "include/core/SkFont.h"
+#include "include/core/SkFontMgr.h"
+#if PLATFORM_MACOS
+#include "include/ports/SkFontMgr_mac_ct.h"
+#elif PLATFORM_WINDOWS
+#include "include/ports/SkTypeface_win.h"
+#endif
+
+#include "host_grotesk_medium.h"
+
 namespace tiny {
 
+static constexpr auto font_size = 64.f;
+
 // MARK: - on create
+
+Custom_view::Custom_view() {
+    auto font_data = SkData::MakeWithoutCopy(HostGrotesk_Medium_ttf, HostGrotesk_Medium_ttf_len);
+    if (!font_data) {
+        std::cerr << "Failed to create font data!\n";
+        return;
+    }
+#if PLATFORM_MACOS
+    auto font_mgr = SkFontMgr_New_CoreText(nullptr);
+#elif PLATFORM_WINDOWS
+    auto font_mgr = SkFontMgr_New_DirectWrite();
+#endif
+    auto typeface = font_mgr->makeFromData(font_data);
+
+    _font = SkFont(typeface, font_size); // Font size (pixels)
+    _font.setEdging(SkFont::Edging::kSubpixelAntiAlias); // Enable anti-aliasing
+    _font.setHinting(SkFontHinting::kSlight);
+    _font.setForceAutoHinting(false);
+    _font.setSubpixel(true);
+}
 
 auto Custom_view::on_create(const Action_queue::Receiver& actions, const Task_queue::Receiver& tasks) -> void
 {
@@ -41,6 +73,8 @@ auto Custom_view::on_draw(App_state& app_state) -> void
 
     const auto id = enum_raw(Param_id::gain);
     const auto g = static_cast<float>(params[id]);
+
+    const auto& spec = _params.param_for(id);
 
     // Get incremented parameter value from a drag.
     auto get_next = [=, this](auto x, auto& d) -> double {
@@ -143,6 +177,22 @@ auto Custom_view::on_draw(App_state& app_state) -> void
     const auto g_h = g * rsize.h;
     const auto g_y = rsize.h - g_h;
     canvas->drawRect(SkRect::MakeXYWH(0, g_y, static_cast<float>(rsize.w), g_h), paint);
+
+    paint.setColor(SK_ColorWHITE);
+    // Text to draw
+    const char* text = spec.name;
+    SkRect textBounds;
+    _font.setSize(font_size * scale);
+    _font.measureText(text, strlen(text), SkTextEncoding::kUTF8, &textBounds);
+
+    // Calculate center position (accounting for canvas size)
+    SkScalar canvasWidth = rsize.w;
+    SkScalar canvasHeight = rsize.h;
+    SkScalar x = (canvasWidth - textBounds.width()) / 2.0f;
+    SkScalar y = (canvasHeight - textBounds.height()) / 2.0f + textBounds.height(); // Adjust for baseline
+
+    // Draw text
+    canvas->drawSimpleText(text, strlen(text), SkTextEncoding::kUTF8, x, y, _font, paint);
 }
 
 } // namespace tiny
