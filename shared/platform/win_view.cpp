@@ -466,9 +466,8 @@ auto Platform_view::teardown() -> void
 auto Platform_view::resize(int32_t w, int32_t h) -> void
 {
     auto window = static_cast<HWND>(_view);
-    // Update window size based on delegate
-    const auto size = _delegate->get_size();
-    SetWindowPos(window, nullptr, 0, 0, size.w, size.h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    _delegate->on_resize({w, h});
+    SetWindowPos(window, nullptr, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 auto Platform_view::redraw() -> void
