@@ -209,7 +209,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
     if (!binder) return DefWindowProcW(window, message, wparam, lparam);
 
     auto* delegate = binder->delegate;
-    const auto h = delegate ? delegate->get_size().h : 0;
+    //const auto h = delegate ? delegate->get_size().h : 0;
     
     switch (message) {
         case WM_PAINT: {
@@ -767,7 +767,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
             lpdt->dwExtendedStyle = WS_EX_NOPARENTNOTIFY;
             lpdt->cdit = 2;         // Number of controls
             lpdt->x  = 0;  lpdt->y  = 0;
-            lpdt->cx = dialog_w; lpdt->cy = dialog_h;
+            lpdt->cx = static_cast<short>(dialog_w); lpdt->cy = static_cast<short>(dialog_h);
 
             lpw = (LPWORD)(lpdt + 1);
             *lpw++ = 0;             // No menu
@@ -778,7 +778,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
             lpw += nchar;
             
 
-            *lpw++ = font.size;             // Font size
+            *lpw++ = static_cast<WORD>(font.size);             // Font size
             lpwsz = (LPWSTR)lpw;
             nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, static_cast<int>(font.name.size()) + 1);
             lpw += nchar;
@@ -788,8 +788,8 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
             //-----------------------
             lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = padding; lpdit->y  = padding + text_h + padding;
-            lpdit->cx = button_w; lpdit->cy = button_h;
+            lpdit->x  = static_cast<short>(padding); lpdit->y  = static_cast<short>(padding + text_h + padding);
+            lpdit->cx = static_cast<short>(button_w); lpdit->cy = static_cast<short>(button_h);
             lpdit->id = IDOK;       // OK button identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW;
 
@@ -807,8 +807,8 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
             //-----------------------
             lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = padding; lpdit->y  = padding;
-            lpdit->cx = text_w; lpdit->cy = text_h;
+            lpdit->x  = static_cast<short>(padding); lpdit->y  = static_cast<short>(padding);
+            lpdit->cx = static_cast<short>(text_w); lpdit->cy = static_cast<short>(text_h);
             lpdit->id = ID_TEXT;    // Text identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
 
@@ -878,7 +878,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
             lpdt->dwExtendedStyle = WS_EX_NOPARENTNOTIFY;
             lpdt->cdit = 3;         // Number of controls
             lpdt->x  = 0;  lpdt->y  = 0;
-            lpdt->cx = dialog_w; lpdt->cy = dialog_h;
+            lpdt->cx = static_cast<short>(dialog_w); lpdt->cy = static_cast<short>(dialog_h);
 
             lpw = (LPWORD)(lpdt + 1);
             *lpw++ = 0;             // No menu
@@ -889,7 +889,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
             lpw += nchar;
             
 
-            *lpw++ = font.size;             // Font size
+            *lpw++ = static_cast<WORD>(font.size);             // Font size
             lpwsz = (LPWSTR)lpw;
             nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, static_cast<int>(font.name.size()) + 1);
             lpw += nchar;
@@ -899,8 +899,8 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
             //-----------------------
             lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = padding; lpdit->y  = padding + text_h + padding;
-            lpdit->cx = button_w; lpdit->cy = button_h;
+            lpdit->x  = static_cast<short>(padding); lpdit->y  = static_cast<short>(padding + text_h + padding);
+            lpdit->cx = static_cast<short>(button_w); lpdit->cy = static_cast<short>(button_h);
             lpdit->id = IDOK;       // OK button identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW;
 
@@ -918,8 +918,8 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
             //-----------------------
             lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = padding + button_w + padding; lpdit->y  = padding + text_h + padding;
-            lpdit->cx = button_w; lpdit->cy = button_h;
+            lpdit->x  = static_cast<short>(padding + button_w + padding); lpdit->y  = static_cast<short>(padding + text_h + padding);
+            lpdit->cx = static_cast<short>(button_w); lpdit->cy = static_cast<short>(button_h);
             lpdit->id = IDCANCEL;       // Cancel button identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW;
 
@@ -937,8 +937,8 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
             //-----------------------
             lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = padding; lpdit->y  = padding;
-            lpdit->cx = text_w; lpdit->cy = text_h;
+            lpdit->x  = static_cast<short>(padding); lpdit->y  = static_cast<short>(padding);
+            lpdit->cx = static_cast<short>(text_w); lpdit->cy = static_cast<short>(text_h);
             lpdit->id = ID_TEXT;    // Text identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
 
@@ -1009,7 +1009,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             lpdt->dwExtendedStyle = WS_EX_NOPARENTNOTIFY;
             lpdt->cdit = 4;         // Number of controls
             lpdt->x  = 0;  lpdt->y  = 0;
-            lpdt->cx = dialog_w; lpdt->cy = dialog_h;
+            lpdt->cx = static_cast<short>(dialog_w); lpdt->cy = static_cast<short>(dialog_h);
 
             lpw = (LPWORD)(lpdt + 1);
             *lpw++ = 0;             // No menu
@@ -1019,7 +1019,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, static_cast<int>(title.size()) + 1);
             lpw += nchar;
 
-            *lpw++ = font.size;             // Font size
+            *lpw++ = static_cast<WORD>(font.size);             // Font size
             lpwsz = (LPWSTR)lpw;
             nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, static_cast<int>(font.name.size()) + 1);
             lpw += nchar;
@@ -1029,10 +1029,10 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             //-----------------------
             lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x = padding; 
-            lpdit->y = padding + text_h + padding + edit_h + padding;
-            lpdit->cx = button_w; 
-            lpdit->cy = button_h;
+            lpdit->x = static_cast<short>(padding); 
+            lpdit->y = static_cast<short>(padding + text_h + padding + edit_h + padding);
+            lpdit->cx = static_cast<short>(button_w); 
+            lpdit->cy = static_cast<short>(button_h)    ;
             lpdit->id = IDOK;       // OK button identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW;
 
@@ -1050,10 +1050,10 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             //-----------------------
             lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x = padding + button_w + padding; 
-            lpdit->y = padding + text_h + padding + edit_h + padding;
-            lpdit->cx = button_w; 
-            lpdit->cy = button_h;
+            lpdit->x = static_cast<short>(padding + button_w + padding); 
+            lpdit->y = static_cast<short>(padding + text_h + padding + edit_h + padding);
+            lpdit->cx = static_cast<short>(button_w); 
+            lpdit->cy = static_cast<short>(button_h);
             lpdit->id = IDCANCEL;       // Cancel button identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW;
 
@@ -1071,10 +1071,10 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             //-----------------------
             lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x = padding; 
-            lpdit->y = padding + text_h + padding;
-            lpdit->cx = edit_w;
-            lpdit->cy = edit_h;
+            lpdit->x = static_cast<short>(padding); 
+            lpdit->y = static_cast<short>(padding + text_h + padding);
+            lpdit->cx = static_cast<short>(edit_w);
+            lpdit->cy = static_cast<short>(edit_h);
             lpdit->id = ID_EDIT;    // Help button identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL;
 
@@ -1092,10 +1092,10 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             //-----------------------
             lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
             lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x = padding;
-            lpdit->y = padding;
-            lpdit->cx = text_w;
-            lpdit->cy = text_h;
+            lpdit->x = static_cast<short>(padding);
+            lpdit->y = static_cast<short>(padding);
+            lpdit->cx = static_cast<short>(text_w);
+            lpdit->cy = static_cast<short>(text_h);
             lpdit->id = ID_TEXT;    // Text identifier
             lpdit->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
 
