@@ -9,10 +9,15 @@
 #include "tools/window/mac/GaneshMetalWindowContext_mac.h"
 #include "tools/window/mac/MacWindowInfo.h"
 
+#include "mac_config.h"
+#ifndef TINY_MAC_VIEW
+#error "TINY_MAC_VIEW must be defined in mac_config.h"
+#endif
+
 #define MAC_VIEW_RENDER_MAIN_THREAD 0 // Main thread was slowing down Pro Tools UI.
 
-// MacView
-@interface MacView : NSView
+// TINY_MAC_VIEW
+@interface TINY_MAC_VIEW : NSView
 - (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate;
 - (void)startDisplayLink;
 - (void)stopDisplayLink;
@@ -20,18 +25,18 @@
 @end
 
 // 
-static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeStamp* now, const CVTimeStamp* outputTime, CVOptionFlags flagsIn, CVOptionFlags* flagsOut, void* context) {
+static CVReturn DisplayLinkCallback(CVDisplayLinkRef /*displayLink*/, const CVTimeStamp* /*now*/, const CVTimeStamp* /*outputTime*/, CVOptionFlags /*flagsIn*/, CVOptionFlags* /*flagsOut*/, void* context) {
 #if MAC_VIEW_RENDER_MAIN_THREAD
     dispatch_source_t source = (__bridge dispatch_source_t)context;
     dispatch_source_merge_data(source, 1);
 #else
-    MacView* view = (MacView*)context;
+    TINY_MAC_VIEW* view = (TINY_MAC_VIEW*)context;
     [view render];
 #endif
     return kCVReturnSuccess;
 }
 
-@implementation MacView {
+@implementation TINY_MAC_VIEW {
     std::shared_ptr<tiny::View_delegate> graphics_delegate;
 
     // Interaction state
@@ -49,6 +54,8 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     CVDisplayLinkRef _displayLink;
 #if MAC_VIEW_RENDER_MAIN_THREAD
     dispatch_source_t _displaySource;
+#else
+    tiny::Lock_free_queue<std::function<void()>, 16> _interaction_queue;
 #endif
 }
 
@@ -60,7 +67,7 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
     if (self) {
 #if MAC_VIEW_RENDER_MAIN_THREAD
         _displaySource = dispatch_source_create(DISPATCH_SOURCE_TYPE_DATA_ADD, 0, 0, dispatch_get_main_queue());
-        __block MacView* self_ = self; // Need block pointer!
+        __block TINY_MAC_VIEW* self_ = self; // Need block pointer!
         dispatch_source_set_event_handler(_displaySource, ^(){
             if (self_) {
                 [self_ render];
@@ -125,6 +132,13 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 - (void)render {
     const auto time_now = tiny::System_clock::now();
 
+#if !MAC_VIEW_RENDER_MAIN_THREAD
+    auto f = std::function<void()>{};
+    while (_interaction_queue.pop(f)) {
+        f();
+    }
+#endif
+
     // Should we dwell?
     if (_over_pos && !_dwelt) {
         const auto now = std::chrono::steady_clock::now();
@@ -172,78 +186,125 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 }
 
 - (void)mouseDown:(NSEvent *)event {
+    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
     const auto ctrl = (event.modifierFlags & NSEventModifierFlagControl) != 0;
-    if (ctrl) {
-        tiny::try_set(_pointer.state, tiny::Right_click{pos});
-        _over_pos = std::nullopt;
-    } 
-    else {
-        tiny::try_set(_pointer.state, tiny::Down{pos});
-        _over_pos = std::nullopt;
-        _left_pos = pos;
-    }
+    auto process_down = [=]() {
+        if (!self_) return;
+        if (ctrl) {
+            tiny::try_set(self_->_pointer.state, tiny::Right_click{pos});
+            self_->_over_pos = std::nullopt;
+        } 
+        else {
+            tiny::try_set(self_->_pointer.state, tiny::Down{pos});
+            self_->_over_pos = std::nullopt;
+            self_->_left_pos = pos;
+        }
+    };
+#if MAC_VIEW_RENDER_MAIN_THREAD
+    process_down();
+#else
+    _interaction_queue.push(process_down);
+#endif
     [super mouseDown:event];
 }
 
 - (void)mouseUp:(NSEvent *)event {
+    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
-    if (_drag_start) {
-        tiny::try_set(_pointer.state, tiny::Drag_end{*_drag_start, pos});
-        _over_pos = std::nullopt;
-        _drag_start = std::nullopt;
-    } 
-    else if (_left_pos) {
-        if (event.clickCount == 2) {
-            tiny::try_set(_pointer.state, tiny::Double_click{pos});
-            _over_pos = std::nullopt;
+    const auto click_count = event.clickCount;
+    auto process_up = [=] {
+        if (!self_) return;
+        if (self_->_drag_start) {
+            tiny::try_set(self_->_pointer.state, tiny::Drag_end{*self_->_drag_start, pos});
+            self_->_over_pos = std::nullopt;
+            self_->_drag_start = std::nullopt;
         } 
-        else {
-            tiny::try_set(_pointer.state, tiny::Click{pos});
-            _over_pos = std::nullopt;
+        else if (self_->_left_pos) {
+            if (click_count == 2) {
+                tiny::try_set(self_->_pointer.state, tiny::Double_click{pos});
+                self_->_over_pos = std::nullopt;
+            } 
+            else {
+                tiny::try_set(self_->_pointer.state, tiny::Click{pos});
+                self_->_over_pos = std::nullopt;
+            }
+            self_->_left_pos = std::nullopt;
         }
-        _left_pos = std::nullopt;
-    }
+    };
+#if MAC_VIEW_RENDER_MAIN_THREAD
+    process_up();
+#else
+    _interaction_queue.push(process_up);
+#endif
     [super mouseUp:event];
 }
 
 - (void)mouseMoved:(NSEvent *)event {
+    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
-    tiny::try_set(_pointer.state, tiny::Over{pos});
+    const auto t = std::chrono::steady_clock::now();
+    auto process_move = [=]() {
+        if (!self_) return;
+        tiny::try_set(self_->_pointer.state, tiny::Over{pos});
 
-    // Update dwell.
-    if (!_over_pos || *_over_pos != pos) {
-        _over_pos = pos;
-        _over_time = std::chrono::steady_clock::now();
-        _dwelt = false;
-    }
+        // Update dwell.
+        if (!self_->_over_pos || *self_->_over_pos != pos) {
+            self_->_over_pos = pos;
+            self_->_over_time = t; // Captured time.
+            self_->_dwelt = false;
+        }
+    };
+#if MAC_VIEW_RENDER_MAIN_THREAD
+    process_move();
+#else
+    _interaction_queue.push(process_move);
+#endif
     [super mouseMoved:event];
 }
 
 - (void)mouseDragged:(NSEvent *)event {
+    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
-    if (_left_pos && !_drag_start) {
-        _drag_start = *_left_pos;
-        _left_pos = std::nullopt;
-        tiny::try_set(_pointer.state, tiny::Drag_start{*_drag_start, pos});
-        _over_pos = std::nullopt;
-    } 
-    else if (_drag_start) {
-        tiny::try_set(_pointer.state, tiny::Drag{*_drag_start, pos});
-        _over_pos = std::nullopt;
-    }
+    auto process_drag = [=]() {
+        if (!self_) return;
+        if (self_->_left_pos && !self_->_drag_start) {
+            self_->_drag_start = *self_->_left_pos;
+            self_->_left_pos = std::nullopt;
+            tiny::try_set(self_->_pointer.state, tiny::Drag_start{*self_->_drag_start, pos});
+            self_->_over_pos = std::nullopt;
+        } 
+        else if (self_->_drag_start) {
+            tiny::try_set(self_->_pointer.state, tiny::Drag{*self_->_drag_start, pos});
+            self_->_over_pos = std::nullopt;
+        }
+    };
+#if MAC_VIEW_RENDER_MAIN_THREAD
+    process_drag();
+#else
+    _interaction_queue.push(process_drag);
+#endif
     [super mouseDragged:event];
 }
 
 - (void)rightMouseDown:(NSEvent *)event {
+    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
-    tiny::try_set(_pointer.state, tiny::Right_click{pos});
-    _over_pos = std::nullopt;
+    auto process_right_down = [=]() {
+        if (!self_) return;
+        tiny::try_set(self_->_pointer.state, tiny::Right_click{pos});
+        self_->_over_pos = std::nullopt;
+    };
+#if MAC_VIEW_RENDER_MAIN_THREAD
+    process_right_down();
+#else
+    _interaction_queue.push(process_right_down);
+#endif
     [super rightMouseDown:event];
 }
 
@@ -256,22 +317,49 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTimeSt
 }
 
 - (void)scrollWheel:(NSEvent *)event {
+    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto deltas = tiny::Coords{event.scrollingDeltaX, event.scrollingDeltaY};
-    _interaction.scroll_deltas = deltas;
+    auto process_scroll = [=]() {
+        if (!self_) return;
+        self_->_interaction.scroll_deltas = deltas;
+    };
+#if MAC_VIEW_RENDER_MAIN_THREAD
+    process_scroll();
+#else
+    _interaction_queue.push(process_scroll);
+#endif
     [super scrollWheel:event];
 }
 
 - (void)mouseEntered:(NSEvent *)event {
+    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
-    tiny::try_set(_pointer.state, tiny::Over{pos});
-    _over_pos = std::nullopt;
+    auto process_enter = [=]() {
+        if (!self_) return;
+        tiny::try_set(self_->_pointer.state, tiny::Over{pos});
+        self_->_over_pos = std::nullopt;
+    };
+#if MAC_VIEW_RENDER_MAIN_THREAD
+    process_enter();
+#else
+    _interaction_queue.push(process_enter);
+#endif
     [super mouseEntered:event];
 }
 
 - (void)mouseExited:(NSEvent *)event {
-    tiny::try_set(_pointer.state, tiny::Consumed{});
-    _over_pos = std::nullopt;
+    auto* self_ = (TINY_MAC_VIEW*)self;
+    auto process_exit = [=]() {
+        if (!self_) return;
+        tiny::try_set(self_->_pointer.state, tiny::Consumed{});
+        self_->_over_pos = std::nullopt;
+    };
+#if MAC_VIEW_RENDER_MAIN_THREAD
+    process_exit();
+#else
+    _interaction_queue.push(process_exit);
+#endif
     [super mouseExited:event];
 }
 
@@ -281,9 +369,9 @@ namespace tiny {
 
 // MARK: - Platform_view
 
-Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view) : _delegate{delegate}, _owns_view{owns_view}
+Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view) : _owns_view{owns_view}, _delegate{delegate}
 {
-    NSView* view = [[MacView alloc] initWithDelegate:_delegate];
+    NSView* view = [[TINY_MAC_VIEW alloc] initWithDelegate:_delegate];
 
     auto window_info = skwindow::MacWindowInfo{view};
     auto display_params = std::make_unique<const skwindow::DisplayParams>();
@@ -310,7 +398,7 @@ auto Platform_view::receive_parent(void* parent) -> void
 
 auto Platform_view::teardown() -> void
 {
-    MacView* view = (MacView*)_view;
+    TINY_MAC_VIEW* view = (TINY_MAC_VIEW*)_view;
     [view stopDisplayLink];
 }
 
@@ -340,7 +428,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
 
         NSWindow* keyWindow = [[NSApplication sharedApplication] keyWindow];
         if (keyWindow != nil) {
-            [alert beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse returnCode) {
+            [alert beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse /*returnCode*/) {
                 on_done();
                 dispatch_async(dispatch_get_main_queue(), ^{
                     [keyWindow makeKeyAndOrderFront:nil];

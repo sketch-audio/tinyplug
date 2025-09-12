@@ -1,7 +1,18 @@
+set(TINY_SHARED_LIB tiny_shared_lib)
+add_library(${TINY_SHARED_LIB} STATIC)
+
 if(APPLE)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         set(PLATFORM_SOURCES platform/ios_view.mm)
     else()
+        # configure file at cmake/mac_config.h.in
+        string(REPLACE "." "_" VERSION_STRING "${PROJECT_VERSION}")
+        set(TINY_MAC_VIEW "MacView_${PROJECT_NAME}_v${VERSION_STRING}")
+        configure_file(
+            ${CMAKE_CURRENT_SOURCE_DIR}/cmake/mac_config.h.in 
+            ${CMAKE_CURRENT_BINARY_DIR}/mac_config.h
+        )
+        target_include_directories(${TINY_SHARED_LIB} PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
         set(PLATFORM_SOURCES platform/mac_view.mm)
     endif()
 elseif(WIN32)
@@ -10,8 +21,7 @@ elseif(WIN32)
     )
 endif()
 
-set(TINY_SHARED_LIB tiny_shared_lib)
-add_library(${TINY_SHARED_LIB} STATIC
+target_sources(${TINY_SHARED_LIB} PUBLIC
     ${PLATFORM_SOURCES}
     platform/platform_view.h
     platform/platform.h

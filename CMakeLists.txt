@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 option(TINY_INSTALL_PLUGINS "Copy plug-ins to system folders after build (may prompt for admin privileges)" ON)
 
-project(tinyplug)
+project(tinyplug VERSION 0.1.0) # Version code is used to generate names for Obj-C classes.
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
