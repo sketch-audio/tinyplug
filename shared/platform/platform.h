@@ -11,6 +11,11 @@
         #define PLATFORM_IOS 1
         #endif
     #endif
+    #if PLATFORM_MACOS || PLATFORM_IOS
+        #ifndef PLATFORM_APPLE
+        #define PLATFORM_APPLE 1
+        #endif
+    #endif
 #elif defined(_WIN32)
     #ifndef PLATFORM_WINDOWS
     #define PLATFORM_WINDOWS 1

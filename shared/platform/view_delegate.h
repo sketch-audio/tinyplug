@@ -7,7 +7,7 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkSurface.h"
 
-#include "tools/window/WindowContext.h"
+#include "window_context.h"
 
 #include "../tinyplug/tinyplug.h"
 
@@ -19,9 +19,14 @@ public:
     View_delegate(Rect_size initial_size, Draw_callback callback)
         : _size{initial_size}, _callback{std::move(callback)} {}
 
-    auto set_context(std::unique_ptr<skwindow::WindowContext> context) -> void
+    ~View_delegate() {
+        if (_context) {
+            _context->teardown(); // I don't love it.
+        }
+    }
+
+    auto set_context(std::unique_ptr<Window_context> context) -> void
     {
-        if (!context) return;
         _context = std::move(context);
         resize_context();
     }
@@ -34,26 +39,22 @@ public:
         }
 
         if (!_context) return;
-
-        auto surface = _context->getBackbufferSurface();
-        if (!surface) return;
-
-        auto* canvas = surface->getCanvas();
-        if (!canvas) return;
+        _context->begin_draw();
+        auto canvas = _context->get_canvas();
+        if (!canvas.skia_canvas) return;
 
         // Create the view context and draw.
         auto view_context = View_context{
             .time_now = time_now,
             .interaction = interaction,
-            .canvas = canvas,
+            .canvas = canvas.skia_canvas,
             .logical_size = _size,
             .scale = _scale,
             .dark_mode = dark_mode
         };
         _callback(view_context);
 
-        _context->submitToGpu();
-        _context->swapBuffers();
+        _context->end_draw();
     }
 
     auto on_resize(const Rect_size& size) -> void
@@ -74,15 +75,16 @@ private:
     double _scale{1};
     Draw_callback _callback{};
 
-    std::unique_ptr<skwindow::WindowContext> _context{nullptr};
+    std::unique_ptr<Window_context> _context{nullptr};
 
     std::atomic<bool> _do_resize{false};
 
     auto resize_context() -> void
     {
         if (!_context) return;
-        _context->resize(_size.w, _size.h);
-        _scale = _context->width() / _size.w; // Update screen scale.
+        _context->on_resized();
+        const auto real_size = _context->real_size();
+        _scale = static_cast<double>(real_size.w) / _size.w;
     }
 };
 

@@ -9,7 +9,7 @@
 
 #include "include/core/SkFont.h"
 #include "include/core/SkFontMgr.h"
-#if PLATFORM_MACOS
+#if PLATFORM_APPLE
 #include "include/ports/SkFontMgr_mac_ct.h"
 #elif PLATFORM_WINDOWS
 #include "include/ports/SkTypeface_win.h"
@@ -29,7 +29,7 @@ Custom_view::Custom_view() {
         std::cerr << "Failed to create font data!\n";
         return;
     }
-#if PLATFORM_MACOS
+#if PLATFORM_APPLE
     auto font_mgr = SkFontMgr_New_CoreText(nullptr);
 #elif PLATFORM_WINDOWS
     auto font_mgr = SkFontMgr_New_DirectWrite();

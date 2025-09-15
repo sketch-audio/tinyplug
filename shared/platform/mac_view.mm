@@ -6,8 +6,7 @@
 #import <Cocoa/Cocoa.h>
 #import <CoreVideo/CVDisplayLink.h>
 
-#include "tools/window/mac/GaneshMetalWindowContext_mac.h"
-#include "tools/window/mac/MacWindowInfo.h"
+#include "window_context.h"
 
 #include "mac_config.h"
 #ifndef TINY_MAC_VIEW
@@ -183,6 +182,12 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef /*displayLink*/, const CVTi
                                                           owner:self
                                                        userInfo:nil];
     [self addTrackingArea:area];
+}
+
+- (void)viewDidChangeBackingProperties {
+    [super viewDidChangeBackingProperties];
+    const auto size = graphics_delegate->get_size();
+    graphics_delegate->on_resize(size); // Force scale update.
 }
 
 - (void)mouseDown:(NSEvent *)event {
@@ -373,9 +378,8 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
 {
     NSView* view = [[TINY_MAC_VIEW alloc] initWithDelegate:_delegate];
 
-    auto window_info = skwindow::MacWindowInfo{view};
-    auto display_params = std::make_unique<const skwindow::DisplayParams>();
-    auto context = skwindow::MakeGaneshMetalForMac(window_info, std::move(display_params));
+    auto context = std::make_unique<Window_context>();
+    context->setup({.native_handle = static_cast<void*>(view)});
     _delegate->set_context(std::move(context));
 
     _view = view;
@@ -404,8 +408,8 @@ auto Platform_view::teardown() -> void
 
 auto Platform_view::resize(int32_t w, int32_t h) -> void
 {
-    _delegate->on_resize({w, h});
     [(NSView*)_view setFrameSize:NSMakeSize(w, h)];
+    _delegate->on_resize({w, h});
 }
 
 auto Platform_view::redraw() -> void

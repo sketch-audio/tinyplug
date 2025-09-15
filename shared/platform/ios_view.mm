@@ -7,9 +7,7 @@
 
 #import <UIKit/UIKit.h>
 
-#define SK_METAL
-#include "ios/WindowContextFactory_ios.h" // tiny_deps
-#undef SK_METAL
+#include "window_context.h"
 
 @interface IosView : UIView
 - (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate;
@@ -313,11 +311,8 @@ namespace tiny {
 Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view) : _delegate{delegate}, _owns_view{owns_view} {
     UIView* view = [[IosView alloc] initWithDelegate:delegate];
 
-    auto window_info = skwindow::IOSWindowInfo{
-        .fView = view,
-    };
-    auto display_params = std::make_unique<const skwindow::DisplayParams>();
-    auto context = skwindow::MakeMetalForIOS(window_info, std::move(display_params));
+    auto context = std::make_unique<Window_context>();
+    context->setup({.native_handle = static_cast<void*>(view)});
     _delegate->set_context(std::move(context));
 
     _view = view;

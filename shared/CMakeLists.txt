@@ -3,7 +3,10 @@ add_library(${TINY_SHARED_LIB} STATIC)
 
 if(APPLE)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-        set(PLATFORM_SOURCES platform/ios_view.mm)
+        set(PLATFORM_SOURCES 
+            platform/ios_context.mm
+            platform/ios_view.mm
+        )
     else()
         # configure file at cmake/mac_config.h.in
         string(REPLACE "." "_" VERSION_STRING "${PROJECT_VERSION}")
@@ -13,7 +16,10 @@ if(APPLE)
             ${CMAKE_CURRENT_BINARY_DIR}/mac_config.h
         )
         target_include_directories(${TINY_SHARED_LIB} PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
-        set(PLATFORM_SOURCES platform/mac_view.mm)
+        set(PLATFORM_SOURCES 
+            platform/mac_context.mm
+            platform/mac_view.mm
+        )
     endif()
 elseif(WIN32)
     set(PLATFORM_SOURCES
@@ -21,11 +27,15 @@ elseif(WIN32)
     )
 endif()
 
-target_sources(${TINY_SHARED_LIB} PUBLIC
+target_sources(${TINY_SHARED_LIB} PRIVATE
     ${PLATFORM_SOURCES}
+)
+
+target_sources(${TINY_SHARED_LIB} PUBLIC
     platform/platform_view.h
     platform/platform.h
     platform/view_delegate.h
+    platform/window_context.h
     tinyplug/tiny_events.h
     tinyplug/tiny_exports.h
     tinyplug/tiny_kernel.h
@@ -42,13 +52,15 @@ target_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(${TINY_SHARED_LIB} PUBLIC skia skia-window-contexts) # from tiny_deps
+target_link_libraries(${TINY_SHARED_LIB} PUBLIC skia) # from tiny_deps
 if(APPLE)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         target_link_libraries(${TINY_SHARED_LIB} PUBLIC
             "-framework Metal"
             "-framework QuartzCore"
             "-framework UIKit"
+            "-framework CoreGraphics"
+            "-framework CoreText"
         )
     else()
         target_link_libraries(${TINY_SHARED_LIB} PUBLIC
