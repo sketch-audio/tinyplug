@@ -27,7 +27,7 @@
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(linker,"/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
-#include "WindowContextFactory_tiny.h" // tiny_deps
+#include "window_context.h"
 
 #define WM_TINY_SETCURSOR (WM_APP + 1) // Reset cursor message for dialogs.
 
@@ -428,8 +428,8 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
     _binder.delegate = _delegate.get();
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&_binder));
 
-    auto display_params = std::make_unique<const skwindow::DisplayParams>();
-    auto context = skwindow::MakeD3D12ForWin(window, std::move(display_params));
+    auto context = std::make_unique<Window_context>();
+    context->setup({.native_handle = window});
     _delegate->set_context(std::move(context));
 
     // Setup vsync
@@ -466,8 +466,8 @@ auto Platform_view::teardown() -> void
 auto Platform_view::resize(int32_t w, int32_t h) -> void
 {
     auto window = static_cast<HWND>(_view);
-    _delegate->on_resize({w, h});
     SetWindowPos(window, nullptr, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    _delegate->on_resize({w, h});
 }
 
 auto Platform_view::redraw() -> void

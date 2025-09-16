@@ -23,12 +23,14 @@ if(APPLE)
     endif()
 elseif(WIN32)
     set(PLATFORM_SOURCES
+        platform/win_context.cpp
         platform/win_view.cpp
     )
 endif()
 
 target_sources(${TINY_SHARED_LIB} PRIVATE
     ${PLATFORM_SOURCES}
+    platform/view_delegate.cpp
 )
 
 target_sources(${TINY_SHARED_LIB} PUBLIC
