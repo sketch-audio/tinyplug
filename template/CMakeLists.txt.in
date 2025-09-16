@@ -17,7 +17,7 @@ add_property(${PLUGIN_TARGET} TINY_PRODUCT_NAME "{display_name}")
 add_property(${PLUGIN_TARGET} TINY_PRODUCT_SHORT_NAME "{short_name}") # Must be <= 16 chars, for Pro Tools.
 add_property(${PLUGIN_TARGET} TINY_BASE_FILENAME "{file_name}")
 add_property(${PLUGIN_TARGET} TINY_BASE_IDENTIFIER "com.tinyplug.{file_name}")
-add_property(${PLUGIN_TARGET} TINY_VERSION_STRING "1.0.0")
+add_property(${PLUGIN_TARGET} TINY_VERSION_STRING "0.1.0")
 add_property(${PLUGIN_TARGET} TINY_BUILD_NUMBER "1")
 
 add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_SIDECHAIN "false")
