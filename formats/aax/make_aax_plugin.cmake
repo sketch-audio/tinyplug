@@ -12,7 +12,7 @@ function(make_aax_plugin USER_TARGET AAX_SDK_ROOT_DIR)
     read_property(${USER_TARGET} TINY_BUILD_NUMBER)
 
     set(AAX_TARGET ${TINY_BASE_FILENAME}_aax)
-    set(SOURCE_DIR ${CMAKE_SOURCE_DIR}/formats/aax)  # Assumes a certain structure!
+    set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
 
     add_library(${AAX_TARGET} MODULE
         ${SOURCE_DIR}/source/aax_adapters.h

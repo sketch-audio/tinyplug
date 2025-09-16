@@ -61,7 +61,7 @@ function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
     read_property(${USER_TARGET} TINY_BUILD_NUMBER)
 
     set(VST3_TARGET "${TINY_BASE_FILENAME}_vst3")
-    set(SOURCE_DIR ${CMAKE_SOURCE_DIR}/formats/vst3) # Assumes a certain structure!
+    set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
 
     add_library(${VST3_TARGET} MODULE
         ${SOURCE_DIR}/source/vst3_adapters.h

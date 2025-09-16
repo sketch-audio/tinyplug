@@ -19,7 +19,7 @@ function(make_auv3_plugin USER_TARGET)
     derive_build_number(${TINY_VERSION_STRING} TINY_AUV3_BUNDLE_VERSION)
     read_property(${USER_TARGET} TINY_PLUGIN_WANTS_SIDECHAIN)
     
-    set(SOURCE_DIR ${CMAKE_SOURCE_DIR}/formats/auv3) # Assumes a certain structure!
+    set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
 
     # See: https://www.jviotti.com/2022/12/21/building-objective-c-ios-apps-with-cmake.html
     set(CMAKE_OBJC_STANDARD 99)

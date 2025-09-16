@@ -101,7 +101,7 @@ function(configure_plug_info plugin_target output)
 
     # Configure the plug_info.h file.
     configure_file(
-        ${CMAKE_SOURCE_DIR}/cmake/plug_info.h.in
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/plug_info.h.in
         ${output}
     )
 endfunction()

@@ -64,7 +64,7 @@ function(make_auv2_plugin USER_TARGET AUV2_SDK)
     derive_build_number(${TINY_VERSION_STRING} TINY_AUV2_BUNDLE_VERSION)
     
     set(AUV2_TARGET ${TINY_BASE_FILENAME}_auv2)
-    set(SOURCE_DIR ${CMAKE_SOURCE_DIR}/formats/auv2) # Assumes a certain structure!
+    set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
 
     add_library(${AUV2_TARGET} MODULE
         ${SOURCE_DIR}/source/auv2_adapters.h

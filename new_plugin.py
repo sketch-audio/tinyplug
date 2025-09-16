@@ -29,6 +29,7 @@ def main():
     parser.add_argument("name", help="Display name of the plug-in (spaces OK).")
     parser.add_argument("--manu", help="Four-character manufacturer code.", default="Tiny")
     parser.add_argument("--id", help="Four-character plug-in identifier.", default="demo")
+    parser.add_argument("--dest", help="Destination directory for the new plugin.", default=None)
 
     args = parser.parse_args()
     print("-- Parsing args.")
@@ -54,8 +55,12 @@ def main():
     here = os.path.dirname(__file__)
 
     # try to create a new directory
-    print(f"-- Creating directory '{dir_name}' in 'plugins'.")
-    dest_dir = os.path.join(here, "plugins", dir_name)
+    if args.dest:
+        dest_dir = os.path.join(args.dest, dir_name)
+    else:
+        dest_dir = os.path.join(here, "plugins", dir_name)
+
+    print(f"-- Creating directory '{dir_name}' in '{dest_dir}'.")
     try:
         os.makedirs(dest_dir)
     except FileExistsError:
@@ -93,18 +98,20 @@ def main():
         else:
             shutil.copy2(s, d)
 
-    print("-- Adding to build.")
-    build_file = os.path.join(here, "plugins", "CMakeLists.txt")
-    # append 'add_subdirectory'
-    with open(build_file, "a") as f:
-        f.write(f"add_subdirectory({dir_name})\n")
+    # If no destination, add to test plugins build.
+    if args.dest == None:
+        print("-- Adding to build.")
+        build_file = os.path.join(here, "plugins", "CMakeLists.txt")
+        # append 'add_subdirectory'
+        with open(build_file, "a") as f:
+            f.write(f"add_subdirectory({dir_name})\n")
 
-    # sort lines alphabetically
-    with open(build_file, "r") as f:
-        lines = f.readlines()
-    lines.sort()
-    with open(build_file, "w") as f:
-        f.writelines(lines)
+        # sort lines alphabetically
+        with open(build_file, "r") as f:
+            lines = f.readlines()
+        lines.sort()
+        with open(build_file, "w") as f:
+            f.writelines(lines)
 
     print("-- Success!")
 

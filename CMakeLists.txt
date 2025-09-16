@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
+option(TINY_BUILD_PLUGINS "Build the test plug-ins." ON)
 option(TINY_INSTALL_PLUGINS "Copy plug-ins to system folders after build (may prompt for admin privileges)" ON)
 
 project(tinyplug VERSION 0.1.0) # Version code is used to generate names for Obj-C classes.
@@ -75,4 +76,17 @@ message(STATUS "[tiny] VST3 SDK Root Directory: ${VST3_SDK_ROOT_DIR}")
 add_subdirectory(shared)
 
 # Build the plug-ins.
-add_subdirectory(plugins)
+if(TINY_BUILD_PLUGINS)
+    add_subdirectory(plugins)
+endif()
+
+# Forward SDK variables to parent scope only if this is NOT the top-level project.
+if(NOT CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(AAX_SDK_ROOT_DIR ${AAX_SDK_ROOT_DIR} PARENT_SCOPE)
+    set(AUV2_SDK ${AUV2_SDK} PARENT_SCOPE)
+    set(CLAP_SDK ${CLAP_SDK} PARENT_SCOPE)
+    set(CLAP_HELPERS ${CLAP_HELPERS} PARENT_SCOPE)
+    set(VST3_SDK ${VST3_SDK} PARENT_SCOPE)
+    set(VST3_SDK_ROOT_DIR ${VST3_SDK_ROOT_DIR} PARENT_SCOPE)
+    set(TINY_SHARED_LIB ${TINY_SHARED_LIB} PARENT_SCOPE)
+endif()

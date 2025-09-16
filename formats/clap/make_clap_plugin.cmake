@@ -47,7 +47,7 @@ function(make_clap_plugin USER_TARGET CLAP_SDK CLAP_HELPERS)
     read_property(${USER_TARGET} TINY_BUILD_NUMBER)
 
     set(CLAP_TARGET ${TINY_BASE_FILENAME}_clap)
-    set(SOURCE_DIR ${CMAKE_SOURCE_DIR}/formats/clap) # Assumes a certain structure!
+    set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
 
     add_library(${CLAP_TARGET} MODULE
         ${SOURCE_DIR}/source/clap_adapters.h
