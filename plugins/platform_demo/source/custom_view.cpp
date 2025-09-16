@@ -7,6 +7,7 @@
 
 #include "platform/platform_view.h"
 
+#include "include/core/SkData.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkFontMgr.h"
 #if PLATFORM_APPLE
@@ -181,15 +182,15 @@ auto Custom_view::on_draw(App_state& app_state) -> void
     paint.setColor(SK_ColorWHITE);
     // Text to draw
     const char* text = spec.name;
-    SkRect textBounds;
-    _font.setSize(font_size * scale);
-    _font.measureText(text, strlen(text), SkTextEncoding::kUTF8, &textBounds);
+    auto text_bounds = SkRect{};
+    _font.setSize(font_size * static_cast<SkScalar>(scale));
+    _font.measureText(text, strlen(text), SkTextEncoding::kUTF8, &text_bounds);
 
     // Calculate center position (accounting for canvas size)
-    SkScalar canvasWidth = rsize.w;
-    SkScalar canvasHeight = rsize.h;
-    SkScalar x = (canvasWidth - textBounds.width()) / 2.0f;
-    SkScalar y = (canvasHeight - textBounds.height()) / 2.0f + textBounds.height(); // Adjust for baseline
+    const auto canvas_width = static_cast<SkScalar>(rsize.w);
+    const auto canvas_height = static_cast<SkScalar>(rsize.h);
+    const auto x = (canvas_width - text_bounds.width()) / 2;
+    const auto y = (canvas_height - text_bounds.height()) / 2 + text_bounds.height(); // Adjust for baseline
 
     // Draw text
     canvas->drawSimpleText(text, strlen(text), SkTextEncoding::kUTF8, x, y, _font, paint);
