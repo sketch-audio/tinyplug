@@ -11,7 +11,7 @@ namespace tiny {
 auto Clap_view::create() noexcept -> void
 {
     auto delegate = std::make_shared<View_delegate>(
-        initial_size,
+        Custom_view::preferred_size(),
         [this](auto& context) { this->on_draw(context); }
     );
     _platform_view = Platform_views::make_owning(delegate);
@@ -25,7 +25,7 @@ auto Clap_view::destroy() noexcept -> void
 
 auto Clap_view::get_size(uint32_t* w, uint32_t* h) noexcept -> void
 {
-    const auto platform_size = _platform_view ? _platform_view->get_size() : initial_size;
+    const auto platform_size = _platform_view ? _platform_view->get_size() : Custom_view::preferred_size();
     *w = platform_size.w;
     *h = platform_size.h;
 }

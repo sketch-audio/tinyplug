@@ -45,6 +45,16 @@ public:
     END_DEFINE_INTERFACES(Steinberg::Vst::EditController)
     DELEGATE_REFCOUNT(Steinberg::Vst::EditController)
 
+    auto resized(Rect_size size) -> void
+    {
+        _last_size = size;
+    }
+
+    auto get_last_size() const -> std::optional<Rect_size>
+    {
+        return _last_size;
+    }
+
 protected:
 
     Vst3_view* view{nullptr}; // Is there any point in keeping this around?
@@ -62,6 +72,7 @@ protected:
     std::array<double, num_exports> _last_exports{};
 
     std::unordered_set<uint32_t> _gestured{};
+    std::optional<Rect_size> _last_size{};
 
 };
 

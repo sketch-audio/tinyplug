@@ -13,6 +13,13 @@
 @implementation Auv3_AUViewController {
     std::unique_ptr<tiny::Auv3_view> _view_adapter;
 }
+
+// TODO: - Get this into the plist for AUM.
+- (CGSize)preferredContentSize {
+    const auto size = tiny::Custom_view::preferred_size();
+    return CGSizeMake(size.w, size.h);
+}
+
 - (AUAudioUnit*)createAudioUnitWithComponentDescription:(AudioComponentDescription) desc error:(NSError **)error {
     self.audioUnit = [[Auv3_AUAudioUnit alloc] initWithComponentDescription:desc error:error];
 

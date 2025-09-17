@@ -35,7 +35,6 @@ private:
     using User_params = Param_infos<Param_model>;
     using User_exports = Exports<Param_model>;
 
-    static constexpr auto initial_size = Rect_size{800, 600};
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_exports = User_exports::num_exports;
 

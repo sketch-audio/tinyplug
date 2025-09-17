@@ -15,7 +15,7 @@ void Aax_gui::CreateViewContainer()
 {
     if (auto* parent = GetViewContainerPtr()) {
         auto delegate = std::make_shared<View_delegate>(
-            initial_size, // Initial size
+            Custom_view::preferred_size(), // Initial size
             [this](auto& context) { this->on_draw(context); }
         );
         _platform_view = Platform_views::make_owning(delegate);
@@ -97,7 +97,7 @@ void Aax_gui::DeleteViewContainer()
 
 AAX_Result Aax_gui::GetViewSize(AAX_Point* view_size) const
 {
-    const auto size = _platform_view ? _platform_view->get_size() : initial_size;
+    const auto size = _platform_view ? _platform_view->get_size() : Custom_view::preferred_size();
     view_size->horz = static_cast<float>(size.w);
     view_size->vert = static_cast<float>(size.h);
     return AAX_SUCCESS;

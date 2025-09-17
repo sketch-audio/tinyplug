@@ -9,7 +9,10 @@ namespace tiny {
 
 class Custom_view {
 public:
-    //
+    // Used to set initial size.
+    static auto preferred_size() -> Rect_size { return {800, 600}; }
+
+    // Load a font in constructor.
     Custom_view();
 
     // This is where your view is "created" (maybe presented is a better term).

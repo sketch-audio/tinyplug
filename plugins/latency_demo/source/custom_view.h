@@ -7,6 +7,9 @@ namespace tiny {
 
 class Custom_view {
 public:
+    // Used to set initial size.
+    static auto preferred_size() -> Rect_size { return {400, 400}; }
+    
     // This is where your view is "created" (maybe presented is a better term).
     // You receive some things that will persist until the next `on_create`.
     // - Action receiver: In `on_draw` you can push user actions like `Set_param` to the host/DSP.

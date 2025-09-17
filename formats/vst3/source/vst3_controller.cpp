@@ -334,7 +334,7 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
                     [this](const Action_end& s) { endEdit(s.id); _gestured.erase(s.id); },
                 }, a);
             }
-        });
+        }, this);
         return view;
     }
 

@@ -5,7 +5,7 @@ namespace tiny {
 void* Auv2_view::create_view()
 {
     auto delegate = std::make_shared<View_delegate>(
-        initial_size,
+        Custom_view::preferred_size(),
         [this](auto& context) { this->on_draw(context); }
     );
     _platform_view = Platform_views::make_autoreleasing(delegate);

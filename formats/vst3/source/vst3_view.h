@@ -13,11 +13,13 @@
 
 namespace tiny {
 
+class Vst3_controller; // So we can cache the resized size. Would like to do this in a neater way.
+
 class Vst3_view : public Steinberg::CPluginView {
 public:
 
     using Super = Steinberg::CPluginView;
-    Vst3_view(Ui_receiver receiver) : Super{}, _receiver{receiver} {}
+    Vst3_view(Ui_receiver receiver, Vst3_controller* controller) : Super{}, _receiver{receiver}, _controller{controller} {}
 
     Steinberg::tresult PLUGIN_API isPlatformTypeSupported(Steinberg::FIDString type) override;
     Steinberg::tresult PLUGIN_API attached(void* parent, Steinberg::FIDString type) override;
@@ -42,7 +44,6 @@ protected:
     using User_params = Param_infos<Param_model>;
     using User_exports = Exports<Param_model>;
 
-    static constexpr auto initial_size = Rect_size{800, 600};
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_exports = User_exports::num_exports;
 
@@ -50,6 +51,7 @@ protected:
     Action_queue _actions{};
     Task_queue _tasks{};
     Ui_receiver _receiver{};
+    Vst3_controller* _controller{nullptr};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
     std::unique_ptr<Custom_view> _custom_view = std::make_unique<Custom_view>();

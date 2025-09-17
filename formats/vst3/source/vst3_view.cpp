@@ -1,5 +1,7 @@
 #include "vst3_view.h"
 
+#include "vst3_controller.h"
+
 namespace tiny {
 
 Steinberg::tresult PLUGIN_API Vst3_view::isPlatformTypeSupported(Steinberg::FIDString type)
@@ -25,6 +27,9 @@ Steinberg::tresult PLUGIN_API Vst3_view::isPlatformTypeSupported(Steinberg::FIDS
 
 Steinberg::tresult PLUGIN_API Vst3_view::attached(void* parent, Steinberg::FIDString /*type*/)
 {
+    const auto initial_size = _controller->get_last_size()
+        .value_or(Custom_view::preferred_size());
+
     auto delegate = std::make_shared<View_delegate>(
         initial_size,
         [this](auto& context) { this->on_draw(context); }
@@ -65,6 +70,9 @@ Steinberg::tresult PLUGIN_API Vst3_view::onKeyUp(Steinberg::char16 /*key*/, Stei
 
 Steinberg::tresult PLUGIN_API Vst3_view::getSize(Steinberg::ViewRect* size)
 {
+    const auto initial_size = _controller->get_last_size()
+        .value_or(Custom_view::preferred_size());
+    
     const auto platform_size = _platform_view ? _platform_view->get_size() : initial_size;
     *size = {0, 0, platform_size.w, platform_size.h};
     return Steinberg::kResultTrue;
@@ -76,6 +84,7 @@ Steinberg::tresult PLUGIN_API Vst3_view::onSize(Steinberg::ViewRect* newSize)
     const auto w = newSize->getWidth();
     const auto h = newSize->getHeight();
     _platform_view->resize(w, h);
+    _controller->resized({w, h}); // Remember for next time.
     return Steinberg::kResultTrue;
 }
 
