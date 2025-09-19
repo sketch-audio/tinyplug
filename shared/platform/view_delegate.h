@@ -13,23 +13,28 @@ class Window_context; // Keep it out of the headers.
 class View_delegate {
 public:
 
-    View_delegate(Rect_size initial_size, Draw_callback callback);
+    View_delegate(Rect_size initial_size, Draw_callback callback, Notify_callback notify);
     ~View_delegate();
-    auto set_context(std::unique_ptr<Window_context> context) -> void;
-    auto draw(const User_interaction& interaction, const Time_point& time_now, bool dark_mode) -> void;
+
+    auto assign_context(std::unique_ptr<Window_context> context) -> void;
+    auto draw(const User_interaction& interaction, const Time_point& time_now) -> void;
+    auto notify(const Ui_notification&) -> void;
+    auto invalidate_context() -> void;
+
     auto on_resize(const Rect_size& size) -> void;
     auto get_size() const -> Rect_size;
 
 private:
 
-    Rect_size _size{};
+    Rect_size _size{}; // Logical
     double _scale{1};
-    Draw_callback _callback{};
+    Draw_callback _draw{};
+    Notify_callback _notify{};
 
     std::unique_ptr<Window_context> _context{nullptr};
-    std::atomic<bool> _do_resize{false};
-
+    
     auto resize_context() -> void;
+    auto destroy_context() -> void;
 
 };
 

@@ -20,13 +20,13 @@ Tinyplug is a modern C++ audio plug-in framework that makes it easy to build you
     - Tinyplug automatically interleaves host events (including ramps) with calls to your process function for precise automation playback.
 
 ## Architecture
-Your processor (`Dsp_kernel`) and editor (`Custom_view`) are fully decoupled. Tinyplug handles communication between these classes and the host via simple message queues. There is no sharing of data between threads. The framework makes the source of truth wherever the plug-in format wants it to be.
+Your processor (`Dsp_kernel`) and editor (`Plug_editor`) are fully decoupled. Tinyplug handles communication between these classes and the host via simple message queues. There is no sharing of data between threads. The framework makes the source of truth wherever the plug-in format wants it to be.
 
 ### Processor (`DSP_kernel`)
 - Receives parameter changes on real-time thread.
 - Can send data to the UI by writing to an array of `exports`.
 
-### Editor (`Custom_view`)
+### Editor (`Plug_editor`)
 - On draw, receives a view into the current state of the parameters and exports.
 - Controls can set parameters by sending `User_actions`.
 

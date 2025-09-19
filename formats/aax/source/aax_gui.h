@@ -7,7 +7,7 @@
 #include "AAX_VController.h"
 
 #include "platform/platform_view.h"
-#include "custom_view.h"
+#include "plug_editor.h"
 
 #include "aax_adapters.h"
 #include "aax_parameters.h"
@@ -31,6 +31,7 @@ protected:
 private:
 
     auto on_draw(View_context& view_context) -> void;
+    auto on_notify(const Ui_notification& notification) -> void;
 
     using User_params = Param_infos<Param_model>;
     using User_exports = Exports<Param_model>;
@@ -41,10 +42,11 @@ private:
     User_params _param_infos{}; // infos
     Action_queue _actions{};
     Task_queue _tasks{};
+
     Ui_receiver _receiver{};
+    std::shared_ptr<Plug_editor> _editor{};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
-    std::unique_ptr<Custom_view> _custom_view = std::make_unique<Custom_view>();
 
     std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults<double>()};
     std::array<Tagged_export, num_exports> _uiexports{};

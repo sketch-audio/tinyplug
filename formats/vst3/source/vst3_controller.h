@@ -3,6 +3,7 @@
 #include "public.sdk/source/vst/vsteditcontroller.h"
 
 #include "param_model.h"
+#include "plug_editor.h"
 
 #include "vst3_view.h"
 
@@ -57,8 +58,8 @@ public:
 
 protected:
 
-    Vst3_view* view{nullptr}; // Is there any point in keeping this around?
-
+    std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
+    
     using User_params = Param_infos<Param_model>;
     using User_exports = Exports<Param_model>;
     static constexpr auto num_params = User_params::num_params;

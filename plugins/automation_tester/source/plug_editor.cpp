@@ -1,25 +1,17 @@
-#include "custom_view.h"
-
-#include <variant>
+#include "plug_editor.h"
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkSurface.h"
 
-#include "platform/platform_view.h"
-
 namespace tiny {
 
-// MARK: - on create
-
-auto Custom_view::on_create(const Action_queue::Receiver& actions, const Task_queue::Receiver& tasks) -> void
+auto Plug_editor::on_gui_show(const View_connection& connection) -> void
 {
-    _actions = actions;
-    _task_receiver = tasks;
+    _actions = connection.actions;
+    _task_receiver = connection.tasks;
 }
 
-// MARK: - on draw
-
-auto Custom_view::on_draw(App_state& app_state) -> void
+auto Plug_editor::on_gui_draw(App_state& app_state) -> void
 {
     auto& params_state = app_state.params_state;
     auto& view_context = app_state.view_context;
@@ -42,15 +34,23 @@ auto Custom_view::on_draw(App_state& app_state) -> void
 
     // Draw background.
     auto paint = SkPaint{};
-    paint.setColor(view_context.dark_mode ? SK_ColorBLACK : SK_ColorWHITE);
+    paint.setColor(_dark ? SK_ColorBLACK : SK_ColorWHITE);
     paint.setStyle(SkPaint::kFill_Style);
     canvas->drawRect(SkRect::MakeXYWH(0, 0, static_cast<float>(rsize.w), static_cast<float>(rsize.h)), paint);
 
     // Draw gain value.
-    paint.setColor(view_context.dark_mode ? SK_ColorWHITE : SK_ColorBLACK);
+    paint.setColor(_dark ? SK_ColorWHITE : SK_ColorBLACK);
     const auto g_h = g * rsize.h;
     const auto g_y = rsize.h - g_h;
     canvas->drawRect(SkRect::MakeXYWH(0, g_y, static_cast<float>(rsize.w), g_h), paint);
+}
+
+auto Plug_editor::on_gui_notify(const Ui_notification& notification) -> void
+{
+    std::visit(Inline_visitor{
+        [&](const Dark_mode_changed& n) { _dark = n.new_value; },
+        [](const auto&) {}
+    }, notification);
 }
 
 } // namespace tiny

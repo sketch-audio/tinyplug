@@ -16,7 +16,7 @@
 
 // TODO: - Get this into the plist for AUM.
 - (CGSize)preferredContentSize {
-    const auto size = tiny::Custom_view::preferred_size();
+    const auto size = tiny::Plug_editor::preferred_size();
     return CGSizeMake(size.w, size.h);
 }
 
@@ -40,10 +40,10 @@
         Auv3_AUAudioUnit* tiny_au = (Auv3_AUAudioUnit*)self.audioUnit;
         auto receiver = [tiny_au makeReceiver];
         _view_adapter = std::make_unique<tiny::Auv3_view>(receiver);
-        auto* custom_view = (__bridge PlatformView*)_view_adapter->create_view();
+        auto* custom_view = (__bridge PlatformView*)_view_adapter->create_view(); // also on_create
         [self.view addSubview:custom_view];
         const auto size = self.view.bounds.size;
-        _view_adapter->on_resize(static_cast<int32_t>(size.width), static_cast<int32_t>(size.height)); // Also requests a redraw.
+        _view_adapter->on_resize(static_cast<int32_t>(size.width), static_cast<int32_t>(size.height));
     }
 }
 
@@ -52,12 +52,25 @@
     [self setupViewAdapter]; //
 }
 
+
 #if TARGET_OS_IOS
 - (void)viewWillLayoutSubviews {
     [super viewWillLayoutSubviews];
     if (!_view_adapter) return;
     const auto size = self.view.bounds.size;
     _view_adapter->on_resize(static_cast<int32_t>(size.width), static_cast<int32_t>(size.height)); // Also requests a redraw.
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    if (!_view_adapter) return;
+    _view_adapter->on_show();
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    if (!_view_adapter) return;
+    _view_adapter->on_hide();
 }
 #elif TARGET_OS_OSX
 - (void)viewWillLayout {
@@ -66,10 +79,25 @@
     const auto size = self.view.bounds.size;
     _view_adapter->on_resize(static_cast<int32_t>(size.width), static_cast<int32_t>(size.height)); // Also requests a redraw.
 }
+
+- (void)viewWillAppear {
+    [super viewWillAppear];
+    if (!_view_adapter) return;
+    _view_adapter->on_show();
+}
+
+- (void)viewWillDisappear {
+    [super viewWillDisappear];
+    if (!_view_adapter) return;
+    _view_adapter->on_hide();
+}
+
 #endif
 
 - (void)dealloc {
-    _view_adapter->teardown(); // Stop the timer!
+    if (!_view_adapter) return;
+    _view_adapter->on_destroy();
+    _view_adapter = nullptr;
     //[super dealloc];
 }
 @end

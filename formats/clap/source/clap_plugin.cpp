@@ -328,13 +328,31 @@ bool Clap_plugin::guiGetPreferredApi(const char** api, bool* isFloating) noexcep
 
 bool Clap_plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
 {
-    _view->create();
+    // Make the UI connection.
+    auto receiver = Ui_receiver{
+        .get_knob_value = [this](auto id) {
+            const auto& param = _param_infos.param_for(id);
+            const auto host_value = _kernel->get_host_value(id);
+            const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
+            return knob_value;
+        },
+        .pop_event = [this](auto& event) {
+            return _kernel->pop_export(event);
+        },
+        .action_handler = [this](auto& action) {
+            _kernel->handle_action(action);
+        }
+    };
+
+    _view = std::make_unique<Clap_view>(receiver, _editor);
+    _view->on_create();
     return true;
 }
 
 void Clap_plugin::guiDestroy() noexcept
 {
-    _view->destroy();
+    _view->on_destroy();
+    _view = nullptr;
 }
 
 bool Clap_plugin::guiSetScale(double /*scale*/) noexcept
@@ -344,11 +362,15 @@ bool Clap_plugin::guiSetScale(double /*scale*/) noexcept
 
 bool Clap_plugin::guiShow() noexcept
 {
+    if (!_view) return false;
+    _view->on_show();
     return true;
 }
 
 bool Clap_plugin::guiHide() noexcept
 {
+    if (!_view) return false;
+    _view->on_hide();
     return true;
 }
 
@@ -392,6 +414,7 @@ void Clap_plugin::guiSuggestTitle(const char* /*title*/) noexcept
 
 bool Clap_plugin::guiSetParent(const clap_window* window) noexcept
 {
+    if (!_view) return false;
     return _view->set_parent(window);
 }
 

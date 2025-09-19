@@ -314,28 +314,40 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
     // Here the Host wants to open your editor (if you have one).
     if (Steinberg::FIDStringsEqual(name, Steinberg::Vst::ViewType::kEditor))
     {
+        // Make the UI connection.
+        auto receiver = Ui_receiver{
+            .get_knob_value = [this](auto id) {
+                return getParamNormalized(id);
+            },
+            .pop_event = [this](auto& e) {
+                return _oqueue.pop(e);
+            },
+            .action_handler = [this](auto& a) {
+                std::visit(Inline_visitor{
+                    [this](const Action_start& s) {
+                        beginEdit(s.id);
+                        _gestured.insert(s.id);
+                    },
+                    [this](const Set_param& s) {
+                        if (setParamNormalized(s.id, s.value) == Steinberg::kResultTrue) {
+                            performEdit(s.id, getParamNormalized(s.id));
+                        }
+                    },
+                    [this](const Action_end& s) {
+                        endEdit(s.id);
+                        _gestured.erase(s.id);
+                    },
+            }, a);
+            }
+        };
+
         // A workaround for now, push all exports into the queue.
         // This is so we can get correct values on first appearance.
         enumerate<uint32_t>(_last_exports, [this](auto i, const auto& e) {
             _oqueue.push(Set_export{.id = i, .value = e});
         });
 
-        view = new Vst3_view({
-            .get_knob_value = [this](auto id) { return getParamNormalized(id); },
-            .pop_event = [this](auto& e) { return _oqueue.pop(e); },
-            .action_handler = [this](auto& a) {
-                std::visit(Inline_visitor{
-                    [this](const Action_start& s) { beginEdit(s.id); _gestured.insert(s.id); },
-                    [this](const Set_param& s) {
-                        if (setParamNormalized(s.id, s.value) == Steinberg::kResultTrue) {
-                            performEdit(s.id, getParamNormalized(s.id));
-                        }
-                    },
-                    [this](const Action_end& s) { endEdit(s.id); _gestured.erase(s.id); },
-                }, a);
-            }
-        }, this);
-        return view;
+        return new Vst3_view(receiver, _editor, this);
     }
 
     return nullptr;

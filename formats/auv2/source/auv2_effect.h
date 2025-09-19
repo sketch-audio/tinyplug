@@ -11,6 +11,7 @@
 
 #include "dsp_kernel.h"
 #include "param_model.h"
+#include "plug_editor.h"
 #include "plug_info.h"
 
 #include "auv2_adapters.h"
@@ -84,6 +85,8 @@ public:
 private:
 
     double _sr{48000};
+
+    std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
 
     using User_params = Param_infos<Param_model>;
     using User_exports = Exports<Param_model>;
@@ -177,7 +180,7 @@ private:
                 },
             }, action);
         }
-    }, Main_executor{
+    }, _editor, Main_executor{
         .on_main = [this]() {
             auto message = Private_message{};
             while (_pqueue.pop(message)) {

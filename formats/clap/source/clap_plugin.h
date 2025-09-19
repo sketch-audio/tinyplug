@@ -114,20 +114,10 @@ private:
 
     std::unique_ptr<Clap_kernel> _kernel = {nullptr}; // Now requires the host.
 
-    std::unique_ptr<Clap_view> _view = std::make_unique<Clap_view>(Ui_receiver{
-        .get_knob_value = [this](auto id) {
-            const auto& param = _param_infos.param_for(id);
-            const auto host_value = _kernel->get_host_value(id);
-            const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
-            return knob_value;
-        },
-        .pop_event = [this](auto& event) {
-            return _kernel->pop_export(event);
-        },
-        .action_handler = [this](auto& action) {
-            _kernel->handle_action(action);
-        }
-    });
+    std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
+
+    //
+    std::unique_ptr<Clap_view> _view{nullptr};
 
     // MARK: - gui api
 

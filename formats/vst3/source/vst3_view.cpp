@@ -28,50 +28,51 @@ Steinberg::tresult PLUGIN_API Vst3_view::isPlatformTypeSupported(Steinberg::FIDS
 Steinberg::tresult PLUGIN_API Vst3_view::attached(void* parent, Steinberg::FIDString /*type*/)
 {
     const auto initial_size = _controller->get_last_size()
-        .value_or(Custom_view::preferred_size());
+        .value_or(Plug_editor::preferred_size());
 
     auto delegate = std::make_shared<View_delegate>(
         initial_size,
-        [this](auto& context) { this->on_draw(context); }
+        [this](auto& context) { this->on_draw(context); },
+        [this](const auto& notification) { this->on_notify(notification); }
     );
+
+    // Create the platform view and notify the editor.
     _platform_view = Platform_views::make_owning(delegate);
-    _platform_view->receive_parent(parent);
+    _platform_view->on_create();
+    _editor->on_gui_create();
     
+    _platform_view->receive_parent(parent);
+
+    // Update the ui param values with the current state.
     _uiparams = make_array_by_indices<double, num_params>(
         [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
     );
 
-    _custom_view->on_create(_actions.make_receiver(), _tasks.make_receiver());
+    _platform_view->on_show();
+    _editor->on_gui_show({
+        .actions = _actions.make_receiver(),
+        .tasks = _tasks.make_receiver()
+    });
     
     return Steinberg::kResultTrue;
 }
 
 Steinberg::tresult PLUGIN_API Vst3_view::removed()
 {
-    _platform_view->teardown();
+    _editor->on_gui_hide();
+    _platform_view->on_hide();
+
+    _editor->on_gui_destroy();
+    _platform_view->on_destroy();
     _platform_view = nullptr;
+
     return Steinberg::kResultTrue;
-}
-
-Steinberg::tresult PLUGIN_API Vst3_view::onWheel(float /*distance*/)
-{
-    return Steinberg::kResultFalse;
-}
-
-Steinberg::tresult PLUGIN_API Vst3_view::onKeyDown(Steinberg::char16 /*key*/, Steinberg::int16 /*keyCode*/, Steinberg::int16 /*modifiers*/)
-{
-    return Steinberg::kResultFalse;
-}
-
-Steinberg::tresult PLUGIN_API Vst3_view::onKeyUp(Steinberg::char16 /*key*/, Steinberg::int16 /*keyCode*/, Steinberg::int16 /*modifiers*/)
-{
-    return Steinberg::kResultFalse;
 }
 
 Steinberg::tresult PLUGIN_API Vst3_view::getSize(Steinberg::ViewRect* size)
 {
     const auto initial_size = _controller->get_last_size()
-        .value_or(Custom_view::preferred_size());
+        .value_or(Plug_editor::preferred_size());
     
     const auto platform_size = _platform_view ? _platform_view->get_size() : initial_size;
     *size = {0, 0, platform_size.w, platform_size.h};
@@ -108,13 +109,18 @@ Steinberg::tresult PLUGIN_API Vst3_view::checkSizeConstraint(Steinberg::ViewRect
     return Steinberg::kResultTrue;
 }
 
-// MARK: - on_draw
+// MARK: - private
 
 void Vst3_view::on_draw(View_context& view_context)
 {
     view_impl::run_frame<User_exports>(
-        _receiver, _uiparams, _uiexports, view_context, _custom_view.get(), _actions, _tasks
+        _receiver, _uiparams, _uiexports, view_context, _editor.get(), _actions, _tasks
     );
+}
+
+auto Vst3_view::on_notify(const Ui_notification& notification) -> void
+{
+    _editor->on_gui_notify(notification);
 }
 
 } // namespace tiny

@@ -1,4 +1,4 @@
-#include "platform_view.h"
+#include "platform.h"
 
 #if PLATFORM_MACOS
 #include <chrono>
@@ -6,6 +6,7 @@
 #import <Cocoa/Cocoa.h>
 #import <CoreVideo/CVDisplayLink.h>
 
+#include "platform_view.h"
 #include "window_context.h"
 
 #include "mac_config.h"
@@ -13,30 +14,25 @@
 #error "TINY_MAC_VIEW must be defined in mac_config.h"
 #endif
 
-#define MAC_VIEW_RENDER_MAIN_THREAD 0 // Main thread was slowing down Pro Tools UI.
-
 // TINY_MAC_VIEW
 @interface TINY_MAC_VIEW : NSView
-- (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate;
+- (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate onAutorelease:(std::function<void()>)onAutorelease;
 - (void)startDisplayLink;
 - (void)stopDisplayLink;
-- (void)render;
+- (void)draw;
 @end
 
 // 
-static CVReturn DisplayLinkCallback(CVDisplayLinkRef /*displayLink*/, const CVTimeStamp* /*now*/, const CVTimeStamp* /*outputTime*/, CVOptionFlags /*flagsIn*/, CVOptionFlags* /*flagsOut*/, void* context) {
-#if MAC_VIEW_RENDER_MAIN_THREAD
-    dispatch_source_t source = (__bridge dispatch_source_t)context;
+static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeStamp*, CVOptionFlags, CVOptionFlags*, void* context) -> CVReturn
+{
+    auto source = static_cast<dispatch_source_t>(context);
     dispatch_source_merge_data(source, 1);
-#else
-    TINY_MAC_VIEW* view = (TINY_MAC_VIEW*)context;
-    [view render];
-#endif
     return kCVReturnSuccess;
 }
 
 @implementation TINY_MAC_VIEW {
-    std::shared_ptr<tiny::View_delegate> graphics_delegate;
+    std::shared_ptr<tiny::View_delegate> _delegate;
+    std::function<void()> _on_autorelease;
 
     // Interaction state
     tiny::User_interaction _interaction;
@@ -48,95 +44,83 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef /*displayLink*/, const CVTi
     std::optional<tiny::Coords> _drag_start;
     bool _dwelt;
 
-    bool _dark_mode;
-
     CVDisplayLinkRef _displayLink;
-#if MAC_VIEW_RENDER_MAIN_THREAD
     dispatch_source_t _displaySource;
-#else
-    tiny::Lock_free_queue<std::function<void()>, 16> _interaction_queue;
-#endif
 }
 
-- (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate {
-    graphics_delegate = delegate;
+- (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate onAutorelease:(std::function<void()>)onAutorelease {
+    _delegate = delegate;
+    _on_autorelease = onAutorelease;
     const auto size = delegate->get_size();
     self = [super initWithFrame:NSMakeRect(0, 0, size.w, size.h)];
 
     if (self) {
-#if MAC_VIEW_RENDER_MAIN_THREAD
-        _displaySource = dispatch_source_create(DISPATCH_SOURCE_TYPE_DATA_ADD, 0, 0, dispatch_get_main_queue());
-        __block TINY_MAC_VIEW* self_ = self; // Need block pointer!
-        dispatch_source_set_event_handler(_displaySource, ^(){
-            if (self_) {
-                [self_ render];
-            }
-        });
-        dispatch_resume(_displaySource);
-#endif
-        
-        CVDisplayLinkCreateWithActiveCGDisplays(&_displayLink);
-
-#if MAC_VIEW_RENDER_MAIN_THREAD
-        CVDisplayLinkSetOutputCallback(_displayLink, DisplayLinkCallback, _displaySource);
-#else
-        CVDisplayLinkSetOutputCallback(_displayLink, DisplayLinkCallback, self);
-#endif
-        
-        [self startDisplayLink];
-
         // Dark mode
         NSString* mode = [[NSUserDefaults standardUserDefaults] stringForKey:@"AppleInterfaceStyle"];
-        _dark_mode = [mode isEqualToString:@"Dark"];
-        [NSDistributedNotificationCenter.defaultCenter addObserver:self selector:@selector(themeChanged:) name:@"AppleInterfaceThemeChangedNotification" object: nil];
+        const auto dark_mode = [mode isEqualToString:@"Dark"];
+        _delegate->notify(tiny::Dark_mode_changed{.new_value = dark_mode > 0});
+
+        [[NSDistributedNotificationCenter defaultCenter] addObserver:self 
+                                                            selector:@selector(themeChanged:) 
+                                                                name:@"AppleInterfaceThemeChangedNotification" 
+                                                              object: nil];
+
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(windowDidChangeScreen:)
+                                                     name:NSWindowDidChangeScreenNotification
+                                                   object:self.window];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(screenParametersChanged:)
+                                                     name:NSApplicationDidChangeScreenParametersNotification
+                                                   object:nil];
     }
     return self;
 }
 
 - (void)dealloc {
-    if(_displayLink) {
-        // Stop the display link BEFORE releasing anything in the view otherwise the display link
-        // thread may call into the view and crash when it encounters something that no longer
-        // exists
-        CVDisplayLinkStop(_displayLink);
-        CVDisplayLinkRelease(_displayLink);
-    }
-    
-#if MAC_VIEW_RENDER_MAIN_THREAD
-    dispatch_source_cancel(_displaySource);
-#endif
-
+    _on_autorelease(); // Need this for AUv2
+    [self stopDisplayLink];
     [super dealloc];
 }
 
 - (void)startDisplayLink {
-    CVDisplayLinkStart(_displayLink);
+    [self stopDisplayLink];
+
+    NSScreen *screen = self.window.screen;
+    if (!screen) return;
+
+    CGDirectDisplayID displayID = [[screen.deviceDescription objectForKey:@"NSScreenNumber"] unsignedIntValue];
+
+    _displaySource = dispatch_source_create(DISPATCH_SOURCE_TYPE_DATA_ADD, 0, 0, dispatch_get_main_queue());
+    __block TINY_MAC_VIEW* self_ = self; // Need block pointer!
+    dispatch_source_set_event_handler(_displaySource, ^(){
+        if (self_) {
+            [self_ draw];
+        }
+    });
+    dispatch_resume(_displaySource);
+
+    if (CVDisplayLinkCreateWithCGDisplay(displayID, &_displayLink) == kCVReturnSuccess) {
+        CVDisplayLinkSetOutputCallback(_displayLink, &on_display_link, _displaySource);
+        CVDisplayLinkStart(_displayLink);
+    }
 }
 
 - (void)stopDisplayLink {
     if (_displayLink) {
         CVDisplayLinkStop(_displayLink);
+        CVDisplayLinkRelease(_displayLink);
+        _displayLink = nil;
     }
 
-#if MAC_VIEW_RENDER_MAIN_THREAD
-    dispatch_source_cancel(_displaySource);
-#endif
+    if (_displaySource) {
+        dispatch_source_cancel(_displaySource);
+        _displaySource = nil;
+    }
 }
 
--(void)themeChanged:(NSNotification *) notification {
-    NSString* mode = [[NSUserDefaults standardUserDefaults] stringForKey:@"AppleInterfaceStyle"];
-    _dark_mode = [mode isEqualToString:@"Dark"];
-}
-
-- (void)render {
+- (void)draw {
     const auto time_now = tiny::System_clock::now();
-
-#if !MAC_VIEW_RENDER_MAIN_THREAD
-    auto f = std::function<void()>{};
-    while (_interaction_queue.pop(f)) {
-        f();
-    }
-#endif
 
     // Should we dwell?
     if (_over_pos && !_dwelt) {
@@ -158,7 +142,7 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef /*displayLink*/, const CVTi
     // Copy pointer state into the interaction.
     _interaction.pointers = {_pointer};
 
-    graphics_delegate->draw(_interaction, time_now, _dark_mode);
+    _delegate->draw(_interaction, time_now);
     tiny::try_set(_pointer.state, tiny::Consumed{});
 
     if (_dwelt) {
@@ -166,6 +150,29 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef /*displayLink*/, const CVTi
         _dwelt = false;
     }
 }
+
+// MARK: - notifications
+
+-(void)themeChanged:(NSNotification *)notification {
+    NSString* mode = [[NSUserDefaults standardUserDefaults] stringForKey:@"AppleInterfaceStyle"];
+    const auto dark_mode = [mode isEqualToString:@"Dark"];
+    _delegate->notify(tiny::Dark_mode_changed{.new_value = dark_mode > 0});
+}
+
+- (void)windowDidChangeScreen:(NSNotification *)notification {
+    [self updateDisplayLinkForCurrentScreen];
+}
+
+- (void)screenParametersChanged:(NSNotification *)notification {
+    [self updateDisplayLinkForCurrentScreen];
+}
+
+- (void)updateDisplayLinkForCurrentScreen {
+    [self stopDisplayLink];
+    [self startDisplayLink];
+}
+
+// MARK: - overrides
 
 - (void)updateTrackingAreas {
     [super updateTrackingAreas];
@@ -181,135 +188,106 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef /*displayLink*/, const CVTi
                                                         options:options
                                                           owner:self
                                                        userInfo:nil];
+    
     [self addTrackingArea:area];
 }
 
 - (void)viewDidChangeBackingProperties {
     [super viewDidChangeBackingProperties];
-    const auto size = graphics_delegate->get_size();
-    graphics_delegate->on_resize(size); // Force scale update.
+    const auto size = _delegate->get_size();
+    _delegate->on_resize(size); // Force scale update.
 }
 
+- (void)viewDidMoveToWindow {
+    [super viewDidMoveToWindow];
+    if (self.window) {
+        [self startDisplayLink];
+    } else {
+        [self stopDisplayLink];
+    }
+}
+
+// MARK: - events
+
 - (void)mouseDown:(NSEvent *)event {
-    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
     const auto ctrl = (event.modifierFlags & NSEventModifierFlagControl) != 0;
-    auto process_down = [=]() {
-        if (!self_) return;
-        if (ctrl) {
-            tiny::try_set(self_->_pointer.state, tiny::Right_click{pos});
-            self_->_over_pos = std::nullopt;
-        } 
-        else {
-            tiny::try_set(self_->_pointer.state, tiny::Down{pos});
-            self_->_over_pos = std::nullopt;
-            self_->_left_pos = pos;
-        }
-    };
-#if MAC_VIEW_RENDER_MAIN_THREAD
-    process_down();
-#else
-    _interaction_queue.push(process_down);
-#endif
+    
+    if (ctrl) {
+        tiny::try_set(_pointer.state, tiny::Right_click{pos});
+        _over_pos = std::nullopt;
+    } 
+    else {
+        tiny::try_set(_pointer.state, tiny::Down{pos});
+        _over_pos = std::nullopt;
+        _left_pos = pos;
+    }
     [super mouseDown:event];
 }
 
 - (void)mouseUp:(NSEvent *)event {
-    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
     const auto click_count = event.clickCount;
-    auto process_up = [=] {
-        if (!self_) return;
-        if (self_->_drag_start) {
-            tiny::try_set(self_->_pointer.state, tiny::Drag_end{*self_->_drag_start, pos});
-            self_->_over_pos = std::nullopt;
-            self_->_drag_start = std::nullopt;
+
+    if (_drag_start) {
+        tiny::try_set(_pointer.state, tiny::Drag_end{*_drag_start, pos});
+        _over_pos = std::nullopt;
+        _drag_start = std::nullopt;
+    } 
+    else if (_left_pos) {
+        if (click_count == 2) {
+            tiny::try_set(_pointer.state, tiny::Double_click{pos});
+            _over_pos = std::nullopt;
         } 
-        else if (self_->_left_pos) {
-            if (click_count == 2) {
-                tiny::try_set(self_->_pointer.state, tiny::Double_click{pos});
-                self_->_over_pos = std::nullopt;
-            } 
-            else {
-                tiny::try_set(self_->_pointer.state, tiny::Click{pos});
-                self_->_over_pos = std::nullopt;
-            }
-            self_->_left_pos = std::nullopt;
+        else {
+            tiny::try_set(_pointer.state, tiny::Click{pos});
+            _over_pos = std::nullopt;
         }
-    };
-#if MAC_VIEW_RENDER_MAIN_THREAD
-    process_up();
-#else
-    _interaction_queue.push(process_up);
-#endif
+        _left_pos = std::nullopt;
+    }
     [super mouseUp:event];
 }
 
 - (void)mouseMoved:(NSEvent *)event {
-    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
     const auto t = std::chrono::steady_clock::now();
-    auto process_move = [=]() {
-        if (!self_) return;
-        tiny::try_set(self_->_pointer.state, tiny::Over{pos});
 
-        // Update dwell.
-        if (!self_->_over_pos || *self_->_over_pos != pos) {
-            self_->_over_pos = pos;
-            self_->_over_time = t; // Captured time.
-            self_->_dwelt = false;
-        }
-    };
-#if MAC_VIEW_RENDER_MAIN_THREAD
-    process_move();
-#else
-    _interaction_queue.push(process_move);
-#endif
+    tiny::try_set(_pointer.state, tiny::Over{pos});
+
+    // Update dwell.
+    if (!_over_pos || *_over_pos != pos) {
+        _over_pos = pos;
+        _over_time = t;
+        _dwelt = false;
+    }
     [super mouseMoved:event];
 }
 
 - (void)mouseDragged:(NSEvent *)event {
-    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
-    auto process_drag = [=]() {
-        if (!self_) return;
-        if (self_->_left_pos && !self_->_drag_start) {
-            self_->_drag_start = *self_->_left_pos;
-            self_->_left_pos = std::nullopt;
-            tiny::try_set(self_->_pointer.state, tiny::Drag_start{*self_->_drag_start, pos});
-            self_->_over_pos = std::nullopt;
-        } 
-        else if (self_->_drag_start) {
-            tiny::try_set(self_->_pointer.state, tiny::Drag{*self_->_drag_start, pos});
-            self_->_over_pos = std::nullopt;
-        }
-    };
-#if MAC_VIEW_RENDER_MAIN_THREAD
-    process_drag();
-#else
-    _interaction_queue.push(process_drag);
-#endif
+
+    if (_left_pos && !_drag_start) {
+        _drag_start = *_left_pos;
+        _left_pos = std::nullopt;
+        tiny::try_set(_pointer.state, tiny::Drag_start{*_drag_start, pos});
+        _over_pos = std::nullopt;
+    } 
+    else if (_drag_start) {
+        tiny::try_set(_pointer.state, tiny::Drag{*_drag_start, pos});
+        _over_pos = std::nullopt;
+    }
     [super mouseDragged:event];
 }
 
 - (void)rightMouseDown:(NSEvent *)event {
-    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
-    auto process_right_down = [=]() {
-        if (!self_) return;
-        tiny::try_set(self_->_pointer.state, tiny::Right_click{pos});
-        self_->_over_pos = std::nullopt;
-    };
-#if MAC_VIEW_RENDER_MAIN_THREAD
-    process_right_down();
-#else
-    _interaction_queue.push(process_right_down);
-#endif
+    tiny::try_set(_pointer.state, tiny::Right_click{pos});
+    _over_pos = std::nullopt;
     [super rightMouseDown:event];
 }
 
@@ -322,49 +300,22 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef /*displayLink*/, const CVTi
 }
 
 - (void)scrollWheel:(NSEvent *)event {
-    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto deltas = tiny::Coords{event.scrollingDeltaX, event.scrollingDeltaY};
-    auto process_scroll = [=]() {
-        if (!self_) return;
-        self_->_interaction.scroll_deltas = deltas;
-    };
-#if MAC_VIEW_RENDER_MAIN_THREAD
-    process_scroll();
-#else
-    _interaction_queue.push(process_scroll);
-#endif
+    _interaction.scroll_deltas = deltas;
     [super scrollWheel:event];
 }
 
 - (void)mouseEntered:(NSEvent *)event {
-    auto* self_ = (TINY_MAC_VIEW*)self;
     const auto y = self.bounds.size.height - event.locationInWindow.y;
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
-    auto process_enter = [=]() {
-        if (!self_) return;
-        tiny::try_set(self_->_pointer.state, tiny::Over{pos});
-        self_->_over_pos = std::nullopt;
-    };
-#if MAC_VIEW_RENDER_MAIN_THREAD
-    process_enter();
-#else
-    _interaction_queue.push(process_enter);
-#endif
+    tiny::try_set(_pointer.state, tiny::Over{pos});
+    _over_pos = std::nullopt;
     [super mouseEntered:event];
 }
 
 - (void)mouseExited:(NSEvent *)event {
-    auto* self_ = (TINY_MAC_VIEW*)self;
-    auto process_exit = [=]() {
-        if (!self_) return;
-        tiny::try_set(self_->_pointer.state, tiny::Consumed{});
-        self_->_over_pos = std::nullopt;
-    };
-#if MAC_VIEW_RENDER_MAIN_THREAD
-    process_exit();
-#else
-    _interaction_queue.push(process_exit);
-#endif
+    tiny::try_set(_pointer.state, tiny::Consumed{});
+    _over_pos = std::nullopt;
     [super mouseExited:event];
 }
 
@@ -372,15 +323,15 @@ static CVReturn DisplayLinkCallback(CVDisplayLinkRef /*displayLink*/, const CVTi
 
 namespace tiny {
 
-// MARK: - Platform_view
+// MARK: - Platform view
 
-Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view) : _owns_view{owns_view}, _delegate{delegate}
+Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view, std::function<void()> on_release) : _owns_view{owns_view}, _delegate{delegate}
 {
-    NSView* view = [[TINY_MAC_VIEW alloc] initWithDelegate:_delegate];
+    NSView* view = [[TINY_MAC_VIEW alloc] initWithDelegate:_delegate onAutorelease:on_release];
 
     auto context = std::make_unique<Window_context>();
     context->setup({.native_handle = static_cast<void*>(view)});
-    _delegate->set_context(std::move(context));
+    _delegate->assign_context(std::move(context));
 
     _view = view;
 }
@@ -395,15 +346,33 @@ Platform_view::~Platform_view()
     _view = nullptr;
 }
 
+auto Platform_view::on_create() -> void
+{
+
+}
+
+auto Platform_view::on_show() -> void
+{
+    if (auto view = static_cast<TINY_MAC_VIEW*>(_view)) {
+        [view startDisplayLink];
+    }
+}
+
+auto Platform_view::on_hide() -> void
+{
+    if (auto view = static_cast<TINY_MAC_VIEW*>(_view)) {
+        [view stopDisplayLink];
+    }
+}
+
+auto Platform_view::on_destroy() -> void
+{
+    _delegate->invalidate_context();
+}
+
 auto Platform_view::receive_parent(void* parent) -> void
 {
     [(NSView*)parent addSubview: (NSView*)_view];
-}
-
-auto Platform_view::teardown() -> void
-{
-    TINY_MAC_VIEW* view = (TINY_MAC_VIEW*)_view;
-    [view stopDisplayLink];
 }
 
 auto Platform_view::resize(int32_t w, int32_t h) -> void
@@ -412,11 +381,7 @@ auto Platform_view::resize(int32_t w, int32_t h) -> void
     _delegate->on_resize({w, h});
 }
 
-auto Platform_view::redraw() -> void
-{
-}
-
-// MARK: - alert
+// MARK: - Platform dialogs 
 
 auto Platform_dialogs::message(const std::string& title, const std::string& message, Later<> on_done) -> void
 {

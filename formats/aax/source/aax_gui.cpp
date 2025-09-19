@@ -6,19 +6,26 @@
 
 namespace tiny {
 
-void Aax_gui::CreateViewContents()
+auto Aax_gui::CreateViewContents() -> void
 {
-    // pure virtual
+    auto* params = dynamic_cast<Aax_parameters*>(GetEffectParameters());
+    _editor = params->get_editor();
+
+    auto delegate = std::make_shared<View_delegate>(
+        Plug_editor::preferred_size(), // Initial size
+        [this](auto& context) { this->on_draw(context); },
+        [this](const auto& notification) { this->on_notify(notification); }
+    );
+
+    _platform_view = Platform_views::make_owning(delegate);
+    _platform_view->on_create();
+    _editor->on_gui_create();
 }
 
-void Aax_gui::CreateViewContainer()
+auto Aax_gui::CreateViewContainer() -> void
 {
     if (auto* parent = GetViewContainerPtr()) {
-        auto delegate = std::make_shared<View_delegate>(
-            Custom_view::preferred_size(), // Initial size
-            [this](auto& context) { this->on_draw(context); }
-        );
-        _platform_view = Platform_views::make_owning(delegate);
+        //
         _platform_view->receive_parent(parent);
 
         auto* view = GetViewContainer();
@@ -29,6 +36,7 @@ void Aax_gui::CreateViewContainer()
             params->dump_exports();
         }
 
+        // We have to make our own UI connection.
         _receiver = {
             .get_knob_value = [params](auto id) {
                 if (const auto param = get_aax_param(params, id)) {
@@ -85,19 +93,27 @@ void Aax_gui::CreateViewContainer()
             [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
         );
 
-        _custom_view->on_create(_actions.make_receiver(), _tasks.make_receiver());
+        _platform_view->on_show();
+        _editor->on_gui_show({
+            .actions = _actions.make_receiver(),
+            .tasks = _tasks.make_receiver()
+        });
     }
 }
 
 void Aax_gui::DeleteViewContainer()
 {
-    _platform_view->teardown(); // Force stop display link.
+    _editor->on_gui_hide();
+    _platform_view->on_hide();
+
+    _editor->on_gui_destroy();
+    _platform_view->on_destroy();
     _platform_view = nullptr;
 }
 
 AAX_Result Aax_gui::GetViewSize(AAX_Point* view_size) const
 {
-    const auto size = _platform_view ? _platform_view->get_size() : Custom_view::preferred_size();
+    const auto size = _platform_view ? _platform_view->get_size() : Plug_editor::preferred_size();
     view_size->horz = static_cast<float>(size.w);
     view_size->vert = static_cast<float>(size.h);
     return AAX_SUCCESS;
@@ -124,8 +140,13 @@ AAX_Result Aax_gui::ParameterUpdated(AAX_CParamID inParamID)
 auto Aax_gui::on_draw(View_context& view_context) -> void
 {
     view_impl::run_frame<User_exports>(
-        _receiver, _uiparams, _uiexports, view_context, _custom_view.get(), _actions, _tasks
+        _receiver, _uiparams, _uiexports, view_context, _editor.get(), _actions, _tasks
     );
+}
+
+auto Aax_gui::on_notify(const Ui_notification& notification) -> void
+{
+    _editor->on_gui_notify(notification);
 }
 
 } // namespace tiny

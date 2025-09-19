@@ -5,8 +5,8 @@
 #include "tinyplug/tinyplug.h"
 #include "platform/platform_view.h"
 
-#include "custom_view.h"
 #include "param_model.h"
+#include "plug_editor.h"
 
 namespace tiny {
 
@@ -15,22 +15,43 @@ public:
 
     Auv3_view(Ui_receiver receiver) : _receiver{receiver} {}
 
-    auto create_view() -> void*; // UIView
-    
+    auto create_view() -> void*; // UIView*
+
+    auto on_show() -> void
+    {
+        // Update the ui params
+        _uiparams = make_array_by_indices<double, num_params>(
+            [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
+        );
+
+        _platform_view->on_show();
+        _editor->on_gui_show({
+            .actions = _actions.make_receiver(),
+            .tasks = _tasks.make_receiver()
+        });
+    }
+
+    auto on_hide() -> void
+    {
+        _editor->on_gui_hide();
+        _platform_view->on_hide();
+    }
+
+    auto on_destroy() -> void
+    {
+        _editor->on_gui_destroy();
+        _platform_view->on_destroy();
+    }
+
     auto on_resize(int32_t w, int32_t h) -> void
     {
         _platform_view->resize(w, h);
-        _platform_view->redraw();
-    }
-    
-    auto teardown() -> void
-    {
-        _platform_view->teardown();
     }
 
 private:
 
     auto on_draw(View_context& view_context) -> void;
+    auto on_notify(const Ui_notification& notification) -> void;
 
     using User_params = Param_infos<Param_model>;
     using User_exports = Exports<Param_model>;
@@ -44,7 +65,7 @@ private:
     Ui_receiver _receiver{};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
-    std::unique_ptr<Custom_view> _custom_view = std::make_unique<Custom_view>();
+    std::unique_ptr<Plug_editor> _editor = std::make_unique<Plug_editor>();
 
     std::array<Tagged_export, num_exports> _uiexports{};
     std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults<double>()};

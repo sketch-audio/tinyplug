@@ -1,4 +1,4 @@
-#include "platform_view.h"
+#include "platform.h"
 
 #if PLATFORM_IOS
 #include <chrono>
@@ -7,11 +7,13 @@
 
 #import <UIKit/UIKit.h>
 
+#include "platform_view.h"
 #include "window_context.h"
 
 @interface IosView : UIView
 - (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate;
-- (void)teardown;
+- (void)startDisplayLink;
+- (void)stopDisplayLink;
 @end
 
 @implementation IosView {
@@ -36,9 +38,7 @@
     const auto size = _delegate->get_size();
     self = [super initWithFrame:CGRectMake(0, 0, size.w, size.h)];
     if (self) {
-        _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onDisplayLink:)];
-        [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
-
+        //
         self.multipleTouchEnabled = YES;
 
         //
@@ -64,18 +64,26 @@
     return self;
 }
 
-- (void)teardown {
-    [_displayLink invalidate];
-    _displayLink = nil;
+- (void)startDisplayLink{
+    [self stopDisplayLink];
+    _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onDisplayLink:)];
+    [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+}
+
+- (void)stopDisplayLink{
+    if (_displayLink) {
+        [_displayLink invalidate];
+        _displayLink = nil;
+    }
 }
 
 - (void)dealloc {
-    [self teardown];
+    [self stopDisplayLink];
     [super dealloc];
 }
 
 - (void)onDisplayLink:(CADisplayLink *)sender {
-    [self drawRect:{}];
+    [self drawRect:{}]; // Invalidate the view.
 }
 
 - (void)drawRect:(CGRect)rect {
@@ -86,7 +94,7 @@
         _interaction.pointers.push_back(pointer_data.pointer);
     }
 
-    _delegate->draw(_interaction, time_now, false);
+    _delegate->draw(_interaction, time_now);
     
     // Remove terminated pointers. (Drag_end, Click, Double_click, Right_click)
     // I think we could move this to touchesEnded/touchesCancelled
@@ -308,17 +316,19 @@
 
 namespace tiny {
 
-Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view) : _delegate{delegate}, _owns_view{owns_view} {
+Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view, std::function<void()>) : _delegate{delegate}, _owns_view{owns_view}
+{
     UIView* view = [[IosView alloc] initWithDelegate:delegate];
 
     auto context = std::make_unique<Window_context>();
     context->setup({.native_handle = static_cast<void*>(view)});
-    _delegate->set_context(std::move(context));
+    _delegate->assign_context(std::move(context));
 
     _view = view;
 }
 
-Platform_view::~Platform_view() {
+Platform_view::~Platform_view() 
+{
     if (_owns_view) {
         [(UIView*)_view removeFromSuperview];
         [(UIView*)_view release];
@@ -326,25 +336,39 @@ Platform_view::~Platform_view() {
     _view = nullptr;
 }
 
+auto Platform_view::on_create() -> void
+{
+
+}
+
+auto Platform_view::on_show() -> void
+{
+    if (auto view = static_cast<IosView*>(_view)) {
+        [view startDisplayLink];
+    }
+}
+
+auto Platform_view::on_hide() -> void
+{
+    if (auto view = static_cast<IosView*>(_view)) {
+        [view stopDisplayLink];
+    }
+}
+
+auto Platform_view::on_destroy() -> void
+{
+    _delegate->invalidate_context();
+}
+
 auto Platform_view::receive_parent(void* parent) -> void
 {
     [(UIView*)parent addSubview:(UIView*)_view];
-}
-
-auto Platform_view::teardown() -> void
-{
-    [(IosView*)_view teardown]; // Stop timer
 }
 
 auto Platform_view::resize(int32_t w, int32_t h) -> void
 {
     [(UIView*)_view setFrame:CGRectMake(0, 0, w, h)]; // So the context can get the size from the view.
     _delegate->on_resize({w, h});
-}
-
-auto Platform_view::redraw() -> void
-{
-    [(UIView*)_view setNeedsDisplay];
 }
 
 // MARK: - alert

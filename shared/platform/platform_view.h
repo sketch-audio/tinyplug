@@ -30,12 +30,18 @@ class Vsync_loop; // Vsync drawing.
 #endif
 
 struct Platform_view {
-    Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view);
+    // Use the factory.
+    Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view, std::function<void()> on_release = []() {});
     ~Platform_view();
+
+    auto on_create() -> void;
+    auto on_show() -> void;
+    auto on_hide() -> void;
+    auto on_destroy() -> void;
+
     auto receive_parent(void* parent) -> void;
-    auto teardown() -> void; // You might not get this.
     auto resize(int32_t w, int32_t h) -> void;
-    auto redraw() -> void;
+    
     auto native_handle() -> void* { return _view; }
     auto get_size() -> Rect_size { return _delegate->get_size(); }
 private:
@@ -57,8 +63,8 @@ struct Platform_views {
     }
 
 #if PLATFORM_MACOS || PLATFORM_IOS
-    static auto make_autoreleasing(std::shared_ptr<View_delegate> delegate) -> std::unique_ptr<Platform_view> {
-        return std::make_unique<Platform_view>(delegate, false);
+    static auto make_autoreleasing(std::shared_ptr<View_delegate> delegate, std::function<void()> on_autorelease) -> std::unique_ptr<Platform_view> {
+        return std::make_unique<Platform_view>(delegate, false, on_autorelease);
     }
 #endif
 };

@@ -7,6 +7,20 @@
 
 namespace tiny {
 
+template<typename F>
+struct Deferred {
+    F fn;
+
+    explicit Deferred(F f) : fn(std::move(f)) {}
+    ~Deferred() { fn(); }
+
+    // no copy, no move
+    Deferred(const Deferred&) = delete;
+    Deferred& operator=(const Deferred&) = delete;
+    Deferred(Deferred&&) = delete;
+    Deferred& operator=(Deferred&&) = delete;
+};
+
 template<typename I = size_t, typename R, typename F>
 void enumerate(R&& range, F&& func) {
     auto i = I{};

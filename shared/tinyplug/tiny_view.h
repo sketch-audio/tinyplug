@@ -15,6 +15,9 @@ class SkCanvas; // Skia canvas
 
 namespace tiny {
 
+using Ui_state = std::variant<bool, int32_t, double, std::string>;
+using State_map = std::unordered_map<std::string, Ui_state>;
+
 // MARK: - helpers
 
 struct Coords {
@@ -183,6 +186,18 @@ struct Modifier_keys {
     bool operator==(const Modifier_keys&) const = default;
 };
 
+// MARK: - notifications
+
+// Ideas:
+// - view resized (atm passed with View_context)
+// - dpi changed (atm passed with View_context)
+
+struct Dark_mode_changed {
+    bool new_value{};
+};
+
+using Ui_notification = std::variant<Dark_mode_changed>;
+
 // MARK: - user interaction
 
 // A user interaction includes an id (for future multi-touch), pointer state, and scroll deltas.
@@ -213,7 +228,6 @@ struct View_context {
     SkCanvas* canvas{nullptr};
     Rect_size logical_size{};
     double scale{1};
-    bool dark_mode{};
     bool operator==(const View_context&) const = default;
 };
 
@@ -234,6 +248,7 @@ struct App_state {
 // The plug-in format's view will have a draw callback.
 // This is where it will resolve the application state and pass it to your custom view.
 using Draw_callback = std::function<void(View_context&)>;
+using Notify_callback = std::function<void(const Ui_notification&)>;
 
 // MARK: action queue
 
@@ -326,6 +341,11 @@ struct Later {
             callback(std::forward<Cargs>(args)...);
         }
     }
+};
+
+struct View_connection {
+    Action_queue::Receiver actions;
+    Task_queue::Receiver tasks; // Maybe we don't need this any more.
 };
 
 // MARK: - debug
@@ -430,9 +450,10 @@ constexpr auto run_frame(
         .params_state = {_uiparams, export_arr},
         .view_context = view_context,
     };
+    _actions.clear(); // Actually clear before we draw.
 
     // Tell the user view to draw.
-    _custom_view->on_draw(app_state);
+    _custom_view->on_gui_draw(app_state);
 
     _tasks.execute_all(); // Execute laters (might push into actions).
 
@@ -443,7 +464,7 @@ constexpr auto run_frame(
             _uiparams[s->id] = s->value; // Update the local copy.
         }
     }
-    _actions.clear();
+    //_actions.clear();
 
     // Reset exports for next frame.
     for (auto& uiexport : _uiexports) {

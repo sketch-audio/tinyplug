@@ -1,25 +1,17 @@
-#include "custom_view.h"
-
-#include <variant>
+#include "plug_editor.h"
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkSurface.h"
 
-#include "platform/platform_view.h"
-
 namespace tiny {
 
-// MARK: - on create
-
-auto Custom_view::on_create(const Action_queue::Receiver& actions, const Task_queue::Receiver& tasks) -> void
+auto Plug_editor::on_gui_show(const View_connection& connection) -> void
 {
-    _actions = actions;
-    _task_receiver = tasks;
+    _actions = connection.actions;
+    _task_receiver = connection.tasks;
 }
 
-// MARK: - on draw
-
-auto Custom_view::on_draw(App_state& app_state) -> void
+auto Plug_editor::on_gui_draw(App_state& app_state) -> void
 {
     auto& params_state = app_state.params_state;
     auto& view_context = app_state.view_context;
@@ -63,6 +55,13 @@ auto Custom_view::on_draw(App_state& app_state) -> void
 
     paint.setStyle(SkPaint::kFill_Style);
     canvas->drawRect(SkRect::MakeXYWH(0, 0, static_cast<float>(rsize.w), static_cast<float>(rsize.h)), paint);
+}
+
+auto Plug_editor::on_gui_notify(const Ui_notification& notification) -> void
+{
+    std::visit(Inline_visitor{
+        [](const auto&) {}
+    }, notification);
 }
 
 } // namespace tiny

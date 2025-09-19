@@ -8,8 +8,8 @@
 #include "tinyplug/tinyplug.h"
 #include "platform/platform_view.h"
 
-#include "custom_view.h"
 #include "param_model.h"
+#include "plug_editor.h"
 
 namespace tiny {
 
@@ -19,14 +19,14 @@ class Vst3_view : public Steinberg::CPluginView {
 public:
 
     using Super = Steinberg::CPluginView;
-    Vst3_view(Ui_receiver receiver, Vst3_controller* controller) : Super{}, _receiver{receiver}, _controller{controller} {}
+    Vst3_view(Ui_receiver receiver, std::shared_ptr<Plug_editor> editor, Vst3_controller* controller)
+        : Super{}, _receiver{receiver}, _editor{editor}, _controller{controller} {}
+
+    ~Vst3_view() = default;
 
     Steinberg::tresult PLUGIN_API isPlatformTypeSupported(Steinberg::FIDString type) override;
     Steinberg::tresult PLUGIN_API attached(void* parent, Steinberg::FIDString type) override;
     Steinberg::tresult PLUGIN_API removed() override;
-    Steinberg::tresult PLUGIN_API onWheel(float distance) override;
-    Steinberg::tresult PLUGIN_API onKeyDown(Steinberg::char16 key, Steinberg::int16 keyCode, Steinberg::int16 modifiers) override;
-    Steinberg::tresult PLUGIN_API onKeyUp(Steinberg::char16 key, Steinberg::int16 keyCode, Steinberg::int16 modifiers) override;
     Steinberg::tresult PLUGIN_API getSize(Steinberg::ViewRect* size) override;
     Steinberg::tresult PLUGIN_API onSize(Steinberg::ViewRect* newSize) override;
     Steinberg::tresult PLUGIN_API onFocus(Steinberg::TBool state) override;
@@ -40,7 +40,8 @@ protected:
 
     // This is where we resolve the app state and tell the user's custom view to draw.
     auto on_draw(View_context& view_context) -> void;
-    
+    auto on_notify(const Ui_notification& notification) -> void;
+
     using User_params = Param_infos<Param_model>;
     using User_exports = Exports<Param_model>;
 
@@ -50,11 +51,12 @@ protected:
     User_params _param_infos{};
     Action_queue _actions{};
     Task_queue _tasks{};
+
     Ui_receiver _receiver{};
+    std::shared_ptr<Plug_editor> _editor{};
     Vst3_controller* _controller{nullptr};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
-    std::unique_ptr<Custom_view> _custom_view = std::make_unique<Custom_view>();
 
     std::array<Tagged_export, num_exports> _uiexports{};
     std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults<double>()};

@@ -11,6 +11,7 @@
 
 #include "dsp_kernel.h"
 #include "param_model.h"
+#include "plug_editor.h"
 
 namespace tiny {
 
@@ -52,10 +53,17 @@ public:
         _from_ui.push(action);
     }
 
+    auto get_editor() -> std::shared_ptr<Plug_editor>
+    {
+        return _editor;
+    }
+
 private:
 
     const AAX_CTypeID CHUNK_ID = 'tiny'; // ...
     static constexpr auto tinyplug_tree_version = "tinyplug-tree-version";
+
+    std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
 
     using User_params = Param_infos<Param_model>;
     using User_exports = Exports<Param_model>;

@@ -1,58 +1,18 @@
-#include "custom_view.h"
-
-#include <variant>
+#include "plug_editor.h"
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkSurface.h"
-
-#include "platform/platform_view.h"
-
-#include "include/core/SkData.h"
-#include "include/core/SkFont.h"
-#include "include/core/SkFontMgr.h"
-#if PLATFORM_APPLE
-#include "include/ports/SkFontMgr_mac_ct.h"
-#elif PLATFORM_WINDOWS
-#include "include/ports/SkTypeface_win.h"
-#endif
-
-#include "host_grotesk_medium.h"
+#include "platform/platform_view.h" // For Platform_dialogs.
 
 namespace tiny {
 
-static constexpr auto font_size = 64.f;
-
-// MARK: - on create
-
-Custom_view::Custom_view() {
-    auto font_data = SkData::MakeWithoutCopy(HostGrotesk_Medium_ttf, HostGrotesk_Medium_ttf_len);
-    if (!font_data) {
-        std::cerr << "Failed to create font data!\n";
-        return;
-    }
-#if PLATFORM_APPLE
-    auto font_mgr = SkFontMgr_New_CoreText(nullptr);
-#elif PLATFORM_WINDOWS
-    auto font_mgr = SkFontMgr_New_DirectWrite();
-#endif
-    auto typeface = font_mgr->makeFromData(font_data);
-
-    _font = SkFont(typeface, font_size); // Font size (pixels)
-    _font.setEdging(SkFont::Edging::kSubpixelAntiAlias); // Enable anti-aliasing
-    _font.setHinting(SkFontHinting::kSlight);
-    _font.setForceAutoHinting(false);
-    _font.setSubpixel(true);
-}
-
-auto Custom_view::on_create(const Action_queue::Receiver& actions, const Task_queue::Receiver& tasks) -> void
+auto Plug_editor::on_gui_show(const View_connection& connection) -> void
 {
-    _actions = actions;
-    _task_receiver = tasks;
+    _actions = connection.actions;
+    _task_receiver = connection.tasks;
 }
 
-// MARK: - on draw
-
-auto Custom_view::on_draw(App_state& app_state) -> void
+auto Plug_editor::on_gui_draw(App_state& app_state) -> void
 {
     auto& params_state = app_state.params_state;
     auto& view_context = app_state.view_context;
@@ -165,12 +125,12 @@ auto Custom_view::on_draw(App_state& app_state) -> void
 
     // Draw background.
     auto paint = SkPaint{};
-    paint.setColor(view_context.dark_mode ? SK_ColorBLACK : SK_ColorWHITE);
+    paint.setColor(_dark ? SK_ColorBLACK : SK_ColorWHITE);
     paint.setStyle(SkPaint::kFill_Style);
     canvas->drawRect(SkRect::MakeXYWH(0, 0, static_cast<float>(rsize.w), static_cast<float>(rsize.h)), paint);
 
     // Draw gain value.
-    paint.setColor(view_context.dark_mode ? SK_ColorWHITE : SK_ColorBLACK);
+    paint.setColor(_dark ? SK_ColorWHITE : SK_ColorBLACK);
     if (interaction.modifier_keys.any() || _down) {
         paint.setColor(SK_ColorBLUE);
     }
@@ -178,22 +138,14 @@ auto Custom_view::on_draw(App_state& app_state) -> void
     const auto g_h = g * rsize.h;
     const auto g_y = rsize.h - g_h;
     canvas->drawRect(SkRect::MakeXYWH(0, g_y, static_cast<float>(rsize.w), g_h), paint);
+}
 
-    paint.setColor(SK_ColorWHITE);
-    // Text to draw
-    const char* text = spec.name;
-    auto text_bounds = SkRect{};
-    _font.setSize(font_size * static_cast<SkScalar>(scale));
-    _font.measureText(text, strlen(text), SkTextEncoding::kUTF8, &text_bounds);
-
-    // Calculate center position (accounting for canvas size)
-    const auto canvas_width = static_cast<SkScalar>(rsize.w);
-    const auto canvas_height = static_cast<SkScalar>(rsize.h);
-    const auto x = (canvas_width - text_bounds.width()) / 2;
-    const auto y = (canvas_height - text_bounds.height()) / 2 + text_bounds.height(); // Adjust for baseline
-
-    // Draw text
-    canvas->drawSimpleText(text, strlen(text), SkTextEncoding::kUTF8, x, y, _font, paint);
+auto Plug_editor::on_gui_notify(const Ui_notification& notification) -> void
+{
+    std::visit(Inline_visitor{
+        [&](const Dark_mode_changed& d) { _dark = d.new_value; },
+        [](const auto&) {}
+    }, notification);
 }
 
 } // namespace tiny

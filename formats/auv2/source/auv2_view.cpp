@@ -2,29 +2,49 @@
 
 namespace tiny {
 
-void* Auv2_view::create_view()
+auto Auv2_view::create_view() -> void*
 {
     auto delegate = std::make_shared<View_delegate>(
-        Custom_view::preferred_size(),
-        [this](auto& context) { this->on_draw(context); }
+        Plug_editor::preferred_size(),
+        [this](auto& context) { this->on_draw(context); },
+        [this](const auto& notification) { this->on_notify(notification); }
     );
-    _platform_view = Platform_views::make_autoreleasing(delegate);
+
+    auto on_autorelease = [this]() {
+        _editor->on_gui_hide();
+        _platform_view->on_hide();
+        _editor->on_gui_destroy();
+        _platform_view->on_destroy();
+    };
+    _platform_view = Platform_views::make_autoreleasing(delegate, on_autorelease);
+
+    _platform_view->on_create();
+    _editor->on_gui_create();
 
     _uiparams = make_array_by_indices<double, num_params>(
         [this](auto i) { return _receiver.get_knob_value(i); }
     );
 
-    _custom_view->on_create(_actions.make_receiver(), _tasks.make_receiver());
+    _platform_view->on_show();
+    _editor->on_gui_show({
+        .actions = _actions.make_receiver(),
+        .tasks = _tasks.make_receiver()
+    });
 
     return _platform_view->native_handle();
 }
 
-void Auv2_view::on_draw(View_context& view_context)
+auto Auv2_view::on_draw(View_context& view_context) -> void
 {
     _executor.on_main();
     view_impl::run_frame<User_exports>(
-        _receiver, _uiparams, _uiexports, view_context, _custom_view.get(), _actions, _tasks
+        _receiver, _uiparams, _uiexports, view_context, _editor.get(), _actions, _tasks
     );
+}
+
+auto Auv2_view::on_notify(const Ui_notification& notification) -> void
+{
+    _editor->on_gui_notify(notification);
 }
 
 } // namespace tiny

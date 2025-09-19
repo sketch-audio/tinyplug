@@ -638,7 +638,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
 
 // MARK: - create_view 
 
-void* Auv2_effect::create_view()
+auto Auv2_effect::create_view() -> void*
 {
     return _view->create_view();
 }
