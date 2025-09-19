@@ -228,7 +228,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
                 }
                 binder->interaction.pointers = {binder->pointer}; // Copy pointer state to interaction.
                 binder->interaction.modifier_keys = resolve_modifiers();
-                delegate->draw(binder->interaction, time_now, binder->dark_mode); // Delegate window context handles everything.
+                delegate->draw(binder->interaction, time_now); // Delegate window context handles everything.
                 try_set(binder->pointer.state, Consumed{});
                 if (binder->dwelt) {
                     binder->over_pos = std::nullopt;
@@ -399,7 +399,7 @@ public:
 
 // MARK: - platform view
 
-Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view) : _delegate{delegate}, _owns_view{owns_view}
+Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view, std::function<void()> /*unused on windows*/) : _delegate{delegate}, _owns_view{owns_view}
 {
     const auto& registrar = Window_registrar::instance(); // Register/unregisters the window class.
 
@@ -423,17 +423,16 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
     const auto dark = is_dark_mode();
     _binder.dark_mode = dark;
     enable_dark_title_bar(window, dark);
-    _dark_watcher = std::make_unique<Dark_mode_watcher>([this](auto dark) { _binder.dark_mode = dark; });
+    _dark_watcher = std::make_unique<Dark_mode_watcher>([this](auto dark) { 
+        _delegate->notify(Dark_mode_changed{dark});
+    });
 
     _binder.delegate = _delegate.get();
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&_binder));
 
     auto context = std::make_unique<Window_context>();
     context->setup({.native_handle = window});
-    _delegate->set_context(std::move(context));
-
-    // Setup vsync
-    _vsync_loop = std::make_unique<Vsync_loop>([this]() { InvalidateRect(static_cast<HWND>(_view), nullptr, TRUE); });
+    _delegate->assign_context(std::move(context));
 
     _view = window;
 }
@@ -443,6 +442,28 @@ Platform_view::~Platform_view()
     auto* window = static_cast<HWND>(_view);
     SetWindowLongPtrW(window, GWLP_USERDATA, 0);
     DestroyWindow(window);
+}
+
+auto Platform_view::on_create() -> void
+{
+
+}
+
+auto Platform_view::on_show() -> void
+{
+    if (!_vsync_loop) {
+        _vsync_loop = std::make_unique<Vsync_loop>([this]() { InvalidateRect(static_cast<HWND>(_view), nullptr, TRUE); });
+    }
+}
+
+auto Platform_view::on_hide() -> void
+{
+    _vsync_loop = nullptr;
+}
+
+auto Platform_view::on_destroy() -> void
+{
+
 }
 
 auto Platform_view::receive_parent(void* parent) -> void
@@ -458,23 +479,11 @@ auto Platform_view::receive_parent(void* parent) -> void
     UpdateWindow(window);
 }
 
-auto Platform_view::teardown() -> void
-{
-    //
-}
-
 auto Platform_view::resize(int32_t w, int32_t h) -> void
 {
     auto window = static_cast<HWND>(_view);
     SetWindowPos(window, nullptr, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     _delegate->on_resize({w, h});
-}
-
-auto Platform_view::redraw() -> void
-{
-    auto window = static_cast<HWND>(_view);
-    InvalidateRect(window, nullptr, TRUE);
-    UpdateWindow(window); 
 }
 
 // MARK: - Platform_dialogs
