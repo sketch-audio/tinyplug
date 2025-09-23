@@ -5,6 +5,13 @@
 
 namespace tiny {
 
+static constexpr auto key_theme_preference = "theme-preference";
+static constexpr auto key_preset_name = "preset-name";
+
+enum class Theme_preference : int32_t {
+    light = 0, dark, system
+};
+
 class Plug_editor {
 public:
 
@@ -20,8 +27,30 @@ public:
     auto on_gui_hide() -> void {}
     auto on_gui_destroy() -> void {}
 
-    auto save_state() -> State_map { return {}; }
-    auto load_state(const State_map&) -> void {}
+    auto save_state() -> State_map {
+        return {
+            {key_theme_preference, enum_raw(Theme_preference::system)},
+            {key_preset_name, std::string{"Hello!"}}
+        };
+    }
+    
+    auto load_state(const State_map& state_map) -> void {
+        auto it = state_map.end();
+
+        it = state_map.find(key_theme_preference);
+        if (it != state_map.end()) {
+            const auto& val = it->second;
+            const auto pref = static_cast<Theme_preference>(std::get<int32_t>(val));
+            std::cout << "Loaded theme preference: " << enum_raw(pref) << "\n";
+        }
+
+        it = state_map.find(key_preset_name);
+        if (it != state_map.end()) {
+            const auto& val = it->second;
+            const auto name = std::get<std::string>(val);
+            std::cout << "Loaded preset name: " << name << "\n";
+        }
+    }
 
 private:
 

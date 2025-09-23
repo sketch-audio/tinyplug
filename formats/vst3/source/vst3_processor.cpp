@@ -241,12 +241,13 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     return Steinberg::kResultOk;
 }
 
-// MARK: - state
+// MARK: - state load
 
 Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* state)
 {
-    if (!state)
+    if (!state) {
         return Steinberg::kResultFalse;
+    }
 
     // Streamer convenience wrapper. 
     auto streamer = Steinberg::IBStreamer{state};
@@ -260,10 +261,8 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* stat
     assert(header[0] == Plug_info::framework_code && "Unexpected framework code.");
     assert(header[1] == Plug_info::manufacturer_code && "Unexpected manufacturer code.");
     assert(header[2] == Plug_info::plugin_code && "Unexpected plug-in code.");
-    assert(header[3] > 0 && "Unexpected tree version.");
 
-    const auto tree_version = max_tree_version(_param_infos.tree());
-    const auto state_version = header[3];
+    const auto num_state_params = header[3];
 
     // Notify kernel (if not an interface parameter).
     auto do_notify = [this](const auto& param, auto plain_value) {
@@ -272,40 +271,34 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* stat
         }
     };
 
-    if (tree_version <= state_version) {
-        // Implies "num params in tree" <= "num params in state"
-        // We should be able to safely read `num_params` floats.
-        for (auto i = decltype(num_params){}; i < num_params; ++i) {
-            auto knob_value = float{};
-            if (!streamer.readFloat(knob_value)) {
-                return Steinberg::kResultFalse;
-            }
+    // Read processor state into temporary vector.
+    auto state_params = std::vector<float>(num_state_params);
+    for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
+        if (!streamer.readFloat(state_params[i])) {
+            return Steinberg::kResultFalse;
+        }
+    }
 
-            // Convert to plain and send to kernel.
+    if (num_params <= num_state_params) {
+        // Set values stored in state.
+        for (auto i = decltype(num_params){}; i < num_params; ++i) {
+            const auto knob_value = state_params[i];
             const auto& param = _param_infos.param_for(i);
             const auto plain_value = Value_conv::knob_to_plain(knob_value, param.semantics);
             do_notify(param, plain_value);
         }
     }
-    else if (tree_version > state_version) {
-        // Implies "num params in tree" > "num params in state"
-        const auto num_state = num_params_with_version(_param_infos.tree(), state_version);
-
+    else {
         // Set values stored in state.
-        for (auto i = decltype(num_state){}; i < num_state; ++i) {
-            auto knob_value = float{};
-            if (!streamer.readFloat(knob_value)) {
-                return Steinberg::kResultFalse;
-            }
-
-            // Convert to plain and send to kernel.
+        for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
+            const auto knob_value = state_params[i];
             const auto& param = _param_infos.param_for(i);
             const auto plain_value = Value_conv::knob_to_plain(knob_value, param.semantics);
             do_notify(param, plain_value);
         }
 
-        // Set remaining parameters to defaults. 
-        for (auto i = num_state; i < num_params; ++i) {
+        // Set remaining parameters to defaults.
+        for (auto i = num_state_params; i < num_params; ++i) {
             const auto& param = _param_infos.param_for(i);
             const auto plain_value = get_plain_default(param);
             do_notify(param, plain_value);
@@ -315,21 +308,23 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* stat
     return Steinberg::kResultOk;
 }
 
+// MARK: - state save
+
 Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* state)
 {
-    if (!state)
+    if (!state) {
         return Steinberg::kResultFalse;
+    }
 
     // Streamer convenience wrapper. 
     auto streamer = Steinberg::IBStreamer{state};
 
     // Generate the header.
-    const auto tree_version = max_tree_version(_param_infos.tree());
     auto header = State_header{
         Plug_info::framework_code, // Reserved
         Plug_info::manufacturer_code,
         Plug_info::plugin_code,
-        tree_version
+        num_params
     };
 
     if (!streamer.writeInt32uArray(header.data(), static_cast<int32_t>(header.size()))) {
@@ -337,8 +332,8 @@ Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* stat
     }
 
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
-        const auto& last_automated = _lpoints[i]; // Grab the latest value from last automation points.
-        const auto knob_value = last_automated.value;
+        const auto& lpoint = _lpoints[i]; // Grab value from last automation points.
+        const auto knob_value = lpoint.value;
         if (!streamer.writeFloat(knob_value)) {
             return Steinberg::kResultFalse;
         }

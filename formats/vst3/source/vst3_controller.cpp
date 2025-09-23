@@ -138,11 +138,14 @@ Steinberg::tresult PLUGIN_API Vst3_controller::terminate()
     return Super::terminate();
 }
 
+// MARK: - processor state
+
 Steinberg::tresult PLUGIN_API Vst3_controller::setComponentState(Steinberg::IBStream* state)
 {
     // Here you get the state of the component (processor part).
-    if (!state)
+    if (!state) {
         return Steinberg::kResultFalse;
+    }
 
     // Streamer convenience wrapper. 
     auto streamer = Steinberg::IBStreamer{state};
@@ -156,10 +159,8 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setComponentState(Steinberg::IBSt
     assert(header[0] == Plug_info::framework_code && "Unexpected framework code.");
     assert(header[1] == Plug_info::manufacturer_code && "Unexpected manufacturer code.");
     assert(header[2] == Plug_info::plugin_code && "Unexpected plug-in code.");
-    assert(header[3] > 0 && "Unexpected tree version.");
 
-    const auto tree_version = max_tree_version(_param_infos.tree());
-    const auto state_version = header[3];
+    const auto num_state_params = header[3];
 
     // Notify view (if not an interface parameter).
     auto do_notify = [this](auto& param, auto knob_value) {
@@ -168,38 +169,32 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setComponentState(Steinberg::IBSt
         }
     };
 
-    if (tree_version <= state_version) {
-        // Implies "num params in tree" <= "num params in state"
-        // We should be able to safely read `num_params` floats.
-        for (auto i = decltype(num_params){}; i < num_params; ++i) {
-            auto knob_value = float{};
-            if (!streamer.readFloat(knob_value)) {
-                return Steinberg::kResultFalse;
-            }
+    // Read processor state into temporary vector.
+    auto state_params = std::vector<float>(num_state_params);
+    for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
+        if (!streamer.readFloat(state_params[i])) {
+            return Steinberg::kResultFalse;
+        }
+    }
 
-            // Send knob value to view.
+    if (num_params <= num_state_params) {
+        // Set values stored in state.
+        for (auto i = decltype(num_params){}; i < num_params; ++i) {
+            const auto knob_value = state_params[i];
             const auto& param = _param_infos.param_for(i);
             do_notify(param, knob_value);
         }
     }
-    else if (tree_version > state_version) {
-        // Implies "num params in tree" > "num params in state"
-        const auto num_state = num_params_with_version(_param_infos.tree(), state_version);
-
+    else {
         // Set values stored in state.
-        for (auto i = decltype(num_state){}; i < num_state; ++i) {
-            auto knob_value = float{};
-            if (!streamer.readFloat(knob_value)) {
-                return Steinberg::kResultFalse;
-            }
-
-            // Send knob value to view.
+        for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
+            const auto knob_value = state_params[i];
             const auto& param = _param_infos.param_for(i);
             do_notify(param, knob_value);
         }
 
-        // Set remaining parameters to defaults. 
-        for (auto i = num_state; i < num_params; ++i) {
+        // Set remaining parameters to defaults.
+        for (auto i = num_state_params; i < num_params; ++i) {
             const auto& param = _param_infos.param_for(i);
             const auto knob_value = get_knob_default(param);
             do_notify(param, knob_value);
@@ -209,18 +204,212 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setComponentState(Steinberg::IBSt
     return Steinberg::kResultOk;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_controller::setState(Steinberg::IBStream* /*state*/)
+// MARK: - editor state
+
+Steinberg::tresult PLUGIN_API Vst3_controller::setState(Steinberg::IBStream* state)
 {
     // Here you get the state of the controller.
+    if (!state) {
+        return Steinberg::kResultFalse;
+    }
+
+    // Streamer convenience wrapper.
+    auto streamer = Steinberg::IBStreamer{state};
+
+    auto header = State_header{};
+    if (!streamer.readInt32uArray(header.data(), static_cast<int32_t>(header.size()))) {
+        return Steinberg::kResultFalse;
+    }
+
+    // Validate header.
+    assert(header[0] == Plug_info::framework_code && "Unexpected framework code.");
+    assert(header[1] == Plug_info::manufacturer_code && "Unexpected manufacturer code.");
+    assert(header[2] == Plug_info::plugin_code && "Unexpected plug-in code.");
+
+    const auto num_kv_pairs = header[3];
+
+    // Helper
+    auto read_container = [&](auto& container) {
+        auto num = uint32_t{};
+        if (!streamer.readInt32u(num)) {
+            return false;
+        }
+        container.resize(num);
+        if (num > 0) {
+            if (!streamer.readRaw(container.data(), sizeof(container[0]) * num)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    // Read editor state.
+    auto edit_state = State_map{};
+    for (auto i = decltype(num_kv_pairs){}; i < num_kv_pairs; ++i) {
+        // Read key.
+        auto key = std::string{};
+        if (!read_container(key)) {
+            return Steinberg::kResultFalse;
+        }
+
+        // Read the type tag.
+        auto tag_raw = uint32_t{};
+        if (!streamer.readInt32u(tag_raw)) {
+            return Steinberg::kResultFalse;
+        }
+        const auto tag = static_cast<State_tag>(tag_raw);
+
+        // Read the value according to the tag.
+        auto value = State_item{};
+        switch (tag) {
+            case State_tag::bool_: {
+                auto v = bool{};
+                if (streamer.readBool(v)) {
+                    value = v;
+                    break;
+                }
+                return Steinberg::kResultFalse;
+            }
+            case State_tag::int_: {
+                auto v = int32_t{};
+                if (streamer.readInt32(v)) {
+                    value = v;
+                    break;
+                }
+                return Steinberg::kResultFalse;
+            }
+            case State_tag::double_: {
+                auto v = double{};
+                if (streamer.readDouble(v)) {
+                    value = v;
+                    break;
+                }
+                return Steinberg::kResultFalse;
+            }
+            case State_tag::string_: {
+                auto v = std::string{};
+                if (read_container(v)) {
+                    value = std::move(v);
+                    break;
+                }
+                return Steinberg::kResultFalse;
+            }
+            case State_tag::bytes_: {
+                auto v = std::vector<uint8_t>{};
+                if (read_container(v)) {
+                    value = std::move(v);
+                    break;
+                }
+                return Steinberg::kResultFalse;
+            }
+            default:
+                assert(false && "Unknown editor state type.");
+                return Steinberg::kResultFalse;
+        }
+
+        edit_state.emplace(std::move(key), std::move(value));
+    }
+
+    _editor->load_state(edit_state);
 
     return Steinberg::kResultTrue;
 }
 
 //------------------------------------------------------------------------
-Steinberg::tresult PLUGIN_API Vst3_controller::getState(Steinberg::IBStream* /*state*/)
+Steinberg::tresult PLUGIN_API Vst3_controller::getState(Steinberg::IBStream* state)
 {
     // Here you are asked to deliver the state of the controller (if needed).
     // Note: the real state of your plug-in is saved in the processor.
+    if (!state) {
+        return Steinberg::kResultFalse;
+    }
+
+    // Streamer convenience wrapper.
+    auto streamer = Steinberg::IBStreamer{state};
+
+    const auto edit_state = _editor->save_state();
+    const auto num_editor_items = static_cast<uint32_t>(edit_state.size());
+
+    const auto header = State_header{
+        Plug_info::framework_code, // Reserved
+        Plug_info::manufacturer_code,
+        Plug_info::plugin_code,
+        num_editor_items
+    };
+
+    if (!streamer.writeInt32uArray(header.data(), static_cast<int32_t>(header.size()))) {
+        return Steinberg::kResultFalse;
+    }
+
+    // Helper
+    auto write_container = [&](const auto& container) {
+        const auto num = static_cast<uint32_t>(container.size());
+        if (!streamer.writeInt32u(num)) {
+            return false;
+        }
+        if (num > 0) {
+            if (!streamer.writeRaw(container.data(), sizeof(container[0]) * num)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    // Write editor state.
+    for (const auto& [key, val] : edit_state) {
+        // Write key.
+        if (!write_container(key)) {
+            return Steinberg::kResultFalse;
+        }
+
+        // Write the type tag.
+        const auto tag = tag_for(val);
+        if (!streamer.writeInt32u(enum_raw(tag))) {
+            return Steinberg::kResultFalse;
+        }
+
+        // Write the value according to the tag.
+        switch (tag) {
+            case State_tag::bool_: {
+               const auto value = std::get_if<bool>(&val);
+               if (value && streamer.writeBool(*value)) {
+                   break;
+               }
+               return Steinberg::kResultFalse;
+            }
+            case State_tag::int_: {
+                const auto value = std::get_if<int32_t>(&val);
+                if (value && streamer.writeInt32(*value)) {
+                    break;
+                }
+                return Steinberg::kResultFalse;
+            }
+            case State_tag::double_: {
+                const auto value = std::get_if<double>(&val);
+                if (value && streamer.writeDouble(*value)) {
+                    break;
+                }
+                return Steinberg::kResultFalse;
+            }
+            case State_tag::string_: {
+                const auto value = std::get_if<std::string>(&val);
+                if (value && write_container(*value)) {
+                    break;
+                }
+                return Steinberg::kResultFalse;
+            }
+            case State_tag::bytes_: {
+                const auto value = std::get_if<std::vector<uint8_t>>(&val);
+                if (value && write_container(*value)) {
+                    break;
+                }
+                return Steinberg::kResultFalse;
+            }
+            default:
+                assert(false && "Unknown editor state type.");
+                return Steinberg::kResultFalse;
+        }
+    }
 
     return Steinberg::kResultTrue;
 }

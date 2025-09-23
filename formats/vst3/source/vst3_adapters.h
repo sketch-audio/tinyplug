@@ -13,7 +13,7 @@ namespace tiny {
 // - Framework code
 // - Manufacturer code
 // - Plug-in code
-// - Tree version
+// - Number of items (processor: num params, controller: num key-value pairs)
 static constexpr auto num_header_items = size_t{4};
 using State_header = std::array<uint32_t, num_header_items>;
 

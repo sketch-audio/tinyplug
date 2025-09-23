@@ -184,8 +184,7 @@ AAX_Result Aax_parameters::GetNumberOfChunks(int32_t* oNumChunks) const
 
 AAX_Result Aax_parameters::GetChunkIDFromIndex(int32_t iIndex, AAX_CTypeID* oChunkID) const
 {
-    if (iIndex != 0)
-	{
+    if (iIndex != 0) {
 		*oChunkID = AAX_CTypeID(0);
 		return AAX_ERROR_INVALID_CHUNK_INDEX;
 	}
@@ -196,8 +195,7 @@ AAX_Result Aax_parameters::GetChunkIDFromIndex(int32_t iIndex, AAX_CTypeID* oChu
 
 AAX_Result Aax_parameters::GetChunkSize(AAX_CTypeID iChunkID, uint32_t* oSize) const
 {
-    if (iChunkID != CHUNK_ID)
-	{
+    if (iChunkID != CHUNK_ID) {
 		*oSize = 0;
 		return AAX_ERROR_INVALID_CHUNK_ID;
 	}
@@ -205,8 +203,7 @@ AAX_Result Aax_parameters::GetChunkSize(AAX_CTypeID iChunkID, uint32_t* oSize) c
     this->build_tiny_chunk(); // Our own chunk includes the tree version.
     mChunkSize = mChunkParser.GetChunkDataSize();
 	
-	if (mChunkSize < 0)
-	{
+	if (mChunkSize < 0) {
 		return AAX_ERROR_INCORRECT_CHUNK_SIZE;
 	}
 	
@@ -221,103 +218,159 @@ AAX_Result Aax_parameters::GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChu
 		return AAX_ERROR_INVALID_CHUNK_ID;
 	
     this->build_tiny_chunk(); // Our own chunk includes the tree version.
-    int32_t currentChunkSize = mChunkParser.GetChunkDataSize();		//Verify that the chunk data size hasn't changed since the last GetChunkSize call.
-	if (mChunkSize != currentChunkSize || mChunkSize == 0)
-	{
-		return AAX_ERROR_INCORRECT_CHUNK_SIZE;	//If mChunkSize doesn't match the currently built chunk, then its likely that the previous call to GetChunkSize() didn't return the correct size.
-	}
-	
-	//Set the version on the chunk data structure.  The other manID, prodID, PlugID, and fSize are populated already, coming from AAXCollection.
+    auto currentChunkSize = mChunkParser.GetChunkDataSize(); // Verify that the chunk data size hasn't changed since the last GetChunkSize call.
+	if (mChunkSize != currentChunkSize || mChunkSize == 0) {
+		return AAX_ERROR_INCORRECT_CHUNK_SIZE; // If mChunkSize doesn't match the currently built chunk, then its likely that the previous call to GetChunkSize() didn't return the correct size.
+    }
+    
+    // Set the version on the chunk data structure. The other manID, prodID, PlugID, and fSize are populated already, coming from AAXCollection.
 	oChunk->fVersion = mChunkParser.GetChunkVersion();
-	memset(oChunk->fName, 0, 32);		//Just in case, lets make sure unused chars are null.
+	memset(oChunk->fName, 0, 32); // Just in case, lets make sure unused chars are null.
 	std::strncpy(reinterpret_cast<char *>(oChunk->fName), "AAX Plug-in State", 31);
 	return mChunkParser.GetChunkData(oChunk);
 }
 
+// MARK: - Set Chunk
+
 AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iChunk)
 {
-    if (iChunkID != CHUNK_ID)
+    if (iChunkID != CHUNK_ID) {
         return AAX_ERROR_INVALID_CHUNK_ID;
+    }
 
     mChunkParser.LoadChunk(iChunk);
 
-    const auto tree_version = static_cast<int32_t>(max_tree_version(_param_infos.tree()));
-    auto state_version = int32_t{};
-    if (!mChunkParser.FindInt32(tinyplug_tree_version, &state_version))
-        return AAX_ERROR_MALFORMED_CHUNK;
+    // Get number of params in the chunk.
+    auto val = int32_t{};
+    const auto found_num_params = mChunkParser.FindInt32(tinyplug_num_params, &val);
+    if (!found_num_params) return AAX_ERROR_MALFORMED_CHUNK;
 
-    auto do_set = [&](const auto* id_cstr, auto* aax_param) {
-        if (aax_param) {
-            // ...
-            auto d_value = double{};
-            auto i_value = int32_t{};
-            auto b_value = bool{};
-            if (aax_param->GetValueAsDouble(&d_value)) {
-                if (mChunkParser.FindDouble(id_cstr, &d_value))
-                    aax_param->SetValueWithDouble(d_value);
-            }
-            else if (aax_param->GetValueAsInt32(&i_value)) {
-                if (mChunkParser.FindInt32(id_cstr, &i_value))
-                    aax_param->SetValueWithInt32(i_value);
-            }
-            else if (aax_param->GetValueAsBool(&b_value)) {
-                if (mChunkParser.FindInt32(id_cstr, &i_value))
-                    aax_param->SetValueWithBool(i_value > 0);
-            }
+    const auto num_chunk_params = static_cast<uint32_t>(val); // We need unsigned.
+
+    // Get the edit keys and parse with tags.
+    auto edit_keys = AAX_CString{};
+    const auto found_edit_keys = mChunkParser.FindString(tinyplug_edit_keys, &edit_keys);
+    if (!found_edit_keys) return AAX_ERROR_MALFORMED_CHUNK;
+
+    const auto parsed_edit_keys = unjoin_keys(std::string{edit_keys.CString()});
+
+    auto find_set = [&](auto* aax_param, const auto* id_cstr) {
+        auto b_value = bool{};
+        auto i_value = int32_t{};
+        auto d_value = double{};
+
+        // Check the parameter type, pull it out of the chunk, and then set the value.
+        if (aax_param->GetValueAsBool(&b_value)) {
+            if (mChunkParser.FindInt32(id_cstr, &i_value))
+                aax_param->SetValueWithBool(i_value > 0);
+        }
+        else if (aax_param->GetValueAsInt32(&i_value)) {
+            if (mChunkParser.FindInt32(id_cstr, &i_value))
+                aax_param->SetValueWithInt32(i_value);
+        }
+        else if (aax_param->GetValueAsDouble(&d_value)) {
+            if (mChunkParser.FindDouble(id_cstr, &d_value))
+                aax_param->SetValueWithDouble(d_value);
+        }
+        else {
+            assert(false && "Unexpected parameter value type.");
         }
     };
 
-    if (tree_version <= state_version) {
-        // Implies "num params in tree" <= "num params in state"
+    if (num_params <= num_chunk_params) {
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
             const auto& param = _param_infos.param_for(i);
-            if (const auto aax_id = tiny_id_to_aax(i)) {
-                const auto* id_cstr = (*aax_id).c_str();
-                AAX_IParameter* aax_param = nullptr;
-                if (GetParameter(id_cstr, &aax_param) == AAX_SUCCESS && param.policy != Host_policy::interface) {
-                    do_set(id_cstr, aax_param);
+
+            if (auto* aax_param = get_aax_param(&mParameterManager, i)) {
+                const auto* id_cstr = aax_param->Identifier();
+                if (param.policy != Host_policy::interface) {
+                    find_set(aax_param, id_cstr);
                 }
             }
         }
     }
     else {
-        // Implies "num params in tree" > "num params in state"
-        const auto num_state = static_cast<uint32_t>(num_params_with_version(_param_infos.tree(), state_version));
-
         // Set values stored in state.
-        for (auto i = decltype(num_state){}; i < num_state; ++i) {
-            const auto& param = _param_infos.param_for(i);
-            if (const auto aax_id = tiny_id_to_aax(i)) {
-                const auto* id_cstr = (*aax_id).c_str();
-                AAX_IParameter* aax_param = nullptr;
-                if (GetParameter(id_cstr, &aax_param) == AAX_SUCCESS && param.policy != Host_policy::interface) {
-                    do_set(id_cstr, aax_param);
+        for (auto i = decltype(num_chunk_params){}; i < num_chunk_params; ++i) {
+            if (auto* aax_param = get_aax_param(&mParameterManager, i)) {
+                const auto& param = _param_infos.param_for(i);
+                const auto* id_cstr = aax_param->Identifier();
+                if (param.policy != Host_policy::interface) {
+                    find_set(aax_param, id_cstr);
                 }
             }
         }
 
         // Set remaining parameters to defaults. 
-        for (auto i = num_state; i < num_params; ++i) {
-            const auto& param = _param_infos.param_for(i);
-            if (const auto aax_id = tiny_id_to_aax(i)) {
-                const auto* id_cstr = (*aax_id).c_str();
-                const auto knob_value = get_knob_default(param);
-                // Is there an AAX parameter?
-                AAX_IParameter* aax_param = nullptr;
-                if (GetParameter(id_cstr, &aax_param) == AAX_SUCCESS && param.policy != Host_policy::interface) {
+        for (auto i = num_chunk_params; i < num_params; ++i) {
+            if (auto* aax_param = get_aax_param(&mParameterManager, i)) {
+                const auto& param = _param_infos.param_for(i);
+                if (param.policy != Host_policy::interface) {
+                    const auto knob_value = get_knob_default(param);
                     aax_param->SetNormalizedValue(knob_value);
                 }
             }
         }
     }
 
+    // Editor state.
+    auto state_map = State_map{};
+    for (const auto& [key, raw_tag] : parsed_edit_keys) {
+        const auto tag = static_cast<State_tag>(raw_tag);
+
+        auto value = State_item{};
+        switch (tag) {
+            case State_tag::bool_: {
+                auto v = int32_t{};
+                if (mChunkParser.FindInt32(key.c_str(), &v)) {
+                    value = v > 0;
+                    break;
+                }
+                return AAX_ERROR_MALFORMED_CHUNK;
+            }
+            case State_tag::int_: {
+                auto v = int32_t{};
+                if (mChunkParser.FindInt32(key.c_str(), &v)) {
+                    value = v;
+                    break;
+                }
+                return AAX_ERROR_MALFORMED_CHUNK;
+            }
+            case State_tag::double_: {
+                auto v = double{};
+                if (mChunkParser.FindDouble(key.c_str(), &v)) {
+                    value = v;
+                    break;
+                }
+                return AAX_ERROR_MALFORMED_CHUNK;
+            }
+            case State_tag::string_: {
+                auto v = AAX_CString{};
+                if (mChunkParser.FindString(key.c_str(), &v)) {
+                    value = std::string{v.CString()};
+                    break;
+                }
+                return AAX_ERROR_MALFORMED_CHUNK;
+            }
+            case State_tag::bytes_: {
+                assert(false && "AAX chunk does not support byte array.");
+                return AAX_ERROR_MALFORMED_CHUNK;
+            }
+        }
+
+        state_map.emplace(std::move(key), std::move(value));
+    }
+
+    _editor->load_state(state_map);
+
     return AAX_SUCCESS;
 }
 
+// MARK: - Compare Chunk
+
 AAX_Result Aax_parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_CBoolean* oIsEqual) const
 {
-    if (iChunkP->fChunkID != CHUNK_ID) 
-	{
+    if (iChunkP->fChunkID != CHUNK_ID) {
 		// If we don't know what the chunk is then we don't want to be turning on the compare light unnecessarily.
 		*oIsEqual = true;
 		return AAX_SUCCESS; 
@@ -326,45 +379,48 @@ AAX_Result Aax_parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, A
     *oIsEqual = false;
     mChunkParser.LoadChunk(iChunkP);
 
-    const auto tree_version = static_cast<int32_t>(max_tree_version(_param_infos.tree()));
-    auto chunk_version = int32_t{};
-    const auto found_version = mChunkParser.FindInt32(tinyplug_tree_version, &chunk_version);
-    if (!found_version || (found_version && tree_version != chunk_version))
+    // Compare the number of parameters.
+    auto num_chunk_params = int32_t{};
+    const auto found_num_params = mChunkParser.FindInt32(tinyplug_num_params, &num_chunk_params);
+
+    if (!found_num_params || (found_num_params && num_params != num_chunk_params))
         return AAX_SUCCESS;
 
-    
-
+    // Compare the parameter values (now we know `num_chunk_params` and `num_params` are equal).
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
-        if (const auto aax_id = tiny_id_to_aax(i)) {
-            const auto* id_cstr = (*aax_id).c_str();
-            if (const auto* aax_param = mParameterManager.GetParameterByID(id_cstr); aax_param) {
-                // ...
-                auto d_value = double{}; auto chunk_d = double{};
-                auto i_value = int32_t{}; auto chunk_i = int32_t{};
-                auto b_value = bool{};
-                if (aax_param->GetValueAsDouble(&d_value)) {
-                    const auto found = mChunkParser.FindDouble(id_cstr, &chunk_d);
-                    if (!found || (found && d_value != chunk_d))
-                        return AAX_SUCCESS;
-                }
-                else if (aax_param->GetValueAsInt32(&i_value)) {
-                    const auto found = mChunkParser.FindInt32(id_cstr, &chunk_i);
-                    if (!found || (found && i_value != chunk_i))
-                        return AAX_SUCCESS;
-                }
-                else if (aax_param->GetValueAsBool(&b_value)) {
-                    const auto found = mChunkParser.FindInt32(id_cstr, &chunk_i);
-                    const auto chunk_b = chunk_i > 0;
-                    if (!found || (found && b_value != chunk_b))
-                        return AAX_SUCCESS;
-                }
+        if (const auto* aax_param = get_aax_param(&mParameterManager, i)) {
+            const auto* id_cstr = aax_param->Identifier();
+
+            auto b_value = bool{};
+            auto i_value = int32_t{};
+            auto chunk_i = int32_t{};
+            auto d_value = double{};
+            auto chunk_d = double{};
+
+            if (aax_param->GetValueAsBool(&b_value)) {
+                const auto found = mChunkParser.FindInt32(id_cstr, &chunk_i);
+                const auto chunk_b = chunk_i > 0;
+                if (!found || (found && b_value != chunk_b))
+                    return AAX_SUCCESS;
+            }
+            else if (aax_param->GetValueAsInt32(&i_value)) {
+                const auto found = mChunkParser.FindInt32(id_cstr, &chunk_i);
+                if (!found || (found && i_value != chunk_i))
+                    return AAX_SUCCESS;
+            }
+            else if (aax_param->GetValueAsDouble(&d_value)) {
+                const auto found = mChunkParser.FindDouble(id_cstr, &chunk_d);
+                if (!found || (found && d_value != chunk_d))
+                    return AAX_SUCCESS;
             }
             else {
+                assert(false && "Unexpected parameter value type.");
                 return AAX_SUCCESS;
             }
         }
     }
 
+    // We don't care about the editor state here.
     *oIsEqual = true;
     return AAX_SUCCESS;
 }
@@ -524,29 +580,73 @@ void Aax_parameters::build_tiny_chunk() const
 {
     mChunkParser.Clear();
 
-    const auto max_version = static_cast<int32_t>(max_tree_version(_param_infos.tree()));
-    mChunkParser.AddInt32(tinyplug_tree_version, max_version);
+    const auto edit_state = _editor->save_state();
+    const auto edit_keys = join_keys(edit_state);
 
-    // Not all parameters are registered to the parameter manager so we have to add them to the chunk ourselves.
+    // Add the number of parameters and the edit keys.
+    mChunkParser.AddInt32(tinyplug_num_params, num_params);
+    mChunkParser.AddString(tinyplug_edit_keys, edit_keys.c_str());
+
+    // Add the parameter values.
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
-        if (const auto aax_id = tiny_id_to_aax(i)) {
-            const auto* id_cstr = (*aax_id).c_str();
-            const auto* aax_param = mParameterManager.GetParameterByID(id_cstr);
-            if (aax_param) {
-                // ...
-                auto d_value = double{};
-                auto i_value = int32_t{};
-                auto b_value = bool{};
-                if (aax_param->GetValueAsDouble(&d_value)) {
-                    mChunkParser.AddDouble(id_cstr, d_value);
+        if (const auto* aax_param = get_aax_param(&mParameterManager, i)) {
+            const auto* id_cstr = aax_param->Identifier();
+
+            // Params should be either bool, int32_t, or double.
+            auto b_value = bool{};
+            auto i_value = int32_t{};
+            auto d_value = double{};
+
+            if (aax_param->GetValueAsBool(&b_value)) {
+                mChunkParser.AddInt32(id_cstr, b_value ? 1 : 0);
+            }
+            else if (aax_param->GetValueAsInt32(&i_value)) {
+                mChunkParser.AddInt32(id_cstr, i_value);
+            }
+            else if (aax_param->GetValueAsDouble(&d_value)) {
+                mChunkParser.AddDouble(id_cstr, d_value);
+            }
+            else {
+                assert(false && "Unexpected parameter value type.");
+            }
+        }
+    }
+
+    // Add the editor state.
+    for (const auto& [key, val] : edit_state) {
+        const auto tag = tag_for(val);
+
+        switch (tag) {
+            case State_tag::bool_: {
+                if (const auto b = std::get_if<bool>(&val)) {
+                    mChunkParser.AddInt32(key.c_str(), *b ? 1 : 0);
                 }
-                else if (aax_param->GetValueAsInt32(&i_value)) {
-                    mChunkParser.AddInt32(id_cstr, i_value);
+                break;
+            }
+            case State_tag::int_: {
+                if (const auto i = std::get_if<int32_t>(&val)) {
+                    mChunkParser.AddInt32(key.c_str(), *i);
                 }
-                else if (aax_param->GetValueAsBool(&b_value)) {
-                    mChunkParser.AddInt32(id_cstr, b_value ? 1 : 0);
+                break;
+            }
+            case State_tag::double_: {
+                if (const auto d = std::get_if<double>(&val)) {
+                    mChunkParser.AddDouble(key.c_str(), *d);
+                    break;
                 }
             }
+            case State_tag::string_: {
+                if (const auto s = std::get_if<std::string>(&val)) {
+                    mChunkParser.AddString(key.c_str(), (*s).c_str());
+                }
+                break;
+            }
+            case State_tag::bytes_: {
+                assert(false && "AAX chunk does not support byte array.");
+                break;
+            }
+            default:
+                break;
         }
     }
 }

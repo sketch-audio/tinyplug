@@ -4,16 +4,55 @@
 #include <format>
 #include <optional>
 #include <string>
+#include <sstream>
 #include <variant>
 #include <vector>
 
 #include "AAX.h"
 #include "AAX_IEffectParameters.h"
+#include "AAX_CParameterManager.h"
 #include "AAX_IParameter.h"
 
 #include "tinyplug/tinyplug.h"
 
 namespace tiny {
+
+// MARK: - key-value helpers
+
+using Key_tag = std::pair<std::string, int32_t>;
+
+// Join edit keys and type tags into a single string for AAX chunk.
+// Output format: "key-1:2,key-2:0"
+inline auto join_keys(const State_map& map) -> std::string {
+    auto oss = std::ostringstream{};
+    auto first = true;
+    for (const auto& [key, value] : map) {
+        if (!first) {
+            oss << ",";
+        }
+        first = false;
+        oss << key << ":" << enum_raw(tag_for(value));
+    }
+    return oss.str();
+}
+
+// Unjoin a single string into pairs of keys and type tags.
+// Format: "key-1:2,key-2:0" -> {{"key-1", 2}, {"key-2", 0}}
+inline auto unjoin_keys(const std::string& s) -> std::vector<Key_tag> {
+    auto result = std::vector<Key_tag>{};
+    auto stream = std::istringstream{s};
+    auto token = std::string{};
+    while (std::getline(stream, token, ',')) {
+        auto pos = token.find(':');
+        if (pos != std::string::npos) {
+            auto key = token.substr(0, pos);
+            auto tag_str = token.substr(pos + 1);
+            auto tag = static_cast<int32_t>(std::stoi(tag_str));
+            result.emplace_back(std::move(key), tag);
+        }
+    }
+    return result;
+}
 
 // MARK: - AAX id <--> tiny
 
@@ -51,19 +90,14 @@ inline auto aax_id_to_tiny(AAX_CParamID aax_id) noexcept -> std::optional<uint32
 
 // MARK: - get AAX param
 
-constexpr auto get_aax_param(AAX_IEffectParameters* params, uint32_t id) -> std::optional<AAX_IParameter*>
+template<typename ParameterManager>
+inline auto get_aax_param(ParameterManager* params, uint32_t id) -> decltype(auto)
 {
-    if (!params) return std::nullopt;
-
     if (const auto aax_id = tiny_id_to_aax(id)) {
         const auto* id_cstr = (*aax_id).c_str();
-        AAX_IParameter* param = nullptr;
-        if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS) {
-            return param;
-        };
+        return params->GetParameterByID(id_cstr);
     }
-    
-    return std::nullopt;
+    return params->GetParameterByID(nullptr);
 }
 
 // MARK: - tree_to_aax_ids

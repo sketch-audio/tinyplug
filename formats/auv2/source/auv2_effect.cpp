@@ -380,59 +380,127 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
     return noErr;
 }
 
-// MARK: - State
+#define tinyplug_num_params "tinyplug-num-params"
+#define tinyplug_num_editor_items "tinyplug-num-editor-items"
+#define tinyplug_editor_state_map "tinyplug-editor-state-map"
 
-#define tinyplug_tree_version "tinyplug-tree-version"
+// MARK: - save state
 
 OSStatus Auv2_effect::SaveState(CFPropertyListRef* outData)
 {
     const auto result = Super::SaveState(outData);
     if (result != noErr) return result;
 
-    // Cast to mutable dictionary and add the tree version.
+    // Cast to mutable dictionary.
     auto dict = const_cast<CFMutableDictionaryRef>(reinterpret_cast<CFDictionaryRef>(*outData)); // Yee haw.
     if (CFGetTypeID(dict) == CFDictionaryGetTypeID()) {
-        const auto max_version = static_cast<int32_t>(max_tree_version(_param_infos.tree()));
-        const auto num = CFNumberCreate(nullptr, kCFNumberSInt32Type, &max_version);
-        CFDictionarySetValue(dict, CFSTR(tinyplug_tree_version), num);
-        CFRelease(num);
+        // Get the editor state.
+        const auto edit_state = _editor->save_state();
+        const auto num_editor_items = static_cast<int32_t>(edit_state.size());
+
+        // Helper
+        auto set_num = [&](const auto key, const auto value) {
+            const auto num = CFNumberCreate(nullptr, kCFNumberSInt32Type, &value);
+            CFDictionarySetValue(dict, key, num);
+            CFRelease(num);
+        };
+
+        set_num(CFSTR(tinyplug_num_params), static_cast<int32_t>(num_params));
+        set_num(CFSTR(tinyplug_num_editor_items), num_editor_items);
+
+        if (num_editor_items == 0) return result; // Don't write an empty editor state.
+
+        auto editor_data = ausdk::Owned<CFMutableDataRef>::from_create(CFDataCreateMutable(nullptr, 0));
+
+        auto write_value = [&](const auto& value) {
+            CFDataAppendBytes(*editor_data, reinterpret_cast<const UInt8*>(&value), sizeof(value));
+        };
+
+        auto write_container = [&](const auto& container) {
+            const auto num = static_cast<uint32_t>(container.size());
+            CFDataAppendBytes(*editor_data, reinterpret_cast<const UInt8*>(&num), sizeof(num));
+            CFDataAppendBytes(*editor_data, reinterpret_cast<const UInt8*>(container.data()), sizeof(container[0]) * num);
+        };
+
+        for (const auto& [key, val] : edit_state) {
+            write_container(key);
+            const auto tag = tag_for(val);
+            write_value(tag);
+            switch (tag) {
+                case State_tag::bool_: {
+                    const auto value = std::get_if<bool>(&val);
+                    if (value) write_value(*value);
+                    break;
+                }
+                case State_tag::int_: {
+                    const auto value = std::get_if<int32_t>(&val);
+                    if (value) write_value(*value);
+                    break;
+                }
+                case State_tag::double_: {
+                    const auto value = std::get_if<double>(&val);
+                    if (value) write_value(*value);
+                    break;
+                }
+                case State_tag::string_: {
+                    const auto value = std::get_if<std::string>(&val);
+                    if (value) write_container(*value);
+                    break;
+                }
+                case State_tag::bytes_: {
+                    const auto value = std::get_if<std::vector<uint8_t>>(&val);
+                    if (value) write_container(*value);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+
+        CFDictionarySetValue(dict, CFSTR(tinyplug_editor_state_map), *editor_data);
     }
 
     return result;
 }
+
+// MARK: - restore state
 
 OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
 {
     const auto result = Super::RestoreState(plist);
     if (result != noErr) return result;
 
-    // Cast to dictionary and read the tree version.
+    // Cast to dictionary.
     auto dict = reinterpret_cast<CFDictionaryRef>(plist);
-    if (CFGetTypeID(dict) == CFDictionaryGetTypeID()) {
-        const auto value = CFDictionaryGetValue(dict, CFSTR(tinyplug_tree_version));
+    if (CFGetTypeID(dict) != CFDictionaryGetTypeID()) return result;
+
+    // Helper
+    auto read_num = [&](const auto key, auto& out) {
+        const auto value = CFDictionaryGetValue(dict, key);
         if (value && CFGetTypeID(value) == CFNumberGetTypeID()) {
-            int32_t state_version = 0;
-            CFNumberGetValue(static_cast<CFNumberRef>(value), kCFNumberSInt32Type, &state_version);
+            CFNumberGetValue(static_cast<CFNumberRef>(value), kCFNumberSInt32Type, &out);
+            return true;
+        }
+        return false;
+    };
 
-            const auto tree_version = static_cast<int32_t>(max_tree_version(_param_infos.tree()));
+    auto val = int32_t{};
+    read_num(CFSTR(tinyplug_num_params), val);
+    const auto num_state_params = static_cast<uint32_t>(val); // ...
 
-            // The base implementation already set the Globals() contained in state.
-            // We just have to set the rest to their defaults.
-            if (tree_version > state_version) {
-                // Implies "num params in tree" > "num params in state"
-                const auto num_state = num_params_with_version(_param_infos.tree(), state_version);
-
-                // Set remaining parameters to defaults.
-                for (auto i = num_state; i < num_params; ++i) {
-                    const auto& param = _param_infos.param_for(i);
-                    const auto host_value = get_host_default(param);
-                    Globals()->SetParameter(i, host_value);
-                }
-            }
+    if (num_state_params <= num_params) {
+        // TODO: - Can we load state from a newer version?
+    }
+    else {
+        // Set remaining Globals() to defaults.
+        for (auto i = num_state_params; i < num_params; ++i) {
+            const auto& param = _param_infos.param_for(i);
+            const auto host_value = get_host_default(param);
+            Globals()->SetParameter(i, host_value);
         }
     }
 
-    // Globals now contains the right state. Notify all.
+    // Globals() now contains the full state. Notify everyone.
     // Interface parameters were omitted for us by the base implementation!
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
         const auto& param = _param_infos.param_for(i);
@@ -444,6 +512,97 @@ OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
         _oqueue.push(Set_param{param.id, knob_value});
     }
 
+    // Read editor state.
+    auto num_editor_items = int32_t{};
+    read_num(CFSTR(tinyplug_num_editor_items), num_editor_items);
+
+    if (num_editor_items == 0) return result; // No editor state to read.
+
+    // Get the data.
+    const auto* editor_data = static_cast<CFDataRef>(CFDictionaryGetValue(dict, CFSTR(tinyplug_editor_state_map)));
+    if (!editor_data || CFGetTypeID(editor_data) != CFDataGetTypeID()) return result;
+
+    auto offset = CFIndex{}; // Keep track of where we are.
+
+    auto read_value = [&](auto& value) {
+        const auto size = static_cast<CFIndex>(sizeof(value));
+        if (offset + size <= CFDataGetLength(editor_data)) {
+            CFDataGetBytes(editor_data, CFRange{offset, size}, reinterpret_cast<UInt8*>(&value));
+            offset += size;
+            return true;
+        }
+        return false;
+    };
+
+    auto read_container = [&](auto& container) {
+        using Element = typename std::decay<decltype(container)>::type::value_type; // ...
+        auto num = uint32_t{};
+        if (read_value(num)) {
+            const auto size = static_cast<CFIndex>(sizeof(Element) * num);
+            if (offset + size <= CFDataGetLength(editor_data)) {
+                container.resize(num);
+                CFDataGetBytes(editor_data, CFRange{offset, size}, reinterpret_cast<UInt8*>(container.data()));
+                offset += size;
+                return true;
+            }
+        }
+        return false;
+    };
+
+    auto edit_state = State_map{};
+    for (auto i = decltype(num_editor_items){}; i < num_editor_items; ++i) {
+        auto key = std::string{};
+        if (!read_container(key)) break;
+
+        auto tag = State_tag{};
+        if (!read_value(tag)) break;
+
+        auto value = State_item{};
+        switch (tag) {
+            case State_tag::bool_: {
+                auto v = bool{};
+                if (read_value(v)) {
+                    value = v;
+                }
+                break;
+            }
+            case State_tag::int_: {
+                auto v = int32_t{};
+                if (read_value(v)) {
+                    value = v;
+                }
+                break;
+            }
+            case State_tag::double_: {
+                auto v = double{};
+                if (read_value(v)) {
+                    value = v;
+                }
+                break;
+            }
+            case State_tag::string_: {
+                auto v = std::string{};
+                if (read_container(v)) {
+                    value = std::move(v);
+                }
+                break;
+            }
+            case State_tag::bytes_: {
+                auto v = std::vector<uint8_t>{};
+                if (read_container(v)) {
+                    value = std::move(v);
+                }
+                break;
+            }
+            default:
+                break;
+        }
+
+        edit_state.emplace(std::move(key), std::move(value));
+    }
+
+    _editor->load_state(edit_state);
+    
     return result;
 }
 

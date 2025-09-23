@@ -13,7 +13,7 @@ namespace tiny {
 class Auv3_view {
 public:
 
-    Auv3_view(Ui_receiver receiver) : _receiver{receiver} {}
+    Auv3_view(Ui_receiver receiver, std::shared_ptr<Plug_editor> editor) : _receiver{receiver}, _editor{editor} {}
 
     auto create_view() -> void*; // UIView*
 
@@ -65,7 +65,7 @@ private:
     Ui_receiver _receiver{};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
-    std::unique_ptr<Plug_editor> _editor = std::make_unique<Plug_editor>();
+    std::shared_ptr<Plug_editor> _editor{nullptr};
 
     std::array<Tagged_export, num_exports> _uiexports{};
     std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults<double>()};

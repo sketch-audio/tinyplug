@@ -5,6 +5,7 @@
 #import "auv3_AUAudioUnit.h"
 
 #include "auv3_view.h"
+#include "plug_editor.h"
 
 @interface Auv3_AUViewController : AUViewController <AUAudioUnitFactory>
 @property (nonatomic, retain) AUAudioUnit* audioUnit;
@@ -12,6 +13,7 @@
 
 @implementation Auv3_AUViewController {
     std::unique_ptr<tiny::Auv3_view> _view_adapter;
+    std::shared_ptr<tiny::Plug_editor> _editor;
 }
 
 // TODO: - Get this into the plist for AUM.
@@ -23,8 +25,10 @@
 - (AUAudioUnit*)createAudioUnitWithComponentDescription:(AudioComponentDescription) desc error:(NSError **)error {
     self.audioUnit = [[Auv3_AUAudioUnit alloc] initWithComponentDescription:desc error:error];
 
-    Auv3_AUAudioUnit* tiny_au = (Auv3_AUAudioUnit*)self.audioUnit;
-    [tiny_au setupParameterTree];
+    _editor = std::make_shared<tiny::Plug_editor>();
+    Auv3_AUAudioUnit* auv3 = (Auv3_AUAudioUnit*)self.audioUnit;
+    [auv3 setupParameterTree];
+    [auv3 setEditor:_editor];
     
     dispatch_async(dispatch_get_main_queue(), ^{
         [self setupViewAdapter];
@@ -37,9 +41,9 @@
 - (void)setupViewAdapter {
     if (!self.audioUnit) return;
     if (!_view_adapter) {
-        Auv3_AUAudioUnit* tiny_au = (Auv3_AUAudioUnit*)self.audioUnit;
-        auto receiver = [tiny_au makeReceiver];
-        _view_adapter = std::make_unique<tiny::Auv3_view>(receiver);
+        Auv3_AUAudioUnit* auv3 = (Auv3_AUAudioUnit*)self.audioUnit;
+        auto receiver = [auv3 makeReceiver];
+        _view_adapter = std::make_unique<tiny::Auv3_view>(receiver, _editor);
         auto* custom_view = (__bridge PlatformView*)_view_adapter->create_view(); // also on_create
         [self.view addSubview:custom_view];
         const auto size = self.view.bounds.size;

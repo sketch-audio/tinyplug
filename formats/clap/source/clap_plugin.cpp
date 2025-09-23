@@ -65,38 +65,114 @@ bool Clap_plugin::enableDraftExtensions() const noexcept
     return false;
 }
 
-// MARK: - state
+// MARK: - save state
 
 bool Clap_plugin::stateSave(const clap_ostream* stream) noexcept
 {
     if (!stream) return false;
 
-    // Tree version.
-    const auto tree_version = max_tree_version(_param_infos.tree());
+    const auto edit_state = _editor->save_state();
+    const auto num_editor_items = static_cast<uint32_t>(edit_state.size());
+
+    // Write header.
     const auto header = State_header{
         Plug_info::framework_code, // Reserved
         Plug_info::manufacturer_code,
         Plug_info::plugin_code,
-        tree_version
+        num_params, // Processor state
+        num_editor_items
     };
-
     const auto expected = sizeof(header);
     const auto result = stream->write(stream, header.data(), expected);
     if (result != expected) {
         return false;
     }
 
+    // Helpers
+    auto write_value = [&](const auto& data) {
+        const auto expected = sizeof(data);
+        const auto result = stream->write(stream, &data, expected);
+        return result == expected;
+    };
+
+    auto write_container = [&](const auto& data) {
+        const auto num = static_cast<uint32_t>(data.size());
+        const auto num_result = stream->write(stream, &num, sizeof(num));
+        if (num_result != sizeof(num)) {
+            return false;
+        }
+        const auto data_result = stream->write(stream, data.data(), sizeof(data[0]) * num);
+        return data_result == sizeof(data[0]) * num;
+    };
+
+    // Write processor state.
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
         const auto host_value = static_cast<float>(_kernel->get_host_value(i));
-        const auto expected = sizeof(host_value);
-        const auto result = stream->write(stream, &host_value, expected);
-        if (result != expected) {
+        if (!write_value(host_value)) {
             return false;
+        }
+    }
+
+    // Write editor state.
+    for (const auto& [key, val] : edit_state) {
+        // Write key.
+        if (!write_container(key)) {
+            return false;
+        }
+
+        // Write the type tag.
+        const auto tag = tag_for(val);
+        if (!write_value(tag)) {
+            return false;
+        }
+
+        // Write the value according to the tag.
+        switch (tag) {
+            case State_tag::bool_: {
+               const auto value = std::get_if<bool>(&val);
+               if (value && write_value(*value)) {
+                   break;
+               }
+               return false;
+            }
+            case State_tag::int_: {
+                const auto value = std::get_if<int32_t>(&val);
+                if (value && write_value(*value)) {
+                    break;
+                }
+                return false;
+            }
+            case State_tag::double_: {
+                const auto value = std::get_if<double>(&val);
+                if (value && write_value(*value)) {
+                    break;
+                }
+                return false;
+            }
+            case State_tag::string_: {
+                const auto value = std::get_if<std::string>(&val);
+                if (value && write_container(*value)) {
+                    break;
+                }
+                return false;
+            }
+            case State_tag::bytes_: {
+                const auto value = std::get_if<std::vector<uint8_t>>(&val);
+                if (value && write_container(*value)) {
+                    break;
+                }
+                return false;
+            }
+            default:
+                assert(false && "Unknown editor state type.");
+                return false;
         }
     }
 
     return true;
 }
+
+// MARK: - load state
 
 bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
 {
@@ -113,62 +189,139 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
     assert(header[0] == Plug_info::framework_code && "Unexpected framework code.");
     assert(header[1] == Plug_info::manufacturer_code && "Unexpected manufacturer code.");
     assert(header[2] == Plug_info::plugin_code && "Unexpected plug-in code.");
-    assert(header[3] > 0 && "Unexpected tree version.");
 
-    const auto tree_version = max_tree_version(_param_infos.tree());
-    const auto state_version = header[3];
+    const auto num_state_params = header[3];
+    const auto num_kv_pairs = header[4];
+
+    // Helpers
+    auto read_value = [&](auto& data) {
+        const auto expected = sizeof(data);
+        const auto result = stream->read(stream, &data, expected);
+        return result == expected;
+    };
+
+    auto read_container = [&](auto& data) {
+        auto num = uint32_t{};
+        const auto num_result = stream->read(stream, &num, sizeof(num));
+        if (num_result != sizeof(num)) {
+            return false;
+        }
+        data.resize(num);
+        const auto data_result = stream->read(stream, data.data(), sizeof(data[0]) * num);
+        return data_result == sizeof(data[0]) * num;
+    };
 
     // Notify kernel and view (if not an interface parameter).
     auto do_notify = [this](auto& param, auto knob_value) {
         if (param.policy != Host_policy::interface) {
             _kernel->handle_action(Set_param{.id = param.id, .value = knob_value});
-            _view->set_param(param.id, knob_value);
+
+            if (_view) {
+                _view->set_param(param.id, knob_value);
+            }
         }
     };
 
-    if (tree_version <= state_version) {
-        // Implies "num params in tree" <= "num params in state"
-        // We should be able to safely read `num_params` floats.
-        for (auto i = decltype(num_params){}; i < num_params; ++i) {
-            auto host_value = float{};
-            const auto expected = sizeof(host_value);
-            const auto result = stream->read(stream, &host_value, expected);
-            if (result != expected) {
-                return false;
-            }
+    // Read processor state into temporary vector.
+    auto state_params = std::vector<float>(num_state_params);
+    for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
+        auto host_value = float{};
+        if (!read_value(host_value)) {
+            return false;
+        }
+        state_params[i] = host_value;
+    }
 
-            // Convert to knob and send to action queue.
+    if (num_params <= num_state_params) {
+        // Read as many values as we can.
+        for (auto i = decltype(num_params){}; i < num_params; ++i) {
+            const auto host_value = state_params[i];
             const auto& param = _param_infos.param_for(i);
             const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
             do_notify(param, knob_value);
         }
     }
-    else if (tree_version > state_version) {
-        // Implies "num params in tree" > "num params in state"
-        const auto num_state = num_params_with_version(_param_infos.tree(), state_version);
-
+    else {
         // Set values stored in state.
-        for (auto i = decltype(num_state){}; i < num_state; ++i) {
-            auto host_value = float{};
-            const auto expected = sizeof(host_value);
-            const auto result = stream->read(stream, &host_value, expected);
-            if (result != expected) {
-                return false;
-            }
-
-            // Convert to knob and send to action queue.
+        for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
+            const auto host_value = state_params[i];
             const auto& param = _param_infos.param_for(static_cast<uint32_t>(i));
             const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
             do_notify(param, knob_value);
         }
 
-        // Set remaining parameters to defaults. 
-        for (auto i = num_state; i < num_params; ++i) {
+        // Set remaining parameters to defaults.
+        for (auto i = num_state_params; i < num_params; ++i) {
             const auto& param = _param_infos.param_for(static_cast<uint32_t>(i));
             const auto knob_value = get_knob_default(param);
             do_notify(param, knob_value);
         }
     }
+
+    // Read editor state into temporary map.
+    auto edit_state = State_map{};
+    for (auto i = decltype(num_kv_pairs){}; i < num_kv_pairs; ++i) {
+        // Read key.
+        auto key = std::string{};
+        if (!read_container(key)) {
+            return false;
+        }
+
+        // Read the type tag.
+        auto tag = State_tag{};
+        if (!read_value(tag)) {
+            return false;
+        }
+
+        // Read the value according to the tag.
+        auto value = State_item{};
+        switch (tag) {
+            case State_tag::bool_: {
+                auto v = bool{};
+                if (!read_value(v)) {
+                    return false;
+                }
+                value = v;
+                break;
+            }
+            case State_tag::int_: {
+                auto v = int32_t{};
+                if (!read_value(v)) {
+                    return false;
+                }
+                value = v;
+                break;
+            }
+            case State_tag::double_: {
+                auto v = double{};
+                if (!read_value(v)) {
+                    return false;
+                }
+                value = v;
+                break;
+            }
+            case State_tag::string_: {
+                auto v = std::string{};
+                if (!read_container(v)) {
+                    return false;
+                }
+                value = std::move(v);
+                break;
+            }
+            case State_tag::bytes_: {
+                auto v = std::vector<uint8_t>{};
+                if (!read_container(v)) {
+                    return false;
+                }
+                value = std::move(v);
+                break;
+            }
+        }
+
+        edit_state.emplace(std::move(key), std::move(value));
+    }
+
+    _editor->load_state(edit_state);
 
     return true;
 }

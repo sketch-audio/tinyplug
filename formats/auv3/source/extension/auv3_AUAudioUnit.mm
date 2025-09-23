@@ -26,7 +26,7 @@
     bool _parameterTreeSetup;
     tiny::Param_infos<tiny::Param_model> _param_infos;
     DSPKernel _kernel;
-    
+    std::shared_ptr<tiny::Plug_editor> _editor;
     BufferedInputBus _inputBus;
 #if TINY_WANTS_SIDECHAIN
     BufferedInputBus _sidechainBus;
@@ -181,6 +181,10 @@
             }, action);
         }
     };
+}
+
+- (void)setEditor:(std::shared_ptr<tiny::Plug_editor>)editor {
+    _editor = editor;
 }
 
 // MARK: - makeParameterFor
@@ -490,32 +494,182 @@
 -(NSDictionary<NSString *,id> *)fullState {
     NSMutableDictionary<NSString *, id> *state = [[super fullState] mutableCopy];
     
-    const auto tree_version = static_cast<int32_t>(tiny::max_tree_version(_param_infos.tree()));
-    NSNumber *versionNumber = [NSNumber numberWithInt:tree_version];
-    [state setObject:versionNumber forKey:@"tiny-tree-version"]; // !!!
+    using User_params = tiny::Param_infos<tiny::Param_model>;
+    const auto num_params = static_cast<int32_t>(User_params::num_params);
+    
+    // Store number of parameters.
+    NSNumber *numParams = [NSNumber numberWithInt:num_params];
+    [state setObject:numParams forKey:@"tinyplug-num-params"]; // !!!
+    
+    // Store editor state.
+    if (_editor) {
+        const auto edit_state = _editor->save_state();
+        
+        // Number of edit items.
+        const auto num_edit_items = static_cast<int32_t>(edit_state.size());
+        NSNumber *numEditItems = [NSNumber numberWithInt:num_edit_items];
+        [state setObject:numEditItems forKey:@"tinyplug-num-editor-items"]; // !!!
+        
+        // Editor state map.
+        if (num_edit_items > 0) {
+            // Write key-value pairs to NSData
+            NSMutableData *data = [NSMutableData data];
+            
+            // Helpers
+            auto write_value = [&](const auto& value) {
+                [data appendBytes:&value length:sizeof(value)];
+            };
+            
+            auto write_container = [&](const auto& container) {
+                const auto num = static_cast<uint32_t>(container.size());
+                [data appendBytes:&num length:sizeof(num)];
+                [data appendBytes:container.data() length:sizeof(container[0]) * num];
+            };
+            
+            for (const auto& [key, value] : edit_state) {
+                write_container(key);
+                const auto tag = tiny::tag_for(value);
+                write_value(tag);
+                switch (tag) {
+                    case tiny::State_tag::bool_: {
+                        if (const auto* v = std::get_if<bool>(&value)) {
+                            write_value(*v);
+                        }
+                        break;
+                    }
+                    case tiny::State_tag::int_: {
+                        if (const auto* v = std::get_if<int32_t>(&value)) {
+                            write_value(*v);
+                        }
+                        break;
+                    }
+                    case tiny::State_tag::double_: {
+                        if (const auto* v = std::get_if<double>(&value)) {
+                            write_value(*v);
+                        }
+                        break;
+                    }
+                    case tiny::State_tag::string_: {
+                        if (const auto* v = std::get_if<std::string>(&value)) {
+                            write_container(*v);
+                        }
+                        break;
+                    }
+                    case tiny::State_tag::bytes_: {
+                        if (const auto* v = std::get_if<std::vector<uint8_t>>(&value)) {
+                            write_container(*v);
+                        }
+                        break;
+                    }
+                }
+            }
+            
+            [state setObject:data forKey:@"tinyplug-editor-state-map"]; //
+        }
+    }
 
     return [state copy];
 }
 
 - (void)setFullState:(NSDictionary<NSString *,id> *)fullState {
     [super setFullState:fullState];
+    
+    using User_params = tiny::Param_infos<tiny::Param_model>;
+    const auto num_params = static_cast<int32_t>(User_params::num_params);
 
-    const auto tree_version = static_cast<int32_t>(tiny::max_tree_version(_param_infos.tree()));
-
-    id version  = [fullState objectForKey:@"tiny-tree-version"]; // !!!
+    //
+    id version  = [fullState objectForKey:@"tinyplug-num-params"]; // !!!
     if ([version isKindOfClass:[NSNumber class]]) {
-        const auto state_version = [version intValue];
+        const auto num_state_params = [version intValue];
 
         // The base implementation already set parameters contained in state.
         // We just have to set the rest to their defaults.
-        if (tree_version > state_version) {
-            const auto num_state = tiny::num_params_with_version(_param_infos.tree(), state_version);
-            
+        if (num_params < num_state_params) {
             using User_params = tiny::Param_infos<tiny::Param_model>;
-            for (auto i = num_state; i < User_params::num_params; ++i) {
+            for (auto i = num_state_params; i < num_params; ++i) {
                 const auto& param = _param_infos.param_for(static_cast<uint32_t>(i));
                 const auto def_val = tiny::get_host_default(param);
                 [[_parameterTree parameterWithAddress:i] setValue:def_val];
+            }
+        }
+    }
+    
+    id numEditItems = [fullState objectForKey:@"tinyplug-num-editor-items"]; // !!!
+    if ([numEditItems isKindOfClass:[NSNumber class]]) {
+        const auto num_edit_items = [numEditItems intValue];
+
+        if (num_edit_items > 0) {
+            id data = [fullState objectForKey:@"tinyplug-editor-state-map"]; //
+
+            if ([data isKindOfClass:[NSData class]]) {
+                //
+                const auto* bytes = (const uint8_t*)[data bytes];
+                const auto size = static_cast<size_t>([data length]);
+                size_t offset = 0;
+
+                auto read_value = [&](auto& value) {
+                    if (offset + sizeof(value) <= size) {
+                        std::memcpy(&value, bytes + offset, sizeof(value));
+                        offset += sizeof(value);
+                    }
+                };
+                auto read_container = [&](auto& container) {
+                    using Element = typename std::decay<decltype(container)>::type::value_type;
+                    auto num = uint32_t{};
+                    read_value(num);
+                    const auto container_size = sizeof(Element) * num;
+                    if (offset + container_size <= size) {
+                        container.resize(num);
+                        std::memcpy(container.data(), bytes + offset, container_size);
+                        offset += container_size;
+                    }
+                };
+
+                auto edit_state = tiny::State_map{};
+                for (auto i = 0; i < num_edit_items; ++i) {
+                    auto key = std::string{};
+                    read_container(key);
+
+                    auto tag = tiny::State_tag{};
+                    read_value(tag);
+
+                    auto value = tiny::State_item{};
+                    switch (tag) {
+                        case tiny::State_tag::bool_: {
+                            auto v = bool{};
+                            read_value(v);
+                            value = v;
+                            break;
+                        }
+                        case tiny::State_tag::int_: {
+                            auto v = int32_t{};
+                            read_value(v);
+                            value = v;
+                            break;
+                        }
+                        case tiny::State_tag::double_: {
+                            auto v = double{};
+                            read_value(v);
+                            value = v;
+                            break;
+                        }
+                        case tiny::State_tag::string_: {
+                            auto v = std::string{};
+                            read_container(v);
+                            value = v;
+                            break;
+                        }
+                        case tiny::State_tag::bytes_: {
+                            auto v = std::vector<uint8_t>{};
+                            read_container(v);
+                            value = v;
+                            break;
+                        }
+                    }
+                    edit_state.emplace(std::move(key), std::move(value));
+                }
+
+                _editor->load_state(edit_state);
             }
         }
     }

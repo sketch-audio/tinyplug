@@ -61,7 +61,8 @@ public:
 private:
 
     const AAX_CTypeID CHUNK_ID = 'tiny'; // ...
-    static constexpr auto tinyplug_tree_version = "tinyplug-tree-version";
+    static constexpr auto tinyplug_num_params = "tinyplug-num-params";
+    static constexpr auto tinyplug_edit_keys = "tinyplug-edit-keys";
 
     std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
 
