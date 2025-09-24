@@ -702,15 +702,27 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
     auto context = Dsp_context{.exports = _exports};
 
     auto do_process = [this, &context, &host_data](size_t num_frames, size_t offset) {
+        const auto num_ichannels = Input(0).NumberChannels();
+        const auto num_ibuffers = Input(0).GetBufferList().mNumberBuffers;
+        assert(num_ichannels == num_ibuffers && "Channel mismatch!");
         for (size_t i = 0; i < num_ichannels; ++i) {
-            _ibuffers[i] = static_cast<const float*>(Input(0).GetBufferList().mBuffers[i].mData) + offset;
+            _ibuffers[i] = static_cast<const float*>(Input(0).GetFloat32ChannelData(i)) + offset;
         }
+
+        const auto num_ochannels = Output(0).NumberChannels();
+        const auto num_obuffers = Output(0).GetBufferList().mNumberBuffers;
+        assert(num_ochannels == num_obuffers && "Channel mismatch!");
         for (size_t i = 0; i < num_ochannels; ++i) {
-            _obuffers[i] = static_cast<float*>(Output(0).GetBufferList().mBuffers[i].mData) + offset;
+            _obuffers[i] = static_cast<float*>(Output(0).GetFloat32ChannelData(i)) + offset;
         }
+
+        auto num_schannels = size_t{};
         if constexpr (Plug_info::wants_sidechain) {
+            num_schannels = Input(1).NumberChannels();
+            const auto num_sbuffers = Input(1).GetBufferList().mNumberBuffers;
+            assert(num_schannels == num_sbuffers && "Channel mismatch!");
             for (size_t i = 0; i < num_schannels; ++i) {
-                _sbuffers[i] = static_cast<const float*>(Input(1).GetBufferList().mBuffers[i].mData) + offset;
+                _sbuffers[i] = static_cast<const float*>(Input(1).GetFloat32ChannelData(i)) + offset;
             }
         }
 
@@ -738,9 +750,9 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
             }
         };
 
-        context.ibuffers = _ibuffers;
-        context.obuffers = _obuffers;
-        context.sbuffers = _sbuffers;
+        context.ibuffers = {_ibuffers.begin(), num_ichannels};
+        context.obuffers = {_obuffers.begin(), num_ochannels};
+        context.sbuffers = {_sbuffers.begin(), num_schannels};
         context.num_frames = num_frames;
         _kernel->process(context);
     };

@@ -90,6 +90,56 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setupProcessing(Steinberg::Vst::Pr
     return Steinberg::Vst::AudioEffect::setupProcessing(newSetup);
 }
 
+Steinberg::tresult PLUGIN_API Vst3_processor::setBusArrangements(Steinberg::Vst::SpeakerArrangement* inputs, Steinberg::int32 numIns, Steinberg::Vst::SpeakerArrangement* outputs, Steinberg::int32 numOuts)
+{
+    if (!inputs || !outputs) return Steinberg::kResultFalse;
+
+    using namespace Steinberg::Vst;
+
+    const auto expected_ins = Plug_info::wants_sidechain ? 2 : 1;
+    const auto expected_outs = 1;
+
+    if (numIns != expected_ins || numOuts != expected_outs) return Steinberg::kResultFalse;
+
+    // What does the host want to do? 
+    auto& input_arr = inputs[0];
+    auto& output_arr = outputs[0];
+    const auto wants_mono = SpeakerArr::getChannelCount(input_arr) == 1 && SpeakerArr::getChannelCount(output_arr) == 1;
+    const auto wants_stereo = SpeakerArr::getChannelCount(input_arr) == 2 && SpeakerArr::getChannelCount(output_arr) == 2;
+
+    // We will accept either mono or stereo sidechain.
+    auto accept_sidechain = [&]() {
+        if constexpr (Plug_info::wants_sidechain) {
+            auto& sidechain_arr = inputs[1];
+            getAudioInput(1)->setArrangement(sidechain_arr);
+            _schannels = SpeakerArr::getChannelCount(sidechain_arr);
+        }
+    };
+
+    if (wants_mono && Plug_info::can_process_mono) {
+        // The host wants mono --> mono.
+        getAudioInput(0)->setArrangement(input_arr);
+        getAudioOutput(0)->setArrangement(output_arr);
+
+        _ichannels = _ochannels = 1;
+        accept_sidechain();
+
+        return Steinberg::kResultTrue;
+    }
+    else if (wants_stereo) {
+        // The host wants stereo --> stereo.
+        getAudioInput(0)->setArrangement(input_arr);
+        getAudioOutput(0)->setArrangement(output_arr);
+
+        _ichannels = _ochannels = 2;
+        accept_sidechain();
+
+        return Steinberg::kResultTrue;
+    }
+
+    return Steinberg::kResultFalse;
+}
+
 Steinberg::tresult PLUGIN_API Vst3_processor::canProcessSampleSize(Steinberg::int32 symbolicSampleSize)
 {
     // By default kSample32 is supported.
@@ -140,15 +190,18 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     // So we can process with an offset.
     auto do_process = [this, &data, &context](size_t num_frames, size_t offset) {
         // Assign buffer ptrs.
-        for (size_t i = 0; i < num_ichannels; ++i) {
-            _ibuffers[i] = &data.inputs->channelBuffers32[i][offset];
+        assert(data.inputs[0].numChannels == static_cast<Steinberg::int32>(_ichannels));
+        for (size_t i = 0; i < _ichannels; ++i) {
+            _ibuffers[i] = &data.inputs[0].channelBuffers32[i][offset];
         }
-        for (size_t i = 0; i < num_ochannels; ++i) {
-            _obuffers[i] = &data.outputs->channelBuffers32[i][offset];
+        assert(data.outputs[0].numChannels == static_cast<Steinberg::int32>(_ochannels));
+        for (size_t i = 0; i < _ochannels; ++i) {
+            _obuffers[i] = &data.outputs[0].channelBuffers32[i][offset];
         }
         if constexpr (Plug_info::wants_sidechain) {
-            for (size_t i = 0; i < num_schannels; ++i) {
-                _sbuffers[i] = &data.inputs->channelBuffers32[i + num_ichannels][offset];
+            assert(data.inputs[1].numChannels == static_cast<Steinberg::int32>(_schannels));
+            for (size_t i = 0; i < _schannels; ++i) {
+                _sbuffers[i] = &data.inputs[1].channelBuffers32[i][offset];
             }
         }
 
@@ -181,9 +234,9 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
             }
         };
 
-        context.ibuffers = _ibuffers;
-        context.obuffers = _obuffers;
-        context.sbuffers = _sbuffers;
+        context.ibuffers = {_ibuffers.begin(), _ichannels};
+        context.obuffers = {_obuffers.begin(), _ochannels};
+        context.sbuffers = {_sbuffers.begin(), _schannels};
         context.num_frames = num_frames;
 
         _kernel->process(context);

@@ -9,7 +9,14 @@ macro(read_property target property)
 endmacro()
 
 # Prepare a the feature list for a CLAP plug-in.
-function(prepare_clap_feature_list list_var_name out_count_var out_array_var)
+function(prepare_clap_feature_list list_var_name can_process_mono out_count_var out_array_var)
+    list(APPEND ${list_var_name} "stereo") # Always have stereo.
+
+    # If can process mono, append "mono" to the list.
+    if(can_process_mono STREQUAL "true")
+        list(APPEND ${list_var_name} "mono")
+    endif()
+     
     # Get the list content by indirect reference, replacing semicolons with spaces.
     string(REPLACE ";" " " input_list "${${list_var_name}}")
     
@@ -65,6 +72,7 @@ function(configure_plug_info plugin_target output)
     read_property(${plugin_target} TINY_BUILD_NUMBER)
 
     read_property(${plugin_target} TINY_PLUGIN_WANTS_SIDECHAIN)
+    read_property(${plugin_target} TINY_PLUGIN_CAN_PROCESS_MONO)
 
     read_property(${plugin_target} TINY_CLAP_DESCRIPTION)
     read_property(${plugin_target} TINY_CLAP_FEATURES)
@@ -85,7 +93,7 @@ function(configure_plug_info plugin_target output)
 
     # Generate the CLAP feature list.
     prepare_clap_feature_list(
-        TINY_CLAP_FEATURES 
+        TINY_CLAP_FEATURES ${TINY_PLUGIN_CAN_PROCESS_MONO}
         TINY_CLAP_FEATURE_COUNT TINY_CLAP_FEATURE_VALUES
     )
 

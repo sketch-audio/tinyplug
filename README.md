@@ -80,8 +80,6 @@ The style actually developed over several years of writing C++ alongside Swift a
 ## TODO
 - iOS view resizing lag in Logic.
 - Multitouch (Windows)
-- Mono processing
-    - Add CMake option `TINY_SUPPORTS_MONO`?
 - Basic control library
 - Presets
 - Preferences

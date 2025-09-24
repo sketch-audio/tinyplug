@@ -16,32 +16,41 @@
 //
 AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
 {
-    
+    using namespace tiny;
+
     if (auto* descriptor = collection->NewDescriptor()) {
 
-        descriptor->AddName(tiny::Plug_info::product_name);
-        descriptor->AddName(tiny::Plug_info::product_short_name);
+        descriptor->AddName(Plug_info::product_name);
+        descriptor->AddName(Plug_info::product_short_name);
         descriptor->AddCategory(AAX_ePlugInCategory_None); // TODO: - 
-        descriptor->AddProcPtr((void*)tiny::Aax_parameters::Create, kAAX_ProcPtrID_Create_EffectParameters);
-        descriptor->AddProcPtr((void*)tiny::Aax_gui::Create, kAAX_ProcPtrID_Create_EffectGUI);
+        descriptor->AddProcPtr((void*)Aax_parameters::Create, kAAX_ProcPtrID_Create_EffectParameters);
+        descriptor->AddProcPtr((void*)Aax_gui::Create, kAAX_ProcPtrID_Create_EffectGUI);
 
         //
-        auto info = tiny::AAX_SInstrumentSetupInfo{};
-        info.mNeedsTransport = true;
-        info.mInputStemFormat = AAX_eStemFormat_Stereo;
-        info.mOutputStemFormat = AAX_eStemFormat_Stereo;
-        info.mWantsSidechain = tiny::Plug_info::wants_sidechain;
-        info.mManufacturerID = tiny::Plug_info::Aax::manufacturer_id;
-        info.mProductID = tiny::Plug_info::Aax::product_id;
-        info.mPluginID = tiny::Plug_info::Aax::plugin_id;
-        tiny::Aax_parameters::StaticDescribe(descriptor, info);
+        auto make_setup = [](bool stereo) {
+            auto info = AAX_SInstrumentSetupInfo{};
+            info.mNeedsTransport = true;
+            info.mInputStemFormat = stereo ? AAX_eStemFormat_Stereo : AAX_eStemFormat_Mono;
+            info.mOutputStemFormat = stereo ? AAX_eStemFormat_Stereo : AAX_eStemFormat_Mono;
+            info.mWantsSidechain = Plug_info::wants_sidechain;
+            info.mManufacturerID = Plug_info::Aax::manufacturer_id;
+            info.mProductID = Plug_info::Aax::product_id;
+            info.mPluginID = Plug_info::Aax::plugin_id + (stereo ? 0 : 1);
+            return info;
+        };
+        
+        Aax_parameters::StaticDescribe(descriptor, make_setup(true));
+
+        if constexpr (Plug_info::can_process_mono) {
+            Aax_parameters::StaticDescribe(descriptor, make_setup(false));
+        }
 
         //
-        collection->AddEffect(tiny::Plug_info::base_identifier, descriptor);
-        collection->SetManufacturerName(tiny::Plug_info::company_name);
-        collection->AddPackageName(tiny::Plug_info::product_name);
-        collection->AddPackageName(tiny::Plug_info::product_short_name);
-        collection->SetPackageVersion(tiny::Plug_info::build_number);
+        collection->AddEffect(Plug_info::base_identifier, descriptor);
+        collection->SetManufacturerName(Plug_info::company_name);
+        collection->AddPackageName(Plug_info::product_name);
+        collection->AddPackageName(Plug_info::product_short_name);
+        collection->SetPackageVersion(Plug_info::build_number);
 
         return AAX_SUCCESS;
     }

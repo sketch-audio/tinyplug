@@ -28,6 +28,8 @@
 // AAX Includes
 #include "AAX_Exception.h"
 
+#include <cassert>
+
 namespace tiny {
 
 AAX_CMonolithicParameters::AAX_CMonolithicParameters(void)
@@ -248,13 +250,23 @@ AAX_Result	AAX_CMonolithicParameters::StaticDescribe(AAX_IEffectDescriptor* ioDe
         err = properties->AddProperty(AAX_eProperty_PlugInID_AudioSuite, static_cast<int32_t>(setupInfo.mAudiosuiteID));
     if (!setupInfo.mMultiMonoSupport)
         err = properties->AddProperty(AAX_eProperty_Constraint_MultiMonoSupport, 0);
-    err = compDesc->AddProcessProc_Native(AAX_CMonolithicParameters::StaticRenderAudio, properties);
+
+    if (setupInfo.mInputStemFormat == AAX_eStemFormat_Mono) {
+        err = compDesc->AddProcessProc_Native(AAX_CMonolithicParameters::StaticRenderAudio<false>, properties);
+    }
+    else if (setupInfo.mInputStemFormat == AAX_eStemFormat_Stereo) {
+        err = compDesc->AddProcessProc_Native(AAX_CMonolithicParameters::StaticRenderAudio<true>, properties);
+    }
+    else {
+        assert(false && "Unsupported stem format.");
+    }
     err = ioDescriptor->AddComponent(compDesc);
 
     return err;
 }
 
 //Static RenderAudio  ( This version would only work for non-distributed algorithms. )
+template<bool stereo>
 void	AAX_CALLBACK	AAX_CMonolithicParameters::StaticRenderAudio(AAX_SInstrumentRenderInfo* const	inInstancesBegin[], const void* inInstancesEnd)
 {
     for (AAX_SInstrumentRenderInfo* const* instanceRenderInfoPtr = inInstancesBegin; instanceRenderInfoPtr != inInstancesEnd; ++instanceRenderInfoPtr)
@@ -270,7 +282,8 @@ void	AAX_CALLBACK	AAX_CMonolithicParameters::StaticRenderAudio(AAX_SInstrumentRe
                 SParamValList paramValList = parameters->GetUpdatesForState(*(*instanceRenderInfoPtr)->mCurrentStateNum);
 
                 // Call RenderAudio
-                parameters->RenderAudio(*instanceRenderInfoPtr, (const TParamValPair**)paramValList.mElem, paramValList.mSize);
+                constexpr auto channelCount = stereo ? 2 : 1;
+                parameters->RenderAudio(*instanceRenderInfoPtr, channelCount, (const TParamValPair**)paramValList.mElem, paramValList.mSize);
 
                 // Queue the parameter value pairs for later deletion
                 for (int32_t i = 0; i < paramValList.mSize; ++i)

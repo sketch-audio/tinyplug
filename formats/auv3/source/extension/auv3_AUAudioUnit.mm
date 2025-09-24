@@ -328,7 +328,8 @@
 }
 
 - (NSArray<NSNumber *> *)channelCapabilities {
-    return @[@2, @2, @1, @1]; // Allow mono.
+    using namespace tiny;
+    return Plug_info::can_process_mono ? @[@2, @2, @1, @1] : @[@2, @2];
 }
 
 - (NSTimeInterval)latency {

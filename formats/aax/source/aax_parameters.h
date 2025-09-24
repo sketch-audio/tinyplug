@@ -34,7 +34,7 @@ public:
 	AAX_Result SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iChunk) AAX_OVERRIDE;
 	AAX_Result CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_CBoolean* oIsEqual) const AAX_OVERRIDE;
 
-    void RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues) override;
+    void RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_t channelCount, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues) override;
 
     auto pop_export(Ui_event& event) -> bool
     {
@@ -72,9 +72,9 @@ private:
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_exports = User_exports::num_exports;
 
-    static constexpr auto num_ichannels = size_t{2};
-    static constexpr auto num_schannels = size_t{1}; // mono sidechain? verify.
-    static constexpr auto num_ochannels = size_t{2};
+    static constexpr auto max_ichannels = size_t{2};
+    static constexpr auto max_schannels = size_t{1}; // mono sidechain? verify.
+    static constexpr auto max_ochannels = size_t{2};
 
     using From_ui_queue = Lock_free_queue<User_action, 256>;
     From_ui_queue _from_ui{};
@@ -82,9 +82,9 @@ private:
     std::atomic<bool> recording{false}; // 
 
     // Pointers to host io buffers.
-    std::array<const float*, num_ichannels> _ibuffers{};
-    std::array<const float*, num_schannels> _sbuffers{};
-    std::array<float*, num_ochannels> _obuffers{};
+    std::array<const float*, max_ichannels> _ibuffers{};
+    std::array<const float*, max_schannels> _sbuffers{};
+    std::array<float*, max_ochannels> _obuffers{};
     std::array<float, num_exports> _exports{};
 
     std::array<double, num_exports> _lexports{};

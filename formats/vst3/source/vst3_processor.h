@@ -41,6 +41,8 @@ public:
     /** Will be called before any process call */
     Steinberg::tresult PLUGIN_API setupProcessing(Steinberg::Vst::ProcessSetup& newSetup) SMTG_OVERRIDE;
 
+    Steinberg::tresult PLUGIN_API setBusArrangements(Steinberg::Vst::SpeakerArrangement* inputs, Steinberg::int32 numIns, Steinberg::Vst::SpeakerArrangement* outputs, Steinberg::int32 numOuts) SMTG_OVERRIDE;
+
     /** Asks if a given sample size is supported see SymbolicSampleSizes. */
     Steinberg::tresult PLUGIN_API canProcessSampleSize(Steinberg::int32 symbolicSampleSize) SMTG_OVERRIDE;
 
@@ -69,14 +71,19 @@ private:
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_exports = User_exports::num_exports;
 
-    static constexpr auto num_ichannels = size_t{2};
-    static constexpr auto num_schannels = size_t{2};
-    static constexpr auto num_ochannels = size_t{2};
+    static constexpr auto max_ichannels = size_t{2};
+    static constexpr auto max_schannels = size_t{2};
+    static constexpr auto max_ochannels = size_t{2};
+
+    // Runtime.
+    size_t _ichannels{max_ichannels};
+    size_t _schannels{Plug_info::wants_sidechain ? max_schannels : 0};
+    size_t _ochannels{max_ochannels};
 
     // Pointers to host io buffers.
-    std::array<const float*, num_ichannels> _ibuffers{};
-    std::array<const float*, num_schannels> _sbuffers{};
-    std::array<float*, num_ochannels> _obuffers{};
+    std::array<const float*, max_ichannels> _ibuffers{};
+    std::array<const float*, max_schannels> _sbuffers{};
+    std::array<float*, max_ochannels> _obuffers{};
     std::array<float, num_exports> _exports{};
 
     User_params _param_infos{};

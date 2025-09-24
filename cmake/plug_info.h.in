@@ -27,6 +27,7 @@ struct Plug_info {
     static constexpr auto build_number = size_t{@TINY_BUILD_NUMBER@};
 
     static constexpr auto wants_sidechain = bool{@TINY_PLUGIN_WANTS_SIDECHAIN@};
+    static constexpr auto can_process_mono = bool{@TINY_PLUGIN_CAN_PROCESS_MONO@};
 
     struct Aax {
         static constexpr auto manufacturer_id = uint32_t{'@TINY_MANUFACTURER_CODE@'};

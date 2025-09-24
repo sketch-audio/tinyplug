@@ -21,12 +21,12 @@ add_property(${PLUGIN_TARGET} TINY_VERSION_STRING "1.0.0")
 add_property(${PLUGIN_TARGET} TINY_BUILD_NUMBER "1")
 
 add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_SIDECHAIN "false")
-# add_property(${PLUGIN_TARGET} TINY_PLUGIN_CAN_PROCESS_MONO "false") # Not yet supported. 
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_CAN_PROCESS_MONO "false")
 
 # CLAP
 # See: https://github.com/free-audio/clap/blob/main/include/clap/plugin-features.h
 add_property(${PLUGIN_TARGET} TINY_CLAP_DESCRIPTION "Built with tinyplug.")
-add_property(${PLUGIN_TARGET} TINY_CLAP_FEATURES "audio-effect;stereo")
+add_property(${PLUGIN_TARGET} TINY_CLAP_FEATURES "audio-effect") # Don't put mono or stereo, the framework will do that for you!
 
 # AUv2
 add_property(${PLUGIN_TARGET} TINY_AUV2_VIEW_CLASS "PlatformDemo_viewFactory") # Audio Unit must have a unique view factory!

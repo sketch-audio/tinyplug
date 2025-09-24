@@ -427,7 +427,7 @@ AAX_Result Aax_parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, A
 
 // MARK: - RenderAudio
 
-void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues)
+void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_t channelCount, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues)
 {
     // Accept latency.
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
@@ -475,15 +475,15 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, const 
     }
 
     // Assign buffer ptrs.
-    for (size_t i = 0; i < num_ichannels; ++i) {
+    for (auto i = 0; i < channelCount; ++i) {
         _ibuffers[i] = ioRenderInfo->mAudioInputs[i];
     }
-    for (size_t i = 0; i < num_ochannels; ++i) {
+    for (auto i = 0; i < channelCount; ++i) {
         _obuffers[i] = ioRenderInfo->mAudioOutputs[i];
     }
     if constexpr (Plug_info::wants_sidechain) {
         if (const auto sc_idx = ioRenderInfo->mSidechainIndex; sc_idx != nullptr) {
-            for (size_t i = 0; i < num_schannels; ++i) {
+            for (size_t i = 0; i < max_schannels; ++i) {
                 _sbuffers[i] = ioRenderInfo->mAudioInputs[*sc_idx + i];
             }
         }
@@ -543,9 +543,9 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, const 
                 .recording = host_data.is_recording
             }
         },
-        .ibuffers = _ibuffers,
-        .sbuffers = _sbuffers,
-        .obuffers = _obuffers,
+        .ibuffers = {_ibuffers.begin(), static_cast<size_t>(channelCount)},
+        .sbuffers = {_sbuffers.begin(), Plug_info::wants_sidechain ? max_schannels : 0}, // Always mono sidechain.
+        .obuffers = {_obuffers.begin(), static_cast<size_t>(channelCount)},
         .num_frames = num_frames,
         .exports = _exports
     };

@@ -151,7 +151,7 @@ struct AAX_SInstrumentSetupInfo
         mProductID = 'none';
         mPluginID = 'none';
         mAudiosuiteID = 'none';
-        mMultiMonoSupport = true;
+        mMultiMonoSupport = false;
 
         mNumAuxOutputStems = 0;
         for (int32_t i = 0; i < kMaxAuxOutputStems; i++)
@@ -257,7 +257,7 @@ protected: /////////////////////////////////////////////////////////////////////
       *	  The number of parameter values provided in \c inSynchronizedParamValues
       *
       */
-    virtual void		RenderAudio(AAX_SInstrumentRenderInfo* /*ioRenderInfo*/, const TParamValPair* /*inSynchronizedParamValues*/[], int32_t /*inNumSynchronizedParamValues*/) {}
+    virtual void		RenderAudio(AAX_SInstrumentRenderInfo* /*ioRenderInfo*/, int32_t /*channelCount*/, const TParamValPair* /*inSynchronizedParamValues*/[], int32_t /*inNumSynchronizedParamValues*/) {}
     //@}end Real-time functions
 
     /** @name Configuration methods
@@ -306,6 +306,7 @@ public: ////////////////////////////////////////////////////////////////////////
      *	@param[in] inInstancesBegin
      *	@param[in] inInstancesEnd
      */
+    template<bool stereo>
     static	void	AAX_CALLBACK	StaticRenderAudio(AAX_SInstrumentRenderInfo* const	inInstancesBegin[], const void* inInstancesEnd);
     //@}end Convenience Layer Methods
 

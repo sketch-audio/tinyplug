@@ -52,8 +52,6 @@ function(make_clap_plugin USER_TARGET CLAP_SDK CLAP_HELPERS)
     add_library(${CLAP_TARGET} MODULE
         ${SOURCE_DIR}/source/clap_adapters.h
         ${SOURCE_DIR}/source/clap_entry.cpp
-        ${SOURCE_DIR}/source/clap_kernel.cpp
-        ${SOURCE_DIR}/source/clap_kernel.h
         ${SOURCE_DIR}/source/clap_plugin.cpp
         ${SOURCE_DIR}/source/clap_plugin.h
         ${SOURCE_DIR}/source/clap_view.cpp

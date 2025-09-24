@@ -25,6 +25,8 @@ public:
 
     void initialize(int inputChannelCount, int outputChannelCount, double inSampleRate) {
         mSampleRate = inSampleRate;
+        mInputChannelCount = inputChannelCount;
+        mOutputChannelCount = outputChannelCount;
         _kernel->reset(mSampleRate);
         _latency = _kernel->latency_samps();
     }
@@ -112,6 +114,11 @@ public:
         
         auto context = tiny::Dsp_context{.exports = _exports, .propose_latency = {}};
         context.musical_context = resolve_musical_context(frameCount);
+        
+        assert(inputBuffers.size() == static_cast<size_t>(mInputChannelCount));
+        assert(outputBuffers.size() == static_cast<size_t>(mOutputChannelCount));
+        
+        // Already spans with size set by process helper.
         context.ibuffers = inputBuffers;
         context.obuffers = outputBuffers;
         context.sbuffers = sidechainBuffers;
@@ -208,6 +215,9 @@ private:
     AUHostTransportStateBlock mTransportStateBlock;
     
     double mSampleRate = 48000;
+    int mInputChannelCount = 2;
+    int mOutputChannelCount = 2;
+    
     bool mBypassed = false;
     AUAudioFrameCount mMaxFramesToRender = 1024;
     
@@ -217,14 +227,14 @@ private:
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_exports = User_exports::num_exports;
 
-    static constexpr auto num_ichannels = size_t{2};
-    static constexpr auto num_schannels = size_t{2};
-    static constexpr auto num_ochannels = size_t{2};
+    static constexpr auto max_ichannels = size_t{2};
+    static constexpr auto max_schannels = size_t{2};
+    static constexpr auto max_ochannels = size_t{2};
 
     // Pointers to host io buffers.
-    std::array<const float*, num_ichannels> _ibuffers{};
-    std::array<const float*, num_schannels> _sbuffers{};
-    std::array<float*, num_ochannels> _obuffers{};
+    std::array<const float*, max_ichannels> _ibuffers{};
+    std::array<const float*, max_schannels> _sbuffers{};
+    std::array<float*, max_ochannels> _obuffers{};
     std::array<float, num_exports> _exports{};
     
     // TODO: - Use a heuristic for size.

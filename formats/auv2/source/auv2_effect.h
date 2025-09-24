@@ -31,6 +31,20 @@ public:
 
     OSStatus Initialize() override;
 
+    UInt32 SupportedNumChannels(const AUChannelInfo** outInfo) override
+    {
+        if (cinfo.empty()) {
+            cinfo.push_back({2, 2});
+            if constexpr (Plug_info::can_process_mono) {
+                cinfo.push_back({1, 1});
+            }
+        }
+        if (!outInfo) return (UInt32)cinfo.size();
+
+        *outInfo = cinfo.data();
+        return (UInt32)cinfo.size();
+    }
+
     OSStatus GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, UInt32& outDataSize, bool& outWritable) override;
     OSStatus GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, void* outData) override;
 
@@ -86,6 +100,8 @@ private:
 
     double _sr{48000};
 
+    std::vector<AUChannelInfo> cinfo{};
+
     std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
 
     using User_params = Param_infos<Param_model>;
@@ -94,14 +110,14 @@ private:
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_exports = User_exports::num_exports;
 
-    static constexpr auto num_ichannels = size_t{2};
-    static constexpr auto num_schannels = size_t{2};
-    static constexpr auto num_ochannels = size_t{2};
+    static constexpr auto max_ichannels = size_t{2};
+    static constexpr auto max_schannels = size_t{Plug_info::wants_sidechain ? 2 : 0};
+    static constexpr auto max_ochannels = size_t{2};
 
     // Pointers to host io buffers.
-    std::array<const float*, num_ichannels> _ibuffers{};
-    std::array<const float*, num_schannels> _sbuffers{};
-    std::array<float*, num_ochannels> _obuffers{};
+    std::array<const float*, max_ichannels> _ibuffers{};
+    std::array<const float*, max_schannels> _sbuffers{};
+    std::array<float*, max_ochannels> _obuffers{};
     std::array<float, num_exports> _exports{};
 
     User_params _param_infos{};
