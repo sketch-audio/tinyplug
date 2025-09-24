@@ -33,7 +33,7 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
     platform/view_delegate.cpp
 )
 
-target_sources(${TINY_SHARED_LIB} PUBLIC
+target_sources(${TINY_SHARED_LIB} PRIVATE 
     platform/platform_view.h
     platform/platform.h
     platform/view_delegate.h
