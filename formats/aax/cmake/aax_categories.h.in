@@ -1,0 +1,5 @@
+#pragma once
+
+#include "AAX_Enums.h"
+
+#define TINY_AAX_CATEGORIES @TINY_AAX_CATEGORIES@

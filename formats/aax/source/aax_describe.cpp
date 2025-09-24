@@ -10,6 +10,7 @@
 #include "plug_info.h"
 #include "param_model.h"
 
+#include "aax_categories.h"
 #include "aax_gui.h"
 #include "aax_parameters.h"
 
@@ -22,7 +23,7 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
 
         descriptor->AddName(Plug_info::product_name);
         descriptor->AddName(Plug_info::product_short_name);
-        descriptor->AddCategory(AAX_ePlugInCategory_None); // TODO: - 
+        descriptor->AddCategory(TINY_AAX_CATEGORIES);
         descriptor->AddProcPtr((void*)Aax_parameters::Create, kAAX_ProcPtrID_Create_EffectParameters);
         descriptor->AddProcPtr((void*)Aax_gui::Create, kAAX_ProcPtrID_Create_EffectGUI);
 

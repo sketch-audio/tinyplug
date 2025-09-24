@@ -23,6 +23,10 @@ add_property(${PLUGIN_TARGET} TINY_BUILD_NUMBER "1")
 add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_SIDECHAIN "false")
 add_property(${PLUGIN_TARGET} TINY_PLUGIN_CAN_PROCESS_MONO "false")
 
+# AAX
+# See: AAX_Enums.h for possible values.
+add_property(${PLUGIN_TARGET} TINY_AAX_CATEGORIES "AAX_ePlugInCategory_None")
+
 # CLAP
 # See: https://github.com/free-audio/clap/blob/main/include/clap/plugin-features.h
 add_property(${PLUGIN_TARGET} TINY_CLAP_DESCRIPTION "Built with tinyplug.")

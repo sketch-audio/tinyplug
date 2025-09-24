@@ -5,6 +5,13 @@ function(make_aax_plugin USER_TARGET AAX_SDK_ROOT_DIR)
         return()
     endif()
 
+    read_property(${USER_TARGET} TINY_AAX_CATEGORIES)
+    # Configure header aax_categories.h.in
+    configure_file(
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/aax_categories.h.in
+        ${CMAKE_CURRENT_BINARY_DIR}/aax_categories.h
+    )
+
     read_property(${USER_TARGET} TINY_BASE_FILENAME)
     read_property(${USER_TARGET} TINY_BASE_IDENTIFIER)
     read_property(${USER_TARGET} TINY_PRODUCT_NAME)
