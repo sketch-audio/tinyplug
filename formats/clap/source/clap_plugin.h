@@ -9,8 +9,9 @@
 #include "clap/helpers/host-proxy.hh"
 #include "clap/helpers/host-proxy.hxx"
 
-#include "dsp_kernel.h"
-#include "param_model.h"
+#include "plug_processor.h"
+#include "models/meter_model.h"
+#include "models/param_model.h"
 #include "plug_info.h"
 
 #include "clap_adapters.h"
@@ -111,9 +112,9 @@ private:
     double _sr{48000};
 
     using User_params = Param_infos<Param_model>;
-    using User_exports = Exports<Param_model>;
+    using User_meters = Meter_infos<Meter_model>;
     static constexpr auto num_params = User_params::num_params;
-    static constexpr auto num_exports = User_exports::num_exports;
+    static constexpr auto num_meters = User_meters::num_meters;
 
     User_params _param_infos{};
     std::vector<std::string> _modules{tree_to_clap_modules(_param_infos.tree())};
@@ -132,10 +133,10 @@ private:
     std::array<float*, max_ochannels> _obuffers{};
 
     // Exports in host space.
-    std::array<float, num_exports> _exports{};
+    std::array<float, num_meters> _exports{};
 
     // USER
-    std::unique_ptr<Dsp_kernel> _kernel = std::make_unique<Dsp_kernel>();
+    std::unique_ptr<Plug_processor> _kernel = std::make_unique<Plug_processor>();
     std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
 
     // GUI
@@ -161,7 +162,7 @@ private:
     using Host_values = std::array<Host_value, num_params>;
     Host_values _hostvalues{_param_infos.make_host_defaults<Host_value>()};
 
-    std::array<double, num_exports> _lexports{};
+    std::array<double, num_meters> _lexports{};
 
     // TODO: - Use a heuristic for size.
     using From_flush_queue = Lock_free_queue<Render_event, 256>;

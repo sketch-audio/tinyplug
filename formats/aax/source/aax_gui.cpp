@@ -143,8 +143,8 @@ AAX_Result Aax_gui::ParameterUpdated(AAX_CParamID inParamID)
 
 auto Aax_gui::on_draw(View_context& view_context) -> void
 {
-    view_impl::run_frame<User_exports>(
-        _receiver, _uiparams, _uiexports, view_context, _editor.get(), _actions, _tasks
+    view_impl::run_frame(
+        _meter_infos, _receiver, _uiparams, _uiexports, view_context, _editor.get(), _actions, _tasks
     );
 }
 

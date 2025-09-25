@@ -46,11 +46,12 @@ add_property(${PLUGIN_TARGET} TINY_VST3_SUBCATEGORIES "Fx")
 target_sources(${PLUGIN_TARGET} PRIVATE
     source/dsp/latency.h
     source/dsp/stereo.h
-    source/dsp_kernel.cpp
-    source/dsp_kernel.h
-    source/param_model.h
+    source/models/meter_model.h
+    source/models/param_model.h
     source/plug_editor.cpp
     source/plug_editor.h
+    source/plug_processor.cpp
+    source/plug_processor.h
 )
 # ---
 

@@ -48,6 +48,7 @@ enum class Units : uint32_t {
     percent,
     decibels,
     hertz,
+    milliseconds,
 };
 
 // Get the units string for `units`.
@@ -63,6 +64,8 @@ inline auto units_string(Units units) -> std::string
             return "dB";
         case hertz:
             return "Hz";
+        case milliseconds:
+            return "ms";
         default:
             return "";
     }
@@ -382,7 +385,7 @@ enum class Host_policy : uint32_t {
 
     // Hidden from host UI. Saves with state.
     // E.g. Any private parameter.
-    state,
+    hidden,
 
     // Hidden from host UI. Does not save with state.
     // E.g. GUI-only paremters like "mute" or "solo".
@@ -537,8 +540,6 @@ inline auto get_knob_default(const Param_spec& spec) -> double
 
 // MARK: - parameter model
 
-enum class Export_type : uint32_t; // See `tiny_exports.h`
-
 template<typename T>
 concept Some_param_model = requires {
     // An enum class `Param_id` with a case `num_params`
@@ -546,16 +547,8 @@ concept Some_param_model = requires {
     requires Enum<typename T::Param_id>;
     requires std::same_as<std::underlying_type_t<typename T::Param_id>, uint32_t>;
 
-    // An enum class `Export_id` with a case `num_exports`
-    typename T::Export_id;
-    requires Enum<typename T::Export_id>;
-    requires std::same_as<std::underlying_type_t<typename T::Export_id>, uint32_t>;
-
     // A static function `build_tree` that returns a `Param_node<Param_id>`
     { T::build_tree() } -> std::same_as<Param_node>;
-
-    // A static function for `export_type` for looking up the export type.
-    { T::export_type(std::declval<typename T::Export_id>()) } -> std::same_as<Export_type>;
 };
 
 // MARK: - params impl

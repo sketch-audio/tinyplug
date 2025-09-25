@@ -199,7 +199,7 @@
         switch (policy) {
             case Host_policy::automation: return kAudioUnitParameterFlag_IsWritable | kAudioUnitParameterFlag_IsReadable;
             case Host_policy::control: return kAudioUnitParameterFlag_IsReadable;
-            case Host_policy::state: return {};
+            case Host_policy::hidden: return {};
             case Host_policy::interface: return kAudioUnitParameterFlag_OmitFromPresets;
             default: return kAudioUnitParameterFlag_IsWritable | kAudioUnitParameterFlag_IsReadable;
         }

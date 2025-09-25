@@ -1,39 +1,45 @@
 # tinyplug
-*Hypermodern C++ Audio Plug-in Framework*
+*Minimal, modern C++ audio plug-in framework*
 
 ## Features
-Tinyplug is a modern C++ audio plug-in framework that makes it easy to build your plug-in for different platforms and formats.
+Tinyplug is a C++20 audio plug-in framework that makes it easy to write audio plug-ins and build them for different platforms and formats.
 
 - Supported platforms & formats:
-    | Platform | AAX | AUv2 | AUv3 | CLAP | LV2  | VST3 |
-    |---------:|:---:|:----:|:----:|:----:|:----:|:----:|
-    | iOS      |     |      |  ✔   |      |      |      |
-    | Linux    |     |      |      | TODO | TODO | TODO |
-    | macOS    |  ✔  |  ✔   |  ✔   |  ✔   |      |  ✔   |
-    | Windows  |  ✔  |      |      |  ✔   |      |  ✔   |
-- GPU-backed graphics via Google's Skia Library.
+    | Platform | AAX | AUv2 | AUv3 | CLAP | VST3 |
+    |---------:|:---:|:----:|:----:|:----:|:----:|
+    | iOS      |     |      |  ✅  |      |      |
+    | macOS    | ✅  |  ✅  |  ✅  |  ✅  |  ✅  |
+    | Windows  | ✅  |      |      |  ✅  |  ✅  |
+    - *Linux & LV2 support on roadmap.*
 - Supported plug-in types:
     - Stereo in/out effect
-    - Optional sidechain
-    - Mono in/out effect (TODO)
+    - Optional sidechain input
+    - Optionally allow mono in/out
+    - *Synth support on roadmap.*
 - Sample-accurate events & automation
-    - Tinyplug automatically interleaves host events (including ramps) with calls to your process function for precise automation playback.
+    - Host events (including ramps) are interleaved with calls to your process function so you have full control over automation playback.
+- Thread-safe architecture
+    - The framework handles communication between your processor and editor using simple message queues.
+- GPU-backed graphics via Google's Skia Library.
+    - iOS & macOS: Metal
+    - Windows: Direct3D 12
+    - *Software backend on roadmap*
 
 ## Architecture
-Your processor (`Dsp_kernel`) and editor (`Plug_editor`) are fully decoupled. Tinyplug handles communication between these classes and the host via simple message queues. There is no sharing of data between threads. The framework makes the source of truth wherever the plug-in format wants it to be.
+Your processor (`Plug_processor`) and editor (`Plug_editor`) are fully decoupled. Tinyplug handles communication between these classes and the host via simple message queues. There is no sharing of data between threads. The framework makes the source of truth wherever the plug-in format wants it to be.
 
-### Processor (`DSP_kernel`)
+### Processor (`Plug_processor`)
 - Receives parameter changes on real-time thread.
-- Can send data to the UI by writing to an array of `exports`.
+- Can send data to the UI by writing to an array of meter values.
 
 ### Editor (`Plug_editor`)
-- On draw, receives a view into the current state of the parameters and exports.
-- Controls can set parameters by sending `User_actions`.
+- On draw, receives a read-only copy of the current parameter and and meter values.
+- Controls can set parameter values by sending `User_actions`.
 
 ## Parameters
-Your plug-in implements a static interface (`Param_model`) where you enumerate the parameter and export identifiers. You declare your parameter infos as a tree structure. The framework preserves this structure where the format allows (e.g. AUv2 clumps). In practice, parameter values are stored as a flat array and the identifier can be used as an index. There are some restrictions to this approach but they are documented.
+Your plug-in implements a static interface (`Param_model`) where you enumerate the parameter identifiers. You declare your parameter infos as a tree structure. The framework preserves this structure where the format allows (e.g. AUv2 clumps). In practice, parameter values are stored as a flat array and the identifier can be used as an index. There are some restrictions to this approach but they are documented.
 
-Tinyplug makes some decisions for you so your parameters have clear semantics and handling by the host.
+Tinyplug provides a structured interface so your parameters always have well-defined semantics.
 - Type-safe parameter semantics via `std::variant`
     - `Bool`: for values that are "true" or "false"
     - `List`: for indices in a list
@@ -43,9 +49,17 @@ Tinyplug makes some decisions for you so your parameters have clear semantics an
     | Policy         | Automatable? | Visible? | Persistent?|
     |---------------:|:------------:|:--------:|:----------:|
     | `automation`   |      ✅      |    ✅    |     ✅     |
-    | `control`      |      ❌      |    ✅    |     ✅     |
-    | `state`        |      ❌      |    ❌    |     ✅     |
-    | `interface`    |      ❌      |    ❌    |     ❌     |
+    | `control`      |              |    ✅    |     ✅     |
+    | `hidden`        |              |          |     ✅     |
+    | `interface`    |              |          |            |
+
+## Meters
+The processor can send data to the editor by writing to an array of meter values. Your plug-in implements a static interface (`Meter_model`) to tell the framework how many meters you want and how it should process those values for delivery to your editor.
+
+- Use the `Meter_policy` enum to specify how tinyplug should treat your meter values.
+    - `peak`: Your editor receives the max unconsumed value.
+    - `stream`: Receive the latest value.
+    - `trig`: Receive an event exactly once each time it happens.
 
 ## Latency
 Tinyplug offers well-defined handling of latency changes.
@@ -78,6 +92,7 @@ The style actually developed over several years of writing C++ alongside Swift a
 - Most member variables are prefixed with an underscore
 
 ## TODO
+- Fixed semantics (ex. -12...12 by 0.5 increments)
 - iOS view resizing lag in Logic.
 - Multitouch (Windows)
 - Basic control library

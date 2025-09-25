@@ -175,7 +175,7 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
                 flags |= kAudioUnitParameterFlag_IsReadable; // Logic shows a uneditable control.
                 break;
             }
-            case state: {
+            case hidden: {
                 // Hidden but part of state.
                 break;
             }
@@ -784,7 +784,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
     }
 
     // Send exports.
-    for (auto i = decltype(num_exports){}; i < num_exports; ++i) {
+    for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
         if (context.exports[i] != _lexports[i]) {
             // Send an output event.
             const auto value = context.exports[i];

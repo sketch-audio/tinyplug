@@ -49,7 +49,7 @@ auto Plug_editor::on_gui_draw(App_state& app_state) -> void
     // Draw background.
     auto paint = SkPaint{};
     paint.setColor(curr == 0 ? SK_ColorGREEN : SK_ColorYELLOW);
-    if (curr != exports[enum_raw(Export_id::latency_actual)]) {
+    if (curr != exports[enum_raw(Meter_address::latency_actual)]) {
         paint.setColor(SK_ColorRED);
     }
 

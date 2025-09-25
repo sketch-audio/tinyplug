@@ -9,7 +9,8 @@
 #include "public.sdk/source/vst/vstaudioeffect.h"
 #include "base/source/fstreamer.h"
 
-#include "param_model.h"
+#include "models/meter_model.h"
+#include "models/param_model.h"
 #include "plug_info.h"
 
 #include "vst3_adapters.h"
@@ -277,7 +278,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     };
 
     // Send exports as output parameter changes.
-    for (size_t i = 0; i < num_exports; ++i) {
+    for (size_t i = 0; i < num_meters; ++i) {
         if (context.exports[i] != _lexports[i]) {
             add_output_event(export_param_offset + static_cast<int32_t>(i), context.exports[i]);
             _lexports[i] = context.exports[i];

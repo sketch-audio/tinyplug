@@ -3,11 +3,12 @@
 #include <array>
 
 #include "tinyplug/tinyplug.h"
-#include "param_model.h"
+#include "models/meter_model.h"
+#include "models/param_model.h"
 
 namespace tiny {
 
-class Dsp_kernel {
+class Plug_processor {
 public:
     // Receive the sample rate.
     // This a good time to resize some vectors.
@@ -42,6 +43,6 @@ private:
     std::array<float, num_params> _values{_param_infos.make_plain_defaults<float>()};
 
 };
-static_assert(Some_dsp_kernel<Dsp_kernel>); // Check your interface.
+static_assert(Some_plug_processor<Plug_processor>); // Check your interface.
 
 } // namespace tiny

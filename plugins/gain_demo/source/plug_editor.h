@@ -1,7 +1,8 @@
 #pragma once
 
 #include "tinyplug/tinyplug.h"
-#include "param_model.h"
+#include "models/meter_model.h"
+#include "models/param_model.h"
 
 namespace tiny {
 

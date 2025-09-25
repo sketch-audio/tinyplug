@@ -2,7 +2,8 @@
 
 #include "public.sdk/source/vst/vsteditcontroller.h"
 
-#include "param_model.h"
+#include "models/meter_model.h"
+#include "models/param_model.h"
 #include "plug_editor.h"
 
 #include "vst3_view.h"
@@ -61,16 +62,16 @@ protected:
     std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
     
     using User_params = Param_infos<Param_model>;
-    using User_exports = Exports<Param_model>;
+    using User_meters = Meter_infos<Meter_model>;
     static constexpr auto num_params = User_params::num_params;
-    static constexpr auto num_exports = User_exports::num_exports;
+    static constexpr auto num_meters = User_meters::num_meters;
 
     User_params _param_infos{};
 
     // We receive the exports in `setParamNormalized` and let the view pop them here.
     using To_ui_queue = Lock_free_queue<Ui_event, 256>;
     To_ui_queue _oqueue{};
-    std::array<double, num_exports> _last_exports{};
+    std::array<double, num_meters> _last_exports{};
 
     std::unordered_set<uint32_t> _gestured{};
     std::optional<Rect_size> _last_size{};

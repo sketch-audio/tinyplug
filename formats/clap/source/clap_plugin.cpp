@@ -172,7 +172,7 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
     }
 
     // Send exports.
-    for (auto i = decltype(num_exports){}; i < num_exports; ++i) {
+    for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
         if (context.exports[i] != _lexports[i]) {
             // Send export and cache.
             const auto value = context.exports[i];
@@ -601,7 +601,7 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
         switch (policy) {
             case automation: return uint32_t{CLAP_PARAM_IS_AUTOMATABLE};
             case control: return uint32_t{}; // Do any hosts actually show a control here?
-            case state: return uint32_t{CLAP_PARAM_IS_HIDDEN | CLAP_PARAM_IS_READONLY};
+            case hidden: return uint32_t{CLAP_PARAM_IS_HIDDEN | CLAP_PARAM_IS_READONLY};
             case interface: return uint32_t{CLAP_PARAM_IS_HIDDEN | CLAP_PARAM_IS_READONLY};
             default: return uint32_t{};
         }

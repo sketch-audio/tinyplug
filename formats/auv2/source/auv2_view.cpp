@@ -37,8 +37,8 @@ auto Auv2_view::create_view() -> void*
 auto Auv2_view::on_draw(View_context& view_context) -> void
 {
     _executor.on_main();
-    view_impl::run_frame<User_exports>(
-        _receiver, _uiparams, _uiexports, view_context, _editor.get(), _actions, _tasks
+    view_impl::run_frame(
+        _meter_infos, _receiver, _uiparams, _uiexports, view_context, _editor.get(), _actions, _tasks
     );
 }
 

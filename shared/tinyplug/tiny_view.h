@@ -8,7 +8,6 @@
 #include <variant>
 
 #include "tiny_events.h"
-#include "tiny_exports.h"
 #include "tiny_queue.h"
 
 class SkCanvas; // Skia canvas
@@ -408,9 +407,10 @@ namespace view_impl {
 
 // MARK: - run_frame
 
-template<typename E, typename S, typename A0, typename A1, typename C, typename V, typename A, typename T>
+template<typename M, typename S, typename A0, typename A1, typename C, typename V, typename A, typename T>
 constexpr auto run_frame(
-    const S& _receiver, 
+    const M& _meter_infos,
+    const S& _receiver,
     A0& _uiparams, 
     A1& _uiexports, 
     const C& view_context, 
@@ -429,9 +429,9 @@ constexpr auto run_frame(
             [&](const Set_export& e) {
                 //
                 auto& uiexport = _uiexports[e.id];
-                const auto type = E::type_for(e.id);
+                const auto type = _meter_infos.policy_for(e.id);
 
-                using enum Export_type;
+                using enum Meter_policy;
                 switch (type) {
                     case peak: {
                         if (!uiexport.updated) {
@@ -457,8 +457,8 @@ constexpr auto run_frame(
     }
 
     // Adapt tagged exports to values.
-    auto export_arr = std::array<double, E::num_exports>{};
-    const auto value_tx = _uiexports | std::views::transform(&Tagged_export::value);
+    auto export_arr = std::array<double, M::num_meters>{};
+    const auto value_tx = _uiexports | std::views::transform(&Tagged_meter::value);
     std::ranges::copy(value_tx, export_arr.begin());
 
     // Create view context.

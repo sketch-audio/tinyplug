@@ -6,7 +6,8 @@
 
 #include "tinyplug/tinyplug.h"
 
-#include "param_model.h"
+#include "models/meter_model.h"
+#include "models/param_model.h"
 
 #include "vst3_adapters.h"
 #include "vst3_controller.h"
@@ -87,7 +88,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
             switch (policy) {
                 case automation: return Vst3_flags::kCanAutomate;
                 case control: return Vst3_flags::kNoFlags; // Will any hosts display a control?
-                case state: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly};
+                case hidden: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly};
                 case interface: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly};
                 default: return Vst3_flags::kNoFlags;
             }
@@ -102,7 +103,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
         parameters.addParameter(param_info);
     }
 
-    for (auto i = decltype(num_exports){}; i < num_exports; ++i) {
+    for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
         auto export_info = Steinberg::Vst::ParameterInfo{
             .id = static_cast<Steinberg::Vst::ParamID>(i + export_param_offset),
             .title = u"",
@@ -476,7 +477,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setParamNormalized(Steinberg::Vst
         _oqueue.push(Set_param{.id = tag, .value = value});
     }
     // Is it an export?
-    else if (tag >= export_param_offset && tag < export_param_offset + num_exports) {
+    else if (tag >= export_param_offset && tag < export_param_offset + num_meters) {
         const auto id = tag - export_param_offset;
         _oqueue.push(Set_export{.id = id, .value = value});
         _last_exports[id] = value;

@@ -3,13 +3,14 @@
 #include <array>
 
 #include "tinyplug/tinyplug.h"
-#include "param_model.h"
+#include "models/meter_model.h"
+#include "models/param_model.h"
 
 #include "dsp/linear_ramper.h"
 
 namespace tiny {
 
-class Dsp_kernel {
+class Plug_processor {
 public:
     // Receive the sample rate.
     // This a good time to resize some vectors.
@@ -46,6 +47,6 @@ private:
     Linear_ramper _ramper{};
 
 };
-static_assert(Some_dsp_kernel<Dsp_kernel>); // Check your interface.
+static_assert(Some_plug_processor<Plug_processor>); // Check your interface.
 
 } // namespace tiny

@@ -3,14 +3,12 @@
 #include <array>
 
 #include "tinyplug/tinyplug.h"
-#include "param_model.h"
-
-#include "dsp/latency.h"
-#include "dsp/stereo.h"
+#include "models/meter_model.h"
+#include "models/param_model.h"
 
 namespace tiny {
 
-class Dsp_kernel {
+class Plug_processor {
 public:
     // Receive the sample rate.
     // This a good time to resize some vectors.
@@ -30,7 +28,7 @@ public:
     auto process(Dsp_context& context) -> void;
 
     // The framework will check and report this to the host right after calling `reset`.
-    auto latency_samps() const -> uint32_t { return _curr->latency_samps(); }
+    auto latency_samps() const -> uint32_t { return 0; }
 
     // You can get an infinite tail by returning `std::numeric_limits<uint32_t>::max()`.
     auto tail_samps() const -> uint32_t { return 0; }
@@ -39,20 +37,12 @@ private:
 
     using User_params = Param_infos<Param_model>;
     using Param_id = Param_model::Param_id;
-    using Export_id = Param_model::Export_id;
     static constexpr auto num_params = User_params::num_params;
 
     User_params _param_infos{};
     std::array<float, num_params> _values{_param_infos.make_plain_defaults<float>()};
 
-    using Latency = Stereo<Latency>;
-    double _sr{48000};
-    Latency _low{0.5f};
-    Latency _high{5};
-    Latency* _curr{&_low};
-    bool _wants_latency_change{};
-
 };
-static_assert(Some_dsp_kernel<Dsp_kernel>); // Check your interface.
+static_assert(Some_plug_processor<Plug_processor>); // Check your interface.
 
 } // namespace tiny

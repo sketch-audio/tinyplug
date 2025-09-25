@@ -1,16 +1,16 @@
-#include "dsp_kernel.h"
+#include "plug_processor.h"
 
 #include <algorithm> // std::max
 
 namespace tiny {
 
-auto Dsp_kernel::reset(double sample_rate) -> void
+auto Plug_processor::reset(double sample_rate) -> void
 {
     _low.reset(sample_rate);
     _high.reset(sample_rate);
 }
 
-auto Dsp_kernel::handle_event(const Render_event& event) -> void
+auto Plug_processor::handle_event(const Render_event& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Set_param& e) {
@@ -37,7 +37,7 @@ auto Dsp_kernel::handle_event(const Render_event& event) -> void
     }, event);
 }
 
-auto Dsp_kernel::process(Dsp_context& context) -> void
+auto Plug_processor::process(Dsp_context& context) -> void
 {
     // You should wait until the host accepts your latency before applying the changes.
     if (_wants_latency_change) {
@@ -56,7 +56,7 @@ auto Dsp_kernel::process(Dsp_context& context) -> void
     }
 
     // Export `latency_actual` so we can see if there are discrepancies in the UI.
-    context.exports[enum_raw(Export_id::latency_actual)] = (_curr == &_low) ? float{} : float{1};
+    context.exports[enum_raw(Meter_address::latency_actual)] = (_curr == &_low) ? float{} : float{1};
 }
 
 } // namespace tiny

@@ -8,8 +8,9 @@
 #import <vector>
 #import <span>
 
-#include "dsp_kernel.h"
-#include "param_model.h"
+#include "plug_processor.h"
+#include "models/meter_model.h"
+#include "models/param_model.h"
 #include "plug_info.h"
 
 /*
@@ -127,7 +128,7 @@ public:
         _kernel->process(context);
         
         // Send exports.
-        for (auto i = decltype(num_exports){}; i < num_exports; ++i) {
+        for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
             if (context.exports[i] != _lexports[i]) {
                 const auto value = context.exports[i];
                 // TODO: - push to some outgoing queue
@@ -222,10 +223,10 @@ private:
     AUAudioFrameCount mMaxFramesToRender = 1024;
     
     using User_params = tiny::Param_infos<tiny::Param_model>;
-    using User_exports = tiny::Exports<tiny::Param_model>;
+    using User_meters = tiny::Meter_infos<tiny::Meter_model>;
 
     static constexpr auto num_params = User_params::num_params;
-    static constexpr auto num_exports = User_exports::num_exports;
+    static constexpr auto num_meters = User_meters::num_meters;
 
     static constexpr auto max_ichannels = size_t{2};
     static constexpr auto max_schannels = size_t{2};
@@ -235,7 +236,7 @@ private:
     std::array<const float*, max_ichannels> _ibuffers{};
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
-    std::array<float, num_exports> _exports{};
+    std::array<float, num_meters> _exports{};
     
     // TODO: - Use a heuristic for size.
     using Set_param_queue = tiny::Lock_free_queue<tiny::Render_event, 256>;
@@ -250,9 +251,9 @@ private:
     using Host_values = std::array<Host_value, num_params>;
     Host_values _hostvalues{_param_infos.make_host_defaults<Host_value>()};
     
-    std::array<float, num_exports> _lexports{};
+    std::array<float, num_meters> _lexports{};
     
-    std::unique_ptr<tiny::Dsp_kernel> _kernel = std::make_unique<tiny::Dsp_kernel>();
+    std::unique_ptr<tiny::Plug_processor> _kernel = std::make_unique<tiny::Plug_processor>();
     uint32_t _latency{_kernel->latency_samps()};
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;

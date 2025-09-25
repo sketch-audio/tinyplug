@@ -1,7 +1,8 @@
 #pragma once
 
 #include "tinyplug/tinyplug.h"
-#include "param_model.h"
+#include "models/meter_model.h"
+#include "models/param_model.h"
 
 namespace tiny {
 
@@ -27,7 +28,7 @@ private:
 
     using User_params = Param_infos<Param_model>;
     using Param_id = Param_model::Param_id;
-    using Export_id = Param_model::Export_id;
+    using Meter_address = Meter_model::Meter_address;
 
     User_params _params{};
     Action_queue::Receiver _actions{};

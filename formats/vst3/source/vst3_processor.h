@@ -6,8 +6,9 @@
 
 #include "public.sdk/source/vst/vstaudioeffect.h"
 
-#include "dsp_kernel.h"
-#include "param_model.h"
+#include "plug_processor.h"
+#include "models/meter_model.h"
+#include "models/param_model.h"
 
 namespace tiny {
 
@@ -66,10 +67,10 @@ private:
     };
 
     using User_params = Param_infos<Param_model>;
-    using User_exports = Exports<Param_model>;
+    using User_meters = Meter_infos<Meter_model>;
 
     static constexpr auto num_params = User_params::num_params;
-    static constexpr auto num_exports = User_exports::num_exports;
+    static constexpr auto num_meters = User_meters::num_meters;
 
     static constexpr auto max_ichannels = size_t{2};
     static constexpr auto max_schannels = size_t{2};
@@ -84,7 +85,7 @@ private:
     std::array<const float*, max_ichannels> _ibuffers{};
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
-    std::array<float, num_exports> _exports{};
+    std::array<float, num_meters> _exports{};
 
     User_params _param_infos{};
 
@@ -92,11 +93,11 @@ private:
     State_queue _queue{};
 
     std::array<Automation_point, num_params> _lpoints{};
-    std::array<double, num_exports> _lexports{};
+    std::array<double, num_meters> _lexports{};
 
     std::vector<Tagged_event> _events{}; // Some fixed size thing.
 
-    std::unique_ptr<Dsp_kernel> _kernel = std::make_unique<Dsp_kernel>();
+    std::unique_ptr<Plug_processor> _kernel = std::make_unique<Plug_processor>();
     uint32_t _latency{_kernel->latency_samps()};
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;

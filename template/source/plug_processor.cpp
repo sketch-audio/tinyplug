@@ -1,15 +1,15 @@
-#include "dsp_kernel.h"
+#include "plug_processor.h"
 
 #include <algorithm> // std::max
 
 namespace tiny {
 
-auto Dsp_kernel::reset(double sample_rate) -> void
+auto Plug_processor::reset(double sample_rate) -> void
 {
     // ...
 }
 
-auto Dsp_kernel::handle_event(const Render_event& event) -> void
+auto Plug_processor::handle_event(const Render_event& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Set_param& e) {
@@ -22,7 +22,7 @@ auto Dsp_kernel::handle_event(const Render_event& event) -> void
     }, event);
 }
 
-auto Dsp_kernel::process(Dsp_context& context) -> void
+auto Plug_processor::process(Dsp_context& context) -> void
 {
     const auto g = _values[enum_raw(Param_id::gain)];
     

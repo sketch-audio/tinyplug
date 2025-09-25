@@ -552,7 +552,7 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
     _kernel->process(context);
 
     // Write exports to meters.
-    for (size_t i = 0; i < num_exports; ++i) {
+    for (size_t i = 0; i < num_meters; ++i) {
         if (context.exports[i] != _lexports[i]) {
             // Send an output event.
             const auto value = context.exports[i];
