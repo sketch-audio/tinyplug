@@ -176,7 +176,7 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
         if (context.meters[i] != _last_meters[i]) {
             // Send export and cache.
             const auto value = context.meters[i];
-            _to_editor.push(Set_meter{.id = i, .value = value});
+            _to_editor.push(Set_meter{.address = i, .value = value});
             _last_meters[i] = value;
         }
         _meters[i] = 0; // Reset for peak meters.
@@ -366,10 +366,10 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
     // Notify kernel and view (if not an interface parameter).
     auto do_notify = [this](auto& param, auto knob_value) {
         if (param.policy != Host_policy::interface) {
-            this->_handle_user_action(Set_param{.id = param.id, .value = knob_value});
+            this->_handle_user_action(Set_param{.address = param.address, .value = knob_value});
 
             if (_view) {
-                _view->set_param(param.id, knob_value);
+                _view->set_param(param.address, knob_value);
             }
         }
     };
@@ -595,7 +595,7 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
     const auto& path = _modules[paramIndex];
 
     *info = {}; // Clear.
-    info->id = param.id;
+    info->id = param.address;
     info->flags = [policy = param.policy]() {
         using enum Host_policy;
         switch (policy) {
@@ -834,7 +834,7 @@ auto Clap_plugin::_handle_user_actions(const clap_output_events_t* out_events) -
     while (_from_ui.pop(user_action)) {
         std::visit(Inline_visitor{
             [&](const Action_start& a) {
-                const auto& param = _param_infos.param_for(a.id);
+                const auto& param = _param_infos.param_for(a.address);
                 if (wants_host_notify(param.policy)) {
                     const auto e = clap_event_param_gesture{
                         .header = {
@@ -844,13 +844,13 @@ auto Clap_plugin::_handle_user_actions(const clap_output_events_t* out_events) -
                             .type = CLAP_EVENT_PARAM_GESTURE_BEGIN,
                             .flags = {},
                         },
-                        .param_id = param.id
+                        .param_id = param.address
                     };
                     out_events->try_push(out_events, &e.header);
                 }
             },
             [&](const Set_param& a) {
-                const auto& param = _param_infos.param_for(a.id);
+                const auto& param = _param_infos.param_for(a.address);
 
                 if (wants_host_notify(param.policy)) {
                     const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
@@ -862,17 +862,17 @@ auto Clap_plugin::_handle_user_actions(const clap_output_events_t* out_events) -
                             .type = CLAP_EVENT_PARAM_VALUE,
                             .flags = {},
                         },
-                        .param_id = param.id,
+                        .param_id = param.address,
                         .value = host_value,
                     };
                     out_events->try_push(out_events, &e.header);
                 }
 
                 const auto plain_value = Value_conv::knob_to_plain(a.value, param.semantics);
-                _processor->handle_event(Set_param{param.id, plain_value});
+                _processor->handle_event(Set_param{param.address, plain_value});
             },
             [&](const Action_end& a) {
-                const auto& param = _param_infos.param_for(a.id);
+                const auto& param = _param_infos.param_for(a.address);
                 if (wants_host_notify(param.policy)) {
                     const auto e = clap_event_param_gesture{
                         .header = {
@@ -882,7 +882,7 @@ auto Clap_plugin::_handle_user_actions(const clap_output_events_t* out_events) -
                             .type = CLAP_EVENT_PARAM_GESTURE_END,
                             .flags = {},
                         },
-                        .param_id = param.id
+                        .param_id = param.address
                     };
                     out_events->try_push(out_events, &e.header);
                 }
@@ -895,9 +895,9 @@ auto Clap_plugin::_handle_user_action(const User_action& action) -> void
 {
     // Maintain host values immediately.
     if (const auto* a = std::get_if<Set_param>(&action)) {
-        const auto& param = _param_infos.param_for(a->id);
+        const auto& param = _param_infos.param_for(a->address);
         const auto host_value = Value_conv::knob_to_host(a->value, param.semantics);
-        _hostvalues[param.id].store(host_value, std::memory_order_relaxed);
+        _hostvalues[param.address].store(host_value, std::memory_order_relaxed);
     }
     [[maybe_unused]] const auto success = _from_ui.push(action);
     assert(success && "UI to processor queue full, increase queue size!");

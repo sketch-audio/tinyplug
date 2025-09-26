@@ -160,21 +160,21 @@
             if (!s) return;
             std::visit(Inline_visitor{
                 [&](const Action_start& a) {
-                    auto current = s->_kernel.getParameter(a.id);
-                    auto* auparam = [s->_parameterTree parameterWithAddress:a.id];
+                    auto current = s->_kernel.getParameter(a.address);
+                    auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
                     auto token = (__bridge AUParameterObserverToken)s->_observerTokens[@(auparam.address)];
                     [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeTouch];
                 },
                 [&](const Set_param& a) {
-                    const auto& param = s->_param_infos.param_for(a.id);
+                    const auto& param = s->_param_infos.param_for(a.address);
                     const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
-                    auto* auparam = [s->_parameterTree parameterWithAddress:a.id];
+                    auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
                     auto token = (__bridge AUParameterObserverToken)s->_observerTokens[@(auparam.address)];
                     [auparam setValue:host_value originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeValue];
                 },
                 [&](const Action_end& a) {
-                    auto current = s->_kernel.getParameter(a.id);
-                    auto* auparam = [s->_parameterTree parameterWithAddress:a.id];
+                    auto current = s->_kernel.getParameter(a.address);
+                    auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
                     auto token = (__bridge AUParameterObserverToken)s->_observerTokens[@(auparam.address)];
                     [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeRelease];
                 },
@@ -209,7 +209,7 @@
         [&](const Bool_semantics& b) {
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
-                                                                        address:spec.id
+                                                                        address:spec.address
                                                                             min:0
                                                                             max:1
                                                                             unit:kAudioUnitParameterUnit_Boolean
@@ -227,7 +227,7 @@
             }
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
-                                                                        address:spec.id
+                                                                        address:spec.address
                                                                             min:0
                                                                             max:static_cast<float>(l.items.size() - 1)
                                                                            unit:kAudioUnitParameterUnit_Indexed
@@ -241,7 +241,7 @@
         [&](const Int_semantics& i) {
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
-                                                                        address:spec.id
+                                                                        address:spec.address
                                                                             min:static_cast<float>(i.min_val)
                                                                             max:static_cast<float>(i.max_val)
                                                                            unit:kAudioUnitParameterUnit_Indexed
@@ -255,7 +255,7 @@
         [&](const Real_semantics& r) {
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
-                                                                        address:spec.id
+                                                                        address:spec.address
                                                                             min:0
                                                                             max:1
                                                                            unit:kAudioUnitParameterUnit_Generic

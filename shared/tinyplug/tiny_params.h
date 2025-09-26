@@ -405,8 +405,8 @@ struct Param_group {
     // The group name.
     const char* name{""};
 
-    // AUv3 string identifier.
-    const char* string_id{nullptr}; // Required if supporting AUv3!
+    // Required for AUv3, otherwise unused.
+    const char* string_id{nullptr};
 
     // The group nodes.
     std::vector<Param_node> nodes{};
@@ -414,16 +414,16 @@ struct Param_group {
 
 // A specification for a parameter.
 struct Param_spec {
-    // The parameter's unique identifier.
-    uint32_t id{};
+    // The parameter's unique address.
+    uint32_t address{};
 
-    // AUv3 string identifier.
-    const char* string_id{nullptr}; // Required if supporting AUv3!
+    // Required for AUv3, otherwise unused.
+    const char* string_id{nullptr};
 
     // Name.
     const char* name{""};
 
-    // Short name.
+    // Short name. (Optional)
     const char* short_name{""};
 
     // Parameter semantics.
@@ -539,12 +539,12 @@ inline auto get_knob_default(const Param_spec& spec) -> double
 
 template<typename T>
 concept Some_param_model = requires {
-    // An enum class `Param_id` with a case `num_params`
-    typename T::Param_id;
-    requires Enum<typename T::Param_id>;
-    requires std::same_as<std::underlying_type_t<typename T::Param_id>, uint32_t>;
+    // An enum class `Param_address` with a case `num_params`
+    typename T::Param_address;
+    requires Enum<typename T::Param_address>;
+    requires std::same_as<std::underlying_type_t<typename T::Param_address>, uint32_t>;
 
-    // A static function `build_tree` that returns a `Param_node<Param_id>`
+    // A static function `build_tree` that returns a `Param_node<Param_address>`
     { T::build_tree() } -> std::same_as<Param_node>;
 };
 
@@ -588,7 +588,7 @@ inline auto validate_tree(const Param_node& root, size_t num_expected) -> bool
         std::visit(Inline_visitor{
             [&](const Param_spec& spec) {
                 validate_spec(spec);
-                ids.insert(spec.id);
+                ids.insert(spec.address);
             },
             [&](const Param_group& group) {
                 for (const auto& child : group.nodes) {
@@ -655,7 +655,7 @@ template<Some_param_model User_model>
 class Param_infos {
 public:
     //
-    static constexpr auto num_params = enum_raw(User_model::Param_id::num_params);
+    static constexpr auto num_params = enum_raw(User_model::Param_address::num_params);
 
     auto tree() const -> const Param_node&
     {
@@ -704,7 +704,7 @@ public:
 
 private:
     
-    static constexpr auto id_less = [](const auto& a, const auto& b) { return a.id < b.id; };
+    static constexpr auto id_less = [](const auto& a, const auto& b) { return a.address < b.address; };
 
     Param_node _tree = []() {
         const auto t = User_model::build_tree();

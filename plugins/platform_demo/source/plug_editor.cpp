@@ -32,7 +32,7 @@ auto Plug_editor::on_gui_draw(App_state& app_state) -> void
     auto& params = processor_state.params;
     auto& meters = processor_state.meters;
 
-    const auto id = enum_raw(Param_id::gain);
+    const auto id = enum_raw(Param_address::gain);
     const auto g = static_cast<float>(params[id]);
 
     const auto& spec = _params.param_for(id);
@@ -83,12 +83,12 @@ auto Plug_editor::on_gui_draw(App_state& app_state) -> void
                 else if (interaction.modifier_keys.alt) {
                     Platform_dialogs::text_input("TinyDemo", "This is a text input dialog.", {
                         .callback = [this](auto text) {
-                            const auto& param = _params.param_for(enum_raw(Param_id::gain));
+                            const auto& param = _params.param_for(enum_raw(Param_address::gain));
                             if (const auto value = Host_formatter::format_value(text, param.semantics)) {
                                 const auto knob = Value_conv::plain_to_knob(*value, param.semantics);
-                                _actions.push(Action_start{param.id});
-                                _actions.push(Set_param{param.id, knob});
-                                _actions.push(Action_end{param.id});
+                                _actions.push(Action_start{param.address});
+                                _actions.push(Set_param{param.address, knob});
+                                _actions.push(Action_end{param.address});
                             }
                         },
                         .receiver = _task_receiver 
@@ -102,12 +102,12 @@ auto Plug_editor::on_gui_draw(App_state& app_state) -> void
             [&](const Double_click&) {
                 Platform_dialogs::text_input("TinyDemo", "This is a text input dialog.", {
                     .callback = [this](auto text) {
-                        const auto& param = _params.param_for(enum_raw(Param_id::gain));
+                        const auto& param = _params.param_for(enum_raw(Param_address::gain));
                         if (const auto value = Host_formatter::format_value(text, param.semantics)) {
                             const auto knob = Value_conv::plain_to_knob(*value, param.semantics);
-                            _actions.push(Action_start{param.id});
-                            _actions.push(Set_param{param.id, knob});
-                            _actions.push(Action_end{param.id});
+                            _actions.push(Action_start{param.address});
+                            _actions.push(Set_param{param.address, knob});
+                            _actions.push(Action_end{param.address});
                         }
                     },
                     .receiver = _task_receiver

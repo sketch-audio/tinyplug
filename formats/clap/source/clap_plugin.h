@@ -199,11 +199,11 @@ private:
                 const auto plain_value = Value_conv::host_to_plain(value_event->value, param.semantics);
                 if constexpr (on_audio_thread) {
                     // On the audio thread we can handle the event now.
-                    _processor->handle_event(Set_param{.id = id, .value = plain_value});
+                    _processor->handle_event(Set_param{.address = id, .value = plain_value});
                 }
                 else {
                     // On flush, we need to push into a queue for later.
-                    [[maybe_unused]] const auto success = _from_flush.push(Set_param{.id = id, .value = plain_value});
+                    [[maybe_unused]] const auto success = _from_flush.push(Set_param{.address = id, .value = plain_value});
                     assert(success && "Push to flush queue failed! Increase queue size.");
                 }
 
@@ -212,7 +212,7 @@ private:
 
                 // Notify UI.
                 const auto knob_value = Value_conv::host_to_knob(value_event->value, param.semantics);
-                _to_editor.push(Set_param{.id = id, .value = knob_value});
+                _to_editor.push(Set_param{.address = id, .value = knob_value});
 
                 break;
             }

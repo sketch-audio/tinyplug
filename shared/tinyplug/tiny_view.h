@@ -424,12 +424,12 @@ constexpr auto run_frame(
     while (_receiver.pop_event(event)) {
         std::visit(Inline_visitor{
             [&](const Set_param& p) {
-                _ui_params[p.id] = p.value;
+                _ui_params[p.address] = p.value;
             },
             [&](const Set_meter& e) {
                 //
-                auto& uiexport = _ui_meters[e.id];
-                const auto type = _meter_infos.policy_for(e.id);
+                auto& uiexport = _ui_meters[e.address];
+                const auto type = _meter_infos.policy_for(e.address);
 
                 using enum Meter_policy;
                 switch (type) {
@@ -477,7 +477,7 @@ constexpr auto run_frame(
     for (auto& action : _actions.actions()) {
         _receiver.action_handler(action);
         if (const auto* s = std::get_if<Set_param>(&action)) {
-            _ui_params[s->id] = s->value; // Update the local copy.
+            _ui_params[s->address] = s->value; // Update the local copy.
         }
     }
     //_actions.clear();

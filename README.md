@@ -92,9 +92,6 @@ The style actually developed over several years of writing C++ alongside Swift a
 - Most member variables are prefixed with an underscore
 
 ## TODO
-- More renaming:
-    - Want `Param_id` to `Param_address`
-    - Want `Param_spec.string_id` to `path_component` or something. (This is AUv3 only).
 - Fixed semantics (ex. -12...12 by 0.5 increments)
 - iOS view resizing lag in Logic.
 - Multitouch (Windows)
@@ -118,15 +115,13 @@ Tinyplug ships with some test plug-ins that can be useful for making sure things
 - Automation Tester
 - Gain Demo
 - Latency Demo
+- Platform demo
 ### Todo
-- Exports Demo
+- Meters Demo
 - Musical Context Demo
 - Params Demo
     - Semantics
     - Policy
-- Platform Demo
-    - Dialogs
-    - ...
 - Sidechain Demo
 
 ## Consider

@@ -14,7 +14,7 @@ Auv2_effect::Auv2_effect(AudioUnit component) : Super(component, num_inputs, num
     Globals()->UseIndexedParameters(User_params::num_params);
     for (const auto& param : params) {
         const auto def_val = get_host_default(param);
-        Globals()->SetParameter(param.id, def_val);
+        Globals()->SetParameter(param.address, def_val);
     }
 
     // 
@@ -143,7 +143,7 @@ OSStatus Auv2_effect::GetParameterList(AudioUnitScope inScope, AudioUnitParamete
     outNumParameters = num_params; // Do this first.
     if (!outParameterList) return noErr;
     const auto& params = _param_infos.presentation_specs();
-    const auto ids = params | std::views::transform([](const auto& spec) { return spec.id; });
+    const auto ids = params | std::views::transform([](const auto& spec) { return spec.address; });
     std::ranges::copy(ids, outParameterList);
 
     return noErr;
@@ -190,7 +190,7 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
 
     const auto& params = _param_infos.kernel_specs();
     const auto& param = params[inParameterID];
-    const auto* clump = find_clump_for_parameter(_clumps, param.id);
+    const auto* clump = find_clump_for_parameter(_clumps, param.address);
     const auto found_clump = clump != nullptr;
 
     std::visit(Inline_visitor{
@@ -313,11 +313,11 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
     [[maybe_unused]] const auto success = _to_processor.push({
         .offset = static_cast<int32_t>(inBufferOffsetInFrames),
-        .event = Set_param{.id = inID, .value = plain_value}
+        .event = Set_param{.address = inID, .value = plain_value}
     });
     assert(success && "Push to processor queue failed! Increase queue size.");
 
-    _to_editor.push(Set_param{.id = inID, .value = knob_value});
+    _to_editor.push(Set_param{.address = inID, .value = knob_value});
 
     return Super::SetParameter(inID, inScope, inElement, inValue, inBufferOffsetInFrames);
 }
@@ -339,11 +339,11 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
 
                 [[maybe_unused]] const auto success = _to_processor.push({
                     .offset = static_cast<int32_t>(offset),
-                    .event = Set_param{.id = event.parameter, .value = plain_value}
+                    .event = Set_param{.address = event.parameter, .value = plain_value}
                 });
                 assert(success && "Push to processor queue failed! Increase queue size.");
 
-                _to_editor.push(Set_param{.id = event.parameter, .value = knob_value});
+                _to_editor.push(Set_param{.address = event.parameter, .value = knob_value});
 
                 // Maintain host values.
                 Super::SetParameter(event.parameter, event.scope, event.element, value, offset);
@@ -363,21 +363,21 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                 // Do we need to be sending set initial?
                 [[maybe_unused]] const auto set_success = _to_processor.push({
                     .offset = offset,
-                    .event = Set_param{.id = event.parameter, .value = plain_initial}
+                    .event = Set_param{.address = event.parameter, .value = plain_initial}
                 });
                 assert(set_success && "Push to processor queue failed! Increase queue size.");
 
                 [[maybe_unused]] const auto ramp_success = _to_processor.push({
                     .offset = offset,
                     .event = Ramp_param{
-                        .id = event.parameter,
+                        .address = event.parameter,
                         .target = plain_target,
                         .dur_samples = static_cast<int32_t>(duration)
                     }
                 });
                 assert(ramp_success && "Push to processor queue failed! Increase queue size.");
 
-                _to_editor.push(Set_param{.id = event.parameter, .value = knob_target});
+                _to_editor.push(Set_param{.address = event.parameter, .value = knob_target});
 
                 // Maintain host values.
                 Super::SetParameter(event.parameter, event.scope, event.element, target, offset + duration);
@@ -516,10 +516,10 @@ OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
         const auto plain_value = Value_conv::host_to_plain(host_value, param.semantics);
         const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
 
-        [[maybe_unused]] const auto success = _to_processor.push({.offset = {}, .event = Set_param{param.id, plain_value}});
+        [[maybe_unused]] const auto success = _to_processor.push({.offset = {}, .event = Set_param{param.address, plain_value}});
         assert(success && "Push to processor queue failed! Increase queue size.");
 
-        _to_editor.push(Set_param{param.id, knob_value});
+        _to_editor.push(Set_param{param.address, knob_value});
     }
 
     // Read editor state.
@@ -798,7 +798,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
         if (context.meters[i] != _last_meters[i]) {
             // Send an output event.
             const auto value = context.meters[i];
-            _to_editor.push(Set_meter{.id = i, .value = value});
+            _to_editor.push(Set_meter{.address = i, .value = value});
 
             // Cache for next time.
             _last_meters[i] = value;

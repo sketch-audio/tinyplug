@@ -31,7 +31,7 @@ auto Plug_editor::on_gui_draw(App_state& app_state) -> void
     auto& params = processor_state.params;
     auto& meters = processor_state.meters;
 
-    const auto id = enum_raw(Param_id::gain);
+    const auto id = enum_raw(Param_address::gain);
     const auto g = static_cast<float>(params[id]);
 
     // Get incremented parameter value from a drag.

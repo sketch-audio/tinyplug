@@ -15,13 +15,13 @@ auto Plug_processor::handle_event(const Render_event& event) -> void
     std::visit(Inline_visitor{
         [this](const Set_param& e) {
             // Identify that we want a latency change.
-            if (e.id == enum_raw(Param_id::latency_mode) && e.value != _values[e.id]) {
+            if (e.address == enum_raw(Param_address::latency_mode) && e.value != _values[e.address]) {
                 _wants_latency_change = true;
             }
-            _values[e.id] = static_cast<float>(e.value);
+            _values[e.address] = static_cast<float>(e.value);
         },
         [this](const Ramp_param& e) {
-            _values[e.id] = static_cast<float>(e.target); // You might want to handle this differently.
+            _values[e.address] = static_cast<float>(e.target); // You might want to handle this differently.
         },
         [this](const Accepted_latency& e) {
             if (e.samples == _low.latency_samps()) {

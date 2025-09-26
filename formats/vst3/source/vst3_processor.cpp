@@ -53,7 +53,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* co
 
     // Get knob defaults for automation points.
     for (const auto& param : _param_infos.kernel_specs()) {
-        _last_points[param.id] = {.offset = -1, .value = get_knob_default(param)};
+        _last_points[param.address] = {.offset = -1, .value = get_knob_default(param)};
     }
 
     return Steinberg::kResultOk;
@@ -321,7 +321,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* stat
     // Notify kernel (if not an interface parameter).
     auto do_notify = [this](const auto& param, auto plain_value) {
         if (param.policy != Host_policy::interface) {
-            _queue.push({param.id, plain_value});
+            _queue.push({param.address, plain_value});
         }
     };
 
@@ -458,7 +458,7 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
             if (ramp_dur <= 1) {
                 _events.push_back({
                     .event = Set_param{
-                        .id = id,
+                        .address = id,
                         .value = Value_conv::knob_to_plain(value, param.semantics)
                     },
                     .offset = std::max(previous.offset, {}),
@@ -468,7 +468,7 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
             else {
                 _events.push_back({
                     .event = Ramp_param{
-                        .id = id,
+                        .address = id,
                         .target = Value_conv::knob_to_plain(value, param.semantics),
                         .dur_samples = ramp_dur
                     },

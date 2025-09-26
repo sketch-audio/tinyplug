@@ -13,10 +13,10 @@ auto Plug_processor::handle_event(const Render_event& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Set_param& e) {
-            _values[e.id] = static_cast<float>(e.value);
+            _values[e.address] = static_cast<float>(e.value);
         },
         [this](const Ramp_param& e) {
-            _values[e.id] = static_cast<float>(e.target); // You might want to handle this differently.
+            _values[e.address] = static_cast<float>(e.target); // You might want to handle this differently.
         },
         [this](const auto&) { /* Handle other events as needed. */ }
     }, event);
@@ -24,7 +24,7 @@ auto Plug_processor::handle_event(const Render_event& event) -> void
 
 auto Plug_processor::process(Dsp_context& context) -> void
 {
-    const auto g = _values[enum_raw(Param_id::gain)];
+    const auto g = _values[enum_raw(Param_address::gain)];
     
     for (size_t channel = 0; channel < context.ibuffers.size(); ++channel) {
         for (size_t frame = 0; frame < context.num_frames; ++frame) {

@@ -31,7 +31,7 @@ auto Plug_editor::on_gui_draw(App_state& app_state) -> void
     auto& params = processor_state.params;
     auto& meters = processor_state.meters;
 
-    const auto id = enum_raw(Param_id::latency_mode);
+    const auto id = enum_raw(Param_address::latency_mode);
     const auto curr = params[id];
 
     for (auto& pointer : interaction.pointers) {

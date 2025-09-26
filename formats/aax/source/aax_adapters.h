@@ -109,7 +109,7 @@ inline auto tree_to_aax_ids(const Param_node& root) -> std::vector<std::string>
     const auto visit = [&](const Param_node& node, const auto& self) -> void {
         std::visit(Inline_visitor{
             [&](const Param_spec& spec) {
-                if (const auto aax_id = tiny_id_to_aax(spec.id)) {
+                if (const auto aax_id = tiny_id_to_aax(spec.address)) {
                     result.push_back(*aax_id);
                 }
             },

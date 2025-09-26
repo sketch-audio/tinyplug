@@ -55,8 +55,8 @@ auto Aax_gui::CreateViewContainer() -> void
         .action_handler = [this, view, params](auto& action) {
             std::visit(Inline_visitor{
                 [&](const Action_start& a) {
-                    _gestured.insert(a.id);
-                    if (const auto aax_id = tiny_id_to_aax(a.id)) {
+                    _gestured.insert(a.address);
+                    if (const auto aax_id = tiny_id_to_aax(a.address)) {
                         const auto* id_cstr = (*aax_id).c_str();
                         view->HandleParameterMouseDown(id_cstr, 0);
                         AAX_IParameter* param = nullptr;
@@ -66,7 +66,7 @@ auto Aax_gui::CreateViewContainer() -> void
                     }
                 },
                 [&](const Set_param& a) {
-                    if (const auto aax_id = tiny_id_to_aax(a.id)) {
+                    if (const auto aax_id = tiny_id_to_aax(a.address)) {
                         const auto* id_cstr = (*aax_id).c_str();
                         view->HandleParameterMouseDrag(id_cstr, 0);
                         AAX_IParameter* param = nullptr;
@@ -79,7 +79,7 @@ auto Aax_gui::CreateViewContainer() -> void
                     }
                 },
                 [&](const Action_end& a) {
-                    if (const auto aax_id = tiny_id_to_aax(a.id)) {
+                    if (const auto aax_id = tiny_id_to_aax(a.address)) {
                         const auto* id_cstr = (*aax_id).c_str();
                         view->HandleParameterMouseUp(id_cstr, 0);
                         AAX_IParameter* param = nullptr;
@@ -87,7 +87,7 @@ auto Aax_gui::CreateViewContainer() -> void
                             param->Release();
                         };
                     }
-                    _gestured.erase(a.id);
+                    _gestured.erase(a.address);
                 },
             }, action);
         }

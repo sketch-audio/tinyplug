@@ -91,7 +91,7 @@ inline auto tree_to_clump_map(const Param_node& root) -> Clump_map
                         if (inserted) ++next_id;
                         return it->second;
                     }();
-                    result[spec.id] = {clump_id, path};
+                    result[spec.address] = {clump_id, path};
                 },
                 [&](const Param_group& group) {
                     const auto new_path = path.empty() ? std::string{group.name} : path + "/" + group.name;

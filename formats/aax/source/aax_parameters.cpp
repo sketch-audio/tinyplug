@@ -452,15 +452,15 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
             auto i_value = int32_t{};
             auto b_value = bool{};
             if (aax_param->GetValueAsDouble(&d_value)) {
-                _processor->handle_event(Set_param{.id = *tiny_id, .value = d_value});
+                _processor->handle_event(Set_param{.address = *tiny_id, .value = d_value});
             }
             else if (aax_param->GetValueAsInt32(&i_value)) {
                 d_value = static_cast<double>(i_value);
-                _processor->handle_event(Set_param{.id = *tiny_id, .value = d_value});
+                _processor->handle_event(Set_param{.address = *tiny_id, .value = d_value});
             }
             else if (aax_param->GetValueAsBool(&b_value)) {
                 d_value = b_value ? 1 : 0;
-                _processor->handle_event(Set_param{.id = *tiny_id, .value = d_value});
+                _processor->handle_event(Set_param{.address = *tiny_id, .value = d_value});
             }
         }
     }
@@ -470,9 +470,9 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
     while (_to_processor.pop(action)) {
         std::visit(Inline_visitor{
             [&](const Set_param& p) {
-                const auto param = _param_infos.param_for(p.id);
+                const auto param = _param_infos.param_for(p.address);
                 const auto plain_value = Value_conv::knob_to_plain(p.value, param.semantics);
-                _processor->handle_event(Set_param{.id = p.id, .value = plain_value});
+                _processor->handle_event(Set_param{.address = p.address, .value = plain_value});
             },
             [](const auto&) {}
         }, action);
@@ -560,7 +560,7 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
         if (context.meters[i] != _last_meters[i]) {
             // Send an output event.
             const auto value = context.meters[i];
-            _to_editor.push(Set_meter{.id = static_cast<uint32_t>(i), .value = value});
+            _to_editor.push(Set_meter{.address = static_cast<uint32_t>(i), .value = value});
 
             // Cache for next time.
             _last_meters[i] = value;

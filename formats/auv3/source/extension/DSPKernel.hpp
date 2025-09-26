@@ -51,7 +51,7 @@ public:
         const auto& spec = _param_infos.param_for(addr);
         const auto plain = tiny::Value_conv::host_to_plain(value, spec.semantics);
         [[maybe_unused]] const auto success = _param_queue.push(tiny::Set_param{
-            .id = addr,
+            .address = addr,
             .value = plain
         });
         assert(success && "Param queue push failed. Increase queue size!");
@@ -132,7 +132,7 @@ public:
         for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
             if (context.meters[i] != _last_meters[i]) {
                 const auto value = context.meters[i];
-                _to_editor.push(tiny::Set_meter{.id = i, .value = value});
+                _to_editor.push(tiny::Set_meter{.address = i, .value = value});
                 _last_meters[i] = value;
             }
             _meters[i] = 0; // Reset for peak meters.
@@ -157,8 +157,8 @@ public:
                 const auto address = static_cast<uint32_t>(event->parameter.parameterAddress);
                 const auto& spec = _param_infos.param_for(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
-                _processor->handle_event(tiny::Set_param{.id = address, .value = plain});
-                _to_editor.push(tiny::Set_param{.id = address, .value = plain});
+                _processor->handle_event(tiny::Set_param{.address = address, .value = plain});
+                _to_editor.push(tiny::Set_param{.address = address, .value = plain});
                 break;
             }
             case AURenderEventParameterRamp: {
@@ -166,8 +166,8 @@ public:
                 const auto dur_samples = static_cast<int32_t>(event->parameter.rampDurationSampleFrames);
                 const auto& spec = _param_infos.param_for(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
-                _processor->handle_event(tiny::Ramp_param{.id = address, .target = plain, .dur_samples = dur_samples});
-                _to_editor.push(tiny::Set_param{.id = address, .value = plain});
+                _processor->handle_event(tiny::Ramp_param{.address = address, .target = plain, .dur_samples = dur_samples});
+                _to_editor.push(tiny::Set_param{.address = address, .value = plain});
                 break;
             }
                 
@@ -206,7 +206,7 @@ public:
     
     auto onHostUpdated(AUParameterAddress address, AUValue value) -> void
     {
-        _to_editor.push(tiny::Set_param{.id = static_cast<uint32_t>(address), .value = value});
+        _to_editor.push(tiny::Set_param{.address = static_cast<uint32_t>(address), .value = value});
     }
     
 private:

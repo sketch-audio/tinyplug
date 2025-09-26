@@ -8,7 +8,7 @@ struct Param_model {
     // This is where you enumerate your parameter ids.
     // You can use the raw values to index into arrays and vectors.
     // Once you ship a plug-in you should only add ids, not rearrange or remove!
-    enum class Param_id : uint32_t {
+    enum class Param_address : uint32_t {
         latency_mode = 0,
         num_params
     };
@@ -19,10 +19,10 @@ struct Param_model {
     // You can always hide a parameter by marking its policy as `hidden` or `interface`. 
     static auto build_tree() -> Param_node
     {
-        using enum Param_id;
+        using enum Param_address;
         return Param_group{.nodes = {
             Param_spec{
-                .id = enum_raw(latency_mode),
+                .address = enum_raw(latency_mode),
                 .string_id = "latency",
                 .name = "Latency",
                 .semantics = List_semantics{{"Low", "High"}},

@@ -73,7 +73,7 @@ inline auto tree_to_units(const Param_node& root) -> Flattened_units
                     std::visit(Inline_visitor{
                         [&](const Param_spec& spec) {
                             result.param_to_unit.push_back(Param_unit{
-                                .param_id = spec.id,
+                                .param_id = spec.address,
                                 .unit_id = this_unit_id
                             });
                         },

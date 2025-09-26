@@ -27,7 +27,7 @@ public:
 private:
 
     using User_params = Param_infos<Param_model>;
-    using Param_id = Param_model::Param_id;
+    using Param_address = Param_model::Param_address;
     using Meter_address = Meter_model::Meter_address;
 
     User_params _params{};

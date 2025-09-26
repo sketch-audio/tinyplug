@@ -45,7 +45,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
         auto param_info = std::visit(Inline_visitor{
             [&](const Bool_semantics&) {
                 return Steinberg::Vst::ParameterInfo{
-                    .id = static_cast<Steinberg::Vst::ParamID>(param.id),
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.address),
                     .stepCount = 1,
                     .defaultNormalizedValue = get_knob_default(param),
                     .unitId = unit_id.unit_id,
@@ -54,7 +54,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
             },
             [&](const List_semantics& l) {
                 return Steinberg::Vst::ParameterInfo{
-                    .id = static_cast<Steinberg::Vst::ParamID>(param.id),
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.address),
                     .stepCount = static_cast<int32_t>(l.items.size() - 1),
                     .defaultNormalizedValue = get_knob_default(param),
                     .unitId = unit_id.unit_id,
@@ -63,7 +63,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
             },
             [&](const Int_semantics& i) {
                 return Steinberg::Vst::ParameterInfo{
-                    .id = static_cast<Steinberg::Vst::ParamID>(param.id),
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.address),
                     .stepCount = i.max_val - i.min_val,
                     .defaultNormalizedValue = get_knob_default(param),
                     .unitId = unit_id.unit_id,
@@ -72,7 +72,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
             },
             [&](const Real_semantics&) {
                 return Steinberg::Vst::ParameterInfo{
-                    .id = static_cast<Steinberg::Vst::ParamID>(param.id),
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.address),
                     .stepCount = 0,
                     .defaultNormalizedValue = get_knob_default(param),
                     .unitId = unit_id.unit_id,
@@ -166,7 +166,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setComponentState(Steinberg::IBSt
     // Notify view (if not an interface parameter).
     auto do_notify = [this](auto& param, auto knob_value) {
         if (param.policy != Host_policy::interface) {
-            setParamNormalized(param.id, knob_value);
+            setParamNormalized(param.address, knob_value);
         }
     };
 
@@ -474,12 +474,12 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setParamNormalized(Steinberg::Vst
 
     // Is it a parameter?
     if (tag < num_params) {
-        _to_editor.push(Set_param{.id = tag, .value = value});
+        _to_editor.push(Set_param{.address = tag, .value = value});
     }
     // Is it an export?
     else if (tag >= export_param_offset && tag < export_param_offset + num_meters) {
         const auto id = tag - export_param_offset;
-        _to_editor.push(Set_meter{.id = id, .value = value});
+        _to_editor.push(Set_meter{.address = id, .value = value});
         _last_meters[id] = value;
     }
     // Is it a latency change?
@@ -515,17 +515,17 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
             .action_handler = [this](auto& a) {
                 std::visit(Inline_visitor{
                     [this](const Action_start& s) {
-                        beginEdit(s.id);
-                        _gestured.insert(s.id);
+                        beginEdit(s.address);
+                        _gestured.insert(s.address);
                     },
                     [this](const Set_param& s) {
-                        if (setParamNormalized(s.id, s.value) == Steinberg::kResultTrue) {
-                            performEdit(s.id, getParamNormalized(s.id));
+                        if (setParamNormalized(s.address, s.value) == Steinberg::kResultTrue) {
+                            performEdit(s.address, getParamNormalized(s.address));
                         }
                     },
                     [this](const Action_end& s) {
-                        endEdit(s.id);
-                        _gestured.erase(s.id);
+                        endEdit(s.address);
+                        _gestured.erase(s.address);
                     },
             }, a);
             }
@@ -534,7 +534,7 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
         // A workaround for now, push all exports into the queue.
         // This is so we can get correct values on first appearance.
         enumerate<uint32_t>(_last_meters, [this](auto i, const auto& e) {
-            _to_editor.push(Set_meter{.id = i, .value = e});
+            _to_editor.push(Set_meter{.address = i, .value = e});
         });
 
         return new Vst3_view(receiver, _editor, this);

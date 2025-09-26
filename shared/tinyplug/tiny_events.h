@@ -8,12 +8,12 @@
 namespace tiny {
 
 struct Set_param {
-    uint32_t id{};
+    uint32_t address{};
     double value{};
 };
 
 struct Ramp_param {
-    uint32_t id{};
+    uint32_t address{};
     double target{};
     int32_t dur_samples{};
 };
@@ -34,14 +34,14 @@ struct Tagged_event {
 // MARK: - UI events
 
 struct Set_meter {
-    uint32_t id{};
+    uint32_t address{};
     double value{};
 };
 
 using Ui_event = std::variant<Set_param, Set_meter>;
 
-struct Action_start { uint32_t id{}; };
-struct Action_end { uint32_t id{}; };
+struct Action_start { uint32_t address{}; };
+struct Action_end { uint32_t address{}; };
 
 using User_action = std::variant<Action_start, Set_param, Action_end>;
 

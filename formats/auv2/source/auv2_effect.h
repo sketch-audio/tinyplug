@@ -172,33 +172,33 @@ private:
                     auto event = AudioUnitEvent{};
                     event.mEventType = kAudioUnitEvent_BeginParameterChangeGesture;
                     event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                    event.mArgument.mParameter.mParameterID = a.id;
+                    event.mArgument.mParameter.mParameterID = a.address;
                     event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
                     event.mArgument.mParameter.mElement = 0;
                     AUEventListenerNotify(NULL, NULL, &event);
                 },
                 [&](const Set_param& a) {
                     // Notify host
-                    const auto& param = _param_infos.param_for(a.id);
+                    const auto& param = _param_infos.param_for(a.address);
                     const auto plain_value = Value_conv::knob_to_plain(a.value, param.semantics);
                     const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
 
-                    Globals()->SetParameter(a.id, host_value);
+                    Globals()->SetParameter(a.address, host_value);
                     auto event = AudioUnitEvent{};
                     event.mEventType = kAudioUnitEvent_ParameterValueChange;
                     event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                    event.mArgument.mParameter.mParameterID = a.id;
+                    event.mArgument.mParameter.mParameterID = a.address;
                     event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
                     event.mArgument.mParameter.mElement = 0;
                     AUEventListenerNotify(NULL, NULL, &event);
-                    [[maybe_unused]] const auto success = _to_processor.push({Set_param{a.id, plain_value}, 0});
+                    [[maybe_unused]] const auto success = _to_processor.push({Set_param{a.address, plain_value}, 0});
                     assert(success && "Push to processor queue failed! Increase queue size.");
                 },
                 [&](const Action_end& a) {
                     auto event = AudioUnitEvent{};
                     event.mEventType = kAudioUnitEvent_EndParameterChangeGesture;
                     event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                    event.mArgument.mParameter.mParameterID = a.id;
+                    event.mArgument.mParameter.mParameterID = a.address;
                     event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
                     event.mArgument.mParameter.mElement = 0;
                     AUEventListenerNotify(NULL, NULL, &event);
