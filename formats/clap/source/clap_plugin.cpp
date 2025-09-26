@@ -499,7 +499,7 @@ bool Clap_plugin::audioPortsInfo(uint32_t index, bool isInput, clap_audio_port_i
     info->id = index;
     std::strncpy(info->name, port_name, CLAP_NAME_SIZE);
     info->flags = is_main ? CLAP_AUDIO_PORT_IS_MAIN : uint32_t{};
-    info->channel_count = channel_count; // 
+    info->channel_count = static_cast<uint32_t>(channel_count); // 
     info->port_type = port_type;
     info->in_place_pair = CLAP_INVALID_ID;
 
