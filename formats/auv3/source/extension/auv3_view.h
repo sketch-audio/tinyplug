@@ -21,7 +21,7 @@ public:
     auto on_show() -> void
     {
         // Update the ui params
-        _uiparams = make_array_by_indices<double, num_params>(
+        _ui_params = make_array_by_indices<double, num_params>(
             [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
         );
 
@@ -70,8 +70,8 @@ private:
     std::unique_ptr<Platform_view> _platform_view{nullptr};
     std::shared_ptr<Plug_editor> _editor{nullptr};
 
-    std::array<Tagged_meter, num_meters> _uiexports{};
-    std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults<double>()};
+    std::array<Tagged_meter, num_meters> _ui_meters{};
+    std::array<double, num_params> _ui_params{_param_infos.make_knob_defaults<double>()};
 
 };
 

@@ -13,7 +13,7 @@ auto Plug_editor::on_gui_show(const View_connection& connection) -> void
 
 auto Plug_editor::on_gui_draw(App_state& app_state) -> void
 {
-    auto& params_state = app_state.params_state;
+    auto& processor_state = app_state.processor_state;
     auto& view_context = app_state.view_context;
 
     auto& interaction = view_context.interaction;
@@ -28,8 +28,8 @@ auto Plug_editor::on_gui_draw(App_state& app_state) -> void
     };
 
     // Get param, export values.
-    auto& params = params_state.params;
-    auto& exports = params_state.exports;
+    auto& params = processor_state.params;
+    auto& meters = processor_state.meters;
 
     const auto id = enum_raw(Param_id::latency_mode);
     const auto curr = params[id];
@@ -49,7 +49,7 @@ auto Plug_editor::on_gui_draw(App_state& app_state) -> void
     // Draw background.
     auto paint = SkPaint{};
     paint.setColor(curr == 0 ? SK_ColorGREEN : SK_ColorYELLOW);
-    if (curr != exports[enum_raw(Meter_address::latency_actual)]) {
+    if (curr != meters[enum_raw(Meter_address::latency_actual)]) {
         paint.setColor(SK_ColorRED);
     }
 

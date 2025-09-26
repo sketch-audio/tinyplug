@@ -28,8 +28,8 @@ public:
         mSampleRate = inSampleRate;
         mInputChannelCount = inputChannelCount;
         mOutputChannelCount = outputChannelCount;
-        _kernel->reset(mSampleRate);
-        _latency = _kernel->latency_samps();
+        _processor->reset(mSampleRate);
+        _latency = _processor->latency_samps();
     }
     
     void deInitialize() {
@@ -97,13 +97,13 @@ public:
         // Handle set_param events.
         auto event = tiny::Render_event{};
         while(_param_queue.pop(event)) {
-            _kernel->handle_event(event);
+            _processor->handle_event(event);
         }
         
         const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
         if (accepted_latency) {
-            _kernel->handle_event(tiny::Accepted_latency{*accepted_latency});
-            assert(_kernel->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+            _processor->handle_event(tiny::Accepted_latency{*accepted_latency});
+            assert(_processor->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
         }
         
         if (mBypassed) {
@@ -114,7 +114,7 @@ public:
             return;
         }
         
-        auto context = tiny::Dsp_context{.exports = _exports, .propose_latency = {}};
+        auto context = tiny::Dsp_context{.meters = _meters, .propose_latency = {}};
         context.musical_context = resolve_musical_context(frameCount);
         
         assert(inputBuffers.size() == static_cast<size_t>(mInputChannelCount));
@@ -126,16 +126,16 @@ public:
         context.sbuffers = sidechainBuffers;
         context.num_frames = frameCount;
         
-        _kernel->process(context);
+        _processor->process(context);
         
         // Send exports.
         for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
-            if (context.exports[i] != _lexports[i]) {
-                const auto value = context.exports[i];
-                _to_editor.push(tiny::Set_export{.id = i, .value = value});
-                _lexports[i] = value;
+            if (context.meters[i] != _last_meters[i]) {
+                const auto value = context.meters[i];
+                _to_editor.push(tiny::Set_meter{.id = i, .value = value});
+                _last_meters[i] = value;
             }
-            _exports[i] = 0; // Reset for peak meters.
+            _meters[i] = 0; // Reset for peak meters.
         }
 
         // Has the kernel proposed a new latency?
@@ -144,7 +144,7 @@ public:
             _pending_latency.store(*proposed_latency, std::memory_order_release);
         }
 
-//        const auto tail = _kernel->tail_samps();
+//        const auto tail = _processor->tail_samps();
 //        if (tail != _tail) {
 //            // tail changed
 //        }
@@ -157,7 +157,7 @@ public:
                 const auto address = static_cast<uint32_t>(event->parameter.parameterAddress);
                 const auto& spec = _param_infos.param_for(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
-                _kernel->handle_event(tiny::Set_param{.id = address, .value = plain});
+                _processor->handle_event(tiny::Set_param{.id = address, .value = plain});
                 _to_editor.push(tiny::Set_param{.id = address, .value = plain});
                 break;
             }
@@ -166,7 +166,7 @@ public:
                 const auto dur_samples = static_cast<int32_t>(event->parameter.rampDurationSampleFrames);
                 const auto& spec = _param_infos.param_for(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
-                _kernel->handle_event(tiny::Ramp_param{.id = address, .target = plain, .dur_samples = dur_samples});
+                _processor->handle_event(tiny::Ramp_param{.id = address, .target = plain, .dur_samples = dur_samples});
                 _to_editor.push(tiny::Set_param{.id = address, .value = plain});
                 break;
             }
@@ -196,7 +196,7 @@ public:
     
     auto tail_secs() -> double
     {
-        return _kernel->tail_samps() / mSampleRate;
+        return _processor->tail_samps() / mSampleRate;
     }
     
     auto pop_event(tiny::Ui_event& event) -> bool
@@ -236,7 +236,7 @@ private:
     std::array<const float*, max_ichannels> _ibuffers{};
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
-    std::array<float, num_meters> _exports{};
+    std::array<float, num_meters> _meters{};
     
     static constexpr auto param_queue_min_size = 2 * num_params + 1;
     using Param_queue = tiny::Lock_free_queue<tiny::Render_event, param_queue_min_size>;
@@ -253,10 +253,10 @@ private:
     using Host_values = std::array<Host_value, num_params>;
     Host_values _hostvalues{_param_infos.make_host_defaults<Host_value>()};
     
-    std::array<float, num_meters> _lexports{};
+    std::array<float, num_meters> _last_meters{};
     
-    std::unique_ptr<tiny::Plug_processor> _kernel = std::make_unique<tiny::Plug_processor>();
-    uint32_t _latency{_kernel->latency_samps()};
+    std::unique_ptr<tiny::Plug_processor> _processor = std::make_unique<tiny::Plug_processor>();
+    uint32_t _latency{_processor->latency_samps()};
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);

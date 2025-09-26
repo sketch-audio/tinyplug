@@ -13,7 +13,7 @@ auto Plug_editor::on_gui_show(const View_connection& connection) -> void
 
 auto Plug_editor::on_gui_draw(App_state& app_state) -> void
 {
-    auto& params_state = app_state.params_state;
+    auto& processor_state = app_state.processor_state;
     auto& view_context = app_state.view_context;
 
     auto* canvas = view_context.canvas;
@@ -27,7 +27,7 @@ auto Plug_editor::on_gui_draw(App_state& app_state) -> void
     };
 
     // Get param values.
-    auto& params = params_state.params;
+    auto& params = processor_state.params;
 
     const auto id = enum_raw(Param_id::gain);
     const auto g = static_cast<float>(params[id]);

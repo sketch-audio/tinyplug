@@ -53,7 +53,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* co
 
     // Get knob defaults for automation points.
     for (const auto& param : _param_infos.kernel_specs()) {
-        _lpoints[param.id] = {.offset = -1, .value = get_knob_default(param)};
+        _last_points[param.id] = {.offset = -1, .value = get_knob_default(param)};
     }
 
     return Steinberg::kResultOk;
@@ -86,8 +86,8 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setActive(Steinberg::TBool state)
 Steinberg::tresult PLUGIN_API Vst3_processor::setupProcessing(Steinberg::Vst::ProcessSetup& newSetup)
 {
     // Called before any processing.
-    _kernel->reset(newSetup.sampleRate);
-    _latency = _kernel->latency_samps();
+    _processor->reset(newSetup.sampleRate);
+    _latency = _processor->latency_samps();
     return Steinberg::Vst::AudioEffect::setupProcessing(newSetup);
 }
 
@@ -156,14 +156,14 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
 {
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
-        _kernel->handle_event(Accepted_latency{*accepted_latency});
-        assert(_kernel->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+        _processor->handle_event(Accepted_latency{*accepted_latency});
+        assert(_processor->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
     }
 
     // Process events in state queue.
     auto state_event = Set_param{};
     while (_queue.pop(state_event)) {
-        _kernel->handle_event(state_event);
+        _processor->handle_event(state_event);
     }
 
     _events.clear(); // Events only valid for this render cycle.
@@ -185,8 +185,8 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     };
 
     // Create the context.
-    _exports.fill(0);
-    auto context = Dsp_context{.exports = _exports};
+    _meters.fill(0);
+    auto context = Dsp_context{.meters = _meters};
 
     // So we can process with an offset.
     auto do_process = [this, &data, &context](size_t num_frames, size_t offset) {
@@ -240,7 +240,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
         context.sbuffers = {_sbuffers.begin(), _schannels};
         context.num_frames = num_frames;
 
-        _kernel->process(context);
+        _processor->process(context);
     };
 
     // Do process loop.
@@ -265,7 +265,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
         }
 
         do {
-            _kernel->handle_event(event->event);
+            _processor->handle_event(event->event);
             next_event();
         } while (event && event->offset <= now);
     }
@@ -279,9 +279,9 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
 
     // Send exports as output parameter changes.
     for (size_t i = 0; i < num_meters; ++i) {
-        if (context.exports[i] != _lexports[i]) {
-            add_output_event(export_param_offset + static_cast<int32_t>(i), context.exports[i]);
-            _lexports[i] = context.exports[i];
+        if (context.meters[i] != _last_meters[i]) {
+            add_output_event(export_param_offset + static_cast<int32_t>(i), context.meters[i]);
+            _last_meters[i] = context.meters[i];
         }
     }
 
@@ -386,7 +386,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* stat
     }
 
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
-        const auto& lpoint = _lpoints[i]; // Grab value from last automation points.
+        const auto& lpoint = _last_points[i]; // Grab value from last automation points.
         const auto knob_value = lpoint.value;
         if (!streamer.writeFloat(knob_value)) {
             return Steinberg::kResultFalse;
@@ -407,7 +407,7 @@ Steinberg::uint32 PLUGIN_API Vst3_processor::getTailSamples()
 {
     // Resolve to Steinberg's named constants.
     using namespace Steinberg::Vst;
-    const auto tail = _kernel->tail_samps();
+    const auto tail = _processor->tail_samps();
     const auto inf_tail = std::numeric_limits<uint32_t>::max();
     return tail == 0 ? kNoTail : (tail == inf_tail ? kInfiniteTail : tail);
 }
@@ -440,7 +440,7 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
 
         const auto point_count = queue.getPointCount();
 
-        auto& previous = _lpoints[id];
+        auto& previous = _last_points[id];
 
         for (auto point_idx = decltype(point_count){}; point_idx < point_count; ++point_idx) {
             auto value = Steinberg::Vst::ParamValue{};

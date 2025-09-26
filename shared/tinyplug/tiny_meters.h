@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cassert>
+
 #include "tiny_utils.h"
 
 namespace tiny {

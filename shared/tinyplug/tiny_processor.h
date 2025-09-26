@@ -44,7 +44,7 @@ struct Dsp_context {
     std::span<const float*> sbuffers{};
     std::span<float*> obuffers{};
     size_t num_frames{};
-    std::span<float> exports{};
+    std::span<float> meters{};
     std::optional<uint32_t> propose_latency{}; // samples.
 };
 
@@ -54,6 +54,7 @@ concept Some_plug_processor = requires(T t) {
     { t.handle_event(std::declval<const Render_event&>(/*event*/)) } -> std::same_as<void>;
     { t.process(std::declval<Dsp_context&>(/*context*/)) } -> std::same_as<void>;
     { t.latency_samps() } -> std::same_as<uint32_t>;
+    { t.tail_samps() } -> std::same_as<uint32_t>;
 };
 
 }

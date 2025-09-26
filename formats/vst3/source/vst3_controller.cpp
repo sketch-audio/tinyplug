@@ -479,8 +479,8 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setParamNormalized(Steinberg::Vst
     // Is it an export?
     else if (tag >= export_param_offset && tag < export_param_offset + num_meters) {
         const auto id = tag - export_param_offset;
-        _to_editor.push(Set_export{.id = id, .value = value});
-        _last_exports[id] = value;
+        _to_editor.push(Set_meter{.id = id, .value = value});
+        _last_meters[id] = value;
     }
     // Is it a latency change?
     else if (tag == latency_param_id) {
@@ -533,8 +533,8 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
 
         // A workaround for now, push all exports into the queue.
         // This is so we can get correct values on first appearance.
-        enumerate<uint32_t>(_last_exports, [this](auto i, const auto& e) {
-            _to_editor.push(Set_export{.id = i, .value = e});
+        enumerate<uint32_t>(_last_meters, [this](auto i, const auto& e) {
+            _to_editor.push(Set_meter{.id = i, .value = e});
         });
 
         return new Vst3_view(receiver, _editor, this);

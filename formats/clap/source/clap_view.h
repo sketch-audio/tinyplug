@@ -34,7 +34,7 @@ public:
     // When we pull the CLAP kernel back into the plug-in, we should be able to get rid of this.
     auto set_param(uint32_t id, double knob_value) -> void
     {
-        _uiparams[id] = knob_value;
+        _ui_params[id] = knob_value;
     }
 
 private:
@@ -59,8 +59,8 @@ private:
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
 
-    std::array<Tagged_meter, num_meters> _uiexports{};
-    std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults<double>()};
+    std::array<Tagged_meter, num_meters> _ui_meters{};
+    std::array<double, num_params> _ui_params{_param_infos.make_knob_defaults<double>()};
 
 };
 

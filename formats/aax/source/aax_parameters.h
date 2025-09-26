@@ -40,15 +40,15 @@ public:
 
     void RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_t channelCount, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues) override;
 
-    auto pop_export(Ui_event& event) -> bool
+    auto pop_meter(Ui_event& event) -> bool
     {
         return _to_editor.pop(event);
     }
 
-    auto dump_exports() -> void
+    auto dump_meters() -> void
     {
-        enumerate<uint32_t>(_lexports, [this](auto i, const auto& e) {
-            _to_editor.push(Set_export{i, e});
+        enumerate<uint32_t>(_last_meters, [this](auto i, const auto& e) {
+            _to_editor.push(Set_meter{i, e});
         });
     }
 
@@ -91,8 +91,8 @@ private:
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
     
-    std::array<float, num_meters> _exports{};
-    std::array<double, num_meters> _lexports{};
+    std::array<float, num_meters> _meters{};
+    std::array<double, num_meters> _last_meters{};
 
     static constexpr auto to_processor_size = 2 * num_params + 1;
     using To_processor_queue = Lock_free_queue<User_action, to_processor_size>;

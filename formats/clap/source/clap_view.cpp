@@ -69,7 +69,7 @@ auto Clap_view::set_parent(const clap_window* window) noexcept -> bool
     auto* platform_window = is_mac ? window->cocoa : window->win32;
     _platform_view->receive_parent(platform_window);
     
-    _uiparams = make_array_by_indices<double, num_params>(
+    _ui_params = make_array_by_indices<double, num_params>(
         [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
     );
 
@@ -81,7 +81,7 @@ auto Clap_view::set_parent(const clap_window* window) noexcept -> bool
 auto Clap_view::on_draw(View_context& view_context) -> void
 {
     view_impl::run_frame(
-        _meter_infos, _receiver, _uiparams, _uiexports, view_context, _editor.get(), _actions, _tasks
+        _meter_infos, _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _tasks
     );
 }
 

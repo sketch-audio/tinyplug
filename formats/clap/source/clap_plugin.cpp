@@ -17,8 +17,8 @@ bool Clap_plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32
 {
     // Reset kernel with sample rate only first time and then when sample rate changes.
     if (!_once || sampleRate != _sr) {
-        _kernel->reset(sampleRate);
-        _latency = _kernel->latency_samps();
+        _processor->reset(sampleRate);
+        _latency = _processor->latency_samps();
         _sr = sampleRate;
         _once = true;
     }
@@ -56,8 +56,8 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
 {
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
-        _kernel->handle_event(Accepted_latency{*accepted_latency});
-        assert(_kernel->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+        _processor->handle_event(Accepted_latency{*accepted_latency});
+        assert(_processor->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
     }
 
     this->_handle_host_flushed();
@@ -81,7 +81,7 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
     };
 
     // Create the context.
-    auto context = Dsp_context{.exports = _exports, .propose_latency = {}};
+    auto context = Dsp_context{.meters = _meters, .propose_latency = {}};
 
     // So we can process with an offset.
     auto do_process = [this, &process, &context](size_t num_frames, size_t offset) {
@@ -141,7 +141,7 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
         context.sbuffers = {_sbuffers.begin(), _schannels};
         context.num_frames = num_frames;
         
-        _kernel->process(context);
+        _processor->process(context);
     };
 
     // Do process loop.
@@ -173,13 +173,13 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
 
     // Send exports.
     for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
-        if (context.exports[i] != _lexports[i]) {
+        if (context.meters[i] != _last_meters[i]) {
             // Send export and cache.
-            const auto value = context.exports[i];
-            _to_editor.push(Set_export{.id = i, .value = value});
-            _lexports[i] = value;
+            const auto value = context.meters[i];
+            _to_editor.push(Set_meter{.id = i, .value = value});
+            _last_meters[i] = value;
         }
-        _exports[i] = 0; // Reset for peak meters.
+        _meters[i] = 0; // Reset for peak meters.
     }
 
     // Has the kernel proposed a new latency?
@@ -189,7 +189,7 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
         _pending_latency.store(*proposed_latency, std::memory_order_release);
     }
 
-    const auto tail = _kernel->tail_samps();
+    const auto tail = _processor->tail_samps();
     if (tail != _tail) {
         const auto* tail_ext = (const clap_host_tail*)_host->get_extension(_host, CLAP_EXT_TAIL);
         if (tail_ext) tail_ext->changed(_host);
@@ -818,7 +818,7 @@ auto Clap_plugin::_handle_host_flushed() -> void
 {
     auto kernel_event = Render_event{};
     while (_from_flush.pop(kernel_event)) {
-        _kernel->handle_event(kernel_event);
+        _processor->handle_event(kernel_event);
     }
 }
 
@@ -869,7 +869,7 @@ auto Clap_plugin::_handle_user_actions(const clap_output_events_t* out_events) -
                 }
 
                 const auto plain_value = Value_conv::knob_to_plain(a.value, param.semantics);
-                _kernel->handle_event(Set_param{param.id, plain_value});
+                _processor->handle_event(Set_param{param.id, plain_value});
             },
             [&](const Action_end& a) {
                 const auto& param = _param_infos.param_for(a.id);

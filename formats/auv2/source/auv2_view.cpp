@@ -21,7 +21,7 @@ auto Auv2_view::create_view() -> void*
     _platform_view->on_create();
     _editor->on_gui_create();
 
-    _uiparams = make_array_by_indices<double, num_params>(
+    _ui_params = make_array_by_indices<double, num_params>(
         [this](auto i) { return _receiver.get_knob_value(i); }
     );
 
@@ -38,7 +38,7 @@ auto Auv2_view::on_draw(View_context& view_context) -> void
 {
     _executor.on_main();
     view_impl::run_frame(
-        _meter_infos, _receiver, _uiparams, _uiexports, view_context, _editor.get(), _actions, _tasks
+        _meter_infos, _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _tasks
     );
 }
 

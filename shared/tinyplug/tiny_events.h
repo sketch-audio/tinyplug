@@ -33,12 +33,12 @@ struct Tagged_event {
 
 // MARK: - UI events
 
-struct Set_export {
+struct Set_meter {
     uint32_t id{};
     double value{};
 };
 
-using Ui_event = std::variant<Set_param, Set_export>;
+using Ui_event = std::variant<Set_param, Set_meter>;
 
 struct Action_start { uint32_t id{}; };
 struct Action_end { uint32_t id{}; };

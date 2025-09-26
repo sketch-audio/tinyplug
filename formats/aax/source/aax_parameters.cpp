@@ -551,22 +551,22 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
         .sbuffers = {_sbuffers.begin(), Plug_info::wants_sidechain ? max_schannels : 0}, // Always mono sidechain.
         .obuffers = {_obuffers.begin(), static_cast<size_t>(channelCount)},
         .num_frames = num_frames,
-        .exports = _exports
+        .meters = _meters
     };
     _processor->process(context);
 
     // Write exports to meters.
     for (size_t i = 0; i < num_meters; ++i) {
-        if (context.exports[i] != _lexports[i]) {
+        if (context.meters[i] != _last_meters[i]) {
             // Send an output event.
-            const auto value = context.exports[i];
-            _to_editor.push(Set_export{.id = static_cast<uint32_t>(i), .value = value});
+            const auto value = context.meters[i];
+            _to_editor.push(Set_meter{.id = static_cast<uint32_t>(i), .value = value});
 
             // Cache for next time.
-            _lexports[i] = value;
+            _last_meters[i] = value;
         }
 
-        _exports[i] = 0; // Reset for peak meters.
+        _meters[i] = 0; // Reset for peak meters.
     }
 
     // Has the kernel proposed a latency.

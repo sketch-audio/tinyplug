@@ -84,7 +84,7 @@ public:
 
     Float64 GetTailTime() override
     {
-        const auto tail = _kernel->tail_samps();
+        const auto tail = _processor->tail_samps();
         const auto inf_tail = std::numeric_limits<uint32_t>::max();
         const auto format = GetStreamFormat(kAudioUnitScope_Output, 0);
         const auto sample_rate = format.mSampleRate;
@@ -120,8 +120,8 @@ private:
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
 
-    std::array<float, num_meters> _exports{}; // For processor to write.
-    std::array<double, num_meters> _lexports{};
+    std::array<float, num_meters> _meters{}; // For processor to write.
+    std::array<double, num_meters> _last_meters{};
 
     User_params _param_infos{};
     Clump_map _clumps{};
@@ -143,8 +143,8 @@ private:
     // Render
     std::vector<Tagged_event> _events{}; // Some fixed size thing.
 
-    std::unique_ptr<Plug_processor> _kernel = std::make_unique<Plug_processor>();
-    uint32_t _latency{_kernel->latency_samps()};
+    std::unique_ptr<Plug_processor> _processor = std::make_unique<Plug_processor>();
+    uint32_t _latency{_processor->latency_samps()};
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);

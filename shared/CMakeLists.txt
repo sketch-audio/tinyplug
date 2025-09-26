@@ -39,10 +39,10 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
     platform/view_delegate.h
     platform/window_context.h
     tinyplug/tiny_events.h
-    tinyplug/tiny_kernel.h
     tinyplug/tiny_layout.h
     tinyplug/tiny_meters.h
     tinyplug/tiny_params.h
+    tinyplug/tiny_processor.h
     tinyplug/tiny_queue.h
     tinyplug/tiny_utils.h
     tinyplug/tiny_view.h

@@ -34,7 +34,7 @@ auto Aax_gui::CreateViewContainer() -> void
 
     // Workaround for now, dump the latest exports into the queue so we get correct values on display.
     if (params) {
-        params->dump_exports();
+        params->dump_meters();
     }
 
     // We have to make our own UI connection.
@@ -50,7 +50,7 @@ auto Aax_gui::CreateViewContainer() -> void
             return double{};
         },
         .pop_event = [params](auto& e) -> bool {
-            return params ? params->pop_export(e) : false;
+            return params ? params->pop_meter(e) : false;
         },
         .action_handler = [this, view, params](auto& action) {
             std::visit(Inline_visitor{
@@ -94,7 +94,7 @@ auto Aax_gui::CreateViewContainer() -> void
     };
 
     // Now we have the receiver.
-    _uiparams = make_array_by_indices<double, num_params>(
+    _ui_params = make_array_by_indices<double, num_params>(
         [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
     );
 
@@ -133,7 +133,7 @@ AAX_Result Aax_gui::ParameterUpdated(AAX_CParamID inParamID)
         AAX_IParameter* param = nullptr;
         if (aax_params->GetParameter(inParamID, &param) == AAX_SUCCESS) {
             const auto value = param->GetNormalizedValue();
-            _uiparams[*tiny_id] = value;
+            _ui_params[*tiny_id] = value;
         }
     }
     return AAX_SUCCESS;
@@ -144,7 +144,7 @@ AAX_Result Aax_gui::ParameterUpdated(AAX_CParamID inParamID)
 auto Aax_gui::on_draw(View_context& view_context) -> void
 {
     view_impl::run_frame(
-        _meter_infos, _receiver, _uiparams, _uiexports, view_context, _editor.get(), _actions, _tasks
+        _meter_infos, _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _tasks
     );
 }
 

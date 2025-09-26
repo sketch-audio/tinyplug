@@ -85,20 +85,20 @@ private:
     std::array<const float*, max_ichannels> _ibuffers{};
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
-    std::array<float, num_meters> _exports{};
+    std::array<float, num_meters> _meters{};
 
     User_params _param_infos{};
 
     using State_queue = Lock_free_queue<Set_param, 256>;
     State_queue _queue{};
 
-    std::array<Automation_point, num_params> _lpoints{};
-    std::array<double, num_meters> _lexports{};
+    std::array<Automation_point, num_params> _last_points{};
+    std::array<double, num_meters> _last_meters{};
 
     std::vector<Tagged_event> _events{}; // Some fixed size thing.
 
-    std::unique_ptr<Plug_processor> _kernel = std::make_unique<Plug_processor>();
-    uint32_t _latency{_kernel->latency_samps()};
+    std::unique_ptr<Plug_processor> _processor = std::make_unique<Plug_processor>();
+    uint32_t _latency{_processor->latency_samps()};
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);

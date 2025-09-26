@@ -131,19 +131,17 @@ private:
     std::array<const float*, max_ichannels> _ibuffers{};
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
-
-    // Exports in host space.
-    std::array<float, num_meters> _exports{};
+    std::array<float, num_meters> _meters{};
 
     // USER
-    std::unique_ptr<Plug_processor> _kernel = std::make_unique<Plug_processor>();
+    std::unique_ptr<Plug_processor> _processor = std::make_unique<Plug_processor>();
     std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
 
     // GUI
     std::unique_ptr<Clap_view> _view{nullptr};
 
     // Latency 
-    uint32_t _latency{_kernel->latency_samps()};
+    uint32_t _latency{_processor->latency_samps()};
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);
@@ -155,14 +153,14 @@ private:
     Latency_flag _accepted_latency{};
 
     // Tail
-    uint32_t _tail{_kernel->tail_samps()};
+    uint32_t _tail{_processor->tail_samps()};
 
     // Values in host space.
     using Host_value = std::atomic<double>;
     using Host_values = std::array<Host_value, num_params>;
     Host_values _hostvalues{_param_infos.make_host_defaults<Host_value>()};
 
-    std::array<double, num_meters> _lexports{};
+    std::array<double, num_meters> _last_meters{};
 
     static constexpr auto to_processor_size = 2 * num_params + 1;
     static constexpr auto to_editor_size = num_params + num_meters + 1;
@@ -201,7 +199,7 @@ private:
                 const auto plain_value = Value_conv::host_to_plain(value_event->value, param.semantics);
                 if constexpr (on_audio_thread) {
                     // On the audio thread we can handle the event now.
-                    _kernel->handle_event(Set_param{.id = id, .value = plain_value});
+                    _processor->handle_event(Set_param{.id = id, .value = plain_value});
                 }
                 else {
                     // On flush, we need to push into a queue for later.

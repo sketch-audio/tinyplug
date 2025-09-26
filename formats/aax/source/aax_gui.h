@@ -50,8 +50,8 @@ private:
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
 
-    std::array<double, num_params> _uiparams{_param_infos.make_knob_defaults<double>()};
-    std::array<Tagged_meter, num_meters> _uiexports{};
+    std::array<double, num_params> _ui_params{_param_infos.make_knob_defaults<double>()};
+    std::array<Tagged_meter, num_meters> _ui_meters{};
 
     std::unordered_set<uint32_t> _gestured{};
 

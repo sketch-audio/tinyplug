@@ -420,9 +420,6 @@ struct Param_spec {
     // AUv3 string identifier.
     const char* string_id{nullptr}; // Required if supporting AUv3!
 
-    // The first tree version containing this parameter.
-    uint32_t version{1};
-
     // Name.
     const char* name{""};
 
@@ -650,50 +647,6 @@ template<typename T, size_t N, typename F>
 constexpr auto make_array_by_indices(F f) -> std::array<T, N>
 {
     return params_impl::make_array_by_indices_impl<T>(f, std::make_index_sequence<N>{});
-}
-
-// A function that returns the max version of the parameter tree.
-constexpr auto max_tree_version(const Param_node& tree) -> uint32_t
-{
-    auto result = uint32_t{1};
-    
-    const auto visit = [&](const auto& node, const auto& self) -> void {
-        std::visit(Inline_visitor{
-            [&](const Param_spec& spec) {
-                result = std::max(result, spec.version);
-            },
-            [&](const Param_group& group) {
-                for (const auto& child : group.nodes) {
-                    self(child, self);
-                }
-            }
-        }, node);
-    };
-
-    visit(tree, visit);
-    return result;
-}
-
-// A function that returns the number of parameters with version <= arg `version`.
-constexpr auto num_params_with_version(const Param_node& tree, uint32_t version) -> size_t
-{
-    auto count = size_t{0};
-
-    const auto visit = [&](const auto& node, const auto& self) -> void {
-        std::visit(Inline_visitor{
-            [&](const Param_spec& spec) {
-                if (spec.version <= version) ++count;
-            },
-            [&](const Param_group& group) {
-                for (const auto& child : group.nodes) {
-                    self(child, self);
-                }
-            }
-        }, node);
-    };
-
-    visit(tree, visit);
-    return count;
 }
 
 // MARK: - params

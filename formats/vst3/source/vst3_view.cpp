@@ -44,7 +44,7 @@ Steinberg::tresult PLUGIN_API Vst3_view::attached(void* parent, Steinberg::FIDSt
     _platform_view->receive_parent(parent);
 
     // Update the ui param values with the current state.
-    _uiparams = make_array_by_indices<double, num_params>(
+    _ui_params = make_array_by_indices<double, num_params>(
         [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
     );
 
@@ -114,7 +114,7 @@ Steinberg::tresult PLUGIN_API Vst3_view::checkSizeConstraint(Steinberg::ViewRect
 void Vst3_view::on_draw(View_context& view_context)
 {
     view_impl::run_frame(
-        _meter_infos, _receiver, _uiparams, _uiexports, view_context, _editor.get(), _actions, _tasks
+        _meter_infos, _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _tasks
     );
 }
 

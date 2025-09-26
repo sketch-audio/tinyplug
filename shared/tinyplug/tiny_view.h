@@ -247,16 +247,16 @@ struct View_context {
 };
 
 // Read-only access to some param (and export) values.
-struct Params_state {
+struct Processor_state {
     std::span<const double> params{};
-    std::span<const double> exports{};
+    std::span<const double> meters{};
 };
 
 // The app state gives you
-// - Read-only access to the param and export values.
+// - Read-only access to the param and meter values.
 // - A view context with the interaction state and a canvas in which to draw.
 struct App_state {
-    Params_state params_state{};
+    Processor_state processor_state{};
     View_context view_context{};
 };
 
@@ -411,8 +411,8 @@ template<typename M, typename S, typename A0, typename A1, typename C, typename 
 constexpr auto run_frame(
     const M& _meter_infos,
     const S& _receiver,
-    A0& _uiparams, 
-    A1& _uiexports, 
+    A0& _ui_params, 
+    A1& _ui_meters, 
     const C& view_context, 
     V* _custom_view,
     A& _actions,
@@ -424,11 +424,11 @@ constexpr auto run_frame(
     while (_receiver.pop_event(event)) {
         std::visit(Inline_visitor{
             [&](const Set_param& p) {
-                _uiparams[p.id] = p.value;
+                _ui_params[p.id] = p.value;
             },
-            [&](const Set_export& e) {
+            [&](const Set_meter& e) {
                 //
-                auto& uiexport = _uiexports[e.id];
+                auto& uiexport = _ui_meters[e.id];
                 const auto type = _meter_infos.policy_for(e.id);
 
                 using enum Meter_policy;
@@ -456,14 +456,14 @@ constexpr auto run_frame(
         }, event);
     }
 
-    // Adapt tagged exports to values.
-    auto export_arr = std::array<double, M::num_meters>{};
-    const auto value_tx = _uiexports | std::views::transform(&Tagged_meter::value);
-    std::ranges::copy(value_tx, export_arr.begin());
+    // Adapt tagged meters to values.
+    auto meter_arr = std::array<double, M::num_meters>{};
+    const auto value_tx = _ui_meters | std::views::transform(&Tagged_meter::value);
+    std::ranges::copy(value_tx, meter_arr.begin());
 
     // Create view context.
     auto app_state = App_state{
-        .params_state = {_uiparams, export_arr},
+        .processor_state = {_ui_params, meter_arr},
         .view_context = view_context,
     };
     _actions.clear(); // Actually clear before we draw.
@@ -477,17 +477,17 @@ constexpr auto run_frame(
     for (auto& action : _actions.actions()) {
         _receiver.action_handler(action);
         if (const auto* s = std::get_if<Set_param>(&action)) {
-            _uiparams[s->id] = s->value; // Update the local copy.
+            _ui_params[s->id] = s->value; // Update the local copy.
         }
     }
     //_actions.clear();
 
-    // Reset exports for next frame.
-    for (auto& uiexport : _uiexports) {
-        uiexport.updated = false;
-        if (uiexport.trigged) {
-            uiexport.value = 0;
-            uiexport.trigged = false;
+    // Reset meters for next frame.
+    for (auto& ui_meter : _ui_meters) {
+        ui_meter.updated = false;
+        if (ui_meter.trigged) {
+            ui_meter.value = 0;
+            ui_meter.trigged = false;
         }
     }
 }

@@ -71,7 +71,7 @@ protected:
     static constexpr auto to_editor_size = num_params + num_meters + 1;
     using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
     To_editor_queue _to_editor{};
-    std::array<double, num_meters> _last_exports{};
+    std::array<double, num_meters> _last_meters{};
 
     std::unordered_set<uint32_t> _gestured{};
     std::optional<Rect_size> _last_size{};

@@ -92,6 +92,9 @@ The style actually developed over several years of writing C++ alongside Swift a
 - Most member variables are prefixed with an underscore
 
 ## TODO
+- More renaming:
+    - Want `Param_id` to `Param_address`
+    - Want `Param_spec.string_id` to `path_component` or something. (This is AUv3 only).
 - Fixed semantics (ex. -12...12 by 0.5 increments)
 - iOS view resizing lag in Logic.
 - Multitouch (Windows)
@@ -129,9 +132,9 @@ Tinyplug ships with some test plug-ins that can be useful for making sure things
 ## Consider
 - How to handle logical vs. real size?
 - Optionals in `Musical_context`?
-- View notification system? For example, dark mode.
-- Use a heuristic for queue sizes.
-- Remove `Clap_kernel` and consolidate code.
+
+## Ideas
+- Instead of pop_exports, just have a sync_ui_values where we push everything into the ui before we present.
 
 ## CMake Refactorings
 - Idea: move platform into tinyplug proper?

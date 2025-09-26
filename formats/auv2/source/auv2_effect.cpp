@@ -35,8 +35,8 @@ OSStatus Auv2_effect::Initialize()
 
     const auto format = GetStreamFormat(kAudioUnitScope_Output, 0);
     const auto sample_rate = format.mSampleRate;
-    _kernel->reset(sample_rate);
-    _latency = _kernel->latency_samps();
+    _processor->reset(sample_rate);
+    _latency = _processor->latency_samps();
     _sr = sample_rate;
 
     _events.reserve(128);
@@ -627,8 +627,8 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
 
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
-        _kernel->handle_event(Accepted_latency{*accepted_latency});
-        assert(_kernel->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+        _processor->handle_event(Accepted_latency{*accepted_latency});
+        assert(_processor->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
     }
 
     _events.clear(); // Events are only valid for the current render cycle.
@@ -709,7 +709,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
     );
 
     // Create the context.
-    auto context = Dsp_context{.exports = _exports};
+    auto context = Dsp_context{.meters = _meters};
 
     auto do_process = [this, &context, &host_data](size_t num_frames, size_t offset) {
         const auto num_ichannels = Input(0).NumberChannels();
@@ -764,7 +764,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
         context.obuffers = {_obuffers.begin(), num_ochannels};
         context.sbuffers = {_sbuffers.begin(), num_schannels};
         context.num_frames = num_frames;
-        _kernel->process(context);
+        _processor->process(context);
     };
 
     const auto frame_count = nFrames;
@@ -788,23 +788,23 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
         }
 
         do {
-            _kernel->handle_event(event->event);
+            _processor->handle_event(event->event);
             next_event();
         } while (event && static_cast<uint32_t>(event->offset) <= now);
     }
 
     // Send exports.
     for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
-        if (context.exports[i] != _lexports[i]) {
+        if (context.meters[i] != _last_meters[i]) {
             // Send an output event.
-            const auto value = context.exports[i];
-            _to_editor.push(Set_export{.id = i, .value = value});
+            const auto value = context.meters[i];
+            _to_editor.push(Set_meter{.id = i, .value = value});
 
             // Cache for next time.
-            _lexports[i] = value;
+            _last_meters[i] = value;
         }
 
-        _exports[i] = 0; // Reset for peak meters.
+        _meters[i] = 0; // Reset for peak meters.
     }
 
     // Has the kernel proposed a new latency?
