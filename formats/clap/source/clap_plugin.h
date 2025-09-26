@@ -164,14 +164,17 @@ private:
 
     std::array<double, num_meters> _lexports{};
 
-    // TODO: - Use a heuristic for size.
-    using From_flush_queue = Lock_free_queue<Render_event, 256>;
-    using From_ui_queue = Lock_free_queue<User_action, 256>;
-    using To_ui_queue = Lock_free_queue<Ui_event, 256>;
+    static constexpr auto to_processor_size = 2 * num_params + 1;
+    static constexpr auto to_editor_size = num_params + num_meters + 1;
+
+    using From_flush_queue = Lock_free_queue<Render_event, to_processor_size>;
+    using From_ui_queue = Lock_free_queue<User_action, to_processor_size>;
+    using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
 
     From_flush_queue _from_flush{};
     From_ui_queue _from_ui{};
-    To_ui_queue _to_ui{};
+
+    To_editor_queue _to_editor{};
 
     // MARK: - private
 
@@ -202,7 +205,8 @@ private:
                 }
                 else {
                     // On flush, we need to push into a queue for later.
-                    _from_flush.push(Set_param{.id = id, .value = plain_value});
+                    [[maybe_unused]] const auto success = _from_flush.push(Set_param{.id = id, .value = plain_value});
+                    assert(success && "Push to flush queue failed! Increase queue size.");
                 }
 
                 // Maintain host atomics.
@@ -210,7 +214,7 @@ private:
 
                 // Notify UI.
                 const auto knob_value = Value_conv::host_to_knob(value_event->value, param.semantics);
-                _to_ui.push(Set_param{.id = id, .value = knob_value});
+                _to_editor.push(Set_param{.id = id, .value = knob_value});
 
                 break;
             }

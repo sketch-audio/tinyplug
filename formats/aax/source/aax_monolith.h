@@ -54,6 +54,8 @@
 #include <list>
 #include <utility>
 
+#include "models/param_model.h"
+
 
 // Max number of additional midi nodes is 15, for a grand total of 16 input midi nodes.  We're not aware of any plug-in that uses more.  
 #define kMaxAdditionalMIDINodes     15
@@ -62,7 +64,7 @@
 #define kMaxAuxOutputStems     32
 
 // You can increase this if you need; it should be set to a value greater than or equal to the number of synchronized parameters in your plug-in
-#define kSynchronizedParameterQueueSize     32
+// #define kSynchronizedParameterQueueSize     32
 
 namespace tiny {
 
@@ -311,6 +313,10 @@ public: ////////////////////////////////////////////////////////////////////////
     //@}end Convenience Layer Methods
 
 private:
+
+    // Replaces kSynchronizedParameterQueueSize.
+    static constexpr auto min_queue_size = Param_infos<Param_model>::num_params;
+
     // This structure is used on the render thread to set up the contiguous array of TParamValPair* values
     // which is passed to RenderAudio(). The values are drawn from lists of parameter value updates which
     // were queued during GenerateCoefficients()
@@ -323,7 +329,7 @@ private:
         // possible that the host would call SetChunk() on the plug-in more than once before the render
         // callback executes, but probably not more than 2-3x. Therefore 4x seems like a safe upper limit
         // for the capacity of this buffer.
-        static const int32_t sCap = 4 * kSynchronizedParameterQueueSize;
+        static const int32_t sCap = 4 * min_queue_size;
 
         TParamValPair* mElem[sCap];
         int32_t mSize;
@@ -380,7 +386,7 @@ private:
     typedef std::set<const AAX_IParameter*> TParamSet;
     typedef std::pair<int64_t, std::list<TParamValPair*> > TNumberedParamStateList;
     typedef AAX_CAtomicQueue<TNumberedParamStateList, 256> TNumberedStateListQueue;
-    typedef AAX_CAtomicQueue<const TParamValPair, 16 * kSynchronizedParameterQueueSize> TParamValPairQueue;
+    typedef AAX_CAtomicQueue<const TParamValPair, 16 * min_queue_size> TParamValPairQueue;
 
 
     SParamValList GetUpdatesForState(int64_t inTargetStateNum);

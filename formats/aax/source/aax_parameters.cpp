@@ -117,8 +117,8 @@ AAX_Result Aax_parameters::EffectInit()
 
     auto sample_rate = AAX_CSampleRate{};
     Controller()->GetSampleRate(&sample_rate);
-    _kernel->reset(sample_rate);
-    Controller()->SetSignalLatency(_kernel->latency_samps()); // Nothing pending, assume success.
+    _processor->reset(sample_rate);
+    Controller()->SetSignalLatency(_processor->latency_samps()); // Nothing pending, assume success.
 
     // Pro Tool Bypass
     // const auto bypass_id = AAX_CString{cDefaultMasterBypassID};
@@ -165,7 +165,7 @@ AAX_Result Aax_parameters::NotificationReceived(AAX_CTypeID inNotificationType, 
         case AAX_eNotificationEvent_TransportStateChanged: {
             if (const auto* data = inNotificationData) {
                 const auto* info = static_cast<const AAX_TransportStateInfo_V1*>(data);
-                recording.store(info->mIsRecording, std::memory_order_relaxed);
+                _recording.store(info->mIsRecording, std::memory_order_relaxed);
                 break;
             }
         }
@@ -175,6 +175,7 @@ AAX_Result Aax_parameters::NotificationReceived(AAX_CTypeID inNotificationType, 
 }
 
 // MARK: - Chunk
+// A lot of this was copied from AAX_CEffectParameters initially.
 
 AAX_Result Aax_parameters::GetNumberOfChunks(int32_t* oNumChunks) const
 {
@@ -189,18 +190,18 @@ AAX_Result Aax_parameters::GetChunkIDFromIndex(int32_t iIndex, AAX_CTypeID* oChu
 		return AAX_ERROR_INVALID_CHUNK_INDEX;
 	}
 	
-	*oChunkID = CHUNK_ID;
+	*oChunkID = tinyplug_chunk_id;
     return AAX_SUCCESS;
 }
 
 AAX_Result Aax_parameters::GetChunkSize(AAX_CTypeID iChunkID, uint32_t* oSize) const
 {
-    if (iChunkID != CHUNK_ID) {
+    if (iChunkID != tinyplug_chunk_id) {
 		*oSize = 0;
 		return AAX_ERROR_INVALID_CHUNK_ID;
 	}
 	
-    this->build_tiny_chunk(); // Our own chunk includes the tree version.
+    this->_build_chunk();
     mChunkSize = mChunkParser.GetChunkDataSize();
 	
 	if (mChunkSize < 0) {
@@ -214,13 +215,17 @@ AAX_Result Aax_parameters::GetChunkSize(AAX_CTypeID iChunkID, uint32_t* oSize) c
 AAX_Result Aax_parameters::GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChunk) const
 {
     //Check the chunkID
-	if (iChunkID != CHUNK_ID)
-		return AAX_ERROR_INVALID_CHUNK_ID;
+    if (iChunkID != tinyplug_chunk_id) {
+        return AAX_ERROR_INVALID_CHUNK_ID;
+    }
 	
-    this->build_tiny_chunk(); // Our own chunk includes the tree version.
-    auto currentChunkSize = mChunkParser.GetChunkDataSize(); // Verify that the chunk data size hasn't changed since the last GetChunkSize call.
+    this->_build_chunk();
+
+    // Verify that the chunk data size hasn't changed since the last GetChunkSize call.
+    // If mChunkSize doesn't match the currently built chunk, then its likely that the previous call to GetChunkSize() didn't return the correct size.
+    const auto currentChunkSize = mChunkParser.GetChunkDataSize();
 	if (mChunkSize != currentChunkSize || mChunkSize == 0) {
-		return AAX_ERROR_INCORRECT_CHUNK_SIZE; // If mChunkSize doesn't match the currently built chunk, then its likely that the previous call to GetChunkSize() didn't return the correct size.
+		return AAX_ERROR_INCORRECT_CHUNK_SIZE;
     }
     
     // Set the version on the chunk data structure. The other manID, prodID, PlugID, and fSize are populated already, coming from AAXCollection.
@@ -234,7 +239,7 @@ AAX_Result Aax_parameters::GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChu
 
 AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iChunk)
 {
-    if (iChunkID != CHUNK_ID) {
+    if (iChunkID != tinyplug_chunk_id) {
         return AAX_ERROR_INVALID_CHUNK_ID;
     }
 
@@ -254,7 +259,7 @@ AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk
 
     const auto parsed_edit_keys = unjoin_keys(std::string{edit_keys.CString()});
 
-    auto find_set = [&](auto* aax_param, const auto* id_cstr) {
+    auto find_and_set = [&](auto* aax_param, const auto* id_cstr) {
         auto b_value = bool{};
         auto i_value = int32_t{};
         auto d_value = double{};
@@ -279,12 +284,11 @@ AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk
 
     if (num_params <= num_chunk_params) {
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
-            const auto& param = _param_infos.param_for(i);
-
             if (auto* aax_param = get_aax_param(&mParameterManager, i)) {
+                const auto& param = _param_infos.param_for(i);
                 const auto* id_cstr = aax_param->Identifier();
                 if (param.policy != Host_policy::interface) {
-                    find_set(aax_param, id_cstr);
+                    find_and_set(aax_param, id_cstr);
                 }
             }
         }
@@ -296,7 +300,7 @@ AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk
                 const auto& param = _param_infos.param_for(i);
                 const auto* id_cstr = aax_param->Identifier();
                 if (param.policy != Host_policy::interface) {
-                    find_set(aax_param, id_cstr);
+                    find_and_set(aax_param, id_cstr);
                 }
             }
         }
@@ -370,7 +374,7 @@ AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk
 
 AAX_Result Aax_parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_CBoolean* oIsEqual) const
 {
-    if (iChunkP->fChunkID != CHUNK_ID) {
+    if (iChunkP->fChunkID != tinyplug_chunk_id) {
 		// If we don't know what the chunk is then we don't want to be turning on the compare light unnecessarily.
 		*oIsEqual = true;
 		return AAX_SUCCESS; 
@@ -432,8 +436,8 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
     // Accept latency.
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
-        _kernel->handle_event(Accepted_latency{*accepted_latency});
-        assert(_kernel->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+        _processor->handle_event(Accepted_latency{*accepted_latency});
+        assert(_processor->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
     }
 
     // Handle synchronized events.
@@ -448,27 +452,27 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
             auto i_value = int32_t{};
             auto b_value = bool{};
             if (aax_param->GetValueAsDouble(&d_value)) {
-                _kernel->handle_event(Set_param{.id = *tiny_id, .value = d_value});
+                _processor->handle_event(Set_param{.id = *tiny_id, .value = d_value});
             }
             else if (aax_param->GetValueAsInt32(&i_value)) {
                 d_value = static_cast<double>(i_value);
-                _kernel->handle_event(Set_param{.id = *tiny_id, .value = d_value});
+                _processor->handle_event(Set_param{.id = *tiny_id, .value = d_value});
             }
             else if (aax_param->GetValueAsBool(&b_value)) {
                 d_value = b_value ? 1 : 0;
-                _kernel->handle_event(Set_param{.id = *tiny_id, .value = d_value});
+                _processor->handle_event(Set_param{.id = *tiny_id, .value = d_value});
             }
         }
     }
 
     // Non-synchronized events come through here.
     auto action = User_action{};
-    while (_from_ui.pop(action)) {
+    while (_to_processor.pop(action)) {
         std::visit(Inline_visitor{
             [&](const Set_param& p) {
                 const auto param = _param_infos.param_for(p.id);
                 const auto plain_value = Value_conv::knob_to_plain(p.value, param.semantics);
-                _kernel->handle_event(Set_param{.id = p.id, .value = plain_value});
+                _processor->handle_event(Set_param{.id = p.id, .value = plain_value});
             },
             [](const auto&) {}
         }, action);
@@ -516,7 +520,7 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
     result = transport->GetCurrentNativeSampleLocation(&host_data.sample_pos);
     result = transport->GetCurrentTicksPerBeat(&host_data.ticks_per_beat);
 
-    host_data.is_recording = recording.load(std::memory_order_relaxed); // From notifications.
+    host_data.is_recording = _recording.load(std::memory_order_relaxed); // From notifications.
 
     const auto sample_pos = host_data.sample_pos;
     const auto beat_pos = static_cast<double>(host_data.tick_pos) / host_data.ticks_per_beat;
@@ -549,14 +553,14 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
         .num_frames = num_frames,
         .exports = _exports
     };
-    _kernel->process(context);
+    _processor->process(context);
 
     // Write exports to meters.
     for (size_t i = 0; i < num_meters; ++i) {
         if (context.exports[i] != _lexports[i]) {
             // Send an output event.
             const auto value = context.exports[i];
-            _oqueue.push(Set_export{.id = static_cast<uint32_t>(i), .value = value});
+            _to_editor.push(Set_export{.id = static_cast<uint32_t>(i), .value = value});
 
             // Cache for next time.
             _lexports[i] = value;
@@ -576,7 +580,7 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
 
 // MARK: - private
 
-void Aax_parameters::build_tiny_chunk() const
+void Aax_parameters::_build_chunk() const
 {
     mChunkParser.Clear();
 

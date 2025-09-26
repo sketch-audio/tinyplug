@@ -68,9 +68,9 @@ protected:
 
     User_params _param_infos{};
 
-    // We receive the exports in `setParamNormalized` and let the view pop them here.
-    using To_ui_queue = Lock_free_queue<Ui_event, 256>;
-    To_ui_queue _oqueue{};
+    static constexpr auto to_editor_size = num_params + num_meters + 1;
+    using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
+    To_editor_queue _to_editor{};
     std::array<double, num_meters> _last_exports{};
 
     std::unordered_set<uint32_t> _gestured{};

@@ -126,13 +126,18 @@ private:
     User_params _param_infos{};
     Clump_map _clumps{};
 
-    // SetParameter -> Render
-    // TODO: - Use a heuristic for size.
-    using Event_queue = Lock_free_queue<Tagged_event, 256>; // mpsc?
-    using To_ui_queue = Lock_free_queue<Ui_event, 256, Queue_concurrency::mpsc>;
-    using Private_queue = Lock_free_queue<Private_message, 256>;
-    Event_queue _iqueue{};
-    To_ui_queue _oqueue{};
+    // 
+    static constexpr auto to_processor_size = 2 * num_params + 1;
+    using To_processor_queue = Lock_free_queue<Tagged_event, to_processor_size>; // mpsc?
+
+    static constexpr auto to_editor_size = num_params + num_meters + 1;
+    using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
+
+    // Right now just for latency.
+    using Private_queue = Lock_free_queue<Private_message, 16>;
+
+    To_processor_queue _to_processor{};
+    To_editor_queue _to_editor{};
     Private_queue _pqueue{};
 
     // Render
@@ -158,7 +163,9 @@ private:
             const auto knob = Value_conv::host_to_knob(host, param.semantics);
             return knob;
         },
-        .pop_event = [this](auto& event) { return _oqueue.pop(event); },
+        .pop_event = [this](auto& event) {
+            return _to_editor.pop(event);
+        },
         .action_handler = [this](auto& action) {
             std::visit(Inline_visitor{
                 [&](const Action_start& a) {
@@ -184,7 +191,8 @@ private:
                     event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
                     event.mArgument.mParameter.mElement = 0;
                     AUEventListenerNotify(NULL, NULL, &event);
-                    _iqueue.push({Set_param{a.id, plain_value}, 0});
+                    [[maybe_unused]] const auto success = _to_processor.push({Set_param{a.id, plain_value}, 0});
+                    assert(success && "Push to processor queue failed! Increase queue size.");
                 },
                 [&](const Action_end& a) {
                     auto event = AudioUnitEvent{};

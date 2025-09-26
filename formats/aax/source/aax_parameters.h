@@ -23,7 +23,10 @@ public:
     Aax_parameters() : Super() {}
     ~Aax_parameters() override = default;
 
-    static AAX_CEffectParameters* AAX_CALLBACK Create() { return new Aax_parameters; }
+    static AAX_CEffectParameters* AAX_CALLBACK Create()
+    {
+        return new Aax_parameters;
+    }
 
     AAX_Result EffectInit() override;
     AAX_Result NotificationReceived(AAX_CTypeID inNotificationType, const void* inNotificationData, uint32_t inNotificationDataSize) override;
@@ -39,19 +42,20 @@ public:
 
     auto pop_export(Ui_event& event) -> bool
     {
-        return _oqueue.pop(event);
+        return _to_editor.pop(event);
     }
 
     auto dump_exports() -> void
     {
         enumerate<uint32_t>(_lexports, [this](auto i, const auto& e) {
-            _oqueue.push(Set_export{i, e});
+            _to_editor.push(Set_export{i, e});
         });
     }
 
     auto push_action(const User_action& action) -> void
     {
-        _from_ui.push(action);
+        [[maybe_unused]] const auto success = _to_processor.push(action);
+        assert(success && "Push to processor queue failed! Increase queue size.");
     }
 
     auto get_editor() -> std::shared_ptr<Plug_editor>
@@ -61,26 +65,26 @@ public:
 
 private:
 
-    const AAX_CTypeID CHUNK_ID = 'tiny'; // ...
+    auto _build_chunk() const -> void;
+
+    // Chunk
+    static constexpr auto tinyplug_chunk_id = AAX_CTypeID{'tiny'};
     static constexpr auto tinyplug_num_params = "tinyplug-num-params";
     static constexpr auto tinyplug_edit_keys = "tinyplug-edit-keys";
 
     std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
+    std::unique_ptr<Plug_processor> _processor = std::make_unique<Plug_processor>();
 
     using User_params = Param_infos<Param_model>;
     using User_meters = Meter_infos<Meter_model>;
-
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 
+    User_params _param_infos{};
+
     static constexpr auto max_ichannels = size_t{2};
-    static constexpr auto max_schannels = size_t{1}; // mono sidechain? verify.
+    static constexpr auto max_schannels = size_t{1};
     static constexpr auto max_ochannels = size_t{2};
-
-    using From_ui_queue = Lock_free_queue<User_action, 256>;
-    From_ui_queue _from_ui{};
-
-    std::atomic<bool> recording{false}; // 
 
     // Pointers to host io buffers.
     std::array<const float*, max_ichannels> _ibuffers{};
@@ -90,25 +94,25 @@ private:
     std::array<float, num_meters> _exports{};
     std::array<double, num_meters> _lexports{};
 
-    User_params _param_infos{};
+    static constexpr auto to_processor_size = 2 * num_params + 1;
+    using To_processor_queue = Lock_free_queue<User_action, to_processor_size>;
+    To_processor_queue _to_processor{}; // In AAX, this is actually only for non-automatable parameters.
 
-    using To_ui_queue = Lock_free_queue<Ui_event, 256, Queue_concurrency::mpsc>;
-    To_ui_queue _oqueue{};
+    static constexpr auto to_editor_size = num_params + num_meters + 1;
+    using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
+    To_editor_queue _to_editor{};
 
-    std::unique_ptr<Plug_processor> _kernel = std::make_unique<Plug_processor>();
-
+    // Latency
+    // ---
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);
-
-    // Communicates the pending latency from `process` to `setActive`.
     Latency_flag _pending_latency{};
-
-    // Communicates the accepted latency from `setActive` to `process`.
     Latency_flag _accepted_latency{};
+    // ---
 
+    // Notifications
     std::atomic<bool> _delay_comp{true}; // Track Pro Tools delay compensation mode.
-
-    auto build_tiny_chunk() const -> void;
+    std::atomic<bool> _recording{false}; // Track recording state.
 
 };
 

@@ -176,7 +176,7 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
         if (context.exports[i] != _lexports[i]) {
             // Send export and cache.
             const auto value = context.exports[i];
-            _to_ui.push(Set_export{.id = i, .value = value});
+            _to_editor.push(Set_export{.id = i, .value = value});
             _lexports[i] = value;
         }
         _exports[i] = 0; // Reset for peak meters.
@@ -711,7 +711,7 @@ bool Clap_plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
             return knob_value;
         },
         .pop_event = [this](auto& event) {
-            return _to_ui.pop(event);
+            return _to_editor.pop(event);
         },
         .action_handler = [this](auto& action) {
             this->_handle_user_action(action);
@@ -899,7 +899,8 @@ auto Clap_plugin::_handle_user_action(const User_action& action) -> void
         const auto host_value = Value_conv::knob_to_host(a->value, param.semantics);
         _hostvalues[param.id].store(host_value, std::memory_order_relaxed);
     }
-    _from_ui.push(action);
+    [[maybe_unused]] const auto success = _from_ui.push(action);
+    assert(success && "UI to processor queue full, increase queue size!");
 }
 
 } // namespace tiny

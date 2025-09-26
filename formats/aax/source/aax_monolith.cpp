@@ -54,7 +54,7 @@ void AAX_CMonolithicParameters::AddSynchronizedParameter(const AAX_IParameter& i
 {
     mSynchronizedParameters.insert(inParameter.Identifier());
     AAX_ASSERT(inParameter.Automatable()); // No point in synchronizing non-automatable parameters
-    AAX_ASSERT(kSynchronizedParameterQueueSize >= mSynchronizedParameters.size()); // Avoid buffer overflows
+    AAX_ASSERT(min_queue_size >= mSynchronizedParameters.size()); // Avoid buffer overflows
 }
 
 AAX_Result AAX_CMonolithicParameters::UpdateParameterNormalizedValue(AAX_CParamID iParamID, double aValue, AAX_EUpdateSource inSource)

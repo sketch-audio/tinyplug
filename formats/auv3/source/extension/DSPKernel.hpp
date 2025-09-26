@@ -50,10 +50,11 @@ public:
         const auto addr = static_cast<uint32_t>(address);
         const auto& spec = _param_infos.param_for(addr);
         const auto plain = tiny::Value_conv::host_to_plain(value, spec.semantics);
-        _param_queue.push(tiny::Set_param{
+        [[maybe_unused]] const auto success = _param_queue.push(tiny::Set_param{
             .id = addr,
             .value = plain
         });
+        assert(success && "Param queue push failed. Increase queue size!");
         _hostvalues[address].store(value, std::memory_order_release);
     }
     
@@ -131,8 +132,7 @@ public:
         for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
             if (context.exports[i] != _lexports[i]) {
                 const auto value = context.exports[i];
-                // TODO: - push to some outgoing queue
-                _out_queue.push(tiny::Set_export{.id = i, .value = value});
+                _to_editor.push(tiny::Set_export{.id = i, .value = value});
                 _lexports[i] = value;
             }
             _exports[i] = 0; // Reset for peak meters.
@@ -158,7 +158,7 @@ public:
                 const auto& spec = _param_infos.param_for(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
                 _kernel->handle_event(tiny::Set_param{.id = address, .value = plain});
-                _out_queue.push(tiny::Set_param{.id = address, .value = plain});
+                _to_editor.push(tiny::Set_param{.id = address, .value = plain});
                 break;
             }
             case AURenderEventParameterRamp: {
@@ -167,7 +167,7 @@ public:
                 const auto& spec = _param_infos.param_for(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
                 _kernel->handle_event(tiny::Ramp_param{.id = address, .target = plain, .dur_samples = dur_samples});
-                _out_queue.push(tiny::Set_param{.id = address, .value = plain});
+                _to_editor.push(tiny::Set_param{.id = address, .value = plain});
                 break;
             }
                 
@@ -201,12 +201,12 @@ public:
     
     auto pop_event(tiny::Ui_event& event) -> bool
     {
-        return _out_queue.pop(event);
+        return _to_editor.pop(event);
     }
     
     auto onHostUpdated(AUParameterAddress address, AUValue value) -> void
     {
-        _out_queue.push(tiny::Set_param{.id = static_cast<uint32_t>(address), .value = value});
+        _to_editor.push(tiny::Set_param{.id = static_cast<uint32_t>(address), .value = value});
     }
     
 private:
@@ -238,11 +238,13 @@ private:
     std::array<float*, max_ochannels> _obuffers{};
     std::array<float, num_meters> _exports{};
     
-    // TODO: - Use a heuristic for size.
-    using Set_param_queue = tiny::Lock_free_queue<tiny::Render_event, 256>;
-    using To_ui_queue = tiny::Lock_free_queue<tiny::Ui_event, 256, tiny::Queue_concurrency::mpsc>; // We could have host param changes coming in from multiple queues.
-    Set_param_queue _param_queue{};
-    To_ui_queue _out_queue{};
+    static constexpr auto param_queue_min_size = 2 * num_params + 1;
+    using Param_queue = tiny::Lock_free_queue<tiny::Render_event, param_queue_min_size>;
+    Param_queue _param_queue{};
+    
+    static constexpr auto to_editor_size = num_params + num_meters + 1;
+    using To_editor_queue = tiny::Overwrite_queue<tiny::Ui_event, to_editor_size>;
+    To_editor_queue _to_editor{};
     
     User_params _param_infos{}; // We have to be able to map the values to plain space.
     

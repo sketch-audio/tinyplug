@@ -311,11 +311,13 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
     const auto plain_value = Value_conv::host_to_plain(inValue, param.semantics);
     const auto knob_value = Value_conv::host_to_knob(inValue, param.semantics);
 
-    _iqueue.push({
+    [[maybe_unused]] const auto success = _to_processor.push({
         .offset = static_cast<int32_t>(inBufferOffsetInFrames),
         .event = Set_param{.id = inID, .value = plain_value}
     });
-    _oqueue.push(Set_param{.id = inID, .value = knob_value});
+    assert(success && "Push to processor queue failed! Increase queue size.");
+
+    _to_editor.push(Set_param{.id = inID, .value = knob_value});
 
     return Super::SetParameter(inID, inScope, inElement, inValue, inBufferOffsetInFrames);
 }
@@ -335,11 +337,13 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                 const auto plain_value = Value_conv::host_to_plain(value, param.semantics);
                 const auto knob_value = Value_conv::host_to_knob(value, param.semantics);
 
-                _iqueue.push({
+                [[maybe_unused]] const auto success = _to_processor.push({
                     .offset = static_cast<int32_t>(offset),
                     .event = Set_param{.id = event.parameter, .value = plain_value}
                 });
-                _oqueue.push(Set_param{.id = event.parameter, .value = knob_value});
+                assert(success && "Push to processor queue failed! Increase queue size.");
+
+                _to_editor.push(Set_param{.id = event.parameter, .value = knob_value});
 
                 // Maintain host values.
                 Super::SetParameter(event.parameter, event.scope, event.element, value, offset);
@@ -357,11 +361,13 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                 const auto knob_target = Value_conv::host_to_knob(target, param.semantics);
 
                 // Do we need to be sending set initial?
-                _iqueue.push({
+                [[maybe_unused]] const auto set_success = _to_processor.push({
                     .offset = offset,
                     .event = Set_param{.id = event.parameter, .value = plain_initial}
                 });
-                _iqueue.push({
+                assert(set_success && "Push to processor queue failed! Increase queue size.");
+
+                [[maybe_unused]] const auto ramp_success = _to_processor.push({
                     .offset = offset,
                     .event = Ramp_param{
                         .id = event.parameter,
@@ -369,7 +375,9 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                         .dur_samples = static_cast<int32_t>(duration)
                     }
                 });
-                _oqueue.push(Set_param{.id = event.parameter, .value = knob_target});
+                assert(ramp_success && "Push to processor queue failed! Increase queue size.");
+
+                _to_editor.push(Set_param{.id = event.parameter, .value = knob_target});
 
                 // Maintain host values.
                 Super::SetParameter(event.parameter, event.scope, event.element, target, offset + duration);
@@ -508,8 +516,10 @@ OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
         const auto plain_value = Value_conv::host_to_plain(host_value, param.semantics);
         const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
 
-        _iqueue.push({.offset = {}, .event = Set_param{param.id, plain_value}});
-        _oqueue.push(Set_param{param.id, knob_value});
+        [[maybe_unused]] const auto success = _to_processor.push({.offset = {}, .event = Set_param{param.id, plain_value}});
+        assert(success && "Push to processor queue failed! Increase queue size.");
+
+        _to_editor.push(Set_param{param.id, knob_value});
     }
 
     // Read editor state.
@@ -623,7 +633,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
 
     _events.clear(); // Events are only valid for the current render cycle.
     auto param_event = Tagged_event{};
-    while (_iqueue.pop(param_event)) {
+    while (_to_processor.pop(param_event)) {
         if (_events.size() == _events.capacity()) {
             std::cout << "Events vector full!\n";
         }
@@ -788,7 +798,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
         if (context.exports[i] != _lexports[i]) {
             // Send an output event.
             const auto value = context.exports[i];
-            _oqueue.push(Set_export{.id = i, .value = value});
+            _to_editor.push(Set_export{.id = i, .value = value});
 
             // Cache for next time.
             _lexports[i] = value;
