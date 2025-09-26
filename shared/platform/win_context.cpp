@@ -204,7 +204,10 @@ auto Window_context::get_canvas() -> Canvas
     if (!fSurfaces[fBufferIndex]) {
         return Canvas{nullptr};
     }
-    return Canvas{fSurfaces[fBufferIndex]->getCanvas()};
+    auto* canvas = fSurfaces[fBufferIndex]->getCanvas();
+    canvas->clear(SK_ColorBLACK);
+    canvas->resetMatrix();
+    return Canvas{canvas};
 }
 
 auto Window_context::end_draw() -> void
