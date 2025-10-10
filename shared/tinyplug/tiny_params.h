@@ -535,6 +535,36 @@ inline auto get_knob_default(const Param_spec& spec) -> double
     }, spec.semantics);
 }
 
+// MARK: - other helpers
+
+template<typename X>
+inline auto clamp(X x, const Value_semantics& semantics) -> X
+{
+    return std::visit(Inline_visitor{
+        [x](const Bool_semantics&) {
+            return std::clamp(x, X(0), X(1));
+        },
+        [x](const List_semantics& s) {
+            const auto max_val = static_cast<X>(s.items.size() - 1);
+            return std::clamp(x, X(0), X(max_val));
+        },
+        [x](const Int_semantics& s) {
+            return std::clamp(x, static_cast<X>(s.min_val), static_cast<X>(s.max_val));
+        },
+        [x](const Real_semantics& s) {
+            return std::clamp(x, static_cast<X>(s.min_val), static_cast<X>(s.max_val));
+        }
+    }, semantics);
+}
+
+inline auto is_param_units(Units units, const Value_semantics& semantics) -> bool
+{
+    return std::visit(Inline_visitor{
+        [units](const Real_semantics& s) { return s.units == units; },
+        [](const auto&) { return false; }
+    }, semantics);
+}
+
 // MARK: - parameter model
 
 template<typename T>
