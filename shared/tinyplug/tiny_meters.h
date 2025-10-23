@@ -89,7 +89,7 @@ private:
         std::ranges::sort(specs, {}, &Meter_spec::address);
         assert(specs.size() == num_meters && "Unexpected number of meter specs.");
         if (!specs.empty()) {
-            const auto contains_all = (specs.front().address == 0) && (specs.back().address == num_meters - 1);
+            [[maybe_unused]] const auto contains_all = (specs.front().address == 0) && (specs.back().address == num_meters - 1);
             assert(contains_all && "Meter specs must contain all meter addresses.");
         }
         return specs;

@@ -229,7 +229,7 @@ constexpr auto plain_to_norm(double x, const Real_semantics& r) -> double
         [&](const Adapt_piece& p) {
             const auto& interior = p.interior();
 
-            for (const auto& bp : interior) {
+            for ([[maybe_unused]] const auto& bp : interior) {
                 assert(r.min_val < bp.plain && bp.plain < r.max_val && "Break point plain values must be in param range.");
                 assert(0 < bp.norm && bp.norm < 1 && "Break point norm values must be in 0...1.");
             }
@@ -314,7 +314,7 @@ constexpr auto norm_to_plain(double x, const Real_semantics& r) -> double
         [&](const Adapt_piece& p) {
             const auto& interior = p.interior();
 
-            for (const auto& bp : interior) {
+            for ([[maybe_unused]] const auto& bp : interior) {
                 assert(r.min_val < bp.plain && bp.plain < r.max_val && "Break point plain values must be in param range.");
                 assert(0 < bp.norm && bp.norm < 1 && "Break point norm values must be in 0...1.");
             }
@@ -610,7 +610,7 @@ inline auto validate_spec(const Param_spec& spec) -> bool
     return ok_range;
 }
 
-inline auto validate_tree(const Param_node& root, size_t num_expected) -> bool
+inline auto validate_tree(const Param_node& root, [[maybe_unused]] size_t num_expected) -> bool
 {
     auto ids = std::unordered_set<uint32_t>{};
 
@@ -635,7 +635,7 @@ inline auto validate_tree(const Param_node& root, size_t num_expected) -> bool
 
     if (num_leaves == 0) return true; // Empty tree is valid.
 
-    const auto [min_val, max_val] = std::ranges::minmax_element(ids);
+    [[maybe_unused]] const auto [min_val, max_val] = std::ranges::minmax_element(ids);
     assert(*min_val == 0 && "Min param id must be zero.");
     assert(*max_val == num_leaves - 1 && "Max param id must be num_params - 1.");
 
