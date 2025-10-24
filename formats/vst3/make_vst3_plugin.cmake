@@ -93,7 +93,7 @@ function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
         target_compile_options(${VST3_TARGET} PRIVATE -Wall -Wextra -pedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
         target_link_options(${VST3_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
     elseif(WIN32)
-        target_compile_options(${AAX_TARGET} PRIVATE /W4)
+        target_compile_options(${VST3_TARGET} PRIVATE /W4)
     endif()
 
     if(APPLE)

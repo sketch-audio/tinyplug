@@ -223,10 +223,10 @@ private:
 
     // Preferred platform GUI API (used in a couple places).
     static constexpr auto gui_preferred_api = []() {
-        if (Platform::resolved == Platform::Type::macos) {
+        if constexpr (Platform::resolved == Platform::Type::macos) {
             return CLAP_WINDOW_API_COCOA;
         }
-        else if (Platform::resolved == Platform::Type::windows) {
+        else if constexpr (Platform::resolved == Platform::Type::windows) {
             return CLAP_WINDOW_API_WIN32;
         }
         else {

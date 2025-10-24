@@ -254,7 +254,7 @@ bool Clap_plugin::stateSave(const clap_ostream* stream) noexcept
             return false;
         }
         const auto data_result = stream->write(stream, data.data(), sizeof(data[0]) * num);
-        return data_result == sizeof(data[0]) * num;
+        return static_cast<size_t>(data_result) == sizeof(data[0]) * num;
     };
 
     // Write processor state.
@@ -360,7 +360,7 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
         }
         data.resize(num);
         const auto data_result = stream->read(stream, data.data(), sizeof(data[0]) * num);
-        return data_result == sizeof(data[0]) * num;
+        return static_cast<size_t>(data_result) == sizeof(data[0]) * num;
     };
 
     // Notify kernel and view (if not an interface parameter).
