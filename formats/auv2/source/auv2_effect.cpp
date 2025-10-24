@@ -14,7 +14,7 @@ Auv2_effect::Auv2_effect(AudioUnit component) : Super(component, num_inputs, num
     Globals()->UseIndexedParameters(User_params::num_params);
     for (const auto& param : params) {
         const auto def_val = get_host_default(param);
-        Globals()->SetParameter(param.address, def_val);
+        Globals()->SetParameter(param.address, static_cast<float>(def_val));
     }
 
     // 
@@ -22,7 +22,7 @@ Auv2_effect::Auv2_effect(AudioUnit component) : Super(component, num_inputs, num
         const auto is_main = (i == 0);
         const auto* input_name = is_main ? "Input" : "Sidechain";
         const auto str = CFStringCreateWithCString(kCFAllocatorDefault, input_name, kCFStringEncodingUTF8);
-        Inputs().GetElement(i)->SetName(str);
+        Inputs().GetElement(static_cast<UInt32>(i))->SetName(str);
     }
 
     const auto str = CFStringCreateWithCString(kCFAllocatorDefault, "Output", kCFStringEncodingUTF8);
@@ -117,7 +117,8 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
             const auto str = cf_to_std(data->inString);
 
             if (const auto plain = Host_formatter::format_value(str, param.semantics)) {
-                data->outValue = Value_conv::plain_to_host(*plain, param.semantics);
+                const auto host_value = Value_conv::plain_to_host(*plain, param.semantics);
+                data->outValue = static_cast<float>(host_value);
                 return noErr;
             }
 
@@ -198,7 +199,7 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
             outParameterInfo = {
                 .name = {},
                 .unitName = {},
-                .clumpID = found_clump ? clump->id : UInt32{},
+                .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
                 .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Boolean,
                 .minValue = 0,
@@ -211,7 +212,7 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
             outParameterInfo = {
                 .name = {},
                 .unitName = {},
-                .clumpID = found_clump ? clump->id : UInt32{},
+                .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
                 .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Indexed,
                 .minValue = 0,
@@ -224,7 +225,7 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
             outParameterInfo = {
                 .name = {},
                 .unitName = {},
-                .clumpID = found_clump ? clump->id : UInt32{},
+                .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
                 .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Indexed,
                 .minValue = static_cast<float>(i.min_val),
@@ -237,7 +238,7 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
             outParameterInfo = {
                 .name = {},
                 .unitName = {},
-                .clumpID = found_clump ? clump->id : UInt32{},
+                .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
                 .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Generic,
                 .minValue = 0,
@@ -285,7 +286,7 @@ OSStatus Auv2_effect::CopyClumpName(AudioUnitScope inScope, UInt32 inClumpID, UI
 {
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
 
-    if (const auto* clump = find_clump(_clumps, inClumpID)) {
+    if (const auto* clump = find_clump(_clumps, static_cast<int32_t>(inClumpID))) {
         const auto& name = clump->name;
         *outClumpName = CFStringCreateWithCString(0, name.c_str(), kCFStringEncodingUTF8);
         return noErr;
@@ -380,7 +381,8 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                 _to_editor.push(Set_param{.address = event.parameter, .value = knob_target});
 
                 // Maintain host values.
-                Super::SetParameter(event.parameter, event.scope, event.element, target, offset + duration);
+                const auto off = static_cast<UInt32>(offset);
+                Super::SetParameter(event.parameter, event.scope, event.element, target, off + duration);
                 break;
             }
         }
@@ -504,7 +506,7 @@ OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
         for (auto i = num_state_params; i < num_params; ++i) {
             const auto& param = _param_infos.param_for(i);
             const auto host_value = get_host_default(param);
-            Globals()->SetParameter(i, host_value);
+            Globals()->SetParameter(i, static_cast<float>(host_value));
         }
     }
 
@@ -716,14 +718,14 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
         [[maybe_unused]] const auto num_ibuffers = Input(0).GetBufferList().mNumberBuffers;
         assert(num_ichannels == num_ibuffers && "Channel mismatch!");
         for (size_t i = 0; i < num_ichannels; ++i) {
-            _ibuffers[i] = static_cast<const float*>(Input(0).GetFloat32ChannelData(i)) + offset;
+            _ibuffers[i] = static_cast<const float*>(Input(0).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
         }
 
         const auto num_ochannels = Output(0).NumberChannels();
         [[maybe_unused]] const auto num_obuffers = Output(0).GetBufferList().mNumberBuffers;
         assert(num_ochannels == num_obuffers && "Channel mismatch!");
         for (size_t i = 0; i < num_ochannels; ++i) {
-            _obuffers[i] = static_cast<float*>(Output(0).GetFloat32ChannelData(i)) + offset;
+            _obuffers[i] = static_cast<float*>(Output(0).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
         }
 
         auto num_schannels = size_t{};
@@ -732,7 +734,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
             [[maybe_unused]] const auto num_sbuffers = Input(1).GetBufferList().mNumberBuffers;
             assert(num_schannels == num_sbuffers && "Channel mismatch!");
             for (size_t i = 0; i < num_schannels; ++i) {
-                _sbuffers[i] = static_cast<const float*>(Input(1).GetFloat32ChannelData(i)) + offset;
+                _sbuffers[i] = static_cast<const float*>(Input(1).GetFloat32ChannelData(static_cast<UInt32>(i) )) + offset;
             }
         }
 
@@ -748,7 +750,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
 
         context.musical_context = {
             .sample_pos = static_cast<int64_t>(sample_pos + offset),
-            .beat_pos = beat_pos + frames_to_beats(offset, tempo, _sr),
+            .beat_pos = beat_pos + frames_to_beats(static_cast<int64_t>(offset), tempo, _sr),
             .cycle_start = cycle_start,
             .cycle_end = cycle_end,
             .tempo_ideal = tempo,
@@ -778,7 +780,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
             break;
         }
 
-        const auto frames_until_event = std::max({}, event->offset - now);
+        const auto frames_until_event = std::max({}, static_cast<uint32_t>(event->offset) - now);
 
         if (frames_until_event > 0) {
             const auto offset = frame_count - remaining;

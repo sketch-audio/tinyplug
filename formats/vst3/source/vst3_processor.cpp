@@ -113,7 +113,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setBusArrangements(Steinberg::Vst:
         if constexpr (Plug_info::wants_sidechain) {
             auto& sidechain_arr = inputs[1];
             getAudioInput(1)->setArrangement(sidechain_arr);
-            _schannels = SpeakerArr::getChannelCount(sidechain_arr);
+            _schannels = static_cast<size_t>(SpeakerArr::getChannelCount(sidechain_arr));
         }
     };
 
@@ -222,8 +222,8 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
         const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
 
         context.musical_context = {
-            .sample_pos = static_cast<int64_t>(sample_pos + offset),
-            .beat_pos = beat_pos + frames_to_beats(offset, tempo, sr),
+            .sample_pos = sample_pos + static_cast<int64_t>(offset),
+            .beat_pos = beat_pos + frames_to_beats(static_cast<int64_t>(offset), tempo, sr),
             .cycle_start = cycle_start,
             .cycle_end = cycle_end,
             .tempo_ideal = tempo,
@@ -251,7 +251,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     while (remaining > 0) {
         if (!event) {
             const auto offset = frame_count - remaining;
-            do_process(remaining, offset);
+            do_process(static_cast<size_t>(remaining), static_cast<size_t>(offset));
             break;
         }
 
@@ -259,7 +259,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
 
         if (frames_until_event > 0) {
             const auto offset = frame_count - remaining;
-            do_process(frames_until_event, offset);
+            do_process(static_cast<size_t>(frames_until_event), static_cast<size_t>(offset));
             remaining -= frames_until_event;
             now += frames_until_event;
         }
@@ -272,7 +272,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
 
     auto add_output_event = [&](int32_t id, double value) {
         auto event_index = Steinberg::int32{};
-        auto& queue = *data.outputParameterChanges->addParameterData(id, event_index);
+        auto& queue = *data.outputParameterChanges->addParameterData(static_cast<uint32_t>(id), event_index);
         auto point_index = Steinberg::int32{};
         queue.addPoint(0, value, point_index); // offset, value, index
     };
@@ -387,7 +387,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* stat
 
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
         const auto& lpoint = _last_points[i]; // Grab value from last automation points.
-        const auto knob_value = lpoint.value;
+        const auto knob_value = static_cast<float>(lpoint.value);
         if (!streamer.writeFloat(knob_value)) {
             return Steinberg::kResultFalse;
         }

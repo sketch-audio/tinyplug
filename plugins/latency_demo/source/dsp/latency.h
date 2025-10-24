@@ -61,7 +61,7 @@ private:
 
     constexpr auto read(bool post_write = true) -> float
     {
-        const auto i = post_write ? 1 : 0;
+        const auto i = post_write ? size_t{1} : size_t{0};
         return _frac == 0 ? _read(_off + i) : _allpass(_off + i, _frac);
     }
 

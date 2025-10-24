@@ -71,9 +71,10 @@ function(make_clap_plugin USER_TARGET CLAP_SDK CLAP_HELPERS)
 
     if(APPLE)
         target_link_libraries(${CLAP_TARGET} PRIVATE "-framework Cocoa")
-        target_compile_options(${CLAP_TARGET} PRIVATE -Wall -Wextra -pedantic)
+        target_compile_options(${CLAP_TARGET} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
         target_link_options(${CLAP_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
     elseif(WIN32)
+        target_compile_options(${AAX_TARGET} PRIVATE /W4)
     endif()
 
     # Packaging.

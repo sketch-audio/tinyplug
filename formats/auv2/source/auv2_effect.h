@@ -183,7 +183,7 @@ private:
                     const auto plain_value = Value_conv::knob_to_plain(a.value, param.semantics);
                     const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
 
-                    Globals()->SetParameter(a.address, host_value);
+                    Globals()->SetParameter(a.address, static_cast<float>(host_value));
                     auto event = AudioUnitEvent{};
                     event.mEventType = kAudioUnitEvent_ParameterValueChange;
                     event.mArgument.mParameter.mAudioUnit = GetComponentInstance();

@@ -31,7 +31,7 @@ inline auto cf_to_std(CFStringRef cfStr) -> std::string
     CFIndex length = CFStringGetLength(cfStr);
     CFIndex maxSize = CFStringGetMaximumSizeForEncoding(length, kCFStringEncodingUTF8) + 1;
 
-    auto result = std::string(maxSize, '\0');
+    auto result = std::string(static_cast<size_t>(maxSize), '\0');
 
     if (CFStringGetCString(cfStr, result.data(), maxSize, kCFStringEncodingUTF8)) {
         result.resize(std::strlen(result.c_str())); // Trim to actual size

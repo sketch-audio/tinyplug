@@ -22,7 +22,7 @@ auto Auv2_view::create_view() -> void*
     _editor->on_gui_create();
 
     _ui_params = make_array_by_indices<double, num_params>(
-        [this](auto i) { return _receiver.get_knob_value(i); }
+        [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
     );
 
     _platform_view->on_show();

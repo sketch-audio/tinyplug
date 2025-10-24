@@ -124,7 +124,7 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
 
         context.musical_context = {
             .sample_pos = static_cast<int64_t>(sample_pos + offset),
-            .beat_pos = beat_pos + frames_to_beats(offset, tempo, _sr),
+            .beat_pos = beat_pos + frames_to_beats(static_cast<int64_t>(offset), tempo, _sr),
             .cycle_start = cycle_start,
             .cycle_end = cycle_end,
             .tempo_ideal = tempo,

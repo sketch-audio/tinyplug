@@ -41,6 +41,14 @@ function(enable_vst3_sdk VST3_SDK_VER OUT_VST3_SDK OUT_VST3_SDK_ROOT_DIR)
 
     smtg_enable_vst3_sdk() # sdk
 
+    # Get all the include dirs that Steinberg added
+    get_target_property(_vst3_includes sdk INTERFACE_INCLUDE_DIRECTORIES)
+
+    # Re-apply them as SYSTEM includes
+    if(_vst3_includes)
+        target_include_directories(sdk SYSTEM INTERFACE ${_vst3_includes})
+    endif()
+
     set(${OUT_VST3_SDK} sdk PARENT_SCOPE)
     set(${OUT_VST3_SDK_ROOT_DIR} ${vst3sdk_SOURCE_DIR} PARENT_SCOPE)
 endfunction()
@@ -82,9 +90,13 @@ function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
 
     if(APPLE)
         target_link_libraries(${VST3_TARGET} PRIVATE "-framework Cocoa")
-        target_compile_options(${VST3_TARGET} PRIVATE -Wall -Wextra -pedantic)
+        target_compile_options(${VST3_TARGET} PRIVATE -Wall -Wextra -pedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
         target_link_options(${VST3_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
+    elseif(WIN32)
+        target_compile_options(${AAX_TARGET} PRIVATE /W4)
+    endif()
 
+    if(APPLE)
         set(VST3_BUNDLE_OUTPUT_DIR $<TARGET_BUNDLE_DIR:${VST3_TARGET}>)
         set_target_properties(${VST3_TARGET} PROPERTIES
             BUNDLE True

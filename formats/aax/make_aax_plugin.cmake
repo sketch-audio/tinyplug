@@ -66,7 +66,7 @@ function(make_aax_plugin USER_TARGET AAX_SDK_ROOT_DIR)
 
     if(APPLE)
         target_link_libraries(${AAX_TARGET} PRIVATE "-framework Cocoa")
-        target_compile_options(${AAX_TARGET} PRIVATE -Wall -Wextra -pedantic)
+        target_compile_options(${AAX_TARGET} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
         target_link_options(${AAX_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
     elseif(WIN32)
         target_compile_options(${AAX_TARGET} PRIVATE /W4)

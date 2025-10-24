@@ -806,6 +806,10 @@ struct Host_formatter {
                             return format_float(plain_value, 0) + suffix;
                         }
                     }
+                    case milliseconds: {
+                        const auto suffix = include_units ? " ms" : "";
+                        return format_float(plain_value, 1) + suffix;
+                    }
                     default:
                         return std::string{};
                 }

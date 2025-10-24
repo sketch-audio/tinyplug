@@ -54,7 +54,7 @@ AAX_Result Aax_parameters::EffectInit()
                     AAX_CString(param.name),
                     static_cast<uint32_t>(l.def_val),
                     AAX_CStateTaperDelegate<uint32_t>(0, num_items - 1),
-                    AAX_CStateDisplayDelegate<uint32_t>(num_items, const_cast<const char**>(l.items.data()), 0), // Yee haw.
+                    AAX_CStateDisplayDelegate<uint32_t>(static_cast<int32_t>(num_items), const_cast<const char**>(l.items.data()), 0), // Yee haw.
                     param.policy == Host_policy::automation
                 ));
                 if (std::strlen(param.short_name) > 0) {
@@ -82,7 +82,7 @@ AAX_Result Aax_parameters::EffectInit()
                 if (std::strlen(param.short_name) > 0) {
                     aax_param->AddShortenedName(param.short_name);
                 }
-                aax_param->SetNumberOfSteps(i.max_val - i.min_val + 1);
+                aax_param->SetNumberOfSteps(static_cast<uint32_t>(i.max_val - i.min_val + 1));
                 aax_param->SetType(AAX_eParameterType_Discrete);
                 if (aax_param->Automatable()) {
                     AddSynchronizedParameter(*aax_param);
@@ -118,7 +118,8 @@ AAX_Result Aax_parameters::EffectInit()
     auto sample_rate = AAX_CSampleRate{};
     Controller()->GetSampleRate(&sample_rate);
     _processor->reset(sample_rate);
-    Controller()->SetSignalLatency(_processor->latency_samps()); // Nothing pending, assume success.
+    const auto sl = static_cast<int32_t>(_processor->latency_samps());
+    Controller()->SetSignalLatency(sl); // Nothing pending, assume success.
 
     // Pro Tool Bypass
     // const auto bypass_id = AAX_CString{cDefaultMasterBypassID};
@@ -480,15 +481,18 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
 
     // Assign buffer ptrs.
     for (auto i = 0; i < channelCount; ++i) {
-        _ibuffers[i] = ioRenderInfo->mAudioInputs[i];
+        const auto idx = static_cast<size_t>(i);
+        _ibuffers[idx] = ioRenderInfo->mAudioInputs[idx];
     }
     for (auto i = 0; i < channelCount; ++i) {
-        _obuffers[i] = ioRenderInfo->mAudioOutputs[i];
+        const auto idx = static_cast<size_t>(i);
+        _obuffers[idx] = ioRenderInfo->mAudioOutputs[idx];
     }
     if constexpr (Plug_info::wants_sidechain) {
         if (const auto sc_idx = ioRenderInfo->mSidechainIndex; sc_idx != nullptr) {
             for (size_t i = 0; i < max_schannels; ++i) {
-                _sbuffers[i] = ioRenderInfo->mAudioInputs[*sc_idx + i];
+                const auto sc = static_cast<size_t>(*sc_idx);
+                _sbuffers[i] = ioRenderInfo->mAudioInputs[sc + i];
             }
         }
     }
@@ -573,7 +577,8 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
     const auto delay_comp = _delay_comp.load(std::memory_order_relaxed);
     if (const auto proposed_latency = context.propose_latency; proposed_latency && delay_comp) {
         // Notify controller and sit on the pending latency.
-        Controller()->SetSignalLatency(*proposed_latency);
+        const auto sl = static_cast<int32_t>(*proposed_latency);
+        Controller()->SetSignalLatency(sl);
         _pending_latency.store(true, std::memory_order_release);
     }
 }

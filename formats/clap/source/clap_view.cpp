@@ -49,14 +49,14 @@ auto Clap_view::on_destroy() noexcept -> void
 auto Clap_view::get_size(uint32_t* w, uint32_t* h) noexcept -> void
 {
     const auto platform_size = _platform_view ? _platform_view->get_size() : Plug_editor::preferred_size();
-    *w = platform_size.w;
-    *h = platform_size.h;
+    *w = static_cast<uint32_t>(platform_size.w);
+    *h = static_cast<uint32_t>(platform_size.h);
 }
 
 auto Clap_view::set_size(uint32_t w, uint32_t h) noexcept -> bool
 {
     if (!_platform_view) return false;
-    _platform_view->resize(w, h);
+    _platform_view->resize(static_cast<int32_t>(w), static_cast<int32_t>(h));
     return true;
 }
 
