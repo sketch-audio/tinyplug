@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <concepts>
 #include <format>
 #include <functional>
@@ -553,6 +554,32 @@ inline auto clamp(X x, const Value_semantics& semantics) -> X
         },
         [x](const Real_semantics& s) {
             return std::clamp(x, static_cast<X>(s.min_val), static_cast<X>(s.max_val));
+        }
+    }, semantics);
+}
+
+template<typename X>
+inline auto knob_next(X x, const Value_semantics& semantics) -> X
+{
+    return std::visit(Inline_visitor{
+        [x](const Bool_semantics&) {
+            return x > 0.5f ? X(0) : X(1);
+        },
+        [x](const List_semantics& s) {
+            const auto plain = Value_conv::knob_to_plain(x, s);
+            const auto idx = static_cast<size_t>(plain);
+            const auto next = (idx + 1) % s.items.size();
+            return Value_conv::plain_to_knob(static_cast<X>(next), s);
+        },
+        [x](const Int_semantics& s) {
+            const auto plain = Value_conv::knob_to_plain(x, s);
+            const auto val = static_cast<int32_t>(plain);
+            const auto range = s.max_val - s.min_val + 1;
+            const auto next = ((val - s.min_val + 1) % range) + s.min_val;
+            return Value_conv::plain_to_knob(static_cast<X>(next), s);
+        },
+        [x](const Real_semantics&) {
+            return std::nextafter(x, X(1));
         }
     }, semantics);
 }
