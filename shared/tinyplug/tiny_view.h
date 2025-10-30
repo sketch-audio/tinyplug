@@ -198,7 +198,7 @@ inline auto try_consume(Pointer_state& state, const Frame& frame) -> std::option
         [&](const Consumed&) { return Opt{}; },
         [&](const auto& s) {
             if (frame.contains(get_pos(s))) {
-                state = Consumed{};
+                //state = Consumed{};
                 return Opt{s};
             }
             return Opt{};
