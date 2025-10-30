@@ -259,7 +259,7 @@ bool Clap_plugin::stateSave(const clap_ostream* stream) noexcept
 
     // Write processor state.
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
-        const auto host_value = _hostvalues[i].load(std::memory_order_relaxed);
+        const auto host_value = static_cast<float>(_hostvalues[i].load(std::memory_order_relaxed));
         if (!write_value(host_value)) {
             return false;
         }
@@ -375,7 +375,7 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
     };
 
     // Read processor state into temporary vector.
-    auto state_params = std::vector<float>(num_state_params);
+    auto state_params = std::vector<float>(static_cast<size_t>(num_state_params), 0.f);
     for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
         auto host_value = float{};
         if (!read_value(host_value)) {
