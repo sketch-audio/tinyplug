@@ -162,6 +162,25 @@ inline auto track_is_down(const Pointer_state& state, bool& is_down)
     }
 }
 
+inline auto track_over(const Pointer_state& state, const Frame& frame, bool& over) -> void
+{
+    auto get_pos = [](const auto& s) -> Coords {
+        if constexpr (requires { s.fpos; }) return s.fpos;
+        else return s.pos;
+    };
+    std::visit(Inline_visitor{
+        [&](const Consumed&) {}, // Consumed no change.
+        [&](const auto& s) {
+            if (frame.contains(get_pos(s))) {
+                over = true;
+            }
+            else {
+                over = false;
+            }
+        },
+    }, state);
+}
+
 // Controls can only consume the pointer state if it originates in their frame.
 inline auto try_consume(Pointer_state& state, const Frame& frame) -> std::optional<Pointer_state>
 {
