@@ -146,6 +146,11 @@ inline auto try_set(Pointer_state& old_state, Pointer_state new_state) -> bool
         old_state = new_state;
         return true;
     }
+    // You can override down with drag start
+    else if (std::holds_alternative<Down>(old_state) && std::holds_alternative<Drag_start>(new_state)) {
+        old_state = new_state;
+        return true;
+    }
     return false;
 }
 
