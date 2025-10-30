@@ -96,7 +96,7 @@ inline auto normalized(X x, B in_lo, B in_hi, B taper = 0.5f, bool bipolar = fal
         const auto midpoint = (in_lo + in_hi) / 2;
         const auto cond = x >= midpoint;
 
-        const auto xu = utils_impl::normalized(midpoint, in_hi, taper);
+        const auto xu = utils_impl::normalized(x, midpoint, in_hi, taper);
         const auto yu = (xu + 1) / 2;
 
         const auto xl = (x - in_lo) / (midpoint - in_lo);
