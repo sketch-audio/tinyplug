@@ -279,7 +279,7 @@ struct Processor_state {
 // The app state gives you
 // - Read-only access to the param and meter values.
 // - A view context with the interaction state and a canvas in which to draw.
-struct App_state {
+struct Plugin_state {
     Processor_state processor_state{};
     View_context view_context{};
 };
@@ -486,14 +486,14 @@ constexpr auto run_frame(
     std::ranges::copy(value_tx, meter_arr.begin());
 
     // Create view context.
-    auto app_state = App_state{
+    auto state = Plugin_state{
         .processor_state = {_ui_params, meter_arr},
         .view_context = view_context,
     };
     _actions.clear(); // Actually clear before we draw.
 
     // Tell the user view to draw.
-    _custom_view->on_gui_draw(app_state);
+    _custom_view->on_gui_draw(state);
 
     _tasks.execute_all(); // Execute laters (might push into actions).
 

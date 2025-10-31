@@ -17,7 +17,7 @@ public:
     auto on_gui_create() -> void {}
     auto on_gui_show(const View_connection&) -> void;
     auto on_gui_notify(const Ui_notification&) -> void;
-    auto on_gui_draw(App_state&) -> void;
+    auto on_gui_draw(Plugin_state&) -> void;
     auto on_gui_hide() -> void {}
     auto on_gui_destroy() -> void {}
 

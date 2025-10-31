@@ -12,10 +12,10 @@ auto Plug_editor::on_gui_show(const View_connection& connection) -> void
     _task_receiver = connection.tasks;
 }
 
-auto Plug_editor::on_gui_draw(App_state& app_state) -> void
+auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
 {
-    auto& processor_state = app_state.processor_state;
-    auto& view_context = app_state.view_context;
+    auto& processor_state = state.processor_state;
+    auto& view_context = state.view_context;
 
     auto& interaction = view_context.interaction;
     auto* canvas = view_context.canvas;
