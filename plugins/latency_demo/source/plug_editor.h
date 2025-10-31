@@ -15,7 +15,7 @@ public:
     ~Plug_editor() = default;
 
     auto on_gui_create() -> void {}
-    auto on_gui_show(const View_connection&) -> void;
+    auto on_gui_show(const Edit_context&) -> void;
     auto on_gui_notify(const Ui_notification&) -> void;
     auto on_gui_draw(Plugin_state&) -> void;
     auto on_gui_hide() -> void {}
@@ -31,9 +31,7 @@ private:
     using Meter_address = Meter_model::Meter_address;
 
     User_params _params{};
-    Action_queue::Receiver _actions{};
-    Task_queue::Receiver _task_receiver{};
-
+    Edit_context _edit{};
 };
 
 } // namespace tiny

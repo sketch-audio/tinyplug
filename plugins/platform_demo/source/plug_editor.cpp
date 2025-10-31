@@ -6,10 +6,9 @@
 
 namespace tiny {
 
-auto Plug_editor::on_gui_show(const View_connection& connection) -> void
+auto Plug_editor::on_gui_show(const Edit_context& edit) -> void
 {
-    _actions = connection.actions;
-    _task_receiver = connection.tasks;
+    _edit = edit;
 }
 
 auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
@@ -54,19 +53,19 @@ auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
             [&](const Drag_start& s) {
                 _ldrag = {};
                 const auto to_set = get_next(g, s);
-                _actions.push(Action_start{id});
-                _actions.push(Set_param{id, to_set});
+                _edit.actions.push(Action_start{id});
+                _edit.actions.push(Set_param{id, to_set});
                 _ldrag = s.tpos.y - s.fpos.y;
             },
             [&](const Drag& s) {
                 const auto to_set = get_next(g, s);
-                _actions.push(Set_param{id, to_set});
+                _edit.actions.push(Set_param{id, to_set});
                 _ldrag = s.tpos.y - s.fpos.y;
             },
             [&](const Drag_end& s) {
                 const auto to_set = get_next(g, s);
-                _actions.push(Set_param{id, to_set});
-                _actions.push(Action_end{id});
+                _edit.actions.push(Set_param{id, to_set});
+                _edit.actions.push(Action_end{id});
                 _ldrag = {};
                 _pointer = std::nullopt;
             },
@@ -77,7 +76,7 @@ auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
                 else if (interaction.modifier_keys.shift) {
                     Platform_dialogs::confirm("Are you sure?", "This is a confirm dialog.", {
                         .callback = [](bool confirmed) { std::cout << "User confirmed: " << (confirmed ? "yes" : "no") << "\n"; },
-                        .receiver = _task_receiver
+                        .receiver = _edit.tasks
                     });
                 }
                 else if (interaction.modifier_keys.alt) {
@@ -86,12 +85,12 @@ auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
                             const auto& param = _params.param_for(enum_raw(Param_address::gain));
                             if (const auto value = Host_formatter::format_value(text, param.semantics)) {
                                 const auto knob = Value_conv::plain_to_knob(*value, param.semantics);
-                                _actions.push(Action_start{param.address});
-                                _actions.push(Set_param{param.address, knob});
-                                _actions.push(Action_end{param.address});
+                                _edit.actions.push(Action_start{param.address});
+                                _edit.actions.push(Set_param{param.address, knob});
+                                _edit.actions.push(Action_end{param.address});
                             }
                         },
-                        .receiver = _task_receiver 
+                        .receiver = _edit.tasks
                     });
                 }
                 else {
@@ -105,12 +104,12 @@ auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
                         const auto& param = _params.param_for(enum_raw(Param_address::gain));
                         if (const auto value = Host_formatter::format_value(text, param.semantics)) {
                             const auto knob = Value_conv::plain_to_knob(*value, param.semantics);
-                            _actions.push(Action_start{param.address});
-                            _actions.push(Set_param{param.address, knob});
-                            _actions.push(Action_end{param.address});
+                            _edit.actions.push(Action_start{param.address});
+                            _edit.actions.push(Set_param{param.address, knob});
+                            _edit.actions.push(Action_end{param.address});
                         }
                     },
-                    .receiver = _task_receiver
+                    .receiver = _edit.tasks
                 });
                 _pointer = std::nullopt;
             },

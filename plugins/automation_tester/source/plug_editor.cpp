@@ -5,10 +5,9 @@
 
 namespace tiny {
 
-auto Plug_editor::on_gui_show(const View_connection& connection) -> void
+auto Plug_editor::on_gui_show(const Edit_context& edit) -> void
 {
-    _actions = connection.actions;
-    _task_receiver = connection.tasks;
+    _edit = edit;
 }
 
 auto Plug_editor::on_gui_draw(Plugin_state& state) -> void

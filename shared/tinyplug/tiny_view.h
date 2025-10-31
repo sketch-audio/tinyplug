@@ -364,11 +364,19 @@ private:
 
 };
 
+using Actions = Action_queue::Receiver;
+using Tasks = Task_queue::Receiver;
+
+struct Edit_context {
+    Actions actions{};
+    Tasks tasks{};
+};
+
 template<typename... Args>
 struct Later {
 
     std::function<void(Args...)> callback{[](Args...) {}};
-    std::optional<Task_queue::Receiver> receiver{};
+    std::optional<Tasks> receiver{};
 
     template<typename... Cargs>
     void operator()(Cargs&&... args) const {
@@ -380,11 +388,6 @@ struct Later {
             callback(std::forward<Cargs>(args)...);
         }
     }
-};
-
-struct View_connection {
-    Action_queue::Receiver actions;
-    Task_queue::Receiver tasks; // Maybe we don't need this any more.
 };
 
 // MARK: - debug

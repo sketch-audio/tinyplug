@@ -5,10 +5,9 @@
 
 namespace tiny {
 
-auto Plug_editor::on_gui_show(const View_connection& connection) -> void
+auto Plug_editor::on_gui_show(const Edit_context& edit) -> void
 {
-    _actions = connection.actions;
-    _task_receiver = connection.tasks;
+    _edit = edit;
 }
 
 auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
@@ -50,20 +49,20 @@ auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
             [&](const Drag_start& s) {
                 _ldrag = {};
                 const auto to_set = get_next(g, s);
-                _actions.push(Action_start{id});
-                _actions.push(Set_param{id, to_set});
+                _edit.actions.push(Action_start{id});
+                _edit.actions.push(Set_param{id, to_set});
                 _ldrag = s.tpos.y - s.fpos.y;
                 _pointer = pointer.tag; // Bind to pointer tag. (Should this be on down?)
             },
             [&](const Drag& s) {
                 const auto to_set = get_next(g, s);
-                _actions.push(Set_param{id, to_set});
+                _edit.actions.push(Set_param{id, to_set});
                 _ldrag = s.tpos.y - s.fpos.y;
             },
             [&](const Drag_end& s) {
                 const auto to_set = get_next(g, s);
-                _actions.push(Set_param{id, to_set});
-                _actions.push(Action_end{id});
+                _edit.actions.push(Set_param{id, to_set});
+                _edit.actions.push(Action_end{id});
                 _ldrag = {};
                 _pointer = std::nullopt;
             },

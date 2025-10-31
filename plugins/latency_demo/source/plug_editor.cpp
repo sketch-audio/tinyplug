@@ -5,10 +5,9 @@
 
 namespace tiny {
 
-auto Plug_editor::on_gui_show(const View_connection& connection) -> void
+auto Plug_editor::on_gui_show(const Edit_context& edit) -> void
 {
-    _actions = connection.actions;
-    _task_receiver = connection.tasks;
+    _edit = edit;
 }
 
 auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
@@ -38,9 +37,9 @@ auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
         // Handle user actions. (Should we bind on down?)
         std::visit(Inline_visitor{
             [&](const Click&) {
-                _actions.push(Action_start{id});
-                _actions.push(Set_param{id, curr == 0 ? double{1} : double{0}}); // Toggle.
-                _actions.push(Action_end{id});
+                _edit.actions.push(Action_start{id});
+                _edit.actions.push(Set_param{id, curr == 0 ? double{1} : double{0}}); // Toggle.
+                _edit.actions.push(Action_end{id});
             },
             [](const auto&) {}
         }, pointer.state);
