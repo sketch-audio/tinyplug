@@ -44,6 +44,7 @@ private:
     
     Action_queue _actions{};
     Task_queue _tasks{};
+    Undo_history _undo_history{_param_infos.kernel_specs()};
 
     Ui_receiver _receiver{};
     std::shared_ptr<Plug_editor> _editor{};
