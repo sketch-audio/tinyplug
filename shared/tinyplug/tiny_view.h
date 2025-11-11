@@ -472,10 +472,11 @@ private:
     std::vector<Undo_step> _undo_stack{};
     std::vector<Undo_step> _redo_stack{};
 
-    auto undoable(uint32_t addr) const -> bool
+    auto undoable(uint32_t /*addr*/) const -> bool
     {
-        const auto& spec = _specs[addr];
-        return spec.policy != Host_policy::interface;
+        return true;
+        // const auto& spec = _specs[addr];
+        // return spec.policy != Host_policy::interface;
     }
 
     auto _process_actions(std::span<const User_action> actions, Processor_state& state) -> void
