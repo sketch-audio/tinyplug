@@ -303,12 +303,26 @@ struct Action_queue {
                 _actions->push_back(action);
             }
         }
-        auto actions() const -> std::span<const User_action>
+        auto sort() const -> void
         {
             if (_actions) {
-                return std::span{*_actions};
+                std::stable_sort(_actions->begin(), _actions->end(), [](const User_action& a, const User_action& b) {
+                    auto action_order = [](const User_action& action) -> int {
+                        return std::visit(Inline_visitor{
+                            [](const Action_start&) { return 0; },
+                            [](const Set_param&) { return 1; },
+                            [](const Action_end&) { return 2; },
+                            [](const auto&) { return 3; }
+                        }, action);
+                    };
+                    return action_order(a) < action_order(b);
+                });
             }
-            return {};
+        }
+        // Return copy to avoid aliasing.
+        auto actions() const -> Actions
+        {
+            return _actions ? *_actions : Actions{};
         }
     private:
         Actions* _actions;
