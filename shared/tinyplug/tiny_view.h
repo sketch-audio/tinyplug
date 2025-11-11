@@ -303,6 +303,13 @@ struct Action_queue {
                 _actions->push_back(action);
             }
         }
+        auto actions() const -> std::span<const User_action>
+        {
+            if (_actions) {
+                return std::span{*_actions};
+            }
+            return {};
+        }
     private:
         Actions* _actions;
     };
@@ -342,6 +349,13 @@ struct Task_queue {
             if (_queue) {
                 [[maybe_unused]] const auto success = _queue->push(std::move(task));
                 assert(success && "Queue not big enough!");
+            }
+        }
+        auto execute_all() const -> void
+        {
+            if (_queue) {
+                auto task = Task{};
+                while (_queue->pop(task)) task();
             }
         }
     private:
