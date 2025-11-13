@@ -8,7 +8,9 @@
 #include <variant>
 
 #include "tiny_events.h"
+#include "tiny_params.h"
 #include "tiny_queue.h"
+#include "tiny_utils.h"
 
 class SkCanvas; // Skia canvas
 
@@ -293,47 +295,69 @@ using Notify_callback = std::function<void(const Ui_notification&)>;
 
 struct Action_queue {
 
-    using Actions = std::vector<User_action>;
+    using Observer = std::function<void(std::span<const User_action>, std::span<const double>)>;
 
     struct Receiver {
-        explicit Receiver(Actions* actions = nullptr) : _actions{actions} {}
+        explicit Receiver(Action_queue* actions = nullptr) : _actions{actions} {}
         auto push(const User_action& action) const -> void
         {
             if (_actions) {
-                _actions->push_back(action);
+                _actions->push(action);
             }
         }
         auto sort() const -> void
         {
             if (_actions) {
-                std::stable_sort(_actions->begin(), _actions->end(), [](const User_action& a, const User_action& b) {
-                    auto action_order = [](const User_action& action) -> int {
-                        return std::visit(Inline_visitor{
-                            [](const Action_start&) { return 0; },
-                            [](const Set_param&) { return 1; },
-                            [](const Action_end&) { return 2; },
-                            [](const auto&) { return 3; }
-                        }, action);
-                    };
-                    return action_order(a) < action_order(b);
-                });
+                _actions->sort();
             }
         }
         // Return copy to avoid aliasing.
-        auto actions() const -> Actions
+        auto actions() const -> std::vector<User_action>
         {
-            return _actions ? *_actions : Actions{};
+            return _actions ? _actions->actions() : std::vector<User_action>{};
+        }
+        auto install_observer(const Observer& observer) const -> void
+        {
+            if (_actions) {
+                _actions->install_observer(observer);
+            }
+        }
+        auto clear_observers() const -> void
+        {
+            if (_actions) {
+                _actions->clear_observers();
+            }
         }
     private:
-        Actions* _actions;
+        Action_queue* _actions;
     };
 
     auto make_receiver() -> Receiver
     {
-        return Receiver{&_actions};
+        return Receiver{this};
     }
 
-    auto actions() const -> const Actions&
+    auto push(const User_action& action) -> void
+    {
+        _actions.push_back(action);
+    }
+
+    auto sort() -> void
+    {
+        std::stable_sort(_actions.begin(), _actions.end(), [](const User_action& a, const User_action& b) {
+            auto action_order = [](const User_action& action) -> int {
+                return std::visit(Inline_visitor{
+                    [](const Action_start&) { return 0; },
+                    [](const Set_param&) { return 1; },
+                    [](const Action_end&) { return 2; },
+                    [](const auto&) { return 3; }
+                }, action);
+            };
+            return action_order(a) < action_order(b);
+        });
+    }
+
+    auto actions() const -> const std::vector<User_action>&
     {
         return _actions;
     }
@@ -343,9 +367,28 @@ struct Action_queue {
         _actions.clear();
     }
 
+    auto install_observer(const Observer& observer) -> void
+    {
+        _observers.push_back(observer);
+    }
+
+    auto clear_observers() -> void
+    {
+        _observers.clear();
+    }
+
+    auto process_observers(std::span<const double> params) -> void
+    {
+        for (const auto& observer : _observers) {
+            observer(_actions, params);
+        }
+    }
+
 private:
 
-    Actions _actions = Actions(16); // initial size
+    std::vector<User_action> _actions = {};
+
+    std::vector<Observer> _observers{};
 
 };
 using Actions = Action_queue::Receiver;
@@ -714,6 +757,8 @@ constexpr auto run_frame(
             _ui_params[s->address] = s->value; // Update the local copy.
         }
     }
+
+    _actions.process_observers(_ui_params); // Use manifested state.
 
     // Reset meters for next frame.
     for (auto& ui_meter : _ui_meters) {
