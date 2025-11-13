@@ -19,6 +19,7 @@
 #include <Windowsx.h>
 
 #include <CommCtrl.h>
+#include <commdlg.h> // Dialogs
 #include <dwmapi.h>
 #include <shellapi.h>
 
@@ -1152,7 +1153,7 @@ auto Platform_dialogs::open_url(const std::string& url) -> void
     thread.detach();
 }
 
-auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, Later<std::optional<std::string>> on_open = {}) -> void
+auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, Later<std::optional<std::string>> on_open) -> void
 {
     auto thread = std::thread([title, default_path, on_open]() {
         if (const auto plugin_window = find_plugin_window()) {
