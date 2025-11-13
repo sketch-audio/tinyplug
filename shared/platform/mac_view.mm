@@ -505,6 +505,64 @@ auto Platform_dialogs::open_url(const std::string& url) -> void
     });
 }
 
+auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, Later<std::optional<std::string>> on_open) -> void
+{
+    // Copy to locals.
+    const auto title_copy = title;
+    const auto default_path_copy = default_path;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        [panel setTitle:[NSString stringWithUTF8String:title_copy.c_str()]];
+        if (!default_path_copy.empty()) {
+            NSString* ns_path = [NSString stringWithUTF8String:default_path_copy.c_str()];
+            NSURL* url = [NSURL fileURLWithPath:ns_path];
+            if (url) {
+                [panel setDirectoryURL:url];
+            }
+        }
+        [panel setCanChooseFiles:YES];
+        [panel setCanChooseDirectories:NO];
+        [panel setAllowsMultipleSelection:NO];
+
+        NSWindow* keyWindow = [[NSApplication sharedApplication] keyWindow];
+        if (keyWindow != nil) {
+            [panel beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse result) {
+                if (result == NSModalResponseOK) {
+                    NSURL* selectedURL = [[panel URLs] firstObject];
+                    if (selectedURL) {
+                        NSString* path = [selectedURL path];
+                        const std::string result_path = std::string([path UTF8String]);
+                        on_open(result_path);
+                    } else {
+                        on_open(std::nullopt);
+                    }
+                } else {
+                    on_open(std::nullopt);
+                }
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [keyWindow makeKeyAndOrderFront:nil];
+                });
+            }];
+        } 
+        else {
+            NSModalResponse result = [panel runModal];
+            if (result == NSModalResponseOK) {
+                NSURL* selectedURL = [[panel URLs] firstObject];
+                if (selectedURL) {
+                    NSString* path = [selectedURL path];
+                    const std::string result_path = std::string([path UTF8String]);
+                    on_open(result_path);
+                } else {
+                    on_open(std::nullopt);
+                }
+            } else {
+                on_open(std::nullopt);
+            }
+        }
+    });
+}
+
 } // namespace tiny
 
 #endif

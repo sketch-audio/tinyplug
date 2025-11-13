@@ -1152,6 +1152,41 @@ auto Platform_dialogs::open_url(const std::string& url) -> void
     thread.detach();
 }
 
+auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, Later<std::optional<std::string>> on_open = {}) -> void
+{
+    auto thread = std::thread([title, default_path, on_open]() {
+        if (const auto plugin_window = find_plugin_window()) {
+            auto wtitle = string_to_wstring(title);
+            auto wdefault_path = string_to_wstring(default_path);
+
+            auto open_file_name = OPENFILENAMEW{};
+            auto file_buffer = std::array<wchar_t, 1024>{};
+            std::fill_n(file_buffer.data(), file_buffer.size(), 0);
+
+            open_file_name.lStructSize = sizeof(OPENFILENAMEW);
+            open_file_name.hwndOwner = plugin_window->hwnd;
+            open_file_name.lpstrFile = file_buffer.data();
+            open_file_name.nMaxFile = static_cast<DWORD>(file_buffer.size());
+            open_file_name.lpstrFilter = L"All Files\0*.*\0";
+            open_file_name.lpstrTitle = wtitle.c_str();
+            open_file_name.lpstrInitialDir = wdefault_path.empty() ? nullptr : wdefault_path.c_str();
+            open_file_name.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+            const auto result = GetOpenFileNameW(&open_file_name);
+            if (result) {
+                const auto selected_path = wstring_to_string(std::wstring{open_file_name.lpstrFile});
+                on_open(selected_path);
+            }
+            else {
+                on_open(std::nullopt);
+            }
+
+            SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
+        }
+    });
+    thread.detach();
+}
+
 } // namespace tiny
 
 #endif
