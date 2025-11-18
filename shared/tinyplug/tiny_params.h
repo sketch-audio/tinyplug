@@ -669,14 +669,13 @@ inline auto validate_tree(const Param_node& root, [[maybe_unused]] size_t num_ex
     return true;
 }
 
-template<std::ranges::range R, typename Comp>
-    requires std::sortable<std::ranges::iterator_t<R>, Comp>
-inline auto sorted_copy(R&& range, Comp comp) -> decltype(auto)
+template <std::ranges::input_range R, typename Comp>
+inline auto sorted_copy(const R& range, Comp comp)
 {
     using T = std::ranges::range_value_t<R>;
-    std::vector<T> copy(std::ranges::begin(range), std::ranges::end(range));
-    std::ranges::sort(copy, comp);
-    return copy;
+    auto out = std::vector<T>(std::ranges::begin(range), std::ranges::end(range));
+    std::sort(out.begin(), out.end(), comp);
+    return out;
 }
 
 //  MARK: - array builders
@@ -759,10 +758,31 @@ public:
         );
     }
 
+    // STATIC
 private:
-    
+
     static constexpr auto id_less = [](const auto& a, const auto& b) { return a.address < b.address; };
 
+    inline static const Param_node user_tree = User_model::build_tree();
+    inline static const std::vector<Param_spec> display_specs = params_impl::flatten_tree(user_tree);
+    inline static const std::vector<Param_spec> indexed_specs = params_impl::sorted_copy(display_specs, id_less);
+
+public:
+    
+    static auto param_tree() -> const Param_node&
+    {
+        [[maybe_unused]] const auto is_valid = params_impl::validate_tree(user_tree, num_params);
+        assert(is_valid && "Param tree validation failed.");
+        return user_tree;
+    }
+
+    static auto param_specs(bool indexed = true) -> const std::vector<Param_spec>&
+    {
+        return indexed ? indexed_specs : display_specs;
+    }
+
+private:
+    
     Param_node _tree = []() {
         const auto t = User_model::build_tree();
         const auto is_valid = params_impl::validate_tree(t, num_params);
