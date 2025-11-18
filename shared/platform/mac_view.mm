@@ -144,6 +144,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 
     _delegate->draw(_interaction, time_now);
     tiny::try_set(_pointer.state, tiny::Consumed{});
+    _interaction.scroll_deltas = tiny::Coords{0, 0}; // Consume deltas
 
     if (_dwelt) {
         _over_pos = std::nullopt;
@@ -302,6 +303,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 - (void)scrollWheel:(NSEvent *)event {
     const auto deltas = tiny::Coords{event.scrollingDeltaX, event.scrollingDeltaY};
     _interaction.scroll_deltas = deltas;
+    _interaction.inertial_scroll = (event.momentumPhase != NSEventPhaseNone); // implicit scroll stop
     [super scrollWheel:event];
 }
 

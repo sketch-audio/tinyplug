@@ -245,6 +245,7 @@ using Ui_notification = std::variant<Dark_mode_changed>;
 struct User_interaction {
     std::vector<Pointer> pointers{};
     Coords scroll_deltas{};
+    bool inertial_scroll{};
     Modifier_keys modifier_keys{};
     bool operator==(const User_interaction&) const = default;
 };
