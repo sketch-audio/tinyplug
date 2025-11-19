@@ -231,6 +231,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
                 binder->interaction.modifier_keys = resolve_modifiers();
                 delegate->draw(binder->interaction, time_now); // Delegate window context handles everything.
                 try_set(binder->pointer.state, Consumed{});
+                binder->interaction.scroll_deltas = {};
                 if (binder->dwelt) {
                     binder->over_pos = std::nullopt;
                     binder->dwelt = false;
@@ -332,13 +333,13 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
         }
 
         case WM_MOUSEWHEEL: {
-            const auto delta = GET_WHEEL_DELTA_WPARAM(wparam) * 1.f / WHEEL_DELTA;
+            const auto delta = GET_WHEEL_DELTA_WPARAM(wparam) * 20.f / WHEEL_DELTA;
             binder->interaction.scroll_deltas.y = delta;
             return 0;
         }
 
         case WM_MOUSEHWHEEL: {
-            const auto delta = GET_WHEEL_DELTA_WPARAM(wparam) * 1.f / WHEEL_DELTA;
+            const auto delta = GET_WHEEL_DELTA_WPARAM(wparam) * 20.f / WHEEL_DELTA;
             binder->interaction.scroll_deltas.x = delta;
             return 0;
         }
