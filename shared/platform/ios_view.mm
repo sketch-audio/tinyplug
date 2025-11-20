@@ -6,9 +6,14 @@
 #include <unordered_set>
 
 #import <UIKit/UIKit.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #include "platform_view.h"
 #include "window_context.h"
+
+#if __has_feature(objc_arc)
+static_assert(false, "This is a non-ARC file");
+#endif
 
 @interface IosView : UIView
 - (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate;
@@ -312,6 +317,22 @@
 
 @end
 
+// MARK: - OpenFileHelper
+
+@interface OpenFileHelper : NSObject <UIDocumentPickerDelegate>
+@property(nonatomic, copy) void (^completion)(NSArray<NSURL *> *urls);
+@end
+
+@implementation OpenFileHelper
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    if (self.completion) { self.completion(urls); }
+}
+
+- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
+    if (self.completion) { self.completion(@[]); }
+}
+@end
+
 // MARK: - Platform_view
 
 namespace tiny {
@@ -478,6 +499,48 @@ auto Platform_dialogs::open_url(const std::string& url) -> void
             [[UIApplication sharedApplication] openURL:nsurl options:@{} completionHandler:nil];
         });
     }
+}
+
+// MARK: - open file
+
+auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, Later<std::optional<std::string>> on_open) -> void
+{
+    // Copy to locals.
+    const auto title_copy = title;
+    const auto default_path_copy = default_path;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIDocumentPickerViewController* documentPicker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[UTTypeItem.identifier]
+                                                                                                                inMode:UIDocumentPickerModeImport];
+        documentPicker.allowsMultipleSelection = false;
+
+        OpenFileHelper* helper = [[OpenFileHelper alloc] init];
+        helper.completion = ^(NSArray<NSURL *> *urls) {
+            if (urls.count > 0) {
+                NSURL *url = urls.firstObject;
+                BOOL ok = [url startAccessingSecurityScopedResource];
+                if (ok) {
+                    NSString *path = url.path;
+                    on_open(std::string(path.UTF8String));
+                    [url stopAccessingSecurityScopedResource];
+                }
+            } else {
+                on_open(std::nullopt);
+            }
+            [helper release];
+            [documentPicker release];
+        };
+        documentPicker.delegate = helper;
+        
+        // Find the topmost view controller
+        UIViewController* rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
+        UIViewController* topViewController = rootViewController;
+        while (topViewController.presentedViewController) {
+            topViewController = topViewController.presentedViewController;
+        }
+        
+        [topViewController presentViewController:documentPicker animated:YES completion:nil];
+    });
 }
 
 } // namespace tiny

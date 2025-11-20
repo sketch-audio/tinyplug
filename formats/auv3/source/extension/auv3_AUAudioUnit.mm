@@ -9,6 +9,10 @@
 
 #include "plug_info.h"
 
+#if !__has_feature(objc_arc)
+static_assert(false, "ARC must be enabled for this file");
+#endif
+
 @interface Auv3_AUAudioUnit()
 @property (nonatomic, readwrite) AUParameterTree *parameterTree;
 @property AUAudioUnitBusArray *inputBusArray;
@@ -45,6 +49,8 @@
     
     [self setupAudioBuses];
     _parameterTreeSetup = false;
+    
+    _observerTokens = [[NSMutableDictionary alloc] init];
     
     return self;
 }
@@ -162,20 +168,20 @@
                 [&](const Action_start& a) {
                     auto current = s->_kernel.getParameter(a.address);
                     auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
-                    auto token = (__bridge AUParameterObserverToken)s->_observerTokens[@(auparam.address)];
+                    auto* token = (__bridge AUParameterObserverToken)s->_observerTokens[@(static_cast<AUParameterAddress>(auparam.address))];
                     [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeTouch];
                 },
                 [&](const Set_param& a) {
                     const auto& param = s->_param_infos.param_for(a.address);
                     const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
                     auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
-                    auto token = (__bridge AUParameterObserverToken)s->_observerTokens[@(auparam.address)];
+                    auto* token = (__bridge AUParameterObserverToken)s->_observerTokens[@(static_cast<AUParameterAddress>(auparam.address))];
                     [auparam setValue:host_value originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeValue];
                 },
                 [&](const Action_end& a) {
                     auto current = s->_kernel.getParameter(a.address);
                     auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
-                    auto token = (__bridge AUParameterObserverToken)s->_observerTokens[@(auparam.address)];
+                    auto* token = (__bridge AUParameterObserverToken)s->_observerTokens[@(static_cast<AUParameterAddress>(auparam.address))];
                     [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeRelease];
                 },
             }, action);
@@ -382,7 +388,7 @@
         AUParameterObserverToken token = [param tokenByAddingParameterObserver:^(AUParameterAddress address, AUValue value) {
             kernel->onHostUpdated(address, value);
         }];
-        _observerTokens[@(param.address)] = (__bridge id)token;
+        _observerTokens[@(static_cast<AUParameterAddress>(param.address))] = (__bridge id)token;
     }
 
     return [super allocateRenderResourcesAndReturnError:outError];

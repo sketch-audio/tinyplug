@@ -7,6 +7,10 @@
 #include "auv3_view.h"
 #include "plug_editor.h"
 
+#if !__has_feature(objc_arc)
+static_assert(false, "ARC must be enabled for this file");
+#endif
+
 @interface Auv3_AUViewController : AUViewController <AUAudioUnitFactory>
 @property (nonatomic, retain) AUAudioUnit* audioUnit;
 @end

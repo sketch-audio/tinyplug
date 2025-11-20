@@ -189,7 +189,7 @@ inline auto track_over(const Pointer_state& state, const Frame& frame, bool& ove
 }
 
 // Controls can only consume the pointer state if it originates in their frame.
-inline auto try_consume(Pointer_state& state, const Frame& frame) -> std::optional<Pointer_state>
+inline auto try_consume(Pointer_state& state, const Frame& frame, bool actually_consume = false) -> std::optional<Pointer_state>
 {
     using Opt = std::optional<Pointer_state>;
     auto get_pos = [](const auto& s) -> Coords {
@@ -200,7 +200,9 @@ inline auto try_consume(Pointer_state& state, const Frame& frame) -> std::option
         [&](const Consumed&) { return Opt{}; },
         [&](const auto& s) {
             if (frame.contains(get_pos(s))) {
-                //state = Consumed{};
+                if (actually_consume) { // Until we build new gesture system, scroll views for example actually want to consume here.
+                    state = Consumed{};
+                }
                 return Opt{s};
             }
             return Opt{};

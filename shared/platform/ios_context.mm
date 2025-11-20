@@ -12,6 +12,10 @@
 #include "include/gpu/ganesh/mtl/GrMtlBackendSurface.h"
 #include "include/gpu/ganesh/mtl/GrMtlDirectContext.h"
 
+#if __has_feature(objc_arc)
+static_assert(false, "This is a non-ARC file");
+#endif
+
 @interface MetalView : UIView
 @end
 

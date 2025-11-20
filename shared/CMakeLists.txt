@@ -62,6 +62,7 @@ if(APPLE)
             "-framework UIKit"
             "-framework CoreGraphics"
             "-framework CoreText"
+            "-framework UniformTypeIdentifiers"
         )
     else()
         target_link_libraries(${TINY_SHARED_LIB} PUBLIC

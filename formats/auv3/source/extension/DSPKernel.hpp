@@ -157,8 +157,9 @@ public:
                 const auto address = static_cast<uint32_t>(event->parameter.parameterAddress);
                 const auto& spec = _param_infos.param_for(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
+                const auto norm = tiny::Value_conv::host_to_knob(event->parameter.value, spec.semantics);
                 _processor->handle_event(tiny::Set_param{.address = address, .value = plain});
-                _to_editor.push(tiny::Set_param{.address = address, .value = plain});
+                _to_editor.push(tiny::Set_param{.address = address, .value = norm});
                 break;
             }
             case AURenderEventParameterRamp: {
@@ -166,8 +167,9 @@ public:
                 const auto dur_samples = static_cast<int32_t>(event->parameter.rampDurationSampleFrames);
                 const auto& spec = _param_infos.param_for(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
+                const auto norm = tiny::Value_conv::host_to_knob(event->parameter.value, spec.semantics);
                 _processor->handle_event(tiny::Ramp_param{.address = address, .target = plain, .dur_samples = dur_samples});
-                _to_editor.push(tiny::Set_param{.address = address, .value = plain});
+                _to_editor.push(tiny::Set_param{.address = address, .value = norm});
                 break;
             }
                 
@@ -206,7 +208,9 @@ public:
     
     auto onHostUpdated(AUParameterAddress address, AUValue value) -> void
     {
-        _to_editor.push(tiny::Set_param{.address = static_cast<uint32_t>(address), .value = value});
+        const auto& param = _param_infos.param_for(static_cast<uint32_t>(address));
+        const auto norm = tiny::Value_conv::host_to_knob(value, param.semantics);
+        _to_editor.push(tiny::Set_param{.address = static_cast<uint32_t>(address), .value = norm});
     }
     
 private:
@@ -238,7 +242,7 @@ private:
     std::array<float*, max_ochannels> _obuffers{};
     std::array<float, num_meters> _meters{};
     
-    static constexpr auto param_queue_min_size = 2 * num_params + 1;
+    static constexpr auto param_queue_min_size = 4 * num_params + 1;
     using Param_queue = tiny::Lock_free_queue<tiny::Render_event, param_queue_min_size>;
     Param_queue _param_queue{};
     
