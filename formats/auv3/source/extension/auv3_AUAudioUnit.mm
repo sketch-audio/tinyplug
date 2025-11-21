@@ -18,7 +18,6 @@ static_assert(false, "ARC must be enabled for this file");
 @property AUAudioUnitBusArray *inputBusArray;
 @property AUAudioUnitBusArray *outputBusArray;
 @property (nonatomic, readonly) AUAudioUnitBus *outputBus;
-@property NSMutableDictionary<NSNumber*, id>* observerTokens;
 @end
 
 @implementation Auv3_AUAudioUnit {
@@ -38,6 +37,7 @@ static_assert(false, "ARC must be enabled for this file");
     NSArray<AUAudioUnitBus *> *_inputBuses;
     
     std::unique_ptr<AUProcessHelper> _processHelper;
+    std::unordered_map<AUParameterAddress, AUParameterObserverToken> _observerTokens;
 }
 
 @synthesize parameterTree = _parameterTree;
@@ -50,7 +50,7 @@ static_assert(false, "ARC must be enabled for this file");
     [self setupAudioBuses];
     _parameterTreeSetup = false;
     
-    _observerTokens = [[NSMutableDictionary alloc] init];
+    _observerTokens = {};
     
     return self;
 }
@@ -168,20 +168,23 @@ static_assert(false, "ARC must be enabled for this file");
                 [&](const Action_start& a) {
                     auto current = s->_kernel.getParameter(a.address);
                     auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
-                    auto* token = (__bridge AUParameterObserverToken)s->_observerTokens[@(static_cast<AUParameterAddress>(auparam.address))];
+                    auto it = s->_observerTokens.find(auparam.address);
+                    auto* token = it != s->_observerTokens.end() ? it->second : nil;
                     [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeTouch];
                 },
                 [&](const Set_param& a) {
                     const auto& param = s->_param_infos.param_for(a.address);
                     const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
                     auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
-                    auto* token = (__bridge AUParameterObserverToken)s->_observerTokens[@(static_cast<AUParameterAddress>(auparam.address))];
+                    auto it = s->_observerTokens.find(auparam.address);
+                    auto* token = it != s->_observerTokens.end() ? it->second : nil;
                     [auparam setValue:host_value originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeValue];
                 },
                 [&](const Action_end& a) {
                     auto current = s->_kernel.getParameter(a.address);
                     auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
-                    auto* token = (__bridge AUParameterObserverToken)s->_observerTokens[@(static_cast<AUParameterAddress>(auparam.address))];
+                    auto it = s->_observerTokens.find(auparam.address);
+                    auto* token = it != s->_observerTokens.end() ? it->second : nil;
                     [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeRelease];
                 },
             }, action);
@@ -388,7 +391,7 @@ static_assert(false, "ARC must be enabled for this file");
         AUParameterObserverToken token = [param tokenByAddingParameterObserver:^(AUParameterAddress address, AUValue value) {
             kernel->onHostUpdated(address, value);
         }];
-        _observerTokens[@(static_cast<AUParameterAddress>(param.address))] = (__bridge id)token;
+        _observerTokens[param.address] = token;
     }
 
     return [super allocateRenderResourcesAndReturnError:outError];
@@ -403,12 +406,13 @@ static_assert(false, "ARC must be enabled for this file");
     _kernel.deInitialize();
 
     for (AUParameter *param in self.parameterTree.allParameters) {
-        AUParameterObserverToken token = (__bridge AUParameterObserverToken)_observerTokens[@(param.address)];
-        if (token) {
+        auto it = _observerTokens.find(param.address);
+        if (it != _observerTokens.end()) {
+            AUParameterObserverToken token = it->second;
             [param removeParameterObserver:token];
         }
     }
-    [_observerTokens removeAllObjects];
+    //[_observerTokens removeAllObjects];
     
     [super deallocateRenderResources];
 }
