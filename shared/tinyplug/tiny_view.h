@@ -4,6 +4,7 @@
 #include <concepts>
 #include <functional>
 #include <iostream>
+#include <ranges>
 #include <span>
 #include <variant>
 
@@ -319,7 +320,7 @@ private:
     {
         auto out_rev = std::vector<Event>{};
         auto seen = std::unordered_set<uintptr_t>{};
-        for (const auto& e : es | std::views::reverse) {
+        for (const auto& e : std::ranges::reverse_view(es)) {
             std::visit(Inline_visitor{
                 [&](const Pointer_move&) {
                     if (seen.find(e.pointer_tag) == seen.end()) {
