@@ -7,7 +7,11 @@
 #include <span>
 #include <variant>
 
+#include "../platform/platform.h"
+
+#include "tiny_edit.h"
 #include "tiny_events.h"
+#include "tiny_meters.h"
 #include "tiny_params.h"
 #include "tiny_queue.h"
 #include "tiny_utils.h"
@@ -241,15 +245,487 @@ struct Dark_mode_changed {
 
 using Ui_notification = std::variant<Dark_mode_changed>;
 
+// MARK: - new gestures
+
+using Steady_clock = std::chrono::steady_clock;
+using Steady_time = std::chrono::time_point<Steady_clock>;
+
+enum class Pointer_button : uint32_t { left, right }; // Maybe add middle some day.
+
+struct Pointer_down {
+    Pointer_button button{};
+    Coords pos{};
+};
+
+struct Pointer_up {
+    Pointer_button button{};
+    Coords pos{};
+};
+
+struct Pointer_move {
+    Coords pos{};
+};
+
+struct Pointer_click {
+    Pointer_button button{};
+    uint32_t count{}; // Up to 2 for now.
+    Coords pos{};
+};
+
+struct Pointer_enter {
+    Coords pos{};
+};
+
+struct Pointer_exit {
+    Coords pos{};
+};
+
+struct Pointer_cancel {
+    Coords pos{};
+};
+
+using Pointer_event = std::variant<Pointer_down, Pointer_up, Pointer_move, Pointer_click, Pointer_enter, Pointer_exit, Pointer_cancel>;
+
+struct Event {
+    Pointer_event event{};
+    uintptr_t pointer_tag{};
+    bool consumed{};
+};
+
+struct Event_list {
+    std::vector<Event> events{}; // All events in the list can be considered simultaneous.
+    Steady_time timestamp{};
+};
+
+struct Event_stream {
+
+    auto push(const Event& event) -> void
+    {
+        events.push_back(event);
+    }
+
+    auto consume(Steady_time timestamp) -> Event_list
+    {
+        const auto list = Event_list{events, timestamp};
+        events.clear();
+        return list;
+    }
+
+private:
+
+    std::vector<Event> events{};
+
+};
+
+class Gesture_recognizer {
+public:
+    virtual auto set_frame(const Frame& frame) -> void = 0;
+    virtual auto process_events(Event_list& events) -> void = 0;
+    virtual ~Gesture_recognizer() = default;
+};
+
+template<typename T>
+using On_started = std::function<void(const T&)>;
+
+template<typename T>
+using On_updated = std::function<void(const T&)>;
+
+template<typename T>
+using On_ended = std::function<void(const T&)>;
+
+using On_cancelled = std::function<void()>;
+
+template<typename T>
+struct Gesture_callbacks {
+    On_started<T> on_started{[](auto) {}};
+    On_updated<T> on_updated{[](auto) {}};
+    On_ended<T> on_ended{[](auto) {}};
+    On_cancelled on_cancelled{[]() {}};
+};
+
+// MARK: - Over
+
+class Over_recognizer : public Gesture_recognizer {
+public:
+    
+    struct Info {
+        Coords pos{};
+        bool over{};
+    };
+
+    explicit Over_recognizer(const Gesture_callbacks<Info>& callbacks)
+        : _callbacks{callbacks} {}
+
+    auto set_frame(const Frame& frame) -> void override
+    {
+        _frame = frame;
+
+        if (_over) {
+            _callbacks.on_cancelled();
+            _over = false;
+        }
+    }
+
+    auto process_events(Event_list& events) -> void override
+    {
+        for (const auto& event : events.events) {
+            if (event.consumed) continue;
+            std::visit(Inline_visitor{
+                [&](const Pointer_move& move) {
+                    const auto was_over = _over;
+                    const auto now_over = _frame.contains(move.pos);
+                    _resolve_events(move.pos, was_over, now_over);
+                },
+                [&](const Pointer_enter& enter) {
+                    const auto was_over = _over;
+                    const auto now_over = _frame.contains(enter.pos);
+                    _resolve_events(enter.pos, was_over, now_over);
+                },
+                [&](const Pointer_exit& exit) {
+                    _resolve_events(exit.pos, _over, false);
+                },
+                [](const auto&) {}
+            }, event.event);
+        }
+    }
+
+private:
+    
+    Gesture_callbacks<Info> _callbacks{};
+    Frame _frame{};
+    bool _over{};
+
+    auto _resolve_events(Coords pos, bool was_over, bool now_over) -> void
+    {
+        if (!was_over && now_over) {
+            _callbacks.on_started({pos, true});
+        }
+        else if (was_over && !now_over) {
+            _callbacks.on_ended({pos, false});
+        }
+        _over = now_over;
+    }
+};
+
+using Over_info = Over_recognizer::Info;
+
+// MARK: - Down
+
+class Down_recognizer : public Gesture_recognizer {
+public:
+
+    struct Info {
+        Coords pos{};
+        bool down{};
+    };
+
+    explicit Down_recognizer(const Gesture_callbacks<Info>& callbacks)
+        : _callbacks{callbacks} {}
+
+    auto set_frame(const Frame& frame) -> void override
+    {
+        _frame = frame;
+
+        if (_down) {
+            _callbacks.on_cancelled();
+            _down = false;
+        }
+    }
+
+    auto process_events(Event_list& events) -> void override
+    {
+        for (const auto& event : events.events) {
+            if (event.consumed) continue;
+            std::visit(Inline_visitor{
+                [&](const Pointer_down& down) {
+                    if (_frame.contains(down.pos)) {
+                        _callbacks.on_started({down.pos, true});
+                        _down = true;
+                    }
+                },
+                [&](const Pointer_up& up) {
+                    if (_down) { // Event could have left our frame
+                        _callbacks.on_ended({up.pos, false});
+                        _down = false;
+                    }
+                },
+                [](const auto&) {}
+            }, event.event);
+        }
+    }
+
+private:
+
+    Gesture_callbacks<Info> _callbacks{};
+    Frame _frame{};
+    bool _down{};
+
+};
+
+using Down_info = Down_recognizer::Info;
+
+// MARK: - Dwell
+
+class Dwell_recognizer : public Gesture_recognizer {
+public:
+
+    struct Info {
+        Coords pos{};
+        bool dwelling{};
+    };
+
+    explicit Dwell_recognizer(const Gesture_callbacks<Info>& callbacks)
+        : _callbacks{callbacks} {}
+
+    auto set_frame(const Frame& frame) -> void override
+    {
+        _frame = frame;
+
+        if (_dwelling) {
+            _callbacks.on_cancelled();
+            _dwelling = false;
+        }
+    }
+
+    auto process_events(Event_list& events) -> void override
+    {
+        for (const auto& event : events.events) {
+            if (event.consumed) continue;
+            std::visit(Inline_visitor{
+                [&](const Pointer_down& down) {
+                    if (_dwelling) {
+                        _end_dwell(down.pos);
+                        _over_t = std::nullopt;
+                    }
+                    _down = true; // Global down tracking.
+                },
+                [&](const Pointer_up&) {
+                    _down = false;
+                },
+                [&](const Pointer_move& move) {
+                    if (_down) {
+                        _over_t = std::nullopt;
+                        return;
+                    }
+
+                    if (_dwelling) {
+                        _end_dwell(move.pos);
+                        _over_t = std::nullopt;
+                        return;
+                    }
+
+                    if (!_frame.contains(move.pos)) {
+                        _over_t = std::nullopt;
+                        return;
+                    }
+
+                    _over_t = events.timestamp;
+                    _pos = move.pos;
+                },
+                [&](const auto&) {
+                    if (_dwelling) {
+                        _end_dwell(_pos);
+                    }
+                }
+            }, event.event);
+        }
+
+        if (_over_t) {
+            const auto now = Steady_clock::now();
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - *_over_t);
+            if (!_dwelling && elapsed.count() > dwell_ms) {
+                _callbacks.on_started({_pos, true});
+                _dwelling = true;
+            }
+        }
+        else {
+            if (_dwelling) {
+                _end_dwell(_pos);
+            }
+        }
+        
+    }
+
+private:
+
+    static constexpr auto dwell_ms = 2000;
+
+    Gesture_callbacks<Info> _callbacks{};
+    Frame _frame{};
+    bool _down{}; // No dwell when down.
+
+    std::optional<Steady_time> _over_t{};
+    Coords _pos{};
+    bool _dwelling{};
+
+    auto _end_dwell(Coords pos) -> void
+    {
+        _callbacks.on_ended({pos, false});
+        _dwelling = false;
+    }
+};
+
+using Dwell_info = Dwell_recognizer::Info;
+
+// MARK: - Click
+
+class Click_recognizer : public Gesture_recognizer {
+public:
+
+    struct Desc {
+        Pointer_button button{};
+        uint32_t count{1};
+    };
+
+    struct Info {
+        Coords pos{};
+    };
+
+    explicit Click_recognizer(Gesture_callbacks<Info> callbacks, const Desc& desc) : _callbacks{callbacks}, _desc{desc} {}
+
+    auto set_frame(const Frame& frame) -> void override
+    {
+        _frame = frame;
+    }
+
+    auto process_events(Event_list& events) -> void override
+    {
+        for (const auto& event : events.events) {
+            if (event.consumed) continue;
+            std::visit(Inline_visitor{
+#if PLATFORM_APPLE
+                [&](const Pointer_down& down) {
+                    // Right click executes on pointer down on macOS.
+                    if (_frame.contains(down.pos) && down.button == Pointer_button::right) {
+                        const auto match = (_desc.button == down.button && _desc.count == 1);
+                        if (match) _callbacks.on_started({down.pos});
+                    }
+                },
+#endif
+                [&](const Pointer_click& click) {
+                    if (_frame.contains(click.pos)) {
+                        const auto match = (_desc.button == click.button && _desc.count == click.count);
+                        if (match) _callbacks.on_started({click.pos});
+                    }
+                },
+                [](const auto&) {}
+            }, event.event);
+        }
+    }
+
+private:
+
+    Gesture_callbacks<Info> _callbacks{};
+    Desc _desc{};
+    Frame _frame{};
+
+};
+
+using Click_info = Click_recognizer::Info;
+
+// MARK: - Drag
+
+class Drag_recognizer : public Gesture_recognizer {
+public:
+
+    struct Info {
+        Coords fpos{};
+        Coords tpos{};
+    };
+
+    explicit Drag_recognizer(const Gesture_callbacks<Info>& callbacks, bool greedy = false)
+        : _callbacks{callbacks}, _greedy{greedy} {}
+
+    auto set_frame(const Frame& frame) -> void override
+    {
+        _frame = frame;
+
+        if (_fpos.has_value() || _tag.has_value() || _initiated) {
+            _callbacks.on_cancelled();
+            _reset();
+        }
+    }
+
+    auto process_events(Event_list& events) -> void override
+    {
+        for (auto& event : events.events) {
+            if (event.consumed) continue;
+            if (_tag && *_tag != event.pointer_tag) continue; // Skip events for unbound pointers
+
+            std::visit(Inline_visitor{
+                [&](const Pointer_down& down) {
+                    if (down.button != Pointer_button::left) return; // Only primary button drags.
+                    if (_frame.contains(down.pos)) {
+                        // set
+                        _fpos = down.pos;
+                        _tag = event.pointer_tag;
+                        _initiated = false;
+
+                        event.consumed = _greedy ? true : event.consumed;
+                    }
+                },
+                [&](const Pointer_up& up) {
+                    if (_fpos && _initiated) {
+                        _callbacks.on_ended({*_fpos, up.pos});
+                        event.consumed = _greedy ? true : event.consumed;
+                    }
+                    _reset();
+                },
+                [&](const Pointer_move& move) {
+                    if (_fpos) {
+                        if (!_initiated) {
+                            _callbacks.on_started({*_fpos, move.pos});
+                            _initiated = true;
+                        }
+                        else {
+                            _callbacks.on_updated({*_fpos, move.pos});
+                        }
+                        event.consumed = _greedy ? true : event.consumed;
+                    }
+                },
+                [](const auto&) {}
+            }, event.event);
+        }
+    }
+
+private:
+
+    Gesture_callbacks<Info> _callbacks{};
+    bool _greedy{};
+
+    Frame _frame{};
+
+    std::optional<Coords> _fpos{};
+    std::optional<uintptr_t> _tag{};
+    bool _initiated{};
+
+    auto _reset() -> void
+    {
+        _fpos = std::nullopt;
+        _tag = std::nullopt;
+        _initiated = false;
+    }
+};
+
+using Drag_info = Drag_recognizer::Info;
+
+// Factory to create recognizers with deduced callback types.
+template<typename Recognizer, typename... Args>
+auto make_recognizer(Gesture_callbacks<typename Recognizer::Info> callbacks, Args&&... args) -> std::unique_ptr<Recognizer>
+{
+    return std::make_unique<Recognizer>(std::move(callbacks), std::forward<Args>(args)...);
+}
+
 // MARK: - user interaction
 
 // A user interaction includes an id (for future multi-touch), pointer state, and scroll deltas.
 struct User_interaction {
     std::vector<Pointer> pointers{};
+    Event_list events{};
     Coords scroll_deltas{};
     bool inertial_scroll{};
     Modifier_keys modifier_keys{};
-    bool operator==(const User_interaction&) const = default;
+    //bool operator==(const User_interaction&) const = default;
 };
 
 // MARK: - time
@@ -272,13 +748,30 @@ struct View_context {
     SkCanvas* canvas{nullptr};
     Rect_size logical_size{};
     double scale{1};
-    bool operator==(const View_context&) const = default;
+    //bool operator==(const View_context&) const = default;
 };
 
-// Read-only access to some param (and export) values.
-struct Processor_state {
-    std::span<const double> params{};
-    std::span<const double> meters{};
+struct Scroll_data {
+    Coords deltas{};
+    bool inertial{};
+};
+
+struct Processor_view {
+    std::span<const double> param_values{};
+    std::span<const double> meter_values{};
+};
+
+struct Update_context {
+    Edit_context edit{}; // The edit context is not immediate mode so you need to attach it in your update calls.
+    Modifier_keys modifier_keys{};
+    Scroll_data scroll_data{};
+};
+
+struct Draw_context {
+    SkCanvas* canvas{};
+    Rect_size logical_size{};
+    double scale{1};
+    Time_point time_now{};
 };
 
 // The app state gives you
@@ -289,352 +782,11 @@ struct Plugin_state {
     View_context view_context{};
 };
 
+
 // The plug-in format's view will have a draw callback.
 // This is where it will resolve the application state and pass it to your custom view.
 using Draw_callback = std::function<void(View_context&)>;
 using Notify_callback = std::function<void(const Ui_notification&)>;
-
-// MARK: action queue
-
-struct Action_queue {
-
-    using Observer = std::function<void(std::span<const User_action>, std::span<const double>)>;
-
-    struct Receiver {
-        explicit Receiver(Action_queue* actions = nullptr) : _actions{actions} {}
-        auto push(const User_action& action) const -> void
-        {
-            if (_actions) {
-                _actions->push(action);
-            }
-        }
-        auto sort() const -> void
-        {
-            if (_actions) {
-                _actions->sort();
-            }
-        }
-        // Return copy to avoid aliasing.
-        auto actions() const -> std::vector<User_action>
-        {
-            return _actions ? _actions->actions() : std::vector<User_action>{};
-        }
-        auto install_observer(const Observer& observer) const -> void
-        {
-            if (_actions) {
-                _actions->install_observer(observer);
-            }
-        }
-        auto clear_observers() const -> void
-        {
-            if (_actions) {
-                _actions->clear_observers();
-            }
-        }
-    private:
-        Action_queue* _actions;
-    };
-
-    auto make_receiver() -> Receiver
-    {
-        return Receiver{this};
-    }
-
-    auto push(const User_action& action) -> void
-    {
-        _actions.push_back(action);
-    }
-
-    auto sort() -> void
-    {
-        std::stable_sort(_actions.begin(), _actions.end(), [](const User_action& a, const User_action& b) {
-            auto action_order = [](const User_action& action) -> int {
-                return std::visit(Inline_visitor{
-                    [](const Action_start&) { return 0; },
-                    [](const Set_param&) { return 1; },
-                    [](const Action_end&) { return 2; },
-                    [](const auto&) { return 3; }
-                }, action);
-            };
-            return action_order(a) < action_order(b);
-        });
-    }
-
-    auto actions() const -> const std::vector<User_action>&
-    {
-        return _actions;
-    }
-
-    auto clear() -> void
-    {
-        _actions.clear();
-    }
-
-    auto install_observer(const Observer& observer) -> void
-    {
-        _observers.push_back(observer);
-    }
-
-    auto clear_observers() -> void
-    {
-        _observers.clear();
-    }
-
-    auto process_observers(std::span<const double> params) -> void
-    {
-        for (const auto& observer : _observers) {
-            observer(_actions, params);
-        }
-    }
-
-private:
-
-    std::vector<User_action> _actions = {};
-
-    std::vector<Observer> _observers{};
-
-};
-using Actions = Action_queue::Receiver;
-
-// MARK: - task queue
-
-struct Task_queue {
-    using Task = std::function<void()>;
-    using Queue = Lock_free_queue<Task, 16>;
-
-    struct Receiver {
-        explicit Receiver(Queue* queue = nullptr) : _queue{queue} {}
-        auto push(Task task) const -> void
-        {
-            if (_queue) {
-                [[maybe_unused]] const auto success = _queue->push(std::move(task));
-                assert(success && "Queue not big enough!");
-            }
-        }
-        auto execute_all() const -> void
-        {
-            if (_queue) {
-                auto task = Task{};
-                while (_queue->pop(task)) task();
-            }
-        }
-    private:
-        Queue* _queue{nullptr};
-    };
-
-    auto make_receiver() -> Receiver
-    {
-        return Receiver{&_queue};
-    }
-
-    auto execute_all() -> void
-    {
-        auto task = Task{};
-        while (_queue.pop(task)) task();
-    }
-
-private:
-
-    Queue _queue{};
-
-};
-using Tasks = Task_queue::Receiver;
-
-// MARK: - undo history
-
-struct Undo_history {
-
-    struct Param_change {
-        uint32_t addr{};
-        double from{};
-        double to{};
-    };
-
-    struct Undo_step {
-        std::vector<Param_change> changes{};
-    };
-
-    struct Receiver {
-        explicit Receiver(Undo_history* history = nullptr) : _history{history} {}
-        auto undo() const -> void
-        {
-            if (_history) { _history->defer_undo(); }
-        }
-        auto redo() const -> void
-        {
-            if (_history) { _history->defer_redo(); }
-        }
-    private:
-        Undo_history* _history{nullptr};
-    };
-
-    Undo_history(const std::vector<Param_spec>& specs) : _specs{specs} {}
-
-    auto process_actions(std::span<const User_action> actions, Processor_state& state) -> void
-    {
-        _process_actions(actions, state);
-    }
-
-    auto undo(Actions actions) -> void
-    {
-        _apply<true>(actions);
-    }
-
-    auto redo(Actions actions) -> void
-    {
-        _apply<false>(actions);
-    }
-
-    auto make_receiver() -> Receiver
-    {
-        return Receiver{this};
-    }
-
-    auto defer_undo() -> void
-    {
-        _deferred = Deferred_action{Undo{}};
-    }
-
-    auto defer_redo() -> void
-    {
-        _deferred = Deferred_action{Redo{}};
-    }
-
-    auto process_deferred(Actions actions) -> void
-    {
-        if (_deferred) {
-            std::visit(Inline_visitor{
-                [&](const Undo&) {
-                    _apply<true>(actions);
-                },
-                [&](const Redo&) {
-                    _apply<false>(actions);
-                }
-            }, *_deferred);
-            _deferred.reset();
-        }
-    }
-
-private:
-
-    std::vector<Param_spec> _specs{};
-
-    struct Undo {}; struct Redo {};
-    using Deferred_action = std::variant<Undo, Redo>;
-
-    std::optional<Deferred_action> _deferred{};
-
-    using Active_map = std::unordered_map<uint32_t, Param_change>;
-
-    std::optional<Active_map> _current{};
-    size_t _active{};
-
-    std::vector<Undo_step> _undo_stack{};
-    std::vector<Undo_step> _redo_stack{};
-
-    auto undoable(uint32_t /*addr*/) const -> bool
-    {
-        return true;
-        // const auto& spec = _specs[addr];
-        // return spec.policy != Host_policy::interface;
-    }
-
-    auto _process_actions(std::span<const User_action> actions, Processor_state& state) -> void
-    {
-        const auto& params = state.params;
-
-        for (const auto& action : actions) {
-            std::visit(Inline_visitor{
-                [&](const Action_start& s) {
-                    if (!undoable(s.address)) return;
-                    ++_active;
-                    if (_active == 1) {
-                        _current = Active_map{};
-                    }
-                    if (_current) {
-                        _current->emplace(s.address, Param_change{
-                            .addr = s.address,
-                            .from = params[s.address],
-                            .to = params[s.address],
-                        });
-                    }
-                },
-                [&](const Set_param& p) {
-                    if (!undoable(p.address)) return;
-                    if (!_current) return;
-                    auto it = _current->find(p.address);
-                    if (it != _current->end()) {
-                        it->second.to = p.value;
-                    }
-                },
-                [&](const Action_end& e) {
-                    if (!undoable(e.address)) return;
-                    if (_active == 0) return;
-                    --_active;
-                    if (_active == 0 && _current) {
-                        Undo_step step{};
-                        for (const auto& [_, change] : *_current) {
-                            if (change.from != change.to) {
-                                step.changes.push_back(change);
-                            }
-                        }
-                        if (!step.changes.empty()) {
-                            _undo_stack.push_back(std::move(step));
-                            _redo_stack.clear();
-                        }
-                        _current.reset();
-                    }
-                },
-                [&](const auto&) {}
-            }, action);
-        }
-    }
-
-    template<bool is_undo>
-    auto _apply(Actions actions) -> void
-    {
-        auto& stack_from = is_undo ? _undo_stack : _redo_stack;
-        auto& stack_to = is_undo ? _redo_stack : _undo_stack;
-
-        if (stack_from.empty()) return;
-
-        const auto step = stack_from.back();
-        stack_from.pop_back();
-
-        for (const auto& change : step.changes) {
-            actions.push(Action_start{change.addr});
-            actions.push(Set_param{change.addr, is_undo ? change.from : change.to});
-            actions.push(Action_end{change.addr});
-        }
-
-        stack_to.push_back(step);
-    }
-};
-using Undo_redo = Undo_history::Receiver;
-
-struct Edit_context {
-    Actions actions{};
-    Tasks tasks{};
-    Undo_redo undo_redo{};
-};
-
-template<typename... Args>
-struct Later {
-
-    std::function<void(Args...)> callback{[](Args...) {}};
-    std::optional<Tasks> receiver{};
-
-    template<typename... Cargs>
-    void operator()(Cargs&&... args) const {
-        if (receiver) {
-            receiver->push([cb = callback, ...a = std::forward<Cargs>(args)]() {
-                cb(std::move(a)...);
-            });
-        } else {
-            callback(std::forward<Cargs>(args)...);
-        }
-    }
-};
 
 // MARK: - debug
 

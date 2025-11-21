@@ -36,6 +36,7 @@ static_assert(false, "This is a non-ARC file");
     
     std::unordered_map<UITouch*, Pointer_data> _active_pointers;
     std::unordered_map<UITouch*, CGPoint> _activeTouches;
+    tiny::Event_stream _events;
 }
 
 - (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate {
@@ -98,6 +99,8 @@ static_assert(false, "This is a non-ARC file");
     for (const auto& [touch, pointer_data] : _active_pointers) {
         _interaction.pointers.push_back(pointer_data.pointer);
     }
+    
+    _interaction.events = _events.consume(tiny::Steady_clock::now());
 
     _delegate->draw(_interaction, time_now);
     
@@ -148,6 +151,12 @@ static_assert(false, "This is a non-ARC file");
                     pointer_data.pending_gesture = true;
                     pointer_data.pos_down = std::nullopt;
                     pointer_data.started_drag = false;
+                    
+                    using namespace tiny;
+                    _events.push(Event{
+                        .event = Pointer_click{.count = 1, .pos = loc},
+                        .pointer_tag = (uintptr_t)closest_touch
+                    });
                 }
             }
         }
@@ -185,6 +194,12 @@ static_assert(false, "This is a non-ARC file");
                     pointer_data.pending_gesture = true;
                     pointer_data.pos_down = std::nullopt;
                     pointer_data.started_drag = false;
+                    
+                    using namespace tiny;
+                    _events.push(Event{
+                        .event = Pointer_click{.count = 2, .pos = loc},
+                        .pointer_tag = (uintptr_t)closest_touch
+                    });
                 }
             }
         }
@@ -222,6 +237,12 @@ static_assert(false, "This is a non-ARC file");
                     pointer_data.pending_gesture = true;
                     pointer_data.pos_down = std::nullopt;
                     pointer_data.started_drag = false;
+                    
+                    using namespace tiny;
+                    _events.push(Event{
+                        .event = Pointer_down{.button = Pointer_button::right, .pos = loc},
+                        .pointer_tag = (uintptr_t)closest_touch
+                    });
                 }
             }
         }
@@ -247,6 +268,12 @@ static_assert(false, "This is a non-ARC file");
             .started_drag = false,
         };
         _activeTouches[touch] = location;
+        
+        using namespace tiny;
+        _events.push(Event{
+            .event = Pointer_down{.pos = pos},
+            .pointer_tag = tag
+        });
     }
 }
 
@@ -270,6 +297,13 @@ static_assert(false, "This is a non-ARC file");
             }
         }
         _activeTouches[touch] = location;
+        
+        using namespace tiny;
+        const auto tag = (uintptr_t)touch;
+        _events.push(Event{
+            .event = Pointer_move{.pos = pos},
+            .pointer_tag = tag
+        });
     }
 }
 
@@ -290,6 +324,13 @@ static_assert(false, "This is a non-ARC file");
             }
         }
         _activeTouches.erase(touch); // Gesture should be processed before touch end/cancel.
+        
+        using namespace tiny;
+        const auto tag = (uintptr_t)touch;
+        _events.push(Event{
+            .event = Pointer_up{.pos = pos},
+            .pointer_tag = tag
+        });
     }
 }
 
@@ -303,6 +344,15 @@ static_assert(false, "This is a non-ARC file");
             tiny::try_set(pointer_data.pointer.state, tiny::Consumed{});
         }
         _activeTouches.erase(touch); // Gesture should be processed before touch end/cancel.
+        
+        using namespace tiny;
+        CGPoint location = [touch locationInView:self];
+        const auto pos = Coords{location.x, location.y};
+        const auto tag = (uintptr_t)touch;
+        _events.push(Event{
+            .event = Pointer_cancel{.pos = pos}, // ???
+            .pointer_tag = tag
+        });
     }
 }
 

@@ -44,6 +44,8 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     std::optional<tiny::Coords> _drag_start;
     bool _dwelt;
 
+    tiny::Event_stream _events;
+
     CVDisplayLinkRef _displayLink;
     dispatch_source_t _displaySource;
 }
@@ -139,8 +141,12 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         .shift = (flags & NSEventModifierFlagShift) != 0,
     };
 
+    [[maybe_unused]] auto event_list = _events.consume(tiny::Steady_clock::now());
+    //tiny::log_events(event_list);
+
     // Copy pointer state into the interaction.
     _interaction.pointers = {_pointer};
+    _interaction.events = event_list;
 
     _delegate->draw(_interaction, time_now);
     tiny::try_set(_pointer.state, tiny::Consumed{});
@@ -224,6 +230,13 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         _over_pos = std::nullopt;
         _left_pos = pos;
     }
+
+    using namespace tiny;
+    const auto button = ctrl ? Pointer_button::right : Pointer_button::left;
+    _events.push(Event{
+        .event = Pointer_down{button, pos}
+    });
+
     [super mouseDown:event];
 }
 
@@ -248,6 +261,20 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         }
         _left_pos = std::nullopt;
     }
+
+    using namespace tiny;
+    const auto ctrl = (event.modifierFlags & NSEventModifierFlagControl) != 0;
+    const auto button = ctrl ? Pointer_button::right : Pointer_button::left;
+    _events.push(Event{
+        .event = Pointer_up{button, pos}
+    });
+
+    if (click_count > 0) {
+        _events.push(Event{
+            .event = Pointer_click{button, static_cast<uint32_t>(click_count), pos}
+        });
+    }
+
     [super mouseUp:event];
 }
 
@@ -264,6 +291,12 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         _over_time = t;
         _dwelt = false;
     }
+
+    using namespace tiny;
+    _events.push(Event{
+        .event = Pointer_move{pos}
+    });
+
     [super mouseMoved:event];
 }
 
@@ -281,6 +314,12 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         tiny::try_set(_pointer.state, tiny::Drag{*_drag_start, pos});
         _over_pos = std::nullopt;
     }
+
+    using namespace tiny;
+    _events.push(Event{
+        .event = Pointer_move{pos}
+    });
+
     [super mouseDragged:event];
 }
 
@@ -289,14 +328,36 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
     tiny::try_set(_pointer.state, tiny::Right_click{pos});
     _over_pos = std::nullopt;
+
+    using namespace tiny;
+    _events.push(Event{
+        .event = Pointer_down{Pointer_button::right, pos}
+    });
+
     [super rightMouseDown:event];
 }
 
 - (void)rightMouseUp:(NSEvent *)event {
+    const auto y = self.bounds.size.height - event.locationInWindow.y;
+    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+
+    using namespace tiny;
+    _events.push(Event{
+        .event = Pointer_up{Pointer_button::right, pos}
+    });
+
     [super rightMouseUp:event];
 }
 
 - (void)rightMouseDragged:(NSEvent *)event {
+    const auto y = self.bounds.size.height - event.locationInWindow.y;
+    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+
+    using namespace tiny;
+    _events.push(Event{
+        .event = Pointer_move{pos}
+    });
+
     [super rightMouseDragged:event];
 }
 
@@ -312,12 +373,27 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     const auto pos = tiny::Coords{event.locationInWindow.x, y};
     tiny::try_set(_pointer.state, tiny::Over{pos});
     _over_pos = std::nullopt;
+
+    using namespace tiny;
+    _events.push(Event{
+        .event = Pointer_enter{pos}
+    });
+
     [super mouseEntered:event];
 }
 
 - (void)mouseExited:(NSEvent *)event {
+    const auto y = self.bounds.size.height - event.locationInWindow.y;
+    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+
     tiny::try_set(_pointer.state, tiny::Consumed{});
     _over_pos = std::nullopt;
+
+    using namespace tiny;
+    _events.push(Event{
+        .event = Pointer_exit{pos}
+    });
+
     [super mouseExited:event];
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "tiny_edit.h"
 #include "tiny_events.h"
 #include "tiny_meters.h"
 #include "tiny_params.h"

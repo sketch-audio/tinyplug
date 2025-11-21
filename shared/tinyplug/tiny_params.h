@@ -592,6 +592,16 @@ inline auto is_param_units(Units units, const Value_semantics& semantics) -> boo
     }, semantics);
 }
 
+inline auto param_is_discrete(const Value_semantics& semantics) -> bool
+{
+    return std::visit(Inline_visitor{
+        [](const Bool_semantics&) { return true; },
+        [](const List_semantics&) { return true; },
+        [](const Int_semantics&) { return true; },
+        [](const Real_semantics&) { return false; },
+    }, semantics);
+}
+
 // MARK: - parameter model
 
 template<typename T>
