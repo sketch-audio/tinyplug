@@ -22,6 +22,14 @@ struct Platform_binder {
     std::optional<Coords> left_pos{};
     std::optional<Coords> right_pos{};
     std::optional<Coords> drag_start{};
+
+    Event_stream events{};
+    bool mouse_in{};
+    Coords last_pos{};
+    std::optional<Coords> left_down{};
+    std::optional<Coords> right_down{};
+    bool double_click{};
+
     bool dwelt{};
     bool dark_mode{};
 };

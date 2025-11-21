@@ -229,6 +229,8 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
                 }
                 binder->interaction.pointers = {binder->pointer}; // Copy pointer state to interaction.
                 binder->interaction.modifier_keys = resolve_modifiers();
+
+                binder->interaction.events = binder->events.consume(Steady_clock::now());
                 delegate->draw(binder->interaction, time_now); // Delegate window context handles everything.
                 try_set(binder->pointer.state, Consumed{});
                 binder->interaction.scroll_deltas = {};
@@ -248,6 +250,12 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             const auto pos = Coords{x, y};
             try_set(binder->pointer.state, Down{pos});
             binder->left_pos = pos;
+
+            binder->events.push(Event{
+                .event = Pointer_down{Pointer_button::left, pos}
+            });
+            binder->left_down = pos;
+
             return 0;
         }
 
@@ -265,6 +273,32 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
                 binder->over_pos = std::nullopt;
             }
             binder->left_pos = std::nullopt;
+
+            binder->events.push(Event{
+                .event = Pointer_up{Pointer_button::left, pos}
+            });
+            if (binder->left_down) {
+                // Compute movement
+                const auto start = *binder->left_down;
+                const double dx = std::abs(pos.x - start.x);
+                const double dy = std::abs(pos.y - start.y);
+
+                // Windows system drag threshold
+                const int cxDrag = GetSystemMetrics(SM_CXDRAG);
+                const int cyDrag = GetSystemMetrics(SM_CYDRAG);
+
+                const bool withinThreshold = dx < cxDrag && dy < cyDrag;
+
+                if (withinThreshold) {
+                    const auto count = binder->double_click ? 2u : 1u;
+                    binder->events.push(Event{
+                        .event = Pointer_click{Pointer_button::left, count, pos}
+                    });
+                }
+                binder->left_down = std::nullopt;
+                binder->double_click = false;
+            }
+
             ReleaseCapture();
             return 0;
         }
@@ -275,6 +309,14 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             const auto pos = Coords{x, y};
             try_set(binder->pointer.state, tiny::Double_click{pos});
             binder->over_pos = std::nullopt;
+
+            // This is second down click in a double click
+            binder->events.push(Event{
+                .event = Pointer_down{Pointer_button::left, pos}
+            });
+            binder->left_down = pos; // According to Windows we get DOWN UP DBLCLK UP
+            binder->double_click = true;
+            
             return 0;
         }
 
@@ -306,6 +348,18 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
                     binder->dwelt = false;
                 }
             }
+
+            if (!binder->mouse_in) {
+                binder->events.push(Event{
+                    .event = Pointer_enter{pos}
+                });
+                binder->mouse_in = true;
+            }
+            binder->events.push(Event{
+                .event = Pointer_move{pos}
+            });
+            binder->last_pos = pos;
+
             return 0;
         }
 
@@ -316,6 +370,12 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             const auto pos = Coords{x, y};
             try_set(binder->pointer.state, Down{pos, true});
             binder->right_pos = pos;
+
+            binder->events.push(Event{
+                .event = Pointer_down{Pointer_button::right, pos}
+            });
+            binder->right_down = pos;
+
             return 0;
         }
 
@@ -328,6 +388,30 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
                 binder->over_pos = std::nullopt;
                 binder->right_pos = std::nullopt;
             }
+
+            binder->events.push(Event{
+                .event = Pointer_up{Pointer_button::right, pos}
+            });
+            if (binder->right_down) {
+                // Compute movement
+                const auto start = *binder->right_down;
+                const double dx = std::abs(pos.x - start.x);
+                const double dy = std::abs(pos.y - start.y);
+
+                // Windows system drag threshold
+                const int cxDrag = GetSystemMetrics(SM_CXDRAG);
+                const int cyDrag = GetSystemMetrics(SM_CYDRAG);
+
+                const bool withinThreshold = dx < cxDrag && dy < cyDrag;
+
+                if (withinThreshold) {
+                    binder->events.push(Event{
+                        .event = Pointer_click{Pointer_button::right, 1, pos}
+                    });
+                }
+                binder->right_down = std::nullopt;
+            }
+
             ReleaseCapture();
             return 0;
         }
@@ -349,7 +433,27 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             binder->over_pos = std::nullopt;
             binder->left_pos = std::nullopt;
             binder->interaction.modifier_keys = {};
+
+            binder->events.push(Event{
+                .event = Pointer_exit{binder->last_pos}
+            });
+            binder->mouse_in = false;
+
             return 0;
+        }
+
+        case WM_SETCURSOR: {
+            // lParam tells you what region: low word = hit-test code
+            const auto hit = LOWORD(lparam);
+
+            if (hit == HTCLIENT) {
+                // Set YOUR normal cursor
+                SetCursor(LoadCursor(nullptr, IDC_ARROW));
+                return TRUE;   // tell Windows you handled it
+            }
+
+            // For non-client areas (resize borders, title bar), let Windows do its default
+            return DefWindowProcW(window, message, wparam, lparam);
         }
 
         case WM_TINY_SETCURSOR: {

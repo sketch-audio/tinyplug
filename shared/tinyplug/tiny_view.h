@@ -306,7 +306,7 @@ struct Event_stream {
 
     auto consume(Steady_time timestamp) -> Event_list
     {
-        const auto list = Event_list{events, timestamp};
+        const auto list = Event_list{consolidate_moves(events), timestamp};
         events.clear();
         return list;
     }
@@ -314,6 +314,27 @@ struct Event_stream {
 private:
 
     std::vector<Event> events{};
+
+    auto consolidate_moves(const std::vector<Event>& es) -> std::vector<Event>
+    {
+        auto out_rev = std::vector<Event>{};
+        auto seen = std::unordered_set<uintptr_t>{};
+        for (const auto& e : es | std::views::reverse) {
+            std::visit(Inline_visitor{
+                [&](const Pointer_move&) {
+                    if (seen.find(e.pointer_tag) == seen.end()) {
+                        out_rev.push_back(e);
+                        seen.insert(e.pointer_tag);
+                    }
+                },
+                [&](const auto&) {
+                    out_rev.push_back(e);
+                }
+            }, e.event);
+        }
+        std::ranges::reverse(out_rev);
+        return out_rev;
+    }
 
 };
 
