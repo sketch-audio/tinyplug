@@ -1,6 +1,6 @@
-#include "window_context.h"
+#include "../window_context.h"
 
-#import <UIKit/UIKit.h>
+#import <Cocoa/Cocoa.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 
@@ -12,41 +12,24 @@
 #include "include/gpu/ganesh/mtl/GrMtlBackendSurface.h"
 #include "include/gpu/ganesh/mtl/GrMtlDirectContext.h"
 
-#if __has_feature(objc_arc)
-static_assert(false, "This is a non-ARC file");
-#endif
-
-@interface MetalView : UIView
-@end
-
-@implementation MetalView
-+ (Class) layerClass {
-    return [CAMetalLayer class];
-}
-@end
-
 namespace tiny {
 
 auto Window_context::setup(const Setup& setup) -> void
 {
-    auto view = static_cast<UIView*>(setup.native_handle);
+    auto view = static_cast<NSView*>(setup.native_handle);
     _view = view;
-    
-    auto frame = view.frame;
-    auto metal_view = [[MetalView alloc] initWithFrame:frame];
-    metal_view.multipleTouchEnabled = YES; // Don't interfere with multi-touch.
-    [view addSubview: metal_view];
-    _metal_view = metal_view;
-    
+
     auto device = MTLCreateSystemDefaultDevice();
     _device = device;
     _queue = [device newCommandQueue];
 
-    auto layer = static_cast<CAMetalLayer*>(metal_view.layer); // Metal layer from MetalView.
+    auto layer = [CAMetalLayer layer];
     layer.device = device;
     layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
-    layer.frame = frame;
     _layer = layer;
+
+    view.layer = layer;
+    view.wantsLayer = YES;
 
     auto backendContext = GrMtlBackendContext{};
     backendContext.fDevice.retain(_device);
@@ -124,19 +107,12 @@ auto Window_context::end_draw() -> void
 
 auto Window_context::on_resized() -> void
 {
-    const auto* view = static_cast<UIView*>(_view);
-    const auto s = view.window.screen.scale ?: [UIScreen mainScreen].scale;
-    const auto scale = std::max(s, 1.0);
-    const auto frame = view.frame;
-    
+    const auto* view = static_cast<NSView*>(_view);
+    const auto scale = std::max(view.window.backingScaleFactor, 1.0);
     const auto logical_size = view.bounds.size;
     const auto real_size = CGSizeMake(logical_size.width * scale, logical_size.height * scale);
-    
-    const auto* metal_view = static_cast<MetalView*>(_metal_view);
-    metal_view.frame = frame;
 
     const auto* layer = static_cast<CAMetalLayer*>(_layer);
-    layer.frame = frame;
     layer.drawableSize = real_size;
     layer.contentsScale = scale;
 

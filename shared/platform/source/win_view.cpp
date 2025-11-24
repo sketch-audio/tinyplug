@@ -1,7 +1,4 @@
-#include "platform.h"
-#if PLATFORM_WINDOWS
-
-#include "platform_view.h"
+#include "../platform_view.h"
 
 #include <algorithm>
 #include <random>
@@ -1294,5 +1291,3 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
 }
 
 } // namespace tiny
-
-#endif

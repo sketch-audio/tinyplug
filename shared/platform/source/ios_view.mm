@@ -1,15 +1,12 @@
-#include "platform.h"
+#include "../platform_view.h"
 
-#if PLATFORM_IOS
 #include <chrono>
 #include <unordered_map>
 #include <unordered_set>
 
 #import <UIKit/UIKit.h>
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-#include "platform_view.h"
-#include "window_context.h"
+#include "../window_context.h"
 
 #if __has_feature(objc_arc)
 static_assert(false, "This is a non-ARC file");
@@ -367,22 +364,6 @@ static_assert(false, "This is a non-ARC file");
 
 @end
 
-// MARK: - OpenFileHelper
-
-@interface OpenFileHelper : NSObject <UIDocumentPickerDelegate>
-@property(nonatomic, copy) void (^completion)(NSArray<NSURL *> *urls);
-@end
-
-@implementation OpenFileHelper
-- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    if (self.completion) { self.completion(urls); }
-}
-
-- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
-    if (self.completion) { self.completion(@[]); }
-}
-@end
-
 // MARK: - Platform_view
 
 namespace tiny {
@@ -442,156 +423,4 @@ auto Platform_view::resize(int32_t w, int32_t h) -> void
     _delegate->on_resize({w, h});
 }
 
-// MARK: - alert
-
-auto Platform_dialogs::message(const std::string& title, const std::string& message, Later<> on_done) -> void
-{
-    // Copy to locals.
-    const auto title_copy = title;
-    const auto message_copy = message;
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:title_copy.c_str()]
-                                                                       message:[NSString stringWithUTF8String:message_copy.c_str()]
-                                                                preferredStyle:UIAlertControllerStyleAlert];
-        UIAlertAction* okAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
-                                                         handler:^(UIAlertAction* action) {
-            on_done();
-        }];
-        [alert addAction:okAction];
-        
-        // Find the topmost view controller
-        UIViewController* rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
-        UIViewController* topViewController = rootViewController;
-        while (topViewController.presentedViewController) {
-            topViewController = topViewController.presentedViewController;
-        }
-        
-        [topViewController presentViewController:alert animated:YES completion:nil];
-    });
-}
-
-auto Platform_dialogs::confirm(const std::string& title, const std::string& message, Later<bool> on_confirm) -> void
-{
-    // Copy to locals.
-    const auto title_copy = title;
-    const auto message_copy = message;
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:title_copy.c_str()]
-                                                                       message:[NSString stringWithUTF8String:message_copy.c_str()]
-                                                                preferredStyle:UIAlertControllerStyleAlert];
-        UIAlertAction* yesAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
-                                                          handler:^(UIAlertAction* action) {
-            on_confirm(true);
-        }];
-        UIAlertAction* noAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
-                                                         handler:^(UIAlertAction* action) {
-            on_confirm(false);
-        }];
-        [alert addAction:yesAction];
-        [alert addAction:noAction];
-        
-        // Find the topmost view controller
-        UIViewController* rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
-        UIViewController* topViewController = rootViewController;
-        while (topViewController.presentedViewController) {
-            topViewController = topViewController.presentedViewController;
-        }
-        
-        [topViewController presentViewController:alert animated:YES completion:nil];
-    });
-}
-
-auto Platform_dialogs::text_input(const std::string& title, const std::string& message, Later<std::string> on_text) -> void
-{
-    // Copy to locals.
-    const auto title_copy = title;
-    const auto message_copy = message;
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:[NSString stringWithUTF8String:title_copy.c_str()]
-                                                                       message:[NSString stringWithUTF8String:message_copy.c_str()]
-                                                                preferredStyle:UIAlertControllerStyleAlert];
-        [alert addTextFieldWithConfigurationHandler:^(UITextField* textField) {
-            textField.placeholder = @"";
-        }];
-        UIAlertAction* okAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
-                                                         handler:^(UIAlertAction* action) {
-            UITextField* textField = alert.textFields.firstObject;
-            on_text(std::string([textField.text UTF8String]));
-        }];
-        UIAlertAction* cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
-                                                             handler:^(UIAlertAction* action) {
-            //...
-        }];
-        [alert addAction:okAction];
-        [alert addAction:cancelAction];
-        
-        // Find the topmost view controller
-        UIViewController* rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
-        UIViewController* topViewController = rootViewController;
-        while (topViewController.presentedViewController) {
-            topViewController = topViewController.presentedViewController;
-        }
-        
-        [topViewController presentViewController:alert animated:YES completion:nil];
-    });
-}
-
-auto Platform_dialogs::open_url(const std::string& url) -> void
-{
-    // Copy to locals.
-    const auto url_copy = url;
-
-    if (const auto nsurl = [NSURL URLWithString:[NSString stringWithUTF8String:url_copy.c_str()]]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [[UIApplication sharedApplication] openURL:nsurl options:@{} completionHandler:nil];
-        });
-    }
-}
-
-// MARK: - open file
-
-auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, Later<std::optional<std::string>> on_open) -> void
-{
-    // Copy to locals.
-    const auto title_copy = title;
-    const auto default_path_copy = default_path;
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIDocumentPickerViewController* documentPicker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[UTTypeItem.identifier]
-                                                                                                                inMode:UIDocumentPickerModeImport];
-        documentPicker.allowsMultipleSelection = false;
-
-        OpenFileHelper* helper = [[OpenFileHelper alloc] init];
-        helper.completion = ^(NSArray<NSURL *> *urls) {
-            if (urls.count > 0) {
-                NSURL *url = urls.firstObject;
-                BOOL ok = [url startAccessingSecurityScopedResource];
-                if (ok) {
-                    NSString *path = url.path;
-                    on_open(std::string(path.UTF8String));
-                    [url stopAccessingSecurityScopedResource];
-                }
-            } else {
-                on_open(std::nullopt);
-            }
-            [helper release];
-            [documentPicker release];
-        };
-        documentPicker.delegate = helper;
-        
-        // Find the topmost view controller
-        UIViewController* rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
-        UIViewController* topViewController = rootViewController;
-        while (topViewController.presentedViewController) {
-            topViewController = topViewController.presentedViewController;
-        }
-        
-        [topViewController presentViewController:documentPicker animated:YES completion:nil];
-    });
-}
-
 } // namespace tiny
-#endif

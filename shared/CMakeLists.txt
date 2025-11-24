@@ -4,8 +4,9 @@ add_library(${TINY_SHARED_LIB} STATIC)
 if(APPLE)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         set(PLATFORM_SOURCES 
-            platform/ios_context.mm
-            platform/ios_view.mm
+            platform/source/ios_context.mm
+            platform/source/ios_dialogs.mm
+            platform/source/ios_view.mm
         )
     else()
         # configure file at cmake/mac_config.h.in
@@ -15,25 +16,28 @@ if(APPLE)
             ${CMAKE_CURRENT_SOURCE_DIR}/cmake/mac_config.h.in 
             ${CMAKE_CURRENT_BINARY_DIR}/mac_config.h
         )
-        target_include_directories(${TINY_SHARED_LIB} PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+        target_include_directories(${TINY_SHARED_LIB} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
         set(PLATFORM_SOURCES 
-            platform/mac_context.mm
-            platform/mac_view.mm
+            platform/source/mac_context.mm
+            platform/source/mac_dialogs.mm
+            platform/source/mac_view.mm
         )
     endif()
 elseif(WIN32)
     set(PLATFORM_SOURCES
-        platform/win_context.cpp
-        platform/win_view.cpp
+        platform/source/win_context.cpp
+        platform/source/win_dialogs.cpp
+        platform/source/win_view.cpp
     )
 endif()
 
 target_sources(${TINY_SHARED_LIB} PRIVATE
     ${PLATFORM_SOURCES}
-    platform/view_delegate.cpp
+    platform/source/view_delegate.cpp
 )
 
 target_sources(${TINY_SHARED_LIB} PRIVATE 
+    platform/platform_dialogs.h
     platform/platform_view.h
     platform/platform.h
     platform/view_delegate.h
