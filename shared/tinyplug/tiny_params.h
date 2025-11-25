@@ -791,6 +791,14 @@ public:
         return indexed ? indexed_specs : display_specs;
     }
 
+    template<typename T>
+    static auto knob_defaults() -> const std::array<T, num_params>
+    {
+        return make_array_by_indices<T, num_params>(
+            [](auto i) { return get_knob_default(indexed_specs[i]); }
+        );
+    }
+
 private:
     
     Param_node _tree = []() {
