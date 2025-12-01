@@ -60,7 +60,7 @@ enable_auv2_sdk(${AUV2_SDK_VER} AUV2_SDK)
 message(STATUS "[tiny] AUv2 SDK Version: ${AUV2_SDK_VER}")
 message(STATUS "[tiny] AUv2 SDK: ${AUV2_SDK}")
 
-set(CLAP_SDK_VER 1.2.6) # See: https://github.com/free-audio/clap/tags
+set(CLAP_SDK_VER 1.2.7) # See: https://github.com/free-audio/clap/tags
 enable_clap_sdk(${CLAP_SDK_VER} CLAP_SDK CLAP_HELPERS)
 message(STATUS "[tiny] CLAP SDK Version: ${CLAP_SDK_VER}")
 message(STATUS "[tiny] CLAP SDK: ${CLAP_SDK}")
