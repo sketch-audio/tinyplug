@@ -1,4 +1,5 @@
 #include "../platform_view.h"
+#include "../platform_dialogs.h"
 
 #include <algorithm>
 #include <random>
@@ -25,7 +26,7 @@
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(linker,"/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
-#include "window_context.h"
+#include "../window_context.h"
 
 #define WM_TINY_SETCURSOR (WM_APP + 1) // Reset cursor message for dialogs.
 
