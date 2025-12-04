@@ -30,8 +30,8 @@ private:
     using Param_address = Param_model::Param_address;
     using Meter_address = Meter_model::Meter_address;
 
-    User_params _params{};
     Edit_context _edit{};
+
 };
 
 } // namespace tiny

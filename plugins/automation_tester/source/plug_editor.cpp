@@ -1,7 +1,6 @@
 #include "plug_editor.h"
 
 #include "include/core/SkCanvas.h"
-#include "include/core/SkSurface.h"
 
 namespace tiny {
 

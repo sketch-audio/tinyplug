@@ -1,7 +1,6 @@
 #include "plug_editor.h"
 
 #include "include/core/SkCanvas.h"
-#include "include/core/SkSurface.h"
 
 namespace tiny {
 
@@ -32,18 +31,6 @@ auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
 
     const auto id = enum_raw(Param_address::latency_mode);
     const auto curr = params[id];
-
-    for (auto& pointer : interaction.pointers) {
-        // Handle user actions. (Should we bind on down?)
-        std::visit(Inline_visitor{
-            [&](const Click&) {
-                _edit.actions.push(Action_start{id});
-                _edit.actions.push(Set_param{id, curr == 0 ? double{1} : double{0}}); // Toggle.
-                _edit.actions.push(Action_end{id});
-            },
-            [](const auto&) {}
-        }, pointer.state);
-    }
 
     // Draw background.
     auto paint = SkPaint{};

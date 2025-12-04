@@ -29,7 +29,6 @@ private:
     using User_params = Param_infos<Param_model>;
     using Param_address = Param_model::Param_address;
 
-    User_params _params{};
     Edit_context _edit{};
     bool _dark{};
 

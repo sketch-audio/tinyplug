@@ -1,7 +1,6 @@
 #include "plug_editor.h"
 
 #include "include/core/SkCanvas.h"
-#include "include/core/SkSurface.h"
 
 namespace tiny {
 
@@ -33,44 +32,6 @@ auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
     const auto id = enum_raw(Param_address::gain);
     const auto g = static_cast<float>(params[id]);
 
-    // Get incremented parameter value from a drag.
-    auto get_next = [=, this](auto x, auto& d) -> double {
-        const auto drag_y = d.tpos.y - d.fpos.y;
-        const auto drag_dy = drag_y - _ldrag;
-        const auto norm_dy = drag_dy / lsize.h;
-        return std::clamp(x - norm_dy, double{}, double{1});
-    };
-
-    for (auto& pointer : interaction.pointers) {
-        if (_pointer && *_pointer != pointer.tag) continue; // Haven't bound yet.
-
-        // Handle user actions.
-        std::visit(Inline_visitor{
-            [&](const Drag_start& s) {
-                _ldrag = {};
-                const auto to_set = get_next(g, s);
-                _edit.actions.push(Action_start{id});
-                _edit.actions.push(Set_param{id, to_set});
-                _ldrag = s.tpos.y - s.fpos.y;
-                _pointer = pointer.tag; // Bind to pointer tag. (Should this be on down?)
-            },
-            [&](const Drag& s) {
-                const auto to_set = get_next(g, s);
-                _edit.actions.push(Set_param{id, to_set});
-                _ldrag = s.tpos.y - s.fpos.y;
-            },
-            [&](const Drag_end& s) {
-                const auto to_set = get_next(g, s);
-                _edit.actions.push(Set_param{id, to_set});
-                _edit.actions.push(Action_end{id});
-                _ldrag = {};
-                _pointer = std::nullopt;
-            },
-            [](const auto&) {}
-        }, pointer.state);
-        track_is_down(pointer.state, _down); // Track down.
-    }    
-
     // Draw background.
     auto paint = SkPaint{};
     paint.setColor(_dark ? SK_ColorBLACK : SK_ColorWHITE);
@@ -79,9 +40,6 @@ auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
 
     // Draw gain value.
     paint.setColor(_dark ? SK_ColorWHITE : SK_ColorBLACK);
-    if (_down) {
-        paint.setColor(SK_ColorBLUE);
-    }
 
     const auto g_h = g * rsize.h;
     const auto g_y = rsize.h - g_h;
