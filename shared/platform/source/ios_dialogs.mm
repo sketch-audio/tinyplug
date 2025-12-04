@@ -27,7 +27,7 @@ static_assert(false, "This is a non-ARC file");
 
 namespace tiny {
 
-auto Platform_dialogs::message(const std::string& title, const std::string& message, Later<> on_done) -> void
+auto Platform_dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, Execution_context executor) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -39,7 +39,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
                                                                 preferredStyle:UIAlertControllerStyleAlert];
         UIAlertAction* okAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
                                                          handler:^(UIAlertAction* action) {
-            on_done();
+            executor.queue.push(on_done);
         }];
         [alert addAction:okAction];
         
@@ -54,7 +54,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
     });
 }
 
-auto Platform_dialogs::confirm(const std::string& title, const std::string& message, Later<bool> on_confirm) -> void
+auto Platform_dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_confirm, Execution_context executor) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -66,11 +66,15 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
                                                                 preferredStyle:UIAlertControllerStyleAlert];
         UIAlertAction* yesAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
                                                           handler:^(UIAlertAction* action) {
-            on_confirm(true);
+            executor.queue.push([cb=std::move(on_confirm)] {
+                cb(true);
+            });
         }];
         UIAlertAction* noAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
                                                          handler:^(UIAlertAction* action) {
-            on_confirm(false);
+            executor.queue.push([cb=std::move(on_confirm)] {
+                cb(false);
+            });
         }];
         [alert addAction:yesAction];
         [alert addAction:noAction];
@@ -86,7 +90,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
     });
 }
 
-auto Platform_dialogs::text_input(const std::string& title, const std::string& message, Later<std::string> on_text) -> void
+auto Platform_dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Execution_context executor) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -102,7 +106,10 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
         UIAlertAction* okAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
                                                          handler:^(UIAlertAction* action) {
             UITextField* textField = alert.textFields.firstObject;
-            on_text(std::string([textField.text UTF8String]));
+            const auto text = std::string{[textField.text UTF8String]};
+            executor.queue.push([cb=std::move(on_text), text] {
+                cb(text);
+            });
         }];
         UIAlertAction* cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
                                                              handler:^(UIAlertAction* action) {
@@ -136,7 +143,7 @@ auto Platform_dialogs::open_url(const std::string& url) -> void
 
 // MARK: - open file
 
-auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, Later<std::optional<std::string>> on_open) -> void
+auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Execution_context executor) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -154,11 +161,16 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
                 BOOL ok = [url startAccessingSecurityScopedResource];
                 if (ok) {
                     NSString *path = url.path;
-                    on_open(std::string(path.UTF8String));
-                    [url stopAccessingSecurityScopedResource];
+                    const auto p = std::string{[path UTF8String]};
+                    executor.queue.push([cb=std::move(on_open), p] {
+                        cb(p);
+                    });
+                    [url stopAccessingSecurityScopedResource]; // We need to revisit this.
                 }
             } else {
-                on_open(std::nullopt);
+                executor.queue.push([cb=std::move(on_open)] {
+                    cb(std::nullopt);
+                });
             }
             [helper release];
             [documentPicker release];

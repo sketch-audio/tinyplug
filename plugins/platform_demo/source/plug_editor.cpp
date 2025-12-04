@@ -17,7 +17,7 @@ auto Plug_editor::on_gui_show(const Edit_context& edit) -> void
     _click = std::make_unique<Click_recognizer>(Gesture_callbacks<Click_info>{
         .on_started = [this](const Click_info& info) {
             // Providing an execution context makes sure the dialog result is handled on the main thread.
-            Platform_dialogs::text_input("Gain", "Enter a value between 0 and 1.", {[this](std::string text) {
+            Platform_dialogs::text_input("Gain", "Enter a value between 0 and 1.", [this](std::string text) {
                 const auto addr = enum_raw(Param_address::gain);
                 const auto& param_spec = User_params::param_spec(addr);
                 if (const auto value = Host_formatter::format_value(text, param_spec.semantics)) {
@@ -26,7 +26,7 @@ auto Plug_editor::on_gui_show(const Edit_context& edit) -> void
                     _edit.actions.push(Set_param{addr, knob});
                     _edit.actions.push(Action_end{addr});
                 }
-            }, _main_queue.actor()});
+            }, {_launcher.actor(), _main_queue.actor()});
         },
         .on_updated = [](const Click_info&) {},
         .on_ended = [](const Click_info&) {},
