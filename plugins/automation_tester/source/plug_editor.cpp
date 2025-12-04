@@ -4,6 +4,10 @@
 
 namespace tiny {
 
+auto Plug_editor::on_gui_create() -> void
+{
+}
+
 auto Plug_editor::on_gui_show(const Edit_context& edit) -> void
 {
     _edit = edit;
@@ -49,6 +53,14 @@ auto Plug_editor::on_gui_notify(const Ui_notification& notification) -> void
         [&](const Dark_mode_changed& n) { _dark = n.new_value; },
         [](const auto&) {}
     }, notification);
+}
+
+auto Plug_editor::on_gui_hide() -> void
+{
+}
+
+auto Plug_editor::on_gui_destroy() -> void
+{
 }
 
 } // namespace tiny

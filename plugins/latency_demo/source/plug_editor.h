@@ -14,12 +14,12 @@ public:
     Plug_editor() = default;
     ~Plug_editor() = default;
 
-    auto on_gui_create() -> void {}
+    auto on_gui_create() -> void;
     auto on_gui_show(const Edit_context&) -> void;
     auto on_gui_notify(const Ui_notification&) -> void;
     auto on_gui_draw(Plugin_state&) -> void;
-    auto on_gui_hide() -> void {}
-    auto on_gui_destroy() -> void {}
+    auto on_gui_hide() -> void;
+    auto on_gui_destroy() -> void;
 
     auto save_state() -> State_map { return {}; }
     auto load_state(const State_map&) -> void {}
@@ -29,6 +29,10 @@ private:
     using User_params = Param_infos<Param_model>;
     using Param_address = Param_model::Param_address;
     using Meter_address = Meter_model::Meter_address;
+
+    Frame _frame{};
+    double _value{};
+    std::unique_ptr<Gesture_recognizer> _click{};
 
     Edit_context _edit{};
 
