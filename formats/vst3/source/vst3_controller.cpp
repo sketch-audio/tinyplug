@@ -25,8 +25,8 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
 
     // Here you could register some parameters.
 
-    const auto& params = _param_infos.presentation_specs();
-    const auto [unit_infos, param_unit_ids] = tree_to_units(_param_infos.tree());
+    const auto& params = User_params::param_specs(Param_order::Presentation);
+    const auto [unit_infos, param_unit_ids] = tree_to_units(User_params::param_tree());
 
     for (const auto& unit : unit_infos) {
         auto unit_info = Steinberg::Vst::UnitInfo{
@@ -182,7 +182,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setComponentState(Steinberg::IBSt
         // Set values stored in state.
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
             const auto knob_value = state_params[i];
-            const auto& param = _param_infos.param_for(i);
+            const auto& param = User_params::param_spec(i);
             do_notify(param, knob_value);
         }
     }
@@ -190,13 +190,13 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setComponentState(Steinberg::IBSt
         // Set values stored in state.
         for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
             const auto knob_value = state_params[i];
-            const auto& param = _param_infos.param_for(i);
+            const auto& param = User_params::param_spec(i);
             do_notify(param, knob_value);
         }
 
         // Set remaining parameters to defaults.
         for (auto i = num_state_params; i < num_params; ++i) {
-            const auto& param = _param_infos.param_for(i);
+            const auto& param = User_params::param_spec(i);
             const auto knob_value = get_knob_default(param);
             do_notify(param, knob_value);
         }
@@ -422,7 +422,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamStringByValue(Steinberg::
     // (without having to set the value!)
     if (tag >= User_params::num_params) return Steinberg::kResultFalse;
 
-    const auto& params = _param_infos.kernel_specs();
+    const auto& params = User_params::param_specs(Param_order::Indexable);
     const auto& param = params[tag];
     const auto host = Value_conv::knob_to_host(valueNormalized, param.semantics);
     const auto str = Host_formatter::format_string(host, param.semantics);
@@ -438,7 +438,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamValueByString(Steinberg::
     // (without having to set the value!)
     if (tag >= User_params::num_params) return Steinberg::kResultFalse;
 
-    const auto& param = _param_infos.param_for(tag);
+    const auto& param = User_params::param_spec(tag);
     const auto str = Steinberg::Vst::StringConvert::convert(string);
     if (const auto plain = Host_formatter::format_value(str, param.semantics)) {
         valueNormalized = Value_conv::plain_to_knob(*plain, param.semantics);
@@ -450,13 +450,13 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamValueByString(Steinberg::
 
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::normalizedParamToPlain(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue valueNormalized)
 {
-    const auto& param = _param_infos.param_for(tag);
+    const auto& param = User_params::param_spec(tag);
     return Value_conv::knob_to_plain(valueNormalized, param.semantics);
 }
 
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::plainParamToNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue plainValue)
 {
-    const auto& param = _param_infos.param_for(tag);
+    const auto& param = User_params::param_spec(tag);
     return Value_conv::plain_to_knob(plainValue, param.semantics);
 }
 

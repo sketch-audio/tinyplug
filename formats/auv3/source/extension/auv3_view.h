@@ -60,7 +60,6 @@ private:
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 
-    User_params _param_infos{};
     User_meters _meter_infos{};
     
     Action_queue _actions{};
@@ -71,7 +70,7 @@ private:
     std::shared_ptr<Plug_editor> _editor{nullptr};
 
     std::array<Tagged_meter, num_meters> _ui_meters{};
-    std::array<double, num_params> _ui_params{_param_infos.make_knob_defaults<double>()};
+    std::array<double, num_params> _ui_params{User_params::make_defaults<double>(Value_space::Knob)};
 
 };
 

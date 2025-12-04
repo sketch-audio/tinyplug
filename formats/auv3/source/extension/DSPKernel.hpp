@@ -48,7 +48,7 @@ public:
     void setParameter(AUParameterAddress address, AUValue value) {
         if (address >= num_params) return;
         const auto addr = static_cast<uint32_t>(address);
-        const auto& spec = _param_infos.param_for(addr);
+        const auto& spec = User_params::param_spec(addr);
         const auto plain = tiny::Value_conv::host_to_plain(value, spec.semantics);
         [[maybe_unused]] const auto success = _param_queue.push(tiny::Set_param{
             .address = addr,
@@ -155,7 +155,7 @@ public:
         switch (event->head.eventType) {
             case AURenderEventParameter: {
                 const auto address = static_cast<uint32_t>(event->parameter.parameterAddress);
-                const auto& spec = _param_infos.param_for(address);
+                const auto& spec = User_params::param_spec(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
                 const auto norm = tiny::Value_conv::host_to_knob(event->parameter.value, spec.semantics);
                 _processor->handle_event(tiny::Set_param{.address = address, .value = plain});
@@ -165,7 +165,7 @@ public:
             case AURenderEventParameterRamp: {
                 const auto address = static_cast<uint32_t>(event->parameter.parameterAddress);
                 const auto dur_samples = static_cast<int32_t>(event->parameter.rampDurationSampleFrames);
-                const auto& spec = _param_infos.param_for(address);
+                const auto& spec = User_params::param_spec(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
                 const auto norm = tiny::Value_conv::host_to_knob(event->parameter.value, spec.semantics);
                 _processor->handle_event(tiny::Ramp_param{.address = address, .target = plain, .dur_samples = dur_samples});
@@ -208,7 +208,7 @@ public:
     
     auto onHostUpdated(AUParameterAddress address, AUValue value) -> void
     {
-        const auto& param = _param_infos.param_for(static_cast<uint32_t>(address));
+        const auto& param = User_params::param_spec(static_cast<uint32_t>(address));
         const auto norm = tiny::Value_conv::host_to_knob(value, param.semantics);
         _to_editor.push(tiny::Set_param{.address = static_cast<uint32_t>(address), .value = norm});
     }
@@ -250,12 +250,10 @@ private:
     using To_editor_queue = tiny::Overwrite_queue<tiny::Ui_event, to_editor_size>;
     To_editor_queue _to_editor{};
     
-    User_params _param_infos{}; // We have to be able to map the values to plain space.
-    
     // Values in host space.
     using Host_value = std::atomic<float>;
     using Host_values = std::array<Host_value, num_params>;
-    Host_values _hostvalues{_param_infos.make_host_defaults<Host_value>()};
+    Host_values _hostvalues{User_params::make_defaults<Host_value>(tiny::Value_space::Host)};
     
     std::array<float, num_meters> _last_meters{};
     

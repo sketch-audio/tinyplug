@@ -43,8 +43,7 @@ private:
     using Meter_address = Meter_model::Meter_address;
     static constexpr auto num_params = User_params::num_params;
 
-    User_params _param_infos{};
-    std::array<float, num_params> _values{_param_infos.make_plain_defaults<float>()};
+    std::array<float, num_params> _values{User_params::make_defaults<float>(Value_space::Plain)};
 
     using Latency = Stereo<Latency>;
     double _sr{48000};

@@ -87,8 +87,6 @@ private:
     std::array<float*, max_ochannels> _obuffers{};
     std::array<float, num_meters> _meters{};
 
-    User_params _param_infos{};
-
     using State_queue = Lock_free_queue<Set_param, 256>;
     State_queue _queue{};
 

@@ -80,8 +80,6 @@ private:
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 
-    User_params _param_infos{};
-
     static constexpr auto max_ichannels = size_t{2};
     static constexpr auto max_schannels = size_t{1};
     static constexpr auto max_ochannels = size_t{2};

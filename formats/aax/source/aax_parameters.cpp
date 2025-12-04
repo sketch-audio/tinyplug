@@ -19,8 +19,8 @@ namespace tiny {
 
 AAX_Result Aax_parameters::EffectInit()
 {
-    const auto& params = _param_infos.presentation_specs();
-    const auto aax_ids = tree_to_aax_ids(_param_infos.tree());
+    const auto& params = User_params::param_specs(Param_order::Presentation);
+    const auto aax_ids = tree_to_aax_ids(User_params::param_tree());
     assert(params.size() == aax_ids.size() && "AAX IDs must have same size as param specs.");
 
     for (size_t i = 0; i < params.size(); ++i) {
@@ -286,7 +286,7 @@ AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk
     if (num_params <= num_chunk_params) {
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
             if (auto* aax_param = get_aax_param(&mParameterManager, i)) {
-                const auto& param = _param_infos.param_for(i);
+                const auto& param = User_params::param_spec(i);
                 const auto* id_cstr = aax_param->Identifier();
                 if (param.policy != Host_policy::interface) {
                     find_and_set(aax_param, id_cstr);
@@ -298,7 +298,7 @@ AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk
         // Set values stored in state.
         for (auto i = decltype(num_chunk_params){}; i < num_chunk_params; ++i) {
             if (auto* aax_param = get_aax_param(&mParameterManager, i)) {
-                const auto& param = _param_infos.param_for(i);
+                const auto& param = User_params::param_spec(i);
                 const auto* id_cstr = aax_param->Identifier();
                 if (param.policy != Host_policy::interface) {
                     find_and_set(aax_param, id_cstr);
@@ -309,7 +309,7 @@ AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk
         // Set remaining parameters to defaults. 
         for (auto i = num_chunk_params; i < num_params; ++i) {
             if (auto* aax_param = get_aax_param(&mParameterManager, i)) {
-                const auto& param = _param_infos.param_for(i);
+                const auto& param = User_params::param_spec(i);
                 if (param.policy != Host_policy::interface) {
                     const auto knob_value = get_knob_default(param);
                     aax_param->SetNormalizedValue(knob_value);
@@ -471,7 +471,7 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
     while (_to_processor.pop(action)) {
         std::visit(Inline_visitor{
             [&](const Set_param& p) {
-                const auto param = _param_infos.param_for(p.address);
+                const auto param = User_params::param_spec(p.address);
                 const auto plain_value = Value_conv::knob_to_plain(p.value, param.semantics);
                 _processor->handle_event(Set_param{.address = p.address, .value = plain_value});
             },

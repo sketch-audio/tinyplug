@@ -116,8 +116,7 @@ private:
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 
-    User_params _param_infos{};
-    std::vector<std::string> _modules{tree_to_clap_modules(_param_infos.tree())};
+    std::vector<std::string> _modules{tree_to_clap_modules(User_params::param_tree())};
 
     // IO
     static constexpr auto max_ichannels = size_t{2};
@@ -158,7 +157,7 @@ private:
     // Values in host space.
     using Host_value = std::atomic<double>;
     using Host_values = std::array<Host_value, num_params>;
-    Host_values _hostvalues{_param_infos.make_host_defaults<Host_value>()};
+    Host_values _hostvalues{User_params::make_defaults<Host_value>(Value_space::Host)};
 
     std::array<double, num_meters> _last_meters{};
 
@@ -193,7 +192,7 @@ private:
             case CLAP_EVENT_PARAM_VALUE: {
                 const auto* value_event = reinterpret_cast<const clap_event_param_value*>(event);
                 const auto id = value_event->param_id;
-                const auto& param = _param_infos.param_for(id);
+                const auto& param = User_params::param_spec(id);
 
                 // Send plain value to kernel.
                 const auto plain_value = Value_conv::host_to_plain(value_event->value, param.semantics);

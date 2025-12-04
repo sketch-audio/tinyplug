@@ -39,8 +39,7 @@ private:
     using Param_address = Param_model::Param_address;
     static constexpr auto num_params = User_params::num_params;
 
-    User_params _param_infos{};
-    std::array<float, num_params> _values{_param_infos.make_plain_defaults<float>()};
+    std::array<float, num_params> _values{User_params::make_defaults<float>(Value_space::Plain)};
 
 };
 static_assert(Some_plug_processor<Plug_processor>); // Check your interface.

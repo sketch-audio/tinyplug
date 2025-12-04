@@ -52,7 +52,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* co
     _events.reserve(128); // Want fixed size event vector.
 
     // Get knob defaults for automation points.
-    for (const auto& param : _param_infos.kernel_specs()) {
+    for (const auto& param : User_params::param_specs(Param_order::Indexable)) {
         _last_points[param.address] = {.offset = -1, .value = get_knob_default(param)};
     }
 
@@ -337,7 +337,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* stat
         // Set values stored in state.
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
             const auto knob_value = state_params[i];
-            const auto& param = _param_infos.param_for(i);
+            const auto& param = User_params::param_spec(i);
             const auto plain_value = Value_conv::knob_to_plain(knob_value, param.semantics);
             do_notify(param, plain_value);
         }
@@ -346,14 +346,14 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* stat
         // Set values stored in state.
         for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
             const auto knob_value = state_params[i];
-            const auto& param = _param_infos.param_for(i);
+            const auto& param = User_params::param_spec(i);
             const auto plain_value = Value_conv::knob_to_plain(knob_value, param.semantics);
             do_notify(param, plain_value);
         }
 
         // Set remaining parameters to defaults.
         for (auto i = num_state_params; i < num_params; ++i) {
-            const auto& param = _param_infos.param_for(i);
+            const auto& param = User_params::param_spec(i);
             const auto plain_value = get_plain_default(param);
             do_notify(param, plain_value);
         }
@@ -436,7 +436,7 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
         const auto id = queue.getParameterId();
         if (id >= User_params::num_params) continue; // Be defensive.
 
-        const auto& param = _param_infos.param_for(id); // To denormalize the automation values.
+        const auto& param = User_params::param_spec(id); // To denormalize the automation values.
 
         const auto point_count = queue.getPointCount();
 

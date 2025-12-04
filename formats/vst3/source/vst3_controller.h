@@ -66,8 +66,6 @@ protected:
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 
-    User_params _param_infos{};
-
     static constexpr auto to_editor_size = num_params + num_meters + 1;
     using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
     To_editor_queue _to_editor{};

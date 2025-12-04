@@ -9,7 +9,7 @@ Auv2_effect::Auv2_effect(AudioUnit component) : Super(component, num_inputs, num
     CreateElements(); // So we can create the sidechain.
 
     // Set up parameters.
-    const auto& params = _param_infos.kernel_specs();
+    const auto& params = User_params::param_specs(Param_order::Indexable);
 
     Globals()->UseIndexedParameters(User_params::num_params);
     for (const auto& param : params) {
@@ -100,7 +100,7 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
             auto* data = static_cast<AudioUnitParameterStringFromValue*>(outData);
 
             const auto id = data->inParamID;
-            const auto& params = _param_infos.kernel_specs();
+            const auto& params = User_params::param_specs(Param_order::Indexable);
             const auto& param = params[id];
             const auto str = Host_formatter::format_string(*data->inValue, param.semantics);
             data->outString = CFStringCreateWithCString(kCFAllocatorDefault, str.c_str(), kCFStringEncodingUTF8);
@@ -111,7 +111,7 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
             auto* data = static_cast<AudioUnitParameterValueFromString*>(outData);
 
             const auto id = data->inParamID;
-            const auto& params = _param_infos.kernel_specs();
+            const auto& params = User_params::param_specs(Param_order::Indexable);
             const auto& param = params[id];
 
             const auto str = cf_to_std(data->inString);
@@ -143,7 +143,7 @@ OSStatus Auv2_effect::GetParameterList(AudioUnitScope inScope, AudioUnitParamete
     // This is so we can determine the presentation order of the parameters by the host.
     outNumParameters = num_params; // Do this first.
     if (!outParameterList) return noErr;
-    const auto& params = _param_infos.presentation_specs();
+    const auto& params = User_params::param_specs(Param_order::Presentation);
     const auto ids = params | std::views::transform([](const auto& spec) { return spec.address; });
     std::ranges::copy(ids, outParameterList);
 
@@ -189,7 +189,7 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
         return flags;
     };
 
-    const auto& params = _param_infos.kernel_specs();
+    const auto& params = User_params::param_specs(Param_order::Indexable);
     const auto& param = params[inParameterID];
     const auto* clump = find_clump_for_parameter(_clumps, param.address);
     const auto found_clump = clump != nullptr;
@@ -259,7 +259,7 @@ OSStatus Auv2_effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnit
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
     if (!outStrings) return noErr;
 
-    const auto& params = _param_infos.kernel_specs();
+    const auto& params = User_params::param_specs(Param_order::Indexable);
     const auto& param = params[inParameterID];
 
 
@@ -306,7 +306,7 @@ OSStatus Auv2_effect::GetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
 OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames)
 {
-    const auto& params = _param_infos.kernel_specs();
+    const auto& params = User_params::param_specs(Param_order::Indexable);
     const auto& param = params[inID];
 
     const auto plain_value = Value_conv::host_to_plain(inValue, param.semantics);
@@ -325,7 +325,7 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
 OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEvent, UInt32 inNumEvents)
 {
-    const auto& params = _param_infos.kernel_specs();
+    const auto& params = User_params::param_specs(Param_order::Indexable);
 
     for (auto i = decltype(inNumEvents){}; i < inNumEvents; ++i) {
         const auto& event = inParameterEvent[i];
@@ -504,7 +504,7 @@ OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
     else {
         // Set remaining Globals() to defaults.
         for (auto i = num_state_params; i < num_params; ++i) {
-            const auto& param = _param_infos.param_for(i);
+            const auto& param = User_params::param_spec(i);
             const auto host_value = get_host_default(param);
             Globals()->SetParameter(i, static_cast<float>(host_value));
         }
@@ -513,7 +513,7 @@ OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
     // Globals() now contains the full state. Notify everyone.
     // Interface parameters were omitted for us by the base implementation!
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
-        const auto& param = _param_infos.param_for(i);
+        const auto& param = User_params::param_spec(i);
         const auto host_value = Globals()->GetParameter(i);
         const auto plain_value = Value_conv::host_to_plain(host_value, param.semantics);
         const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);

@@ -388,7 +388,7 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
         // Read as many values as we can.
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
             const auto host_value = state_params[i];
-            const auto& param = _param_infos.param_for(i);
+            const auto& param = User_params::param_spec(i);
             const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
             do_notify(param, knob_value);
         }
@@ -397,14 +397,14 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
         // Set values stored in state.
         for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
             const auto host_value = state_params[i];
-            const auto& param = _param_infos.param_for(static_cast<uint32_t>(i));
+            const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
             const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
             do_notify(param, knob_value);
         }
 
         // Set remaining parameters to defaults.
         for (auto i = num_state_params; i < num_params; ++i) {
-            const auto& param = _param_infos.param_for(static_cast<uint32_t>(i));
+            const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
             const auto knob_value = get_knob_default(param);
             do_notify(param, knob_value);
         }
@@ -589,7 +589,7 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
     // The index is the order of appearance in the UI, and isn't necessarily the same as the id.
     if (paramIndex >= num_params || !info) return false;
 
-    const auto& params = _param_infos.presentation_specs(); // Report params in presentation order!
+    const auto& params = User_params::param_specs(Param_order::Presentation); // Report params in presentation order!
 
     const auto& param = params[paramIndex];
     const auto& path = _modules[paramIndex];
@@ -651,7 +651,7 @@ bool Clap_plugin::paramsValueToText(clap_id paramId, double value, char* display
 {
     if (paramId >= num_params || !display) return false;
 
-    const auto& param = _param_infos.param_for(paramId);
+    const auto& param = User_params::param_spec(paramId);
     const auto str = Host_formatter::format_string(value, param.semantics);
     std::strncpy(display, str.c_str(), size);
     display[size - 1] = '\0'; // In case str is longer than display.
@@ -663,7 +663,7 @@ bool Clap_plugin::paramsTextToValue(clap_id paramId, const char* display, double
 {
     if (paramId >= num_params || !display) return false;
 
-    const auto& param = _param_infos.param_for(paramId);
+    const auto& param = User_params::param_spec(paramId);
     const auto str = std::string{display};
 
     if (const auto plain = Host_formatter::format_value(str, param.semantics)) {
@@ -705,7 +705,7 @@ bool Clap_plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
     // Make the UI connection.
     auto receiver = Ui_receiver{
         .get_knob_value = [this](auto id) {
-            const auto& param = _param_infos.param_for(id);
+            const auto& param = User_params::param_spec(id);
             const auto host_value = _hostvalues[id].load(std::memory_order_relaxed);
             const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
             return knob_value;
@@ -834,7 +834,7 @@ auto Clap_plugin::_handle_user_actions(const clap_output_events_t* out_events) -
     while (_from_ui.pop(user_action)) {
         std::visit(Inline_visitor{
             [&](const Action_start& a) {
-                const auto& param = _param_infos.param_for(a.address);
+                const auto& param = User_params::param_spec(a.address);
                 if (wants_host_notify(param.policy)) {
                     const auto e = clap_event_param_gesture{
                         .header = {
@@ -850,7 +850,7 @@ auto Clap_plugin::_handle_user_actions(const clap_output_events_t* out_events) -
                 }
             },
             [&](const Set_param& a) {
-                const auto& param = _param_infos.param_for(a.address);
+                const auto& param = User_params::param_spec(a.address);
 
                 if (wants_host_notify(param.policy)) {
                     const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
@@ -872,7 +872,7 @@ auto Clap_plugin::_handle_user_actions(const clap_output_events_t* out_events) -
                 _processor->handle_event(Set_param{param.address, plain_value});
             },
             [&](const Action_end& a) {
-                const auto& param = _param_infos.param_for(a.address);
+                const auto& param = User_params::param_spec(a.address);
                 if (wants_host_notify(param.policy)) {
                     const auto e = clap_event_param_gesture{
                         .header = {
@@ -895,7 +895,7 @@ auto Clap_plugin::_handle_user_action(const User_action& action) -> void
 {
     // Maintain host values immediately.
     if (const auto* a = std::get_if<Set_param>(&action)) {
-        const auto& param = _param_infos.param_for(a->address);
+        const auto& param = User_params::param_spec(a->address);
         const auto host_value = Value_conv::knob_to_host(a->value, param.semantics);
         _hostvalues[param.address].store(host_value, std::memory_order_relaxed);
     }

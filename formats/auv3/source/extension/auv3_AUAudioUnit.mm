@@ -27,7 +27,6 @@ static_assert(false, "ARC must be enabled for this file");
     
     // C++ members need to be ivars; they would be copied on access if they were properties.
     bool _parameterTreeSetup;
-    tiny::Param_infos<tiny::Param_model> _param_infos;
     DSPKernel _kernel;
     std::shared_ptr<tiny::Plug_editor> _editor;
     BufferedInputBus _inputBus;
@@ -95,8 +94,7 @@ static_assert(false, "ARC must be enabled for this file");
     
     if (_parameterTreeSetup == false) {
         // Build the tree
-        _param_infos = Param_infos<Param_model>{};
-        const auto tree = _param_infos.tree();
+        const auto tree = Param_infos<Param_model>::param_tree();
         
         // Traverse the tree, creating parameters and groups along the way.
         auto make_node = [&](auto&& self_, const Param_node& node) -> AUParameterNode* {
@@ -151,7 +149,7 @@ static_assert(false, "ARC must be enabled for this file");
         .get_knob_value = [self_](uint32_t addr) {
             auto s = self_;
             if (!s) return double{};
-            const auto& spec = s->_param_infos.param_for(addr);
+            const auto& spec = Param_infos<Param_model>::param_spec(addr);
             const auto host = s->_kernel.getParameter(addr);
             const auto knob = Value_conv::host_to_knob(host, spec.semantics);
             return knob;
@@ -173,7 +171,7 @@ static_assert(false, "ARC must be enabled for this file");
                     [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeTouch];
                 },
                 [&](const Set_param& a) {
-                    const auto& param = s->_param_infos.param_for(a.address);
+                    const auto& param = Param_infos<Param_model>::param_spec(a.address);
                     const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
                     auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
                     auto it = s->_observerTokens.find(auparam.address);
@@ -281,8 +279,9 @@ static_assert(false, "ARC must be enabled for this file");
 }
 
 - (void)setupParameterCallbacks {
+    using namespace tiny;
+    
     // Make a local pointer to the kernel to avoid capturing self.
-    __block tiny::Param_infos<tiny::Param_model> *param_infos = &_param_infos;
     __block DSPKernel *kernel = &_kernel;
     
     // implementorValueObserver is called when a parameter changes value.
@@ -298,8 +297,8 @@ static_assert(false, "ARC must be enabled for this file");
     // A function to provide string representations of parameter values.
     _parameterTree.implementorStringFromValueCallback = ^(AUParameter *param, const AUValue *__nullable valuePtr) {
         AUValue value = valuePtr == nil ? param.value : *valuePtr;
-        const auto& spec = param_infos->param_for(static_cast<uint32_t>(param.address));
-        const auto str_value = tiny::Host_formatter::format_string(param.value, spec.semantics);
+        const auto& spec = Param_infos<Param_model>::param_spec(static_cast<uint32_t>(param.address));
+        const auto str_value = Host_formatter::format_string(param.value, spec.semantics);
         return [NSString stringWithUTF8String:str_value.c_str()];
     };
 }
@@ -598,7 +597,7 @@ static_assert(false, "ARC must be enabled for this file");
         if (num_params < num_state_params) {
             using User_params = tiny::Param_infos<tiny::Param_model>;
             for (auto i = num_state_params; i < num_params; ++i) {
-                const auto& param = _param_infos.param_for(static_cast<uint32_t>(i));
+                const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
                 const auto def_val = tiny::get_host_default(param);
                 [[_parameterTree parameterWithAddress:i] setValue:def_val];
             }

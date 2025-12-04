@@ -123,7 +123,6 @@ private:
     std::array<float, num_meters> _meters{}; // For processor to write.
     std::array<double, num_meters> _last_meters{};
 
-    User_params _param_infos{};
     Clump_map _clumps{};
 
     // 
@@ -158,7 +157,7 @@ private:
     // AUv2 view adapter.
     std::unique_ptr<Auv2_view> _view = std::make_unique<Auv2_view>(Ui_receiver{
         .get_knob_value = [this](auto id) {
-            const auto& param = _param_infos.param_for(id);
+            const auto& param = User_params::param_spec(id);
             const auto host = Globals()->GetParameter(id);
             const auto knob = Value_conv::host_to_knob(host, param.semantics);
             return knob;
@@ -179,7 +178,7 @@ private:
                 },
                 [&](const Set_param& a) {
                     // Notify host
-                    const auto& param = _param_infos.param_for(a.address);
+                    const auto& param = User_params::param_spec(a.address);
                     const auto plain_value = Value_conv::knob_to_plain(a.value, param.semantics);
                     const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
 

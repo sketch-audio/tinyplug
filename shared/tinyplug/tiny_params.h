@@ -715,60 +715,58 @@ constexpr auto make_array_by_indices(F f) -> std::array<T, N>
     return params_impl::make_array_by_indices_impl<T>(f, std::make_index_sequence<N>{});
 }
 
+enum class Param_order : uint32_t { Indexable, Presentation };
+enum class Value_space : uint32_t { Plain, Host, Knob };
+
 // MARK: - params
 
 template<Some_param_model User_model>
 class Param_infos {
 public:
-    //
+
     static constexpr auto num_params = enum_raw(User_model::Param_address::num_params);
 
-    auto tree() const -> const Param_node&
+    static auto param_tree() -> const Param_node&
     {
-        return _tree;
+        // Validate once at startup.
+        [[maybe_unused]] static const bool validated = [] {
+            const bool is_valid = params_impl::validate_tree(user_tree, num_params);
+            assert(is_valid && "Param tree validation failed.");
+            return true;
+        }();
+        
+        return user_tree;
     }
 
-    auto presentation_specs() const -> const std::vector<Param_spec>&
+    static auto param_specs(Param_order ordering) -> const std::vector<Param_spec>&
     {
-        return _pspecs;
+        return ordering == Param_order::Indexable ? indexed_specs : display_specs;
     }
 
-    auto kernel_specs() const -> const std::vector<Param_spec>&
+    static auto param_spec(uint32_t address) -> const Param_spec&
     {
-        return _kspecs;
-    }
-
-    auto param_for(uint32_t id) const -> const Param_spec&
-    {
-        assert(id < num_params && "Param id out of range.");
-        return _kspecs[id];
-    }
-
-    template<typename T>
-    constexpr auto make_plain_defaults() const -> std::array<T, num_params>
-    {
-        return make_array_by_indices<T, num_params>(
-            [this](auto i) { return get_plain_default(param_for(static_cast<uint32_t>(i))); }
-        );
+        assert(address < num_params && "Param address out of range.");
+        return indexed_specs[address];
     }
 
     template<typename T>
-    constexpr auto make_host_defaults() const -> std::array<T, num_params>
+    static auto make_defaults(Value_space space) -> const std::array<T, num_params>
     {
         return make_array_by_indices<T, num_params>(
-            [this](auto i) { return get_host_default(param_for(static_cast<uint32_t>(i))); }
+            [space](auto i) {
+                using enum Value_space;
+                switch (space) {
+                    case Plain:
+                        return get_plain_default(indexed_specs[i]);
+                    case Host:
+                        return get_host_default(indexed_specs[i]);
+                    case Knob:
+                        return get_knob_default(indexed_specs[i]);
+                }
+            }
         );
     }
 
-    template<typename T>
-    constexpr auto make_knob_defaults() const -> std::array<T, num_params>
-    {
-        return make_array_by_indices<T, num_params>(
-            [this](auto i) { return get_knob_default(param_for(static_cast<uint32_t>(i))); }
-        );
-    }
-
-    // STATIC
 private:
 
     static constexpr auto id_less = [](const auto& a, const auto& b) { return a.address < b.address; };
@@ -776,39 +774,6 @@ private:
     inline static const Param_node user_tree = User_model::build_tree();
     inline static const std::vector<Param_spec> display_specs = params_impl::flatten_tree(user_tree);
     inline static const std::vector<Param_spec> indexed_specs = params_impl::sorted_copy(display_specs, id_less);
-
-public:
-    
-    static auto param_tree() -> const Param_node&
-    {
-        [[maybe_unused]] const auto is_valid = params_impl::validate_tree(user_tree, num_params);
-        assert(is_valid && "Param tree validation failed.");
-        return user_tree;
-    }
-
-    static auto param_specs(bool indexed = true) -> const std::vector<Param_spec>&
-    {
-        return indexed ? indexed_specs : display_specs;
-    }
-
-    template<typename T>
-    static auto knob_defaults() -> const std::array<T, num_params>
-    {
-        return make_array_by_indices<T, num_params>(
-            [](auto i) { return get_knob_default(indexed_specs[i]); }
-        );
-    }
-
-private:
-    
-    Param_node _tree = []() {
-        const auto t = User_model::build_tree();
-        const auto is_valid = params_impl::validate_tree(t, num_params);
-        return is_valid ? t : Param_group{};
-    }();
-    
-    std::vector<Param_spec> _pspecs{params_impl::flatten_tree(_tree)};
-    std::vector<Param_spec> _kspecs{params_impl::sorted_copy(_pspecs, id_less)};
 
 };
 
