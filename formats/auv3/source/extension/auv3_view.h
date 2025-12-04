@@ -27,9 +27,8 @@ public:
 
         _platform_view->on_show();
         _editor->on_gui_show({
-            .actions = _actions.make_receiver(),
-            .tasks = _tasks.make_receiver(),
-            .undo_redo = _undo_history.make_receiver(),
+            .actions = _actions.actor(),
+            .undo_redo = _undo_history.actor(),
         });
     }
 
@@ -65,8 +64,7 @@ private:
     User_meters _meter_infos{};
     
     Action_queue _actions{};
-    Task_queue _tasks{};
-    Undo_history _undo_history{_param_infos.kernel_specs()};
+    Undo_history _undo_history{};
     Ui_receiver _receiver{};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};

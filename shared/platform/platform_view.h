@@ -16,12 +16,6 @@ namespace tiny {
 struct Platform_binder {
     View_delegate* delegate{};
     User_interaction interaction{};
-    Pointer pointer{};
-    std::chrono::steady_clock::time_point over_time{};
-    std::optional<Coords> over_pos{};
-    std::optional<Coords> left_pos{};
-    std::optional<Coords> right_pos{};
-    std::optional<Coords> drag_start{};
 
     Event_stream events{};
     bool mouse_in{};
@@ -30,7 +24,6 @@ struct Platform_binder {
     std::optional<Coords> right_down{};
     bool double_click{};
 
-    bool dwelt{};
     bool dark_mode{};
 };
 class Dark_mode_watcher; // Have to manually watch dark mode.

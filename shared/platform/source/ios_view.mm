@@ -24,11 +24,11 @@ static_assert(false, "This is a non-ARC file");
     
     tiny::User_interaction _interaction;
     struct Pointer_data {
-        tiny::Pointer pointer;
         std::optional<tiny::Coords> pos_down;
         std::optional<tiny::Coords> pos_last;
         bool pending_gesture;
         bool started_drag;
+        bool ended;
     };
     
     std::unordered_map<UITouch*, Pointer_data> _active_pointers;
@@ -67,13 +67,13 @@ static_assert(false, "This is a non-ARC file");
     return self;
 }
 
-- (void)startDisplayLink{
+- (void)startDisplayLink {
     [self stopDisplayLink];
     _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onDisplayLink:)];
     [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 }
 
-- (void)stopDisplayLink{
+- (void)stopDisplayLink {
     if (_displayLink) {
         [_displayLink invalidate];
         _displayLink = nil;
@@ -92,64 +92,51 @@ static_assert(false, "This is a non-ARC file");
 - (void)drawRect:(CGRect)rect {
     const auto time_now = tiny::System_clock::now();
     
-    _interaction.pointers.clear();
-    for (const auto& [touch, pointer_data] : _active_pointers) {
-        _interaction.pointers.push_back(pointer_data.pointer);
-    }
-    
     _interaction.events = _events.consume(tiny::Steady_clock::now());
-
     _delegate->draw(_interaction, time_now);
     
-    // Remove terminated pointers. (Drag_end, Click, Double_click, Right_click)
     // I think we could move this to touchesEnded/touchesCancelled
-    std::erase_if(_active_pointers, [](auto const& pair) {
-        const auto& pointer = pair.second.pointer;
-        return std::holds_alternative<tiny::Drag_end>(pointer.state) ||
-               std::holds_alternative<tiny::Click>(pointer.state) ||
-               std::holds_alternative<tiny::Double_click>(pointer.state) ||
-               std::holds_alternative<tiny::Right_click>(pointer.state);
-    });
+    std::erase_if(_active_pointers, [](auto const& pair) { return pair.second.ended; });
     
     for (auto& [touch, pointer_data] : _active_pointers) {
-        tiny::try_set(pointer_data.pointer.state, tiny::Consumed{});
         pointer_data.pending_gesture = false;
     }
 }
 
+- (UITouch*)findClosest:(tiny::Coords)loc {
+    UITouch* closest_touch = nullptr;
+    float closest_dist = std::numeric_limits<float>::max();
+    for (const auto& [touch, pointer_data] : _active_pointers) {
+        if (const auto last_pos = pointer_data.pos_last) {
+            float dx = last_pos->x - loc.x;
+            float dy = last_pos->y - loc.y;
+            float dist = dx * dx + dy * dy;
+            if (dist < closest_dist) {
+                closest_dist = dist;
+                closest_touch = touch;
+            }
+        }
+    }
+    return closest_touch;
+}
+
 - (void)handleSingleTap:(UITapGestureRecognizer *)gesture {
+    using namespace tiny;
+    
     if (gesture.state == UIGestureRecognizerStateEnded) {
-        // for touch in gesture touches (have to go by index and get location)
-        // find closest tagged interaction
-        // try set that interaction
         NSUInteger touches = [gesture numberOfTouches];
         for (NSUInteger i = 0; i < touches; ++i) {
             CGPoint location = [gesture locationOfTouch:i inView:self];
-            // find the closest pointer in _active_pointes
-            tiny::Coords loc{location.x, location.y};
-            UITouch* closest_touch = nullptr;
-            float closest_dist = std::numeric_limits<float>::max();
-            for (const auto& [touch, pointer_data] : _active_pointers) {
-                if (const auto last_pos = pointer_data.pos_last) {
-                    float dx = last_pos->x - loc.x;
-                    float dy = last_pos->y - loc.y;
-                    float dist = dx * dx + dy * dy;
-                    if (dist < closest_dist) {
-                        closest_dist = dist;
-                        closest_touch = touch;
-                    }
-                }
-            }
+            Coords loc{location.x, location.y};
+            UITouch* closest_touch = [self findClosest:loc];
             if (closest_touch) {
                 auto it = _active_pointers.find(closest_touch);
                 if (it != _active_pointers.end()) {
                     auto& pointer_data = it->second;
-                    tiny::try_set(pointer_data.pointer.state, tiny::Click{loc});
                     pointer_data.pending_gesture = true;
                     pointer_data.pos_down = std::nullopt;
                     pointer_data.started_drag = false;
                     
-                    using namespace tiny;
                     _events.push(Event{
                         .event = Pointer_click{.count = 1, .pos = loc},
                         .pointer_tag = (uintptr_t)closest_touch
@@ -161,38 +148,22 @@ static_assert(false, "This is a non-ARC file");
 }
 
 - (void)handleDoubleTap:(UITapGestureRecognizer *)gesture {
+    using namespace tiny;
+    
     if (gesture.state == UIGestureRecognizerStateEnded) {
-        // for touch in gesture touches (have to go by index and get location)
-        // find closest tagged interaction
-        // try set that interaction
         NSUInteger touches = [gesture numberOfTouches];
         for (NSUInteger i = 0; i < touches; ++i) {
             CGPoint location = [gesture locationOfTouch:i inView:self];
-            // find the closest pointer in _active_pointes
-            tiny::Coords loc{location.x, location.y};
-            UITouch* closest_touch = nullptr;
-            float closest_dist = std::numeric_limits<float>::max();
-            for (const auto& [touch, pointer_data] : _active_pointers) {
-                if (const auto last_pos = pointer_data.pos_last) {
-                    float dx = last_pos->x - loc.x;
-                    float dy = last_pos->y - loc.y;
-                    float dist = dx * dx + dy * dy;
-                    if (dist < closest_dist) {
-                        closest_dist = dist;
-                        closest_touch = touch;
-                    }
-                }
-            }
+            Coords loc{location.x, location.y};
+            UITouch* closest_touch = [self findClosest:loc];
             if (closest_touch) {
                 auto it = _active_pointers.find(closest_touch);
                 if (it != _active_pointers.end()) {
                     auto& pointer_data = it->second;
-                    tiny::try_set(pointer_data.pointer.state, tiny::Double_click{loc});
                     pointer_data.pending_gesture = true;
                     pointer_data.pos_down = std::nullopt;
                     pointer_data.started_drag = false;
                     
-                    using namespace tiny;
                     _events.push(Event{
                         .event = Pointer_click{.count = 2, .pos = loc},
                         .pointer_tag = (uintptr_t)closest_touch
@@ -204,38 +175,22 @@ static_assert(false, "This is a non-ARC file");
 }
 
 - (void)handleLongPress:(UILongPressGestureRecognizer *)gesture {
+    using namespace tiny;
+    
     if (gesture.state == UIGestureRecognizerStateBegan) {
-        // for touch in gesture touches (have to go by index and get location)
-        // find closest tagged interaction
-        // try set that interaction
         NSUInteger touches = [gesture numberOfTouches];
         for (NSUInteger i = 0; i < touches; ++i) {
             CGPoint location = [gesture locationOfTouch:i inView:self];
-            // find the closest pointer in _active_pointes
-            tiny::Coords loc{location.x, location.y};
-            UITouch* closest_touch = nullptr;
-            float closest_dist = std::numeric_limits<float>::max();
-            for (const auto& [touch, pointer_data] : _active_pointers) {
-                if (const auto last_pos = pointer_data.pos_last) {
-                    float dx = last_pos->x - loc.x;
-                    float dy = last_pos->y - loc.y;
-                    float dist = dx * dx + dy * dy;
-                    if (dist < closest_dist) {
-                        closest_dist = dist;
-                        closest_touch = touch;
-                    }
-                }
-            }
+            Coords loc{location.x, location.y};
+            UITouch* closest_touch = [self findClosest:loc];
             if (closest_touch) {
                 auto it = _active_pointers.find(closest_touch);
                 if (it != _active_pointers.end()) {
                     auto& pointer_data = it->second;
-                    tiny::try_set(pointer_data.pointer.state, tiny::Right_click{loc});
                     pointer_data.pending_gesture = true;
                     pointer_data.pos_down = std::nullopt;
                     pointer_data.started_drag = false;
                     
-                    using namespace tiny;
                     _events.push(Event{
                         .event = Pointer_down{.button = Pointer_button::right, .pos = loc},
                         .pointer_tag = (uintptr_t)closest_touch
@@ -251,14 +206,12 @@ static_assert(false, "This is a non-ARC file");
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesBegan:touches withEvent:event];
     
-    // for touch in touches
-    // insert new tagged interaction with state down
+    using namespace tiny;
     for (UITouch* touch in touches) {
         CGPoint location = [touch locationInView:self];
         const auto tag = (uintptr_t)touch;
-        const auto pos = tiny::Coords{location.x, location.y};
+        const auto pos = Coords{location.x, location.y};
         _active_pointers[touch] = Pointer_data{
-            .pointer = {.tag = tag, .state = tiny::Down{pos}},
             .pos_down = pos,
             .pos_last = pos,
             .pending_gesture = false,
@@ -266,7 +219,6 @@ static_assert(false, "This is a non-ARC file");
         };
         _activeTouches[touch] = location;
         
-        using namespace tiny;
         _events.push(Event{
             .event = Pointer_down{.pos = pos},
             .pointer_tag = tag
@@ -277,25 +229,23 @@ static_assert(false, "This is a non-ARC file");
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesMoved:touches withEvent:event];
     
+    using namespace tiny;
     for (UITouch* touch in touches) {
         CGPoint location = [touch locationInView:self];
-        const auto pos = tiny::Coords{location.x, location.y};
+        const auto pos = Coords{location.x, location.y};
         auto it = _active_pointers.find(touch);
         if (it != _active_pointers.end()) {
             auto& pointer_data = it->second;
             if (const auto down_pos = pointer_data.pos_down; down_pos && pointer_data.started_drag) {
-                tiny::try_set(pointer_data.pointer.state, tiny::Drag{.fpos = *down_pos, .tpos = pos});
                 pointer_data.pos_last = pos;
             }
             else if (const auto down_pos = pointer_data.pos_down){
-                tiny::try_set(pointer_data.pointer.state, tiny::Drag_start{.fpos = *down_pos, .tpos = pos});
                 pointer_data.pos_last = pos;
                 pointer_data.started_drag = true;
             }
         }
         _activeTouches[touch] = location;
         
-        using namespace tiny;
         const auto tag = (uintptr_t)touch;
         _events.push(Event{
             .event = Pointer_move{.pos = pos},
@@ -307,22 +257,17 @@ static_assert(false, "This is a non-ARC file");
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesEnded:touches withEvent:event];
 
+    using namespace tiny;
     for (UITouch* touch in touches) {
         CGPoint location = [touch locationInView:self];
-        const auto pos = tiny::Coords{location.x, location.y};
+        const auto pos = Coords{location.x, location.y};
         auto it = _active_pointers.find(touch);
         if (it != _active_pointers.end()) {
             auto& pointer_data = it->second;
-            if (const auto down_pos = pointer_data.pos_down; down_pos && pointer_data.started_drag) {
-                tiny::try_set(pointer_data.pointer.state, tiny::Drag_end{.fpos = *down_pos, .tpos = pos});
-            }
-            else if (!pointer_data.pending_gesture) {
-                tiny::try_set(pointer_data.pointer.state, tiny::Consumed{});
-            }
+            pointer_data.ended = true; // Can we remove the pointer here?
         }
         _activeTouches.erase(touch); // Gesture should be processed before touch end/cancel.
         
-        using namespace tiny;
         const auto tag = (uintptr_t)touch;
         _events.push(Event{
             .event = Pointer_up{.pos = pos},
@@ -334,15 +279,15 @@ static_assert(false, "This is a non-ARC file");
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesCancelled:touches withEvent:event];
 
+    using namespace tiny;
     for (UITouch* touch in touches) {
         auto it = _active_pointers.find(touch);
         if (it != _active_pointers.end()) {
             auto& pointer_data = it->second;
-            tiny::try_set(pointer_data.pointer.state, tiny::Consumed{});
+            pointer_data.ended = true;
         }
         _activeTouches.erase(touch); // Gesture should be processed before touch end/cancel.
         
-        using namespace tiny;
         CGPoint location = [touch locationInView:self];
         const auto pos = Coords{location.x, location.y};
         const auto tag = (uintptr_t)touch;

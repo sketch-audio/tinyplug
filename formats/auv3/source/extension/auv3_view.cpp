@@ -22,7 +22,7 @@ auto Auv3_view::create_view() -> void*
 auto Auv3_view::on_draw(View_context& view_context) -> void
 {
     view_impl::run_frame(
-        _meter_infos, _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _tasks, _undo_history
+        _meter_infos, _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _undo_history
     );
 }
 

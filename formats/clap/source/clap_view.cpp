@@ -28,9 +28,8 @@ auto Clap_view::on_show() noexcept -> void
 {
     _platform_view->on_show();
     _editor->on_gui_show({
-        .actions = _actions.make_receiver(),
-        .tasks = _tasks.make_receiver(),
-        .undo_redo = _undo_history.make_receiver(),
+        .actions = _actions.actor(),
+        .undo_redo = _undo_history.actor(),
     });
 }
 
@@ -82,7 +81,7 @@ auto Clap_view::set_parent(const clap_window* window) noexcept -> bool
 auto Clap_view::on_draw(View_context& view_context) -> void
 {
     view_impl::run_frame(
-        _meter_infos, _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _tasks, _undo_history
+        _meter_infos, _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _undo_history
     );
 }
 

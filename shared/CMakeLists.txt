@@ -34,6 +34,11 @@ endif()
 target_sources(${TINY_SHARED_LIB} PRIVATE
     ${PLATFORM_SOURCES}
     platform/source/view_delegate.cpp
+    tinyplug/action_queue.cpp
+    tinyplug/gesture_recognizers.cpp
+    tinyplug/task_queue.cpp
+    tinyplug/task_launcher.cpp
+    tinyplug/undo_history.cpp
 )
 
 target_sources(${TINY_SHARED_LIB} PRIVATE 
