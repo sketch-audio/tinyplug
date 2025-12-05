@@ -102,8 +102,8 @@ auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
 
     // Draw gain value.
     paint.setColor(_dark ? SK_ColorWHITE : SK_ColorBLACK);
-    const auto g_h = _value * rsize.h;
-    const auto g_y = rsize.h - g_h;
+    const auto g_h = static_cast<float>(_value * rsize.h);
+    const auto g_y = static_cast<float>(rsize.h - g_h);
     canvas->drawRect(SkRect::MakeXYWH(0, g_y, static_cast<float>(rsize.w), g_h), paint);
 }
 

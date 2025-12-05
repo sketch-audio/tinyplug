@@ -729,8 +729,8 @@ public:
     static auto param_tree() -> const Param_node&
     {
         // Validate once at startup.
-        [[maybe_unused]] static const bool validated = [] {
-            const bool is_valid = params_impl::validate_tree(user_tree, num_params);
+        [[maybe_unused]] static const auto validated = [] {
+            [[maybe_unused]] const auto is_valid = params_impl::validate_tree(user_tree, num_params);
             assert(is_valid && "Param tree validation failed.");
             return true;
         }();
@@ -762,6 +762,8 @@ public:
                         return get_host_default(indexed_specs[i]);
                     case Knob:
                         return get_knob_default(indexed_specs[i]);
+                    default:
+                        return get_plain_default(indexed_specs[i]);
                 }
             }
         );
