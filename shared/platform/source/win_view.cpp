@@ -782,7 +782,7 @@ inline auto align_dword(LPWORD lpIn) -> LPWORD
 
 auto Platform_dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, Execution_context executor) -> void
 {
-    executor.launcher.launch([title, message, on_done, executor]() {
+    executor.launcher.launch([=, on_done=std::move(on_done)]() {
         if (const auto plugin_window = find_plugin_window()) {
             // calculate message size
             const auto font = Font_info{.name = "Segoe UI", .size = 9};
@@ -890,7 +890,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
 
 auto Platform_dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_done, Execution_context executor) -> void
 {
-    executor.launcher.launch([title, message, on_done, executor]() {
+    executor.launcher.launch([=, on_done=std::move(on_done)]() {
         if (const auto plugin_window = find_plugin_window()) {
             
             // calculate message size
@@ -1022,7 +1022,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
 
 auto Platform_dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Execution_context executor) -> void
 {
-    executor.launcher.launch([title, message, on_text, executor]() {
+    executor.launcher.launch([=, on_text=std::move(on_text)]() {
         if (const auto plugin_window = find_plugin_window()) {
             // calculate message size
             const auto font = Font_info{.name = "Segoe UI", .size = 9};
@@ -1182,21 +1182,20 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
     });
 }
 
-auto Platform_dialogs::open_url(const std::string& url) -> void
+auto Platform_dialogs::open_url(const std::string& url, Execution_context executor) -> void
 {
-    auto thread = std::thread([url]() {
+    executor.launcher.launch([=]() {
         if (const auto plugin_window = find_plugin_window()) {
             const auto wurl = string_to_wstring(url);
             ShellExecuteW(nullptr, L"open", wurl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
         }
     });
-    thread.detach();
 }
 
 auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Execution_context executor) -> void
 {
-    executor.launcher.launch([title, default_path, on_open, executor]() {
+    executor.launcher.launch([=, on_open=std::move(on_open)]() {
         if (const auto plugin_window = find_plugin_window()) {
             auto wtitle = string_to_wstring(title);
             auto wdefault_path = string_to_wstring(default_path);
@@ -1217,12 +1216,12 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
             const auto result = GetOpenFileNameW(&open_file_name);
             if (result) {
                 const auto selected_path = wstring_to_string(std::wstring{open_file_name.lpstrFile});
-                executor.queue.push([on_open, selected_path]() {
+                executor.queue.push([=, on_open=std::move(on_open)]() {
                     on_open(selected_path);
                 });
             }
             else {
-                executor.queue.push([on_open]() {
+                executor.queue.push([=, on_open=std::move(on_open)]() {
                     on_open(std::nullopt);
                 });
             }

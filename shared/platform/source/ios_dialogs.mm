@@ -66,14 +66,14 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
                                                                 preferredStyle:UIAlertControllerStyleAlert];
         UIAlertAction* yesAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
                                                           handler:^(UIAlertAction* action) {
-            executor.queue.push([cb=std::move(on_confirm)] {
-                cb(true);
+            executor.queue.push([on_confirm=std::move(on_confirm)] {
+                on_confirm(true);
             });
         }];
         UIAlertAction* noAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
                                                          handler:^(UIAlertAction* action) {
-            executor.queue.push([cb=std::move(on_confirm)] {
-                cb(false);
+            executor.queue.push([on_confirm=std::move(on_confirm)] {
+                on_confirm(false);
             });
         }];
         [alert addAction:yesAction];
@@ -107,8 +107,8 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
                                                          handler:^(UIAlertAction* action) {
             UITextField* textField = alert.textFields.firstObject;
             const auto text = std::string{[textField.text UTF8String]};
-            executor.queue.push([cb=std::move(on_text), text] {
-                cb(text);
+            executor.queue.push([on_text=std::move(on_text), text] {
+                on_text(text);
             });
         }];
         UIAlertAction* cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
@@ -129,7 +129,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
     });
 }
 
-auto Platform_dialogs::open_url(const std::string& url) -> void
+auto Platform_dialogs::open_url(const std::string& url, Execution_context /*ececutor*/) -> void
 {
     // Copy to locals.
     const auto url_copy = url;
@@ -161,15 +161,23 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
                 BOOL ok = [url startAccessingSecurityScopedResource];
                 if (ok) {
                     NSString *path = url.path;
-                    const auto p = std::string{[path UTF8String]};
-                    executor.queue.push([cb=std::move(on_open), p] {
-                        cb(p);
+
+                    // Copy to NSTemporaryDirectory
+                    NSString* temp = [NSTemporaryDirectory() stringByAppendingPathComponent:[url lastPathComponent]];
+                    [[NSFileManager defaultManager] copyItemAtPath:path toPath:temp error:nil];
+
+                    [url stopAccessingSecurityScopedResource];
+                    
+                    const auto temp_str = std::string{[temp UTF8String]};
+
+                    executor.queue.push([=, on_open=std::move(on_open)] {
+                        on_open(temp_str);
+                        [[NSFileManager defaultManager] removeItemAtPath:[NSString stringWithUTF8String:temp_str.c_str()] error:nil];
                     });
-                    [url stopAccessingSecurityScopedResource]; // We need to revisit this.
                 }
             } else {
-                executor.queue.push([cb=std::move(on_open)] {
-                    cb(std::nullopt);
+                executor.queue.push([on_open=std::move(on_open)] {
+                    on_open(std::nullopt);
                 });
             }
             [helper release];

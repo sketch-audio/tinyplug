@@ -54,7 +54,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
         NSWindow* keyWindow = [[NSApplication sharedApplication] keyWindow];
         if (keyWindow != nil) {
             [alert beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse returnCode) {
-                executor.queue.push([cb=std::move(on_confirm), returnCode] {
+                executor.queue.push([=, cb=std::move(on_confirm)] {
                     cb(returnCode == NSAlertFirstButtonReturn);
                 });
                 dispatch_async(dispatch_get_main_queue(), ^{
@@ -64,7 +64,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
         }
         else {
             NSModalResponse response = [alert runModal];
-            executor.queue.push([cb=std::move(on_confirm), response] {
+            executor.queue.push([=, cb=std::move(on_confirm)] {
                 cb(response == NSAlertFirstButtonReturn);
             });
         }
@@ -96,7 +96,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
                     NSString* inputString = [input stringValue];
                     if (inputString) {
                         const auto result = std::string{[inputString UTF8String]};
-                        executor.queue.push([cb=std::move(on_text), result] {
+                        executor.queue.push([=, cb=std::move(on_text)] {
                             cb(result);
                         });
                     }
@@ -112,7 +112,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
                 NSString* inputString = [input stringValue];
                 if (inputString) {
                     const auto result = std::string{[inputString UTF8String]};
-                    executor.queue.push([cb=std::move(on_text), result] {
+                    executor.queue.push([=, cb=std::move(on_text)] {
                         cb(result);
                     });
                 }
@@ -124,7 +124,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
     });
 }
 
-auto Platform_dialogs::open_url(const std::string& url) -> void
+auto Platform_dialogs::open_url(const std::string& url, Execution_context /*executor*/) -> void
 {
     // Copy to locals.
     const auto url_copy = url;
@@ -166,7 +166,7 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
                     if (selectedURL) {
                         NSString* path = [selectedURL path];
                         const auto result_path = std::string{[path UTF8String]}; 
-                        executor.queue.push([cb=std::move(on_open), result_path] {
+                        executor.queue.push([=, cb=std::move(on_open)] {
                             cb(result_path);
                         });
                     } else {
@@ -191,7 +191,7 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
                 if (selectedURL) {
                     NSString* path = [selectedURL path];
                     const auto result_path = std::string{[path UTF8String]};
-                    executor.queue.push([cb=std::move(on_open), result_path] {
+                    executor.queue.push([=, cb=std::move(on_open)] {
                         cb(result_path);
                     });
                 } else {
