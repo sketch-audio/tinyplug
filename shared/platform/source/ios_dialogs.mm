@@ -151,7 +151,7 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
 
     dispatch_async(dispatch_get_main_queue(), ^{
         UIDocumentPickerViewController* documentPicker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[UTTypeItem.identifier]
-                                                                                                                inMode:UIDocumentPickerModeImport];
+                                                                                                                inMode:UIDocumentPickerModeOpen];
         documentPicker.allowsMultipleSelection = false;
 
         OpenFileHelper* helper = [[OpenFileHelper alloc] init];
@@ -170,13 +170,18 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
                     
                     const auto temp_str = std::string{[temp UTF8String]};
 
-                    executor.queue.push([=, on_open=std::move(on_open)] {
+                    executor.launcher.launch([=, on_open=std::move(on_open)] {
                         on_open(temp_str);
                         [[NSFileManager defaultManager] removeItemAtPath:[NSString stringWithUTF8String:temp_str.c_str()] error:nil];
                     });
                 }
+                else {
+                    executor.launcher.launch([on_open=std::move(on_open)] {
+                        on_open(std::nullopt);
+                    });
+                }
             } else {
-                executor.queue.push([on_open=std::move(on_open)] {
+                executor.launcher.launch([on_open=std::move(on_open)] {
                     on_open(std::nullopt);
                 });
             }

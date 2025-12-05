@@ -1216,12 +1216,12 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
             const auto result = GetOpenFileNameW(&open_file_name);
             if (result) {
                 const auto selected_path = wstring_to_string(std::wstring{open_file_name.lpstrFile});
-                executor.queue.push([=, on_open=std::move(on_open)]() {
+                executor.launcher.launch([=, on_open=std::move(on_open)]() {
                     on_open(selected_path);
                 });
             }
             else {
-                executor.queue.push([=, on_open=std::move(on_open)]() {
+                executor.launcher.launch([=, on_open=std::move(on_open)]() {
                     on_open(std::nullopt);
                 });
             }
