@@ -148,6 +148,21 @@ struct Event {
 struct Event_list {
     std::vector<Event> events{}; // All events in the list can be considered simultaneous.
     Steady_time timestamp{};
+
+    auto events_in(const Frame& frame) -> Event_list
+    {
+        auto filtered = std::vector<Event>{};
+        for (const auto& event : events) {
+            std::visit([&](const auto& e) {
+                if constexpr (requires { e.pos; }) {
+                    if (frame.contains(e.pos)) {
+                        filtered.push_back(event);
+                    }
+                }
+            }, event.event);
+        }
+        return {filtered, timestamp};
+    }
 };
 
 struct Event_stream {
