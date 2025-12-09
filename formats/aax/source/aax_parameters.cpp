@@ -105,7 +105,7 @@ AAX_Result Aax_parameters::EffectInit()
                 if (std::strlen(param.short_name) > 0) {
                     aax_param->AddShortenedName(param.short_name);
                 }
-                aax_param->SetNumberOfSteps((f.max_val - f.min_val) / f.step_size + 1); // Step count here is number of values.
+                aax_param->SetNumberOfSteps(static_cast<uint32_t>((f.max_val - f.min_val) / f.step_size + 1)); // Step count here is number of values.
                 aax_param->SetType(AAX_eParameterType_Continuous);
                 if (aax_param->Automatable()) {
                     AddSynchronizedParameter(*aax_param);
