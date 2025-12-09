@@ -90,6 +90,27 @@ struct Int_semantics {
     bool operator==(const Int_semantics&) const = default;
 };
 
+// Specifies a parameter whose value is to be interpreted as a fixed-point value by the host.
+struct Fixed_semantics {
+    // Minimum plain value (finite).
+    double min_val{};
+
+    // Default plain value.
+    double def_val{};
+
+    // Maximum plain value (finite).
+    double max_val{};
+
+    // Step size.
+    double step_size{0.1};
+
+    // Units (display hint).
+    Units units{};
+
+    // Regular.
+    bool operator==(const Fixed_semantics&) const = default;
+};
+
 // MARK: - Knob adapters
 
 // Specifies a linear map between plain and normalized value.
@@ -201,7 +222,7 @@ struct Real_semantics {
 };
 
 // Specifies how the parameter value is to be interpreted by the host..
-using Value_semantics = std::variant<Bool_semantics, List_semantics, Int_semantics, Real_semantics>;
+using Value_semantics = std::variant<Bool_semantics, List_semantics, Int_semantics, Fixed_semantics, Real_semantics>;
 
 // MARK: - plain to norm
 
@@ -281,6 +302,10 @@ constexpr auto plain_to_norm(double x, const Value_semantics& semantics) -> doub
         [&](const Int_semantics& i) {
             const auto step_count = static_cast<double>(i.max_val - i.min_val);
             return (x - i.min_val) / step_count;
+        },
+        [&](const Fixed_semantics& f) {
+            const auto step_count = (f.max_val - f.min_val) / f.step_size;
+            return (x - f.min_val) / (step_count * f.step_size);
         },
         [&](const Real_semantics& r) {
             return plain_to_norm(x, r);
@@ -367,6 +392,10 @@ constexpr auto norm_to_plain(double x, const Value_semantics& semantics) -> doub
             const auto step_count = static_cast<double>(i.max_val - i.min_val);
             return std::floor(std::min(step_count, x * (step_count + 1))) + i.min_val;
         },
+        [&](const Fixed_semantics& f) {
+            const auto step_count = (f.max_val - f.min_val) / f.step_size;
+            return std::floor(std::min(step_count, x * (step_count + 1))) * f.step_size + f.min_val;
+        },
         [&](const Real_semantics& r) {
             return norm_to_plain(x, r);
         },
@@ -446,6 +475,7 @@ struct Value_conv {
         Bool         Yes                0...1               0...1              0...1
         List         Yes                0...(size - 1)      0...(size - 1)     0...1
         Int          Yes                min...max           min...max          0...1
+        Fixed        Yes                min...max           min...max          0...1
         Real         No                 min...max           0...1              0...1
     */
     
@@ -455,6 +485,9 @@ struct Value_conv {
         // Normalize real params.
         if (const auto* r = std::get_if<Real_semantics>(&semantics)) {
             return plain_to_norm(plain_value, *r);
+        }
+        if (const auto* f = std::get_if<Fixed_semantics>(&semantics)) {
+            return norm_to_plain(plain_to_norm(plain_value, *f), *f); // Force quantize.
         }
         return plain_value;
     }
@@ -466,6 +499,9 @@ struct Value_conv {
         if (const auto* r = std::get_if<Real_semantics>(&semantics)) {
             return norm_to_plain(host_value, *r);
         }
+        if (const auto* f = std::get_if<Fixed_semantics>(&semantics)) {
+            return norm_to_plain(plain_to_norm(host_value, *f), *f); // Force quantize.
+        }
         return host_value;
     }
 
@@ -476,6 +512,7 @@ struct Value_conv {
         return std::visit(Inline_visitor{
             [&](const List_semantics&) { return plain_to_norm(host_value, semantics); },
             [&](const Int_semantics&) { return plain_to_norm(host_value, semantics); },
+            [&](const Fixed_semantics&) { return plain_to_norm(host_value, semantics); },
             [=](const auto&) { return host_value; },
         }, semantics);
     }
@@ -487,6 +524,7 @@ struct Value_conv {
         return std::visit(Inline_visitor{
             [&](const List_semantics&) { return norm_to_plain(knob_value, semantics); },
             [&](const Int_semantics&) { return norm_to_plain(knob_value, semantics); },
+            [&](const Fixed_semantics&) { return norm_to_plain(knob_value, semantics); },
             [=](const auto&) { return knob_value; },
         }, semantics);
     }
@@ -512,6 +550,7 @@ inline auto get_plain_default(const Param_spec& spec) -> double
         [](const Bool_semantics& b) { return static_cast<double>(b.def_val ? 1 : 0); },
         [](const List_semantics& l) { return static_cast<double>(l.def_val); },
         [](const Int_semantics& i) { return static_cast<double>(i.def_val); },
+        [](const Fixed_semantics& f) { return f.def_val; },
         [](const Real_semantics& r) { return r.def_val; },
     }, spec.semantics);
 }
@@ -522,6 +561,7 @@ inline auto get_host_default(const Param_spec& spec) -> double
         [](const Bool_semantics& b) { return static_cast<double>(b.def_val ? 1 : 0); },
         [](const List_semantics& l) { return static_cast<double>(l.def_val); },
         [](const Int_semantics& i) { return static_cast<double>(i.def_val); },
+        [](const Fixed_semantics& f) { return f.def_val; },
         [](const Real_semantics& r) { return plain_to_norm(r.def_val, r); },
     }, spec.semantics);
 }
@@ -532,6 +572,7 @@ inline auto get_knob_default(const Param_spec& spec) -> double
         [](const Bool_semantics& b) { return static_cast<double>(b.def_val ? 1 : 0); },
         [](const List_semantics& l) { return plain_to_norm(static_cast<double>(l.def_val), l); },
         [](const Int_semantics& i) { return plain_to_norm(static_cast<double>(i.def_val), i); },
+        [](const Fixed_semantics& f) { return plain_to_norm(f.def_val, f); },
         [](const Real_semantics& r) { return plain_to_norm(r.def_val, r); },
     }, spec.semantics);
 }
@@ -550,6 +591,9 @@ inline auto clamp(X x, const Value_semantics& semantics) -> X
             return std::clamp(x, X(0), X(max_val));
         },
         [x](const Int_semantics& s) {
+            return std::clamp(x, static_cast<X>(s.min_val), static_cast<X>(s.max_val));
+        },
+        [x](const Fixed_semantics& s) {
             return std::clamp(x, static_cast<X>(s.min_val), static_cast<X>(s.max_val));
         },
         [x](const Real_semantics& s) {
@@ -578,6 +622,14 @@ inline auto knob_next(X x, const Value_semantics& semantics) -> X
             const auto next = ((val - s.min_val + 1) % range) + s.min_val;
             return Value_conv::plain_to_knob(static_cast<X>(next), s);
         },
+        [x](const Fixed_semantics& s) {
+            const auto plain = Value_conv::knob_to_plain(x, s);
+            const auto next = plain + s.step_size;
+            if (next > s.max_val) {
+                return Value_conv::plain_to_knob(static_cast<X>(s.min_val), s);
+            }
+            return Value_conv::plain_to_knob(static_cast<X>(next), s);
+        },
         [x](const Real_semantics&) {
             return std::nextafter(x, X(1));
         }
@@ -587,6 +639,7 @@ inline auto knob_next(X x, const Value_semantics& semantics) -> X
 inline auto is_param_units(Units units, const Value_semantics& semantics) -> bool
 {
     return std::visit(Inline_visitor{
+        [units](const Fixed_semantics& s) { return s.units == units; },
         [units](const Real_semantics& s) { return s.units == units; },
         [](const auto&) { return false; }
     }, semantics);
@@ -598,6 +651,7 @@ inline auto param_is_discrete(const Value_semantics& semantics) -> bool
         [](const Bool_semantics&) { return true; },
         [](const List_semantics&) { return true; },
         [](const Int_semantics&) { return true; },
+        [](const Fixed_semantics&) { return true; },
         [](const Real_semantics&) { return false; },
     }, semantics);
 }
@@ -641,6 +695,7 @@ inline auto validate_spec(const Param_spec& spec) -> bool
         [](const Bool_semantics&) { return true; },
         [](const List_semantics& l) { return l.def_val < l.items.size(); },
         [&](const Int_semantics& i) { return in_range(i.def_val, i.min_val, i.max_val); },
+        [&](const Fixed_semantics& f) { return in_range(f.def_val, f.min_val, f.max_val); },
         [&](const Real_semantics& r) { return in_range(r.def_val, r.min_val, r.max_val); },
     }, spec.semantics);
     assert(ok_range && "Param default must satisfy min_val <= def_val <= max_val.");
@@ -786,6 +841,15 @@ struct Host_formatter {
     static auto format_string(double host_value, const Value_semantics& semantics, bool include_units = true) -> std::string
     {
         const auto plain_value = Value_conv::host_to_plain(host_value, semantics);
+
+        auto format_float = [](double value, int precision, bool fixed = true) {
+            auto oss = std::ostringstream{};
+            if (fixed)
+                oss << std::fixed;
+            oss << std::setprecision(precision) << value;
+            return oss.str();
+        };
+
         return std::visit(Inline_visitor{
             [&](const Bool_semantics&) {
                 return plain_value > 0.5f ? std::string{"True"} : std::string{"False"};
@@ -795,29 +859,11 @@ struct Host_formatter {
                 return std::string{l.items[idx]};
             },
             [&](const Int_semantics&) {
-                // We were using std::format but it requires iOS 16.3 for float formatting.
-                // https://developer.apple.com/xcode/cpp/ (see std::to_chars)
-                auto format_float = [](double value, int precision, bool fixed = true) {
-                    auto oss = std::ostringstream{};
-                    if (fixed)
-                        oss << std::fixed;
-                    oss << std::setprecision(precision) << value;
-                    return oss.str();
-                };
                 return format_float(plain_value, 0); // TODO: - Units
             },
-            [&](const Real_semantics& r) {
+            [&](const auto& fr) {
                 using enum Units;
-
-                auto format_float = [](double value, int precision, bool fixed = true) {
-                    auto oss = std::ostringstream{};
-                    if (fixed)
-                        oss << std::fixed;
-                    oss << std::setprecision(precision) << value;
-                    return oss.str();
-                };
-
-                switch (r.units) {
+                switch (fr.units) {
                     case generic:
                         return format_float(plain_value, 2);
                     case percent: {

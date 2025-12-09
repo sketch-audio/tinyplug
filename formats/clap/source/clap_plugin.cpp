@@ -610,6 +610,7 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
     std::strncpy(info->name, param.name, CLAP_NAME_SIZE);
     std::strncpy(info->module, path.c_str(), CLAP_NAME_SIZE);
 
+    // CLAP uses host values.
     // Set min, max, default based on semantics.
     std::visit(Inline_visitor{
         [&](const Bool_semantics& b) {
@@ -629,6 +630,11 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
             info->min_value = i.min_val;
             info->max_value = i.max_val;
             info->default_value = i.def_val;
+        },
+        [&](const Fixed_semantics& f) {
+            info->min_value = f.min_val;
+            info->max_value = f.max_val;
+            info->default_value = f.def_val;
         },
         [&](const Real_semantics& r) {
             info->min_value = 0;

@@ -234,6 +234,19 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
                 .flags = resolve_flags(param, found_clump)
             };
         },
+        [&](const Fixed_semantics& f) {
+            outParameterInfo = {
+                .name = {},
+                .unitName = {},
+                .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
+                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
+                .unit = kAudioUnitParameterUnit_Generic,
+                .minValue = static_cast<float>(f.min_val),
+                .maxValue = static_cast<float>(f.max_val),
+                .defaultValue = static_cast<float>(f.def_val),
+                .flags = resolve_flags(param, found_clump)
+            };
+        },
         [&](const Real_semantics&) {
             outParameterInfo = {
                 .name = {},

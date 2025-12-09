@@ -70,6 +70,15 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
                     .flags = {}
                 };
             },
+            [&](const Fixed_semantics&) {
+                return Steinberg::Vst::ParameterInfo{
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.address),
+                    .stepCount = 0,
+                    .defaultNormalizedValue = get_knob_default(param),
+                    .unitId = unit_id.unit_id,
+                    .flags = {}
+                };
+            },
             [&](const Real_semantics&) {
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.address),

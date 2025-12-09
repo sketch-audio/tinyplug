@@ -89,6 +89,29 @@ AAX_Result Aax_parameters::EffectInit()
                 }
                 mParameterManager.AddParameter(aax_param.release());
             },
+            [&](const Fixed_semantics& f) {
+                using TaperDelegate = Fixed_semanticsTaperDelegate<double>;
+                using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 2, space after: 1
+                const auto units_str = units_string(f.units);
+
+                auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
+                    aax_id.c_str(),
+                    AAX_CString(param.name),
+                    f.def_val,
+                    TaperDelegate(f),
+                    AAX_CUnitDisplayDelegateDecorator<double>(DisplayDelegate(), units_str.c_str()),
+                    param.policy == Host_policy::automation
+                ));
+                if (std::strlen(param.short_name) > 0) {
+                    aax_param->AddShortenedName(param.short_name);
+                }
+                aax_param->SetNumberOfSteps((f.max_val - f.min_val) / f.step_size + 1); // Step count here is number of values.
+                aax_param->SetType(AAX_eParameterType_Continuous);
+                if (aax_param->Automatable()) {
+                    AddSynchronizedParameter(*aax_param);
+                }
+                mParameterManager.AddParameter(aax_param.release());
+            },
             [&](const Real_semantics& r) {
                 using TaperDelegate = Real_semanticsTaperDelegate<double>;
                 using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 1, space after: 1
