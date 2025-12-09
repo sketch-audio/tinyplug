@@ -33,13 +33,15 @@ struct Lin_range {
 // Linear map to normalized.
 inline auto plain_to_norm(double value, const Lin_range& range) -> double
 {
-    return (value - range.min_val) / (range.max_val - range.min_val);
+    const auto norm = (value - range.min_val) / (range.max_val - range.min_val);
+    return std::clamp(norm, 0., 1.);
 }
 
 // Linear map to plain.
 inline auto norm_to_plain(double value, const Lin_range& range) -> double
 {
-    return value * (range.max_val - range.min_val) + range.min_val;
+    const auto norm = std::clamp(value, 0., 1.);
+    return norm * (range.max_val - range.min_val) + range.min_val;
 }
 
 // A specification for a meter.
@@ -76,24 +78,33 @@ public:
     // Number of meters.
     static constexpr auto num_meters = enum_raw(User_model::Meter_address::num_meters);
 
-    auto policy_for(uint32_t address) const -> Meter_policy
+    static auto meter_specs() -> const std::vector<Meter_spec>&
+    {
+        [[maybe_unused]] static const auto validated = [] {
+            assert(specs.size() == num_meters && "Unexpected number of meter specs.");
+            if (!specs.empty()) {
+                [[maybe_unused]] const auto contains_all = (specs.front().address == 0) && (specs.back().address == num_meters - 1);
+                [[maybe_unused]] const auto order_ascending = std::ranges::is_sorted(specs, [](const auto& a, const auto& b) {
+                    return a.address < b.address;
+                });
+                assert(contains_all && order_ascending && "Meter specs must contain all meter addresses and be indexable by address.");
+            }
+            return true;
+        }();
+
+        return specs;
+    }
+
+    static auto meter_spec(uint32_t address) -> const Meter_spec&
     {
         assert(address < num_meters && "Meter address out of range.");
-        return _specs[address].policy;
+        return specs[address];
     }
 
 private:
-    // User specs.
-    std::vector<Meter_spec> _specs = []() {
-        auto specs = User_model::make_specs();
-        std::ranges::sort(specs, {}, &Meter_spec::address);
-        assert(specs.size() == num_meters && "Unexpected number of meter specs.");
-        if (!specs.empty()) {
-            [[maybe_unused]] const auto contains_all = (specs.front().address == 0) && (specs.back().address == num_meters - 1);
-            assert(contains_all && "Meter specs must contain all meter addresses.");
-        }
-        return specs;
-    }();
+    
+    inline static const std::vector<Meter_spec> specs = User_model::make_specs();
+
 };
 
 } // namespace tiny

@@ -280,7 +280,12 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     // Send exports as output parameter changes.
     for (size_t i = 0; i < num_meters; ++i) {
         if (context.meters[i] != _last_meters[i]) {
-            add_output_event(export_param_offset + static_cast<int32_t>(i), context.meters[i]);
+            // Send normalized value to UI per VST spec.
+            const auto val = context.meters[i];
+            const auto& spec = User_meters::meter_spec(static_cast<uint32_t>(i));
+            const auto norm = plain_to_norm(val, spec.range);
+            add_output_event(export_param_offset + static_cast<int32_t>(i), norm);
+
             _last_meters[i] = context.meters[i];
         }
     }

@@ -114,7 +114,7 @@ Steinberg::tresult PLUGIN_API Vst3_view::checkSizeConstraint(Steinberg::ViewRect
 void Vst3_view::on_draw(View_context& view_context)
 {
     view_impl::run_frame(
-        _meter_infos, _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _undo_history
+        User_meters::meter_specs(), _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _undo_history
     );
 }
 

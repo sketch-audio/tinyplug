@@ -488,8 +488,13 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setParamNormalized(Steinberg::Vst
     // Is it an export?
     else if (tag >= export_param_offset && tag < export_param_offset + num_meters) {
         const auto id = tag - export_param_offset;
-        _to_editor.push(Set_meter{.address = id, .value = value});
-        _last_meters[id] = value;
+
+        // Convert back to plain for UI.
+        const auto& spec = User_meters::meter_spec(id);
+        const auto plain = norm_to_plain(value, spec.range);
+        _to_editor.push(Set_meter{.address = id, .value = plain});
+
+        _last_meters[id] = plain; // Cache plain because we might dump to UI.
     }
     // Is it a latency change?
     else if (tag == latency_param_id) {

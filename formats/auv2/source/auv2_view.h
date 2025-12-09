@@ -32,8 +32,6 @@ private:
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 
-    User_meters _meter_infos{};
-    
     Action_queue _actions{};
     Undo_history _undo_history{};
 

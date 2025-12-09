@@ -285,7 +285,7 @@ namespace view_impl {
 
 template<typename M, typename S, typename A0, typename A1, typename C, typename V, typename A, typename U>
 constexpr auto run_frame(
-    const M& _meter_infos,
+    const M& _meter_specs,
     const S& _receiver,
     A0& _ui_params, 
     A1& _ui_meters, 
@@ -305,7 +305,7 @@ constexpr auto run_frame(
             [&](const Set_meter& e) {
                 //
                 auto& uiexport = _ui_meters[e.address];
-                const auto type = _meter_infos.policy_for(e.address);
+                const auto type = _meter_specs[e.address].policy;
 
                 using enum Meter_policy;
                 switch (type) {
@@ -333,7 +333,8 @@ constexpr auto run_frame(
     }
 
     // Adapt tagged meters to values.
-    auto meter_arr = std::array<double, M::num_meters>{};
+    auto meter_arr = std::vector<double>{};
+    meter_arr.resize(_meter_specs.size());
     const auto value_tx = _ui_meters | std::views::transform(&Tagged_meter::value);
     std::ranges::copy(value_tx, meter_arr.begin());
 

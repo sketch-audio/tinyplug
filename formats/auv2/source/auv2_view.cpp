@@ -38,7 +38,7 @@ auto Auv2_view::on_draw(View_context& view_context) -> void
 {
     _executor.on_main();
     view_impl::run_frame(
-        _meter_infos, _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _undo_history
+        User_meters::meter_specs(), _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _undo_history
     );
 }
 
