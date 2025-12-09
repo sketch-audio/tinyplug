@@ -44,6 +44,7 @@ Tinyplug provides a structured interface so your parameters always have well-def
     - `Bool`: for values that are "true" or "false"
     - `List`: for indices in a list
     - `Int`: for integers
+    - `Fixed`: continuous-like but with quantized to a fixed step size (ex. 0.5)
     - `Real`: for continuous values
 - Fully enumerated host policies (no flags)
     | Policy         | Automatable? | Visible? | Persistent?|
@@ -92,7 +93,6 @@ The style actually developed over several years of writing C++ alongside Swift a
 - Most member variables are prefixed with an underscore
 
 ## TODO
-- Fixed semantics (ex. -12...12 by 0.5 increments)
 - iOS view resizing lag in Logic.
 - Multitouch (Windows)
 - Basic control library
