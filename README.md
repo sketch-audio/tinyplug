@@ -10,12 +10,10 @@ Tinyplug is a C++20 audio plug-in framework that makes it easy to write audio pl
     | iOS      |     |      |  ✅  |      |      |
     | macOS    | ✅  |  ✅  |  ✅  |  ✅  |  ✅  |
     | Windows  | ✅  |      |      |  ✅  |  ✅  |
-    - *Linux & LV2 support on roadmap.*
 - Supported plug-in types:
     - Stereo in/out effect
     - Optional sidechain input
     - Optionally allow mono in/out
-    - *Synth support on roadmap.*
 - Sample-accurate events & automation
     - Host events (including ramps) are interleaved with calls to your process function so you have full control over automation playback.
 - Thread-safe architecture
@@ -23,7 +21,6 @@ Tinyplug is a C++20 audio plug-in framework that makes it easy to write audio pl
 - GPU-backed graphics via Google's Skia Library.
     - iOS & macOS: Metal
     - Windows: Direct3D 12
-    - *Software backend on roadmap*
 
 ## Architecture
 Your processor (`Plug_processor`) and editor (`Plug_editor`) are fully decoupled. Tinyplug handles communication between these classes and the host via simple message queues. There is no sharing of data between threads. The framework makes the source of truth wherever the plug-in format wants it to be.
@@ -33,7 +30,7 @@ Your processor (`Plug_processor`) and editor (`Plug_editor`) are fully decoupled
 - Can send data to the UI by writing to an array of meter values.
 
 ### Editor (`Plug_editor`)
-- On draw, receives a read-only copy of the current parameter and and meter values.
+- On draw, receives a read-only copy of the current parameter and meter values.
 - Controls can set parameter values by sending `User_actions`.
 
 ## Parameters
@@ -44,8 +41,8 @@ Tinyplug provides a structured interface so your parameters always have well-def
     - `Bool`: for values that are "true" or "false"
     - `List`: for indices in a list
     - `Int`: for integers
-    - `Fixed`: continuous-like but with quantized to a fixed step size (ex. 0.5)
-    - `Real`: for continuous values
+    - `Fixed`: continuous-like but quantized to a fixed step size (ex. 0.5)
+    - `Real`: for continuous values, with optional non-linear mapping
 - Fully enumerated host policies (no flags)
     | Policy         | Automatable? | Visible? | Persistent?|
     |---------------:|:------------:|:--------:|:----------:|
@@ -72,69 +69,32 @@ Tinyplug offers well-defined handling of latency changes.
 - Your kernel should make latency proposal and application realtime-safe operations.
 
 ## Platform library
-- Message 
-- Confirm
-- Text input via dialog box
+- Message dialog
+- Confirm dialog
+- Text input dialog
 - Open url in browser
-- Dark mode
+- Open file picker
+- Dark mode status (possible on iOS?)
 
 ## Style
-The style actually developed over several years of writing C++ alongside Swift and Kotlin. Aim for a terse, readable modern style consistent with other modern languages and the C++ standard library.
-- Herb Sutter AAA or "left-to-right" style
+- Use Herb Sutter AAA or "left-to-right" style
     - Most lines of code should begin with `const auto`.
-    - Functions should be written with trailing return types.
+    - Functions are written with trailing return types.
     - See: https://www.youtube.com/watch?v=xnqTKD8uD64
-- Stroustrup style (modified)
-    - Snake case
-    - User types begin with a single capital letter
-    - Opening brace on new line only for function definitions (except ctor/dtor)
-        - Try this and you will love it.
-    - See: https://www.stroustrup.com/Programming/PPP-style.pdf
-- Most member variables are prefixed with an underscore
-
-## TODO
-- iOS view resizing lag in Logic.
-- Multitouch (Windows)
-- Basic control library
-- Presets
-- Preferences
-    - E.g. light mode/dark mode
-    - Scopes: manufacturer, plug-in
-- System dialogs
-    - File load & save
-- Licensing helpers
-    - System ID, name
-- MIDI events
-- Synth support
-- Add Linux support for CLAP, VST3
-- Add LV2 format for Linux
+- Use the Stroustrup naming style (modified)
+    - Separate words in names with underscores.
+    - User types and concepts begin with a single capital letter.
+    - Enum cases also begin with a single capital letter (our addition).
+    - See: [Cpp Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines) (NL.8)
+- Opening brace on new line *only* for function definitions.
+- Prefix private member variables with an underscore.
 
 ## Test Plug-ins
 Tinyplug ships with some test plug-ins that can be useful for making sure things are working as advertised.
-### Done (ish)
-- Automation Tester
+- Automation Tester (outputs DC)
 - Gain Demo
 - Latency Demo
 - Platform demo
-### Todo
-- Meters Demo
-- Musical Context Demo
-- Params Demo
-    - Semantics
-    - Policy
-- Sidechain Demo
-
-## Consider
-- How to handle logical vs. real size?
-- Optionals in `Musical_context`?
-
-## Ideas
-- Instead of pop_exports, just have a sync_ui_values where we push everything into the ui before we present.
-
-## CMake Refactorings
-- Idea: move platform into tinyplug proper?
-- TINY_AUV2_TYPE -> TINY_AU_TYPE
-- TINY_PLUGIN_CODE for AUv3 same as AUv2?
 
 ## Build
 - Be sure to also set `-DTINY_DEPS_PATH=../tiny_deps`
@@ -143,3 +103,24 @@ Tinyplug ships with some test plug-ins that can be useful for making sure things
     - `cmake --build build`
 - iOS AUv3: `cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS`
 - macOS AUv3: `cmake -S . -B build-macos -G Xcode`
+
+## Notes
+- Presets, can we integrate factory presets with the format?
+- Instead of pop_exports, just have a sync_ui_values where we push everything into the ui before we present.
+- AUv3: should we rename TINY_AUV2_TYPE -> TINY_AU_TYPE?
+- AUv3: TINY_PLUGIN_CODE for AUv3 same as AUv2?
+- Should we be using optionals in `Musical_context`?
+
+## Roadmap
+- Platform dialogs (file save)
+- Basic control library
+- Multitouch on Windows
+- Software graphics backend
+- More demo plug-ins
+    - Meters
+    - Musical_context
+    - Sidechain
+- MIDI I/O
+- Synth plug-ins
+- Linux (CLAP & VST3)
+- LV2 plug-ins
