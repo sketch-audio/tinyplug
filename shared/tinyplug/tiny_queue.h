@@ -19,7 +19,7 @@ namespace tiny {
 enum class Queue_concurrency { spsc, spmc, mpsc, mpmc };
 
 template <typename T, size_t min_slots, Queue_concurrency type = Queue_concurrency::spsc>
-struct Lock_free_queue {};
+class Lock_free_queue {};
 
 namespace queue_impl {
 
@@ -39,9 +39,11 @@ static_assert(pow2_at_least(128) == 128);
 // MARK: - spsc
 
 template <typename T, size_t min_slots>
-struct Lock_free_queue<T, min_slots, Queue_concurrency::spsc> {
+class Lock_free_queue<T, min_slots, Queue_concurrency::spsc> {
+public:
 
-    auto push(const T& value) -> bool
+    template<typename T_>
+    auto push(T_&& value) -> bool
     {
         const auto pos = _wpos.load(std::memory_order_relaxed);
 
@@ -49,7 +51,7 @@ struct Lock_free_queue<T, min_slots, Queue_concurrency::spsc> {
             return false;
         }
 
-        _storage[pos & GET_INDEX_MASK] = std::move(value);
+        _storage[pos & GET_INDEX_MASK] = std::forward<T_>(value);
 
         _wpos.store(pos + 1, std::memory_order_release);
 
@@ -145,9 +147,11 @@ struct Thread_registry {
 // MARK: - spmc
 
 template <typename T, size_t min_slots>
-struct Lock_free_queue<T, min_slots, Queue_concurrency::spmc> {
+class Lock_free_queue<T, min_slots, Queue_concurrency::spmc> {
+public:
 
-    auto push(const T& value) -> bool
+    template<typename T_>
+    auto push(T_&& value) -> bool
     {
         const auto pos = _wpos.load(std::memory_order_relaxed);
 
@@ -157,7 +161,7 @@ struct Lock_free_queue<T, min_slots, Queue_concurrency::spmc> {
             return false;
         }
 
-        _storage[pos & GET_INDEX_MASK] = std::move(value);
+        _storage[pos & GET_INDEX_MASK] = std::forward<T_>(value);
 
         _wpos.store(pos + 1, std::memory_order_release);
 
@@ -215,9 +219,11 @@ private:
 // MARK: - mpsc
 
 template <typename T, size_t min_slots>
-struct Lock_free_queue<T, min_slots, Queue_concurrency::mpsc> {
+class Lock_free_queue<T, min_slots, Queue_concurrency::mpsc> {
+public:
 
-    auto push(const T& value) -> bool
+    template<typename T_>
+    auto push(T_&& value) -> bool
     {
         auto& temp = writer_infos.get_own_position();
         auto pos = _wpos.load(std::memory_order_relaxed);
@@ -244,7 +250,7 @@ struct Lock_free_queue<T, min_slots, Queue_concurrency::mpsc> {
             temp.store(pos, std::memory_order_release);
         }
 
-        _storage[pos & GET_INDEX_MASK] = std::move(value);
+        _storage[pos & GET_INDEX_MASK] = std::forward<T_>(value);
 
         // Exit "scope" now that we're done writing.
         temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_release);
@@ -285,9 +291,11 @@ private:
 // MARK: - mpmc
 
 template <typename T, size_t min_slots>
-struct Lock_free_queue<T, min_slots, Queue_concurrency::mpmc> {
+class Lock_free_queue<T, min_slots, Queue_concurrency::mpmc> {
+public:
 
-    auto push(const T& value) -> bool
+    template<typename T_>
+    auto push(T_&& value) -> bool
     {
         auto& temp = writer_infos.get_own_position();
         auto pos = _wpos.load(std::memory_order_relaxed);
@@ -315,7 +323,7 @@ struct Lock_free_queue<T, min_slots, Queue_concurrency::mpmc> {
             temp.store(pos, std::memory_order_release);
         }
 
-        _storage[pos & GET_INDEX_MASK] = std::move(value);
+        _storage[pos & GET_INDEX_MASK] = std::forward<T_>(value);
 
         // Exit "scope" now that we're done writing.
         temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_release);
@@ -378,11 +386,13 @@ private:
 
 // An SPSC queue where pushing always succeeds. 
 template<typename T, size_t min_slots>
-struct Overwrite_queue {
+class Overwrite_queue {
+public:
 
-    auto push(const T& value) -> void
+    template<typename T_>
+    auto push(T_&& value) -> void
     {
-        while (!_queue.push(value)) {
+        while (!_queue.push(std::forward<T_>(value))) {
             auto discarded = T{};
             _queue.pop(discarded);
         }
@@ -394,8 +404,10 @@ struct Overwrite_queue {
     }
 
 private:
+
     using Queue = Lock_free_queue<T, min_slots, Queue_concurrency::spmc>;
     Queue _queue{};
+
 };
 
 } // namespace tiny

@@ -190,7 +190,7 @@ private:
                     event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
                     event.mArgument.mParameter.mElement = 0;
                     AUEventListenerNotify(NULL, NULL, &event);
-                    [[maybe_unused]] const auto success = _to_processor.push({Set_param{a.address, plain_value}, 0});
+                    [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{Set_param{a.address, plain_value}, 0});
                     assert(success && "Push to processor queue failed! Increase queue size.");
                 },
                 [&](const Action_end& a) {

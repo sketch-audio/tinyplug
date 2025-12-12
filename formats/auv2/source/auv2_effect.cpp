@@ -325,7 +325,7 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
     const auto plain_value = Value_conv::host_to_plain(inValue, param.semantics);
     const auto knob_value = Value_conv::host_to_knob(inValue, param.semantics);
 
-    [[maybe_unused]] const auto success = _to_processor.push({
+    [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
         .offset = static_cast<int32_t>(inBufferOffsetInFrames),
         .event = Set_param{.address = inID, .value = plain_value}
     });
@@ -351,7 +351,7 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                 const auto plain_value = Value_conv::host_to_plain(value, param.semantics);
                 const auto knob_value = Value_conv::host_to_knob(value, param.semantics);
 
-                [[maybe_unused]] const auto success = _to_processor.push({
+                [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
                     .offset = static_cast<int32_t>(offset),
                     .event = Set_param{.address = event.parameter, .value = plain_value}
                 });
@@ -375,13 +375,13 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                 const auto knob_target = Value_conv::host_to_knob(target, param.semantics);
 
                 // Do we need to be sending set initial?
-                [[maybe_unused]] const auto set_success = _to_processor.push({
+                [[maybe_unused]] const auto set_success = _to_processor.push(Tagged_event{
                     .offset = offset,
                     .event = Set_param{.address = event.parameter, .value = plain_initial}
                 });
                 assert(set_success && "Push to processor queue failed! Increase queue size.");
 
-                [[maybe_unused]] const auto ramp_success = _to_processor.push({
+                [[maybe_unused]] const auto ramp_success = _to_processor.push(Tagged_event{
                     .offset = offset,
                     .event = Ramp_param{
                         .address = event.parameter,
@@ -531,7 +531,7 @@ OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
         const auto plain_value = Value_conv::host_to_plain(host_value, param.semantics);
         const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
 
-        [[maybe_unused]] const auto success = _to_processor.push({.offset = {}, .event = Set_param{param.address, plain_value}});
+        [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{.offset = {}, .event = Set_param{param.address, plain_value}});
         assert(success && "Push to processor queue failed! Increase queue size.");
 
         _to_editor.push(Set_param{param.address, knob_value});
@@ -825,7 +825,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
     // Has the kernel proposed a new latency?
     if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _latency) {
         // Notify controller and sit on the pending latency.
-        _pqueue.push({.type = Message_type::latency_changed});
+        _pqueue.push(Private_message{.type = Message_type::latency_changed});
         _pending_latency.store(*proposed_latency, std::memory_order_release);
     }
 

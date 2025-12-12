@@ -326,7 +326,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* stat
     // Notify kernel (if not an interface parameter).
     auto do_notify = [this](const auto& param, auto plain_value) {
         if (param.policy != Host_policy::interface) {
-            _queue.push({param.address, plain_value});
+            _queue.push(Set_param{param.address, plain_value});
         }
     };
 
