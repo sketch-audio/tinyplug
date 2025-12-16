@@ -10,7 +10,7 @@ public:
 
     static auto preferred_size() -> Rect_size { return {800, 600}; }
 
-    Plug_editor() = default;
+    Plug_editor(Task_manager::Actor tasks) : _tasks{tasks} {}
     ~Plug_editor() = default;
 
     auto on_gui_create() -> void;
@@ -28,15 +28,13 @@ private:
     using User_params = Param_infos<Param_model>;
     using Param_address = Param_model::Param_address;
 
+    Task_manager::Actor _tasks{};
     Frame _frame{};
     double _value{};
     std::unique_ptr<Gesture_recognizer> _click{};
 
     Edit_context _edit{};
     bool _dark{};
-
-    Task_queue _main_queue{};
-    Task_launcher _launcher{};
 
 };
 

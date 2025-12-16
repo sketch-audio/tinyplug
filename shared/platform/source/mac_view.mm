@@ -194,8 +194,9 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 
 - (void)mouseDown:(NSEvent *)event {
     using namespace tiny;
-    const auto y = self.bounds.size.height - event.locationInWindow.y;
-    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+    const auto locationInView = [self convertPoint:event.locationInWindow fromView:nil];
+    const auto y = self.bounds.size.height - locationInView.y;
+    const auto pos = tiny::Coords{locationInView.x, y};
     const auto ctrl = (event.modifierFlags & NSEventModifierFlagControl) != 0;
     const auto button = ctrl ? Pointer_button::right : Pointer_button::left;
 
@@ -208,8 +209,9 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 
 - (void)mouseUp:(NSEvent *)event {
     using namespace tiny;
-    const auto y = self.bounds.size.height - event.locationInWindow.y;
-    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+    const auto locationInView = [self convertPoint:event.locationInWindow fromView:nil];
+    const auto y = self.bounds.size.height - locationInView.y;
+    const auto pos = tiny::Coords{locationInView.x, y};
     const auto ctrl = (event.modifierFlags & NSEventModifierFlagControl) != 0;
     const auto button = ctrl ? Pointer_button::right : Pointer_button::left;
     
@@ -230,8 +232,9 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 
 - (void)mouseMoved:(NSEvent *)event {
     using namespace tiny;
-    const auto y = self.bounds.size.height - event.locationInWindow.y;
-    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+    const auto locationInView = [self convertPoint:event.locationInWindow fromView:nil];
+    const auto y = self.bounds.size.height - locationInView.y;
+    const auto pos = tiny::Coords{locationInView.x, y};
     const auto t = std::chrono::steady_clock::now();
 
     _events.push(Event{
@@ -243,8 +246,9 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 
 - (void)mouseDragged:(NSEvent *)event {
     using namespace tiny;
-    const auto y = self.bounds.size.height - event.locationInWindow.y;
-    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+    const auto locationInView = [self convertPoint:event.locationInWindow fromView:nil];
+    const auto y = self.bounds.size.height - locationInView.y;
+    const auto pos = tiny::Coords{locationInView.x, y};
 
     _events.push(Event{
         .event = Pointer_move{pos}
@@ -255,8 +259,9 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 
 - (void)rightMouseDown:(NSEvent *)event {
     using namespace tiny;
-    const auto y = self.bounds.size.height - event.locationInWindow.y;
-    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+    const auto locationInView = [self convertPoint:event.locationInWindow fromView:nil];
+    const auto y = self.bounds.size.height - locationInView.y;
+    const auto pos = tiny::Coords{locationInView.x, y};
 
     _events.push(Event{
         .event = Pointer_down{Pointer_button::right, pos}
@@ -267,8 +272,9 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 
 - (void)rightMouseUp:(NSEvent *)event {
     using namespace tiny;
-    const auto y = self.bounds.size.height - event.locationInWindow.y;
-    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+    const auto locationInView = [self convertPoint:event.locationInWindow fromView:nil];
+    const auto y = self.bounds.size.height - locationInView.y;
+    const auto pos = tiny::Coords{locationInView.x, y};
 
     _events.push(Event{
         .event = Pointer_up{Pointer_button::right, pos}
@@ -279,8 +285,9 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 
 - (void)rightMouseDragged:(NSEvent *)event {
     using namespace tiny;
-    const auto y = self.bounds.size.height - event.locationInWindow.y;
-    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+    const auto locationInView = [self convertPoint:event.locationInWindow fromView:nil];
+    const auto y = self.bounds.size.height - locationInView.y;
+    const auto pos = tiny::Coords{locationInView.x, y};
 
     _events.push(Event{
         .event = Pointer_move{pos}
@@ -298,8 +305,9 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 
 - (void)mouseEntered:(NSEvent *)event {
     using namespace tiny;
-    const auto y = self.bounds.size.height - event.locationInWindow.y;
-    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+    const auto locationInView = [self convertPoint:event.locationInWindow fromView:nil];
+    const auto y = self.bounds.size.height - locationInView.y;
+    const auto pos = tiny::Coords{locationInView.x, y};
 
     _events.push(Event{
         .event = Pointer_enter{pos}
@@ -310,8 +318,9 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 
 - (void)mouseExited:(NSEvent *)event {
     using namespace tiny;
-    const auto y = self.bounds.size.height - event.locationInWindow.y;
-    const auto pos = tiny::Coords{event.locationInWindow.x, y};
+    const auto locationInView = [self convertPoint:event.locationInWindow fromView:nil];
+    const auto y = self.bounds.size.height - locationInView.y;
+    const auto pos = tiny::Coords{locationInView.x, y};
 
     _events.push(Event{
         .event = Pointer_exit{pos}

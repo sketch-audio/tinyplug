@@ -16,8 +16,14 @@ namespace tiny {
 class Auv2_view {
 public:
 
-    Auv2_view(Ui_receiver receiver, std::shared_ptr<Plug_editor> editor, Main_executor executor)
-        : _receiver{receiver}, _editor{editor}, _executor {executor} {}
+    struct Deps {
+        Plug_editor* editor{};
+        Main_executor executor{};
+        Ui_receiver receiver{};
+        Task_manager* tasks{};
+    };
+
+    Auv2_view(Deps deps) : _deps{deps} {}
 
     auto create_view() -> void*;
 
@@ -35,9 +41,7 @@ private:
     Action_queue _actions{};
     Undo_history _undo_history{};
 
-    Ui_receiver _receiver{};
-    std::shared_ptr<Plug_editor> _editor{};
-    Main_executor _executor{};
+    Deps _deps{};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
 

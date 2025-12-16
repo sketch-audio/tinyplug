@@ -11,7 +11,7 @@ public:
 
     static auto preferred_size() -> Rect_size { return {400, 400}; }
 
-    Plug_editor() = default;
+    Plug_editor(Task_manager::Actor) {}
     ~Plug_editor() = default;
 
     auto on_gui_create() -> void;

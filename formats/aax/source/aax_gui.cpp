@@ -10,6 +10,7 @@ auto Aax_gui::CreateViewContents() -> void
 {
     auto* params = dynamic_cast<Aax_parameters*>(GetEffectParameters());
     _editor = params->get_editor();
+    _tasks = params->get_tasks();
 
     auto delegate = std::make_shared<View_delegate>(
         Plug_editor::preferred_size(), // Initial size
@@ -98,6 +99,7 @@ auto Aax_gui::CreateViewContainer() -> void
         [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
     );
 
+    _tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
     _platform_view->on_show();
     _editor->on_gui_show({
         .actions = _actions.actor(),
@@ -144,7 +146,7 @@ AAX_Result Aax_gui::ParameterUpdated(AAX_CParamID inParamID)
 auto Aax_gui::on_draw(View_context& view_context) -> void
 {
     view_impl::run_frame(
-        User_meters::meter_specs(), _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _undo_history
+        User_meters::meter_specs(), _receiver, _ui_params, _ui_meters, view_context, _editor, _actions, _undo_history, *_tasks
     );
 }
 

@@ -27,7 +27,7 @@ static_assert(false, "This is a non-ARC file");
 
 namespace tiny {
 
-auto Platform_dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, Execution_context executor) -> void
+auto Platform_dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, Task_manager::Actor tasks) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -39,7 +39,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
                                                                 preferredStyle:UIAlertControllerStyleAlert];
         UIAlertAction* okAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
                                                          handler:^(UIAlertAction* action) {
-            executor.queue.push(on_done);
+            tasks.on_main(on_done);
         }];
         [alert addAction:okAction];
         
@@ -54,7 +54,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
     });
 }
 
-auto Platform_dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_confirm, Execution_context executor) -> void
+auto Platform_dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_confirm, Task_manager::Actor tasks) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -66,13 +66,13 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
                                                                 preferredStyle:UIAlertControllerStyleAlert];
         UIAlertAction* yesAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
                                                           handler:^(UIAlertAction* action) {
-            executor.queue.push([on_confirm=std::move(on_confirm)] {
+            tasks.on_main([on_confirm=std::move(on_confirm)] {
                 on_confirm(true);
             });
         }];
         UIAlertAction* noAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
                                                          handler:^(UIAlertAction* action) {
-            executor.queue.push([on_confirm=std::move(on_confirm)] {
+            tasks.on_main([on_confirm=std::move(on_confirm)] {
                 on_confirm(false);
             });
         }];
@@ -90,7 +90,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
     });
 }
 
-auto Platform_dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Execution_context executor) -> void
+auto Platform_dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Task_manager::Actor tasks) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -107,7 +107,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
                                                          handler:^(UIAlertAction* action) {
             UITextField* textField = alert.textFields.firstObject;
             const auto text = std::string{[textField.text UTF8String]};
-            executor.queue.push([on_text=std::move(on_text), text] {
+            tasks.on_main([on_text=std::move(on_text), text] {
                 on_text(text);
             });
         }];
@@ -129,7 +129,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
     });
 }
 
-auto Platform_dialogs::open_url(const std::string& url, Execution_context /*ececutor*/) -> void
+auto Platform_dialogs::open_url(const std::string& url, Task_manager::Actor /*tasks*/) -> void
 {
     // Copy to locals.
     const auto url_copy = url;
@@ -143,7 +143,7 @@ auto Platform_dialogs::open_url(const std::string& url, Execution_context /*ecec
 
 // MARK: - open file
 
-auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Execution_context executor) -> void
+auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -170,18 +170,18 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
                     
                     const auto temp_str = std::string{[temp UTF8String]};
 
-                    executor.launcher.launch([=, on_open=std::move(on_open)] {
+                    tasks.on_background([=, on_open=std::move(on_open)] {
                         on_open(temp_str);
                         [[NSFileManager defaultManager] removeItemAtPath:[NSString stringWithUTF8String:temp_str.c_str()] error:nil];
                     });
                 }
                 else {
-                    executor.launcher.launch([on_open=std::move(on_open)] {
+                    tasks.on_background([on_open=std::move(on_open)] {
                         on_open(std::nullopt);
                     });
                 }
             } else {
-                executor.launcher.launch([on_open=std::move(on_open)] {
+                tasks.on_background([on_open=std::move(on_open)] {
                     on_open(std::nullopt);
                 });
             }

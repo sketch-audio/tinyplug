@@ -42,8 +42,9 @@ private:
     Action_queue _actions{};
     Undo_history _undo_history{};
 
+    Plug_editor* _editor{};
     Ui_receiver _receiver{};
-    std::shared_ptr<Plug_editor> _editor{};
+    Task_manager* _tasks{};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
 

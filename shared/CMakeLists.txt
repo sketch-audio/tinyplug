@@ -36,8 +36,10 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
     platform/source/view_delegate.cpp
     tinyplug/action_queue.cpp
     tinyplug/gesture_recognizers.cpp
-    tinyplug/task_queue.cpp
+    tinyplug/notification_queue.cpp
+    tinyplug/serial_queue.cpp
     tinyplug/task_launcher.cpp
+    tinyplug/task_manager.cpp
     tinyplug/undo_history.cpp
 )
 
@@ -51,7 +53,7 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
     tinyplug/tiny_meters.h
     tinyplug/tiny_params.h
     tinyplug/tiny_processor.h
-    tinyplug/tiny_queue.h
+    tinyplug/lock_free_queue.hpp
     tinyplug/tiny_utils.h
     tinyplug/tiny_view.h
     tinyplug/tinyplug.h

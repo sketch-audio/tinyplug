@@ -103,7 +103,8 @@ private:
 
     std::vector<AUChannelInfo> cinfo{};
 
-    std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
+    std::optional<Plug_editor> _editor{};
+    Task_manager _tasks{};
 
     using User_params = Param_infos<Param_model>;
     using User_meters = Meter_infos<Meter_model>;
@@ -155,57 +156,9 @@ private:
     Latency_flag _accepted_latency{};
 
     // AUv2 view adapter.
-    std::unique_ptr<Auv2_view> _view = std::make_unique<Auv2_view>(Ui_receiver{
-        .get_knob_value = [this](auto id) {
-            const auto& param = User_params::param_spec(id);
-            const auto host = Globals()->GetParameter(id);
-            const auto knob = Value_conv::host_to_knob(host, param.semantics);
-            return knob;
-        },
-        .pop_event = [this](auto& event) {
-            return _to_editor.pop(event);
-        },
-        .action_handler = [this](auto& action) {
-            std::visit(Inline_visitor{
-                [&](const Action_start& a) {
-                    auto event = AudioUnitEvent{};
-                    event.mEventType = kAudioUnitEvent_BeginParameterChangeGesture;
-                    event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                    event.mArgument.mParameter.mParameterID = a.address;
-                    event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
-                    event.mArgument.mParameter.mElement = 0;
-                    AUEventListenerNotify(NULL, NULL, &event);
-                },
-                [&](const Set_param& a) {
-                    // Notify host
-                    const auto& param = User_params::param_spec(a.address);
-                    const auto plain_value = Value_conv::knob_to_plain(a.value, param.semantics);
-                    const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
-
-                    Globals()->SetParameter(a.address, static_cast<float>(host_value));
-                    auto event = AudioUnitEvent{};
-                    event.mEventType = kAudioUnitEvent_ParameterValueChange;
-                    event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                    event.mArgument.mParameter.mParameterID = a.address;
-                    event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
-                    event.mArgument.mParameter.mElement = 0;
-                    AUEventListenerNotify(NULL, NULL, &event);
-                    [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{Set_param{a.address, plain_value}, 0});
-                    assert(success && "Push to processor queue failed! Increase queue size.");
-                },
-                [&](const Action_end& a) {
-                    auto event = AudioUnitEvent{};
-                    event.mEventType = kAudioUnitEvent_EndParameterChangeGesture;
-                    event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                    event.mArgument.mParameter.mParameterID = a.address;
-                    event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
-                    event.mArgument.mParameter.mElement = 0;
-                    AUEventListenerNotify(NULL, NULL, &event);
-                },
-            }, action);
-        }
-    }, _editor, Main_executor{
-        .on_main = [this]() {
+    std::unique_ptr<Auv2_view> _view = std::make_unique<Auv2_view>(Auv2_view::Deps{
+        .editor = &(*_editor),
+        .executor = {[this]() {
             auto message = Private_message{};
             while (_pqueue.pop(message)) {
                 switch (message.type) {
@@ -215,9 +168,59 @@ private:
                     }
                 }
             }
-        }
-    });
+        }},
+        .receiver = {
+            .get_knob_value = [this](auto id) {
+                const auto& param = User_params::param_spec(id);
+                const auto host = Globals()->GetParameter(id);
+                const auto knob = Value_conv::host_to_knob(host, param.semantics);
+                return knob;
+            },
+            .pop_event = [this](auto& event) {
+                return _to_editor.pop(event);
+            },
+            .action_handler = [this](auto& action) {
+                std::visit(Inline_visitor{
+                    [&](const Action_start& a) {
+                        auto event = AudioUnitEvent{};
+                        event.mEventType = kAudioUnitEvent_BeginParameterChangeGesture;
+                        event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
+                        event.mArgument.mParameter.mParameterID = a.address;
+                        event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
+                        event.mArgument.mParameter.mElement = 0;
+                        AUEventListenerNotify(NULL, NULL, &event);
+                    },
+                    [&](const Set_param& a) {
+                        // Notify host
+                        const auto& param = User_params::param_spec(a.address);
+                        const auto plain_value = Value_conv::knob_to_plain(a.value, param.semantics);
+                        const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
 
+                        Globals()->SetParameter(a.address, static_cast<float>(host_value));
+                        auto event = AudioUnitEvent{};
+                        event.mEventType = kAudioUnitEvent_ParameterValueChange;
+                        event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
+                        event.mArgument.mParameter.mParameterID = a.address;
+                        event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
+                        event.mArgument.mParameter.mElement = 0;
+                        AUEventListenerNotify(NULL, NULL, &event);
+                        [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{Set_param{a.address, plain_value}, 0});
+                        assert(success && "Push to processor queue failed! Increase queue size.");
+                    },
+                    [&](const Action_end& a) {
+                        auto event = AudioUnitEvent{};
+                        event.mEventType = kAudioUnitEvent_EndParameterChangeGesture;
+                        event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
+                        event.mArgument.mParameter.mParameterID = a.address;
+                        event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
+                        event.mArgument.mParameter.mElement = 0;
+                        AUEventListenerNotify(NULL, NULL, &event);
+                    },
+                }, action);
+            }
+        },
+        .tasks = &_tasks
+    });
 };
 
 } // namespace tiny

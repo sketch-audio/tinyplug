@@ -13,8 +13,14 @@ namespace tiny {
 
 class Auv3_view {
 public:
+    
+    struct Deps {
+        Plug_editor* editor{};
+        Ui_receiver receiver{};
+        Task_manager* tasks{};
+    };
 
-    Auv3_view(Ui_receiver receiver, std::shared_ptr<Plug_editor> editor) : _receiver{receiver}, _editor{editor} {}
+    Auv3_view(const Deps& deps) : _deps{deps} {}
 
     auto create_view() -> void*; // UIView*
 
@@ -22,11 +28,12 @@ public:
     {
         // Update the ui params
         _ui_params = make_array_by_indices<double, num_params>(
-            [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
+            [this](auto i) { return _deps.receiver.get_knob_value(static_cast<uint32_t>(i)); }
         );
 
+        _deps.tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
         _platform_view->on_show();
-        _editor->on_gui_show({
+        _deps.editor->on_gui_show({
             .actions = _actions.actor(),
             .undo_redo = _undo_history.actor(),
         });
@@ -34,13 +41,13 @@ public:
 
     auto on_hide() -> void
     {
-        _editor->on_gui_hide();
+        _deps.editor->on_gui_hide();
         _platform_view->on_hide();
     }
 
     auto on_destroy() -> void
     {
-        _editor->on_gui_destroy();
+        _deps.editor->on_gui_destroy();
         _platform_view->on_destroy();
     }
 
@@ -62,7 +69,8 @@ private:
 
     Action_queue _actions{};
     Undo_history _undo_history{};
-    Ui_receiver _receiver{};
+    
+    Deps _deps{};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
     std::shared_ptr<Plug_editor> _editor{nullptr};

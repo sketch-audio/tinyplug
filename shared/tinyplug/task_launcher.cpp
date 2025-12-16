@@ -20,6 +20,20 @@ Task_launcher::~Task_launcher()
     }
 }
 
+auto Task_launcher::launch(Task task) -> void
+{
+    const auto idx = _idx.fetch_add(1, std::memory_order_relaxed);
+
+    static constexpr auto max_tries = 4;
+    for (size_t i = 0; i < max_tries * _num_threads; ++i) {
+        if (_queues[(idx + i) % _num_threads].try_push(task)) {
+            return;
+        }
+    }
+
+    _queues[idx % _num_threads].push(std::move(task));
+}
+
 auto Task_launcher::actor() -> Actor
 {
     return Actor{this};
@@ -36,20 +50,6 @@ auto Task_launcher::Actor::launch(Task task) const -> void
 
 // MARK: - Private
 
-auto Task_launcher::launch(Task task) -> void
-{
-    const auto idx = _idx.fetch_add(1, std::memory_order_relaxed);
-
-    static constexpr auto max_tries = 4;
-    for (size_t i = 0; i < max_tries * _num_threads; ++i) {
-        if (_queues[(idx + i) % _num_threads].try_push(task)) {
-            return;
-        }
-    }
-
-    _queues[idx % _num_threads].push(std::move(task));
-}
-
 auto Task_launcher::run(size_t i) -> void
 {
     while (true) {
@@ -64,58 +64,6 @@ auto Task_launcher::run(size_t i) -> void
         }
         task();
     }
-}
-
-// MARK: - Queue
-
-auto Task_launcher::Queue::push(Task task) -> void
-{
-    {
-        const auto lock = std::unique_lock{_mutex};
-        _tasks.emplace_back(std::move(task));
-    }
-    _ready.notify_one();
-}
-
-auto Task_launcher::Queue::try_push(Task task) -> bool
-{
-    {
-        const auto lock = std::unique_lock{_mutex,  std::try_to_lock};
-        if (!lock) return false;
-        _tasks.emplace_back(std::move(task));
-    }
-    _ready.notify_one();
-    return true;
-}
-
-auto Task_launcher::Queue::pop(Task& task) -> bool
-{
-    auto lock = std::unique_lock{_mutex};
-    while (_tasks.empty() && !_done) {
-        _ready.wait(lock);
-    }
-    if (_tasks.empty()) return false;
-    task = std::move(_tasks.front());
-    _tasks.pop_front();
-    return true;
-}
-
-auto Task_launcher::Queue::try_pop(Task& task) -> bool
-{
-    const auto lock = std::unique_lock{_mutex, std::try_to_lock};
-    if (!lock || _tasks.empty()) return false;
-    task = std::move(_tasks.front());
-    _tasks.pop_front();
-    return true;
-}
-
-auto Task_launcher::Queue::done() -> void
-{
-    {
-        const auto lock = std::unique_lock{_mutex};
-        _done = true;
-    }
-    _ready.notify_all();
 }
 
 } // namespace tiny

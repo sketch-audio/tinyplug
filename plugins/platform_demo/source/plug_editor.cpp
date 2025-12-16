@@ -26,7 +26,7 @@ auto Plug_editor::on_gui_show(const Edit_context& edit) -> void
                     _edit.actions.push(Set_param{addr, knob});
                     _edit.actions.push(Action_end{addr});
                 }
-            }, {_launcher.actor(), _main_queue.actor()});
+            }, _tasks);
         },
         .on_updated = [](const Click_info&) {},
         .on_ended = [](const Click_info&) {},
@@ -73,8 +73,6 @@ auto Plug_editor::on_gui_draw(Plugin_state& state) -> void
     const auto g_h = static_cast<float>(_value * rsize.h);
     const auto g_y = static_cast<float>(rsize.h - g_h);
     canvas->drawRect(SkRect::MakeXYWH(0, g_y, static_cast<float>(rsize.w), g_h), paint);
-
-    _main_queue.execute_all(); // Drain queue.
 }
 
 auto Plug_editor::on_gui_notify(const Ui_notification& notification) -> void

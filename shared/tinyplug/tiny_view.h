@@ -14,7 +14,7 @@
 #include "tiny_events.h"
 #include "tiny_meters.h"
 #include "tiny_params.h"
-#include "tiny_queue.h"
+#include "lock_free_queue.hpp"
 #include "tiny_utils.h"
 
 class SkCanvas; // Skia canvas
@@ -283,7 +283,7 @@ namespace view_impl {
 
 // MARK: - run_frame
 
-template<typename M, typename S, typename A0, typename A1, typename C, typename V, typename A, typename U>
+template<typename M, typename S, typename A0, typename A1, typename C, typename V, typename A, typename U, typename T>
 constexpr auto run_frame(
     const M& _meter_specs,
     const S& _receiver,
@@ -292,9 +292,12 @@ constexpr auto run_frame(
     const C& view_context, 
     V* _custom_view,
     A& _actions,
-    U& _undo_history
+    U& _undo_history,
+    T& _tasks
 ) -> void
 {
+    _tasks.bind_main(std::this_thread::get_id());
+
     // Pop the exports.
     auto event = Ui_event{};
     while (_receiver.pop_event(event)) {
@@ -346,6 +349,7 @@ constexpr auto run_frame(
     _actions.clear(); // Actually clear before we draw.
 
     // Tell the user view to draw.
+    _tasks.run_main();
     _custom_view->on_gui_draw(state);
 
     // Observe actions for undo/redo.

@@ -20,7 +20,7 @@ class Aax_parameters : public AAX_CMonolithicParameters {
 public:
 
     using Super = AAX_CMonolithicParameters;
-    Aax_parameters() : Super() {}
+    Aax_parameters() : Super{} { _editor = std::make_unique<Plug_editor>(_tasks.actor()); }
     ~Aax_parameters() override = default;
 
     static AAX_CEffectParameters* AAX_CALLBACK Create()
@@ -58,9 +58,14 @@ public:
         assert(success && "Push to processor queue failed! Increase queue size.");
     }
 
-    auto get_editor() -> std::shared_ptr<Plug_editor>
+    auto get_editor() -> Plug_editor* 
     {
-        return _editor;
+        return _editor.get();
+    }
+
+    auto get_tasks() -> Task_manager*
+    {
+        return &_tasks;
     }
 
 private:
@@ -72,8 +77,9 @@ private:
     static constexpr auto tinyplug_num_params = "tinyplug-num-params";
     static constexpr auto tinyplug_edit_keys = "tinyplug-edit-keys";
 
-    std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
     std::unique_ptr<Plug_processor> _processor = std::make_unique<Plug_processor>();
+    std::unique_ptr<Plug_editor> _editor{};
+    Task_manager _tasks{};
 
     using User_params = Param_infos<Param_model>;
     using User_meters = Meter_infos<Meter_model>;

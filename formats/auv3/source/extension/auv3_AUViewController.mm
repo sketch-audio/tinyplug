@@ -18,6 +18,7 @@ static_assert(false, "ARC must be enabled for this file");
 @implementation Auv3_AUViewController {
     std::unique_ptr<tiny::Auv3_view> _view_adapter;
     std::shared_ptr<tiny::Plug_editor> _editor;
+    tiny::Task_manager _tasks;
 }
 
 // TODO: - Get this into the plist for AUM.
@@ -29,7 +30,7 @@ static_assert(false, "ARC must be enabled for this file");
 - (AUAudioUnit*)createAudioUnitWithComponentDescription:(AudioComponentDescription) desc error:(NSError **)error {
     self.audioUnit = [[Auv3_AUAudioUnit alloc] initWithComponentDescription:desc error:error];
 
-    _editor = std::make_shared<tiny::Plug_editor>();
+    _editor = std::make_shared<tiny::Plug_editor>(_tasks.actor());
     Auv3_AUAudioUnit* auv3 = (Auv3_AUAudioUnit*)self.audioUnit;
     [auv3 setupParameterTree];
     [auv3 setEditor:_editor];
@@ -47,7 +48,7 @@ static_assert(false, "ARC must be enabled for this file");
     if (!_view_adapter) {
         Auv3_AUAudioUnit* auv3 = (Auv3_AUAudioUnit*)self.audioUnit;
         auto receiver = [auv3 makeReceiver];
-        _view_adapter = std::make_unique<tiny::Auv3_view>(receiver, _editor);
+        _view_adapter = std::make_unique<tiny::Auv3_view>(tiny::Auv3_view::Deps{_editor.get(), receiver, &_tasks});
         auto* custom_view = (__bridge PlatformView*)_view_adapter->create_view(); // also on_create
         [self.view addSubview:custom_view];
         const auto size = self.view.bounds.size;

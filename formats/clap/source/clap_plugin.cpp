@@ -724,7 +724,7 @@ bool Clap_plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
         }
     };
 
-    _view = std::make_unique<Clap_view>(receiver, _editor);
+    _view = std::make_unique<Clap_view>(Clap_view::Deps{.editor = &(*_editor), .receiver = std::move(receiver), .tasks = &_tasks});
     _view->on_create();
     return true;
 }

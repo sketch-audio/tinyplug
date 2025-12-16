@@ -17,9 +17,13 @@ namespace tiny {
 class Clap_view {
 public:
 
-    Clap_view(Ui_receiver receiver, std::shared_ptr<Plug_editor> editor)
-        : _receiver{receiver}, _editor{editor} {}
+    struct Deps {
+        Plug_editor* editor{};
+        Ui_receiver receiver{};
+        Task_manager* tasks{};
+    };
 
+    Clap_view(Deps deps) : _deps{deps} {}
     ~Clap_view() = default;
 
     auto on_create() noexcept -> void;
@@ -51,8 +55,7 @@ private:
     Action_queue _actions{};
     Undo_history _undo_history{};
 
-    Ui_receiver _receiver{};
-    std::shared_ptr<Plug_editor> _editor{};
+    Deps _deps{};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
 

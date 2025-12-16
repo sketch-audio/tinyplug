@@ -8,13 +8,15 @@
 
 #include "vst3_view.h"
 
+#include "tinyplug/task_manager.hpp"
+
 namespace tiny {
 
 class Vst3_controller : public Steinberg::Vst::EditControllerEx1 {
 public:
 
     using Super = Steinberg::Vst::EditControllerEx1;
-    Vst3_controller() = default;
+    Vst3_controller() : Super{} { _editor.emplace(_tasks.actor()); }
     ~Vst3_controller() SMTG_OVERRIDE = default;
 
     // Create function
@@ -59,8 +61,9 @@ public:
 
 protected:
 
-    std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
-    
+    std::optional<Plug_editor> _editor{};
+    Task_manager _tasks{};
+
     using User_params = Param_infos<Param_model>;
     using User_meters = Meter_infos<Meter_model>;
     static constexpr auto num_params = User_params::num_params;

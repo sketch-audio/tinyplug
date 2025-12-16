@@ -273,6 +273,20 @@ static_assert(false, "ARC must be enabled for this file");
             param.value = static_cast<float>(Value_conv::plain_to_host(r.def_val, r));
             return param;
         },
+        [&](const Fixed_semantics& f) {
+            AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
+                                                                           name:name
+                                                                        address:spec.address
+                                                                            min:static_cast<float>(f.min_val)
+                                                                            max:static_cast<float>(f.max_val)
+                                                                           unit:kAudioUnitParameterUnit_Generic
+                                                                       unitName:nil
+                                                                          flags:flags_for(spec.policy) | kAudioUnitParameterFlag_ValuesHaveStrings
+                                                                   valueStrings:nil
+                                                            dependentParameters:nil];
+            param.value = static_cast<float>(f.def_val);
+            return param;
+        }
     }, spec.semantics);
     
     return parameter;

@@ -12,7 +12,7 @@ auto Auv3_view::create_view() -> void*
     _platform_view = Platform_views::make_owning(delegate); // TODO: - revisit
 
     _platform_view->on_create();
-    _editor->on_gui_create();
+    _deps.editor->on_gui_create();
 
     return _platform_view->native_handle();
 }
@@ -22,7 +22,7 @@ auto Auv3_view::create_view() -> void*
 auto Auv3_view::on_draw(View_context& view_context) -> void
 {
     view_impl::run_frame(
-        User_meters::meter_specs(), _receiver, _ui_params, _ui_meters, view_context, _editor.get(), _actions, _undo_history
+        User_meters::meter_specs(), _deps.receiver, _ui_params, _ui_meters, view_context, _deps.editor, _actions, _undo_history, *_deps.tasks
     );
 }
 

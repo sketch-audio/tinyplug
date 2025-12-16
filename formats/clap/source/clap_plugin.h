@@ -26,7 +26,7 @@ namespace tiny {
 class Clap_plugin : public PluginBase {
 public:
 
-    Clap_plugin(const clap_host* host) : PluginBase{&descriptor, host}, _host{host} {};
+    Clap_plugin(const clap_host* host) : PluginBase{&descriptor, host}, _host{host} { _editor.emplace(_tasks.actor()); }
     ~Clap_plugin() override = default;
 
     static const inline clap_plugin_descriptor_t descriptor{
@@ -134,7 +134,8 @@ private:
 
     // USER
     std::unique_ptr<Plug_processor> _processor = std::make_unique<Plug_processor>();
-    std::shared_ptr<Plug_editor> _editor = std::make_shared<Plug_editor>();
+    std::optional<Plug_editor> _editor{};
+    Task_manager _tasks{};
 
     // GUI
     std::unique_ptr<Clap_view> _view{nullptr};

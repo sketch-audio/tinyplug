@@ -4,8 +4,10 @@
 
 namespace tiny {
 
-Auv2_effect::Auv2_effect(AudioUnit component) : Super(component, num_inputs, num_outputs)
+Auv2_effect::Auv2_effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
 {
+    _editor.emplace(_tasks.actor());
+
     CreateElements(); // So we can create the sidechain.
 
     // Set up parameters.

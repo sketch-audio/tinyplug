@@ -14,15 +14,20 @@
 
 namespace tiny {
 
-class Vst3_controller; // So we can cache the resized size. Would like to do this in a neater way.
+class Vst3_controller;
 
 class Vst3_view : public Steinberg::CPluginView {
 public:
 
-    using Super = Steinberg::CPluginView;
-    Vst3_view(Ui_receiver receiver, std::shared_ptr<Plug_editor> editor, Vst3_controller* controller)
-        : Super{}, _receiver{receiver}, _editor{editor}, _controller{controller} {}
+    struct Deps {
+        Vst3_controller* controller{}; // So we can cache the resized size.
+        Plug_editor* editor{};
+        Ui_receiver receiver{};
+        Task_manager* tasks{};
+    };
 
+    using Super = Steinberg::CPluginView;
+    Vst3_view(const Deps& deps) : Super{}, _deps{deps} {}
     ~Vst3_view() = default;
 
     Steinberg::tresult PLUGIN_API isPlatformTypeSupported(Steinberg::FIDString type) override;
@@ -52,9 +57,7 @@ protected:
     Action_queue _actions{};
     Undo_history _undo_history{};
 
-    Ui_receiver _receiver{};
-    std::shared_ptr<Plug_editor> _editor{};
-    Vst3_controller* _controller{nullptr};
+    Deps _deps{};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
 

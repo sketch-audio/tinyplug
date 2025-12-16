@@ -551,7 +551,7 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
             _to_editor.push(Set_meter{.address = i, .value = e});
         });
 
-        return new Vst3_view(receiver, _editor, this);
+        return new Vst3_view{{.controller = this, .editor = &(*_editor), .receiver = std::move(receiver), .tasks = &_tasks}};
     }
 
     return nullptr;
