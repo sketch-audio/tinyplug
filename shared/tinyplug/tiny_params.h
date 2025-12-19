@@ -886,7 +886,8 @@ struct Host_formatter {
                     }
                     case milliseconds: {
                         const auto suffix = include_units ? " ms" : "";
-                        return format_float(plain_value, 1) + suffix;
+                        const auto prec = plain_value >= 10 ? 0 : 1;
+                        return format_float(plain_value, prec) + suffix;
                     }
                     default:
                         return std::string{};
