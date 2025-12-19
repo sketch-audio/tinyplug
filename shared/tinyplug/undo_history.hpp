@@ -15,12 +15,26 @@ namespace tiny {
 
 class Undo_history {
 public:
+
+    class View {
+    public:
+        explicit View(Undo_history* receiver = nullptr) : _receiver{receiver} {}
+        auto can_undo() const -> bool;
+        auto can_redo() const -> bool;
+    private:
+        friend class Undo_history;
+        Undo_history* _receiver{nullptr};
+    };
+
     // An interface to trigger undo/redo actions on a receiver.
     class Actor {
     public:
         explicit Actor(Undo_history* receiver = nullptr) : _receiver{receiver} {}
         auto undo() const -> void;
         auto redo() const -> void;
+        auto can_undo() const -> bool;
+        auto can_redo() const -> bool;
+        auto view() const -> View;
     private:
         friend class Undo_history;
         Undo_history* _receiver{nullptr};
@@ -31,6 +45,11 @@ public:
 
     // Perform deferred undo/redo actions.
     auto perform_actions(Action_queue::Actor actions) -> void;
+
+    auto can_undo() const -> bool;
+    auto can_redo() const -> bool;
+
+    auto view() -> View;
 
     // Get a view to trigger undo/redo actions.
     auto actor() -> Actor;

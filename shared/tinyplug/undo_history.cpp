@@ -71,9 +71,42 @@ auto Undo_history::perform_actions(Action_queue::Actor actions) -> void
     }
 }
 
+auto Undo_history::can_undo() const -> bool
+{
+    return !_undo_stack.empty() && !_current.has_value(); // Outstanding changes?
+}
+
+auto Undo_history::can_redo() const -> bool
+{
+    return !_redo_stack.empty();
+}
+
+auto Undo_history::view() -> View
+{
+    return View{this};
+}
+
 auto Undo_history::actor() -> Actor
 {
     return Actor{this};
+}
+
+// MARK: - View
+
+auto Undo_history::View::can_undo() const -> bool
+{
+    if (_receiver) {
+        return _receiver->can_undo();
+    }
+    return false;
+}
+
+auto Undo_history::View::can_redo() const -> bool
+{
+    if (_receiver) {
+        return _receiver->can_redo();
+    }
+    return false;
 }
 
 // MARK: - Actor
@@ -90,6 +123,30 @@ auto Undo_history::Actor::redo() const -> void
     if (_receiver) {
         _receiver->defer_redo();
     }
+}
+
+auto Undo_history::Actor::can_undo() const -> bool
+{
+    if (_receiver) {
+        return _receiver->can_undo();
+    }
+    return false;
+}
+
+auto Undo_history::Actor::can_redo() const -> bool
+{
+    if (_receiver) {
+        return _receiver->can_redo();
+    }
+    return false;
+}
+
+auto Undo_history::Actor::view() const -> View
+{
+    if (_receiver) {
+        return _receiver->view();
+    }
+    return View{nullptr};
 }
 
 // MARK: - Private
