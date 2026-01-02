@@ -70,6 +70,7 @@ struct Tagged_meter {
     double value{};
     bool updated{}; // Have we updated the peak/stream value this frame?
     bool trigged{}; // Have we received a trig for this frame?
+    bool last_is_zero{}; // Was the last value (in a peak stream) zero?
 };
 
 template<Some_meter_model User_model>

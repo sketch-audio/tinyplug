@@ -317,6 +317,7 @@ constexpr auto run_frame(
                             uiexport.value = 0; // Reset on first update in frame where we receive an event.
                         }
                         uiexport.value = std::max(uiexport.value, e.value);
+                        uiexport.last_is_zero = (e.value == 0.f);
                         uiexport.updated = true;
                         break;
                     }
@@ -374,6 +375,10 @@ constexpr auto run_frame(
         if (ui_meter.trigged) {
             ui_meter.value = 0;
             ui_meter.trigged = false;
+        }
+        if (ui_meter.last_is_zero) {
+            ui_meter.value = 0;
+            ui_meter.last_is_zero = false;
         }
     }
 }
