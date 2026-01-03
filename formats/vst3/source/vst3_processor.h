@@ -103,6 +103,7 @@ private:
 
     // Communicates the pending latency from `process` to `setActive`.
     Latency_flag _pending_latency{};
+    bool _did_reset{}; // Flag to send latency change.
 
     // Communicates the accepted latency from `setActive` to `process`.
     Latency_flag _accepted_latency{};

@@ -88,6 +88,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setupProcessing(Steinberg::Vst::Pr
     // Called before any processing.
     _processor->reset(newSetup.sampleRate);
     _latency = _processor->latency_samps();
+    _did_reset = true;
     return Steinberg::Vst::AudioEffect::setupProcessing(newSetup);
 }
 
@@ -295,6 +296,12 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
         // Notify controller and sit on the pending latency.
         add_output_event(latency_param_id, static_cast<double>(*proposed_latency));
         _pending_latency.store(*proposed_latency, std::memory_order_release);
+    }
+
+    if (_did_reset) {
+        // Force host to check latency.
+        add_output_event(latency_param_id, static_cast<double>(_latency));
+        _did_reset = false;
     }
 
     return Steinberg::kResultOk;
