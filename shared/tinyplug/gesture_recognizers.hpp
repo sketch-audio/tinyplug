@@ -133,6 +133,7 @@ public:
     struct Desc {
         Pointer_button button{};
         uint32_t count{1};
+        bool greedy{};
     };
 
     struct Info {

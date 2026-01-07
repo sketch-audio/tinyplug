@@ -95,22 +95,35 @@ auto Dwell_recognizer::set_frame(const Frame& frame) -> void
         _callbacks.on_cancelled();
         _dwelling = false;
     }
+    _down = false;
+    _over_t = std::nullopt;
 }
 
 auto Dwell_recognizer::process_events(Event_list& events) -> void
 {
     for (const auto& event : events.events) {
+        // Track down before consumed.
+        std::visit(Inline_visitor{
+            [&](const Pointer_down& down) {
+                _down = true; // Global down tracking.
+            },
+            [&](const Pointer_up&) {
+                _down = false;
+            },
+            [&](const auto&) {}
+        }, event.event);
+
         if (event.consumed) continue;
+
         std::visit(Inline_visitor{
             [&](const Pointer_down& down) {
                 if (_dwelling) {
                     end_dwell(down.pos);
                     _over_t = std::nullopt;
                 }
-                _down = true; // Global down tracking.
             },
             [&](const Pointer_up&) {
-                _down = false;
+                //
             },
             [&](const Pointer_move& move) {
                 if (_down) {
@@ -136,6 +149,7 @@ auto Dwell_recognizer::process_events(Event_list& events) -> void
                 if (_dwelling) {
                     end_dwell(_pos);
                 }
+                _over_t = std::nullopt;
             }
         }, event.event);
     }
@@ -170,7 +184,7 @@ auto Click_recognizer::set_frame(const Frame& frame) -> void
 
 auto Click_recognizer::process_events(Event_list& events) -> void
 {
-    for (const auto& event : events.events) {
+    for (auto& event : events.events) {
         if (event.consumed) continue;
         std::visit(Inline_visitor{
 #if PLATFORM_APPLE
@@ -180,12 +194,18 @@ auto Click_recognizer::process_events(Event_list& events) -> void
                     const auto match = (_desc.button == down.button && _desc.count == 1);
                     if (match) _callbacks.on_started({down.pos});
                 }
+                if (_desc.greedy) {
+                    event.consumed = true;
+                }
             },
 #endif
             [&](const Pointer_click& click) {
                 if (_frame.contains(click.pos)) {
                     const auto match = (_desc.button == click.button && _desc.count == click.count);
                     if (match) _callbacks.on_started({click.pos});
+                }
+                if (_desc.greedy) {
+                    event.consumed = true;
                 }
             },
             [](const auto&) {}
