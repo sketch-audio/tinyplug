@@ -542,6 +542,48 @@ struct Value_conv {
     }
 };
 
+inline auto get_plain_min(const Param_spec& spec) -> double
+{
+    return std::visit(Inline_visitor{
+        [](const Bool_semantics&) {
+            return 0.0;
+        },
+        [](const List_semantics&) {
+            return 0.0;
+        },
+        [](const Int_semantics& i) {
+            return static_cast<double>(i.min_val);
+        },
+        [](const Fixed_semantics& f) {
+            return f.min_val;
+        },
+        [](const Real_semantics& r) {
+            return r.min_val;
+        },
+    }, spec.semantics);
+}
+
+inline auto get_plain_max(const Param_spec& spec) -> double
+{
+    return std::visit(Inline_visitor{
+        [](const Bool_semantics&) {
+            return 1.0;
+        },
+        [](const List_semantics& l) {
+            return static_cast<double>(l.items.size() - 1);
+        },
+        [](const Int_semantics& i) {
+            return static_cast<double>(i.max_val);
+        },
+        [](const Fixed_semantics& f) {
+            return f.max_val;
+        },
+        [](const Real_semantics& r) {
+            return r.max_val;
+        },
+    }, spec.semantics);
+}
+
 // MARK: - defaults
 
 inline auto get_plain_default(const Param_spec& spec) -> double
