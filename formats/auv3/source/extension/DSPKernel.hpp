@@ -139,7 +139,7 @@ public:
         }
 
         // Has the kernel proposed a new latency?
-        if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _latency) {
+        if (const auto proposed_latency = context.propose_latency; proposed_latency/* && *proposed_latency != _latency*/) {
             // Audio unit is polling. Could possibly fix.
             _pending_latency.store(*proposed_latency, std::memory_order_release);
         }

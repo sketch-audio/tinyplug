@@ -183,7 +183,7 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
     }
 
     // Has the kernel proposed a new latency?
-    if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _latency) {
+    if (const auto proposed_latency = context.propose_latency; proposed_latency/* && *proposed_latency != _latency*/) {
         // Notify controller and sit on the pending latency.
         _host->request_restart(_host);
         _pending_latency.store(*proposed_latency, std::memory_order_release);

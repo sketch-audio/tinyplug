@@ -825,7 +825,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
     }
 
     // Has the kernel proposed a new latency?
-    if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _latency) {
+    if (const auto proposed_latency = context.propose_latency; proposed_latency/* && *proposed_latency != _latency*/) {
         // Notify controller and sit on the pending latency.
         _pqueue.push(Private_message{.type = Message_type::latency_changed});
         _pending_latency.store(*proposed_latency, std::memory_order_release);
