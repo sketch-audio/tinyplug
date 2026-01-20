@@ -50,6 +50,7 @@ enum class Units : uint32_t {
     decibels,
     hertz,
     milliseconds,
+    degrees
 };
 
 // Get the units string for `units`.
@@ -67,6 +68,8 @@ inline auto units_string(Units units) -> std::string
             return "Hz";
         case milliseconds:
             return "ms";
+        case degrees:
+            return "°";
         default:
             return "";
     }
@@ -918,7 +921,7 @@ struct Host_formatter {
                         return prefix + format_float(plain_value, 1) + suffix;
                     }
                     case hertz: {
-                        if (plain_value > 1000 && include_units) {
+                        if (plain_value >= 1000 && include_units) {
                             const auto suffix = " kHz";
                             return format_float(plain_value / 1000, 1) + suffix;
                         } else {
@@ -930,6 +933,11 @@ struct Host_formatter {
                         const auto suffix = include_units ? " ms" : "";
                         const auto prec = plain_value >= 10 ? 0 : 1;
                         return format_float(plain_value, prec) + suffix;
+                    }
+                    case degrees: {
+                        const auto prefix = (plain_value >= 0 ? "+" : "");
+                        const auto suffix = include_units ? " °" : "";
+                        return prefix + format_float(plain_value, 0) + suffix;
                     }
                     default:
                         return std::string{};
