@@ -32,7 +32,7 @@ public:
     static const inline clap_plugin_descriptor_t descriptor{
         .clap_version = CLAP_VERSION,
         .id = Plug_info::base_identifier,
-        .name = Plug_info::product_name,
+        .name = Plug_info::plugin_name,
         .vendor = Plug_info::company_name,
         .url = Plug_info::company_website,
         .manual_url = Plug_info::company_website,
@@ -58,6 +58,10 @@ public:
     bool implementsState() const noexcept override { return true; }
     bool stateSave(const clap_ostream* stream) noexcept override;
     bool stateLoad(const clap_istream* stream) noexcept override;
+
+    // preset load
+    bool implementsPresetLoad() const noexcept override { return true; }
+    bool presetLoadFromLocation(uint32_t location_kind, const char* location, const char* load_key) noexcept override;
 
     // audio ports
     bool implementsAudioPorts() const noexcept override { return true; }
@@ -162,7 +166,7 @@ private:
 
     std::array<double, num_meters> _last_meters{};
 
-    static constexpr auto to_processor_size = 2 * num_params + 1;
+    static constexpr auto to_processor_size = 4 * num_params + 1;
     static constexpr auto to_editor_size = num_params + num_meters + 1;
 
     using From_flush_queue = Lock_free_queue<Render_event, to_processor_size>;
@@ -174,8 +178,18 @@ private:
 
     To_editor_queue _to_editor{};
 
+    State_adapter _state_adapter{{
+        .load_model = []() {
+            return State_adapter::Load_model{
+                .param_tree = &User_params::param_tree(),
+                .num_params = User_params::num_params,
+            };
+        }
+    }};
+
     // MARK: - private
 
+    auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void;
     auto _handle_host_flushed() -> void;
     auto _handle_user_actions(const clap_output_events_t* out_events) -> void;
     auto _handle_user_action(const User_action& action) -> void;

@@ -21,8 +21,8 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
 
     if (auto* descriptor = collection->NewDescriptor()) {
 
-        descriptor->AddName(Plug_info::product_name);
-        descriptor->AddName(Plug_info::product_short_name);
+        descriptor->AddName(Plug_info::plugin_name);
+        descriptor->AddName(Plug_info::plugin_short_name);
         descriptor->AddCategory(TINY_AAX_CATEGORIES);
         descriptor->AddProcPtr((void*)Aax_parameters::Create, kAAX_ProcPtrID_Create_EffectParameters);
         descriptor->AddProcPtr((void*)Aax_gui::Create, kAAX_ProcPtrID_Create_EffectGUI);
@@ -49,8 +49,8 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
         //
         collection->AddEffect(Plug_info::base_identifier, descriptor);
         collection->SetManufacturerName(Plug_info::company_name);
-        collection->AddPackageName(Plug_info::product_name);
-        collection->AddPackageName(Plug_info::product_short_name);
+        collection->AddPackageName(Plug_info::plugin_name);
+        collection->AddPackageName(Plug_info::plugin_short_name);
         collection->SetPackageVersion(Plug_info::build_number);
 
         return AAX_SUCCESS;

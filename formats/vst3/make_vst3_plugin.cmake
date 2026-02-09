@@ -92,6 +92,7 @@ function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
         target_link_libraries(${VST3_TARGET} PRIVATE "-framework Cocoa")
         target_compile_options(${VST3_TARGET} PRIVATE -Wall -Wextra -pedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
         target_link_options(${VST3_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
+        #target_link_options(${VST3_TARGET} PRIVATE -Wl,-s)
     elseif(WIN32)
         target_compile_options(${VST3_TARGET} PRIVATE /W4)
     endif()
@@ -110,6 +111,25 @@ function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
             XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER ${TINY_BASE_IDENTIFIER}.vst3
         )
 
+        # All we need are the native presets. (We need to place the format ones with the installers.)
+        read_property(${USER_TARGET} TINY_PRESET_EXTENSION)
+        read_property(${USER_TARGET} TINY_NATIVE_PRESETS_DIR)
+        copy_presets(
+            ${VST3_TARGET}
+            ".${TINY_PRESET_EXTENSION}"
+            ${TINY_NATIVE_PRESETS_DIR}
+            "${VST3_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+        )
+
+        read_property(${USER_TARGET} TINY_RESOURCE_LIST)
+        if (TINY_RESOURCE_LIST)
+            copy_file_list(
+                ${VST3_TARGET}
+                "${TINY_RESOURCE_LIST}"
+                "${VST3_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+            )
+        endif()
+
         add_custom_command(
             TARGET ${VST3_TARGET} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SOURCE_DIR}/cmake/PkgInfo ${VST3_BUNDLE_OUTPUT_DIR}/Contents
@@ -125,6 +145,17 @@ function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
                 COMMENT "Copying VST3 plugin ${TINY_BASE_FILENAME}.vst3 to ${VST3_INSTALL_DIR}"
                 VERBATIM
             )
+
+            # copy format presets to ~/Library/Audio/Presets/Company Name/Product Name
+            read_property(${USER_TARGET} TINY_FORMAT_PRESETS_DIR)
+            read_property(${USER_TARGET} TINY_COMPANY_NAME)
+            read_property(${USER_TARGET} TINY_PLUGIN_NAME)
+            copy_presets(
+                ${VST3_TARGET}
+                ".vstpreset"
+                ${TINY_FORMAT_PRESETS_DIR}
+                "$ENV{HOME}/Library/Audio/Presets/${TINY_COMPANY_NAME}/${TINY_PLUGIN_NAME}"
+            )
         endif()
     elseif(WIN32)
         set(VST3_BUNDLE_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/${TINY_BASE_FILENAME}.vst3)
@@ -134,6 +165,16 @@ function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
             LIBRARY_OUTPUT_DIRECTORY ${VST3_BUNDLE_OUTPUT_DIR}/Contents/x86_64-win
             LIBRARY_OUTPUT_DIRECTORY_DEBUG ${VST3_BUNDLE_OUTPUT_DIR}/Contents/x86_64-win
             LIBRARY_OUTPUT_DIRECTORY_RELEASE ${VST3_BUNDLE_OUTPUT_DIR}/Contents/x86_64-win
+        )
+
+        # All we need are the native presets. (We need to place the format ones with the installers.)
+        read_property(${USER_TARGET} TINY_PRESET_EXTENSION)
+        read_property(${USER_TARGET} TINY_NATIVE_PRESETS_DIR)
+        copy_presets(
+            ${VST3_TARGET}
+            ".${TINY_PRESET_EXTENSION}"
+            ${TINY_NATIVE_PRESETS_DIR}
+            "${VST3_BUNDLE_OUTPUT_DIR}/Contents/Resources"
         )
 
         add_custom_command(

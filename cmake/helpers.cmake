@@ -65,7 +65,9 @@ function(configure_plug_info plugin_target output)
     read_property(${plugin_target} TINY_PLUGIN_CODE)
 
     read_property(${plugin_target} TINY_PRODUCT_NAME)
-    read_property(${plugin_target} TINY_PRODUCT_SHORT_NAME)
+    read_property(${plugin_target} TINY_PLUGIN_NAME)
+    read_property(${plugin_target} TINY_PLUGIN_SHORT_NAME)
+
     read_property(${plugin_target} TINY_BASE_FILENAME)
     read_property(${plugin_target} TINY_BASE_IDENTIFIER)
     read_property(${plugin_target} TINY_VERSION_STRING)
@@ -83,6 +85,25 @@ function(configure_plug_info plugin_target output)
     read_property(${plugin_target} TINY_AUV2_BUNDLE_TAG)
 
     read_property(${plugin_target} TINY_VST3_SUBCATEGORIES)
+
+    # Preset stuff, set sensible defaults.
+    read_property(${plugin_target} TINY_COMPANY_DIRECTORY_NAME)
+    if (NOT TINY_COMPANY_DIRECTORY_NAME)
+        set(TINY_COMPANY_DIRECTORY_NAME ${TINY_COMPANY_NAME})
+    endif()
+    read_property(${plugin_target} TINY_PRODUCT_DIRECTORY_NAME)
+    if (NOT TINY_PRODUCT_DIRECTORY_NAME)
+        set(TINY_PRODUCT_DIRECTORY_NAME ${TINY_PRODUCT_NAME})
+    endif()
+
+    read_property(${plugin_target} TINY_PRESET_VERSION)
+    if (NOT TINY_PRESET_VERSION)
+        set(TINY_PRESET_VERSION "0")
+    endif()
+    read_property(${plugin_target} TINY_PRESET_EXTENSION)
+    if (NOT TINY_PRESET_EXTENSION)
+        set(TINY_PRESET_EXTENSION "json")
+    endif()
 
     # So use a define for AUv3
     if(TINY_PLUGIN_WANTS_SIDECHAIN STREQUAL "true")
@@ -127,4 +148,87 @@ function(derive_build_number version_string out_var)
 
     # Set output variable
     set(${out_var} "${_int}" PARENT_SCOPE)
+endfunction()
+
+function(configure_preset_list AU_TARGET OUTPUT_FILE)
+    read_property(${AU_TARGET} TINY_PRESET_EXTENSION)
+    read_property(${AU_TARGET} TINY_NATIVE_PRESETS_DIR)
+    read_property(${AU_TARGET} TINY_FIRST_PRESET_NAME)
+
+    set(PRESET_COUNT 0)
+    set(PRESET_NAMES "")
+
+    if (TINY_NATIVE_PRESETS_DIR AND EXISTS ${TINY_NATIVE_PRESETS_DIR})
+        file(GLOB PRESET_FILES "${TINY_NATIVE_PRESETS_DIR}/*.${TINY_PRESET_EXTENSION}")
+        list(SORT PRESET_FILES)
+
+        # If a first preset name is specified, move it to the front of the list.
+        if (TINY_FIRST_PRESET_NAME)
+            set(FIRST_PRESET_PATH "${TINY_NATIVE_PRESETS_DIR}/${TINY_FIRST_PRESET_NAME}.${TINY_PRESET_EXTENSION}")
+            if (EXISTS "${FIRST_PRESET_PATH}")
+                list(REMOVE_ITEM PRESET_FILES "${FIRST_PRESET_PATH}")
+                list(INSERT PRESET_FILES 0 "${FIRST_PRESET_PATH}")
+            endif()
+        endif()
+
+        list(LENGTH PRESET_FILES PRESET_COUNT)
+
+        if (PRESET_COUNT GREATER 0)
+            foreach(FILE_NAME ${PRESET_FILES})
+                get_filename_component(BASE_NAME "${FILE_NAME}" NAME_WE)
+                string(APPEND PRESET_NAMES "\"${BASE_NAME}\"")
+                list(GET PRESET_FILES -1 LAST_FILE)
+                if(NOT FILE_NAME STREQUAL LAST_FILE)
+                    string(APPEND PRESET_NAMES ", ")
+                endif()
+            endforeach()
+        endif()
+    endif()
+
+    configure_file(
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/preset_list.h.in
+        ${OUTPUT_FILE}
+        @ONLY
+    )
+endfunction()
+
+function(copy_presets TARGET EXTENSION SOURCE_DIR DEST_DIR)
+    # Check if the directory exists to avoid GLOB errors
+    if(EXISTS "${SOURCE_DIR}")
+        # Find all files with the specified extension
+        file(GLOB PRESET_FILES "${SOURCE_DIR}/*${EXTENSION}")
+
+        foreach(PRESET_FILE ${PRESET_FILES})
+            # Get just the filename (e.g., "Crunchy.tfx")
+            get_filename_component(PRESET_FILENAME "${PRESET_FILE}" NAME)
+
+            # Register the copy command
+            add_custom_command(
+                TARGET ${TARGET} POST_BUILD
+                #COMMAND ${CMAKE_COMMAND} -E make_directory "${DEST_DIR}"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PRESET_FILE}"
+                    "${DEST_DIR}/${PRESET_FILENAME}"
+                COMMENT "Copying preset ${PRESET_FILENAME} to ${DEST_DIR}"
+                VERBATIM
+            )
+        endforeach()
+    else()
+        message(STATUS "Note: Preset source directory not found: ${SOURCE_DIR}")
+    endif()
+endfunction()
+
+function(copy_file_list TARGET FILE_LIST DEST_DIR)
+    foreach(FILE_PATH IN LISTS FILE_LIST)
+        get_filename_component(FILE_NAME "${FILE_PATH}" NAME)
+
+        add_custom_command(
+            TARGET ${TARGET} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${FILE_PATH}"
+                "${DEST_DIR}/${FILE_NAME}"
+            COMMENT "Copying file ${FILE_NAME} to ${DEST_DIR}"
+            VERBATIM
+        )
+    endforeach()
 endfunction()

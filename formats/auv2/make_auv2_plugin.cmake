@@ -52,6 +52,7 @@ function(make_auv2_plugin USER_TARGET AUV2_SDK)
     read_property(${USER_TARGET} TINY_BASE_FILENAME)
     read_property(${USER_TARGET} TINY_BASE_IDENTIFIER)
     read_property(${USER_TARGET} TINY_PRODUCT_NAME)
+    read_property(${USER_TARGET} TINY_PLUGIN_NAME)
     read_property(${USER_TARGET} TINY_VERSION_STRING)
     read_property(${USER_TARGET} TINY_BUILD_NUMBER)
 
@@ -65,6 +66,8 @@ function(make_auv2_plugin USER_TARGET AUV2_SDK)
     
     set(AUV2_TARGET ${TINY_BASE_FILENAME}_auv2)
     set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
+
+    configure_preset_list(${USER_TARGET} ${CMAKE_CURRENT_BINARY_DIR}/auv2_preset_list.h)
 
     add_library(${AUV2_TARGET} MODULE
         ${SOURCE_DIR}/source/auv2_adapters.h
@@ -107,6 +110,25 @@ function(make_auv2_plugin USER_TARGET AUV2_SDK)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SOURCE_DIR}/cmake/PkgInfo ${AUV2_BUNDLE_OUTPUT_DIR}/Contents
         VERBATIM
     )
+
+    # We need to copy the native presets into the bundle Resources folder.
+    read_property(${USER_TARGET} TINY_PRESET_EXTENSION)
+    read_property(${USER_TARGET} TINY_NATIVE_PRESETS_DIR)
+    copy_presets(
+        ${AUV2_TARGET}
+        ".${TINY_PRESET_EXTENSION}"
+        ${TINY_NATIVE_PRESETS_DIR}
+        "${AUV2_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+    )
+
+    read_property(${USER_TARGET} TINY_RESOURCE_LIST)
+        if (TINY_RESOURCE_LIST)
+            copy_file_list(
+                ${AUV2_TARGET}
+                "${TINY_RESOURCE_LIST}"
+                "${AUV2_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+            )
+        endif()
 
     if(TINY_INSTALL_PLUGINS)
         # It seems auval can only find the plug-in if it is in the system library.

@@ -1,8 +1,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 
 #include "clap_plugin.h"
+
+#include <nlohmann/json.hpp>
 
 namespace tiny {
 
@@ -227,11 +230,11 @@ bool Clap_plugin::stateSave(const clap_ostream* stream) noexcept
     const auto num_editor_items = static_cast<uint32_t>(edit_state.size());
 
     // Write header.
-    const auto header = State_header{
-        Plug_info::framework_code, // Reserved
+    const auto header = State_rules::Clap::Header{
+        Plug_info::framework_code,
         Plug_info::manufacturer_code,
         Plug_info::plugin_code,
-        num_params, // Processor state
+        num_params,
         num_editor_items
     };
     const auto expected = sizeof(header);
@@ -257,15 +260,20 @@ bool Clap_plugin::stateSave(const clap_ostream* stream) noexcept
         return static_cast<size_t>(data_result) == sizeof(data[0]) * num;
     };
 
-    // Write processor state.
+    // --- Write the processor state ---
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
         const auto host_value = static_cast<float>(_hostvalues[i].load(std::memory_order_relaxed));
-        if (!write_value(host_value)) {
+
+        const auto& spec = User_params::param_spec(i);
+        const auto to_write = State_rules::is_persistent(spec) ? host_value : State_rules::no_value;
+
+        if (!write_value(to_write)) {
             return false;
         }
     }
+    // ---
 
-    // Write editor state.
+    // --- Write the editor state ---
     for (const auto& [key, val] : edit_state) {
         // Write key.
         if (!write_container(key)) {
@@ -280,57 +288,93 @@ bool Clap_plugin::stateSave(const clap_ostream* stream) noexcept
 
         // Write the value according to the tag.
         switch (tag) {
-            case State_tag::bool_: {
+            case State_tag::Bool: {
                const auto value = std::get_if<bool>(&val);
                if (value && write_value(*value)) {
                    break;
                }
                return false;
             }
-            case State_tag::int_: {
+            case State_tag::Int: {
                 const auto value = std::get_if<int32_t>(&val);
                 if (value && write_value(*value)) {
                     break;
                 }
                 return false;
             }
-            case State_tag::double_: {
+            case State_tag::Double: {
                 const auto value = std::get_if<double>(&val);
                 if (value && write_value(*value)) {
                     break;
                 }
                 return false;
             }
-            case State_tag::string_: {
+            case State_tag::String: {
                 const auto value = std::get_if<std::string>(&val);
                 if (value && write_container(*value)) {
                     break;
                 }
                 return false;
             }
-            case State_tag::bytes_: {
-                const auto value = std::get_if<std::vector<uint8_t>>(&val);
-                if (value && write_container(*value)) {
-                    break;
-                }
-                return false;
-            }
-            default:
+            default: {
                 assert(false && "Unknown editor state type.");
                 return false;
+            }
         }
     }
+    // ---
 
     return true;
 }
 
 // MARK: - load state
 
+auto Clap_plugin::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void
+{
+    // Notify kernel and view (if not an interface parameter).
+    auto notify = [&](const auto& param, auto knob_value) {
+        const auto can_notify = knob_value.has_value() && State_rules::is_persistent(param);
+        if (can_notify) {
+            this->_handle_user_action(Set_param{.address = param.address, .value = *knob_value});
+            if (_view) {
+                _view->set_param(param.address, *knob_value);
+            }
+        }
+    };
+
+    const auto num_stored_values = knob_values.size();
+
+    if (num_params <= num_stored_values) {
+        // Read as many values as we can.
+        for (auto i = decltype(num_params){}; i < num_params; ++i) {
+            const auto& param = User_params::param_spec(i);
+            notify(param, knob_values[i]);
+        }
+    }
+    else {
+        // Set values stored in state.
+        for (auto i = decltype(num_stored_values){}; i < num_stored_values; ++i) {
+            const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
+            notify(param, knob_values[i]);
+        }
+
+        // Set remaining parameters to defaults.
+        for (auto i = num_stored_values; i < num_params; ++i) {
+            const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
+            const auto knob_value = get_knob_default(param);
+            notify(param, std::optional<double>{knob_value});
+        }
+    }
+
+    // Editor
+    _editor->load_state(editor_state);
+}
+
 bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
 {
     if (!stream) return false;
 
-    auto header = State_header{};
+    auto header = State_rules::Clap::Header{};
     const auto expected = sizeof(header);
     const auto result = stream->read(stream, header.data(), expected);
     if (result != expected) {
@@ -342,8 +386,8 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
     assert(header[1] == Plug_info::manufacturer_code && "Unexpected manufacturer code.");
     assert(header[2] == Plug_info::plugin_code && "Unexpected plug-in code.");
 
-    const auto num_state_params = header[3];
-    const auto num_kv_pairs = header[4];
+    const auto num_stored_values = header[3];
+    const auto num_stored_pairs = header[4];
 
     // Helpers
     auto read_value = [&](auto& data) {
@@ -363,56 +407,26 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
         return static_cast<size_t>(data_result) == sizeof(data[0]) * num;
     };
 
-    // Notify kernel and view (if not an interface parameter).
-    auto do_notify = [this](auto& param, auto knob_value) {
-        if (param.policy != Host_policy::interface) {
-            this->_handle_user_action(Set_param{.address = param.address, .value = knob_value});
-
-            if (_view) {
-                _view->set_param(param.address, knob_value);
-            }
-        }
-    };
-
     // Read processor state into temporary vector.
-    auto state_params = std::vector<float>(static_cast<size_t>(num_state_params), 0.f);
-    for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
+    auto stored_values = Maybe_values<double>(static_cast<size_t>(num_stored_values), std::nullopt);
+    for (auto i = decltype(num_stored_values){}; i < num_stored_values; ++i) {
+        // Read floats from state.
         auto host_value = float{};
         if (!read_value(host_value)) {
             return false;
         }
-        state_params[i] = host_value;
-    }
 
-    if (num_params <= num_state_params) {
-        // Read as many values as we can.
-        for (auto i = decltype(num_params){}; i < num_params; ++i) {
-            const auto host_value = state_params[i];
-            const auto& param = User_params::param_spec(i);
-            const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
-            do_notify(param, knob_value);
-        }
-    }
-    else {
-        // Set values stored in state.
-        for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
-            const auto host_value = state_params[i];
-            const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
-            const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
-            do_notify(param, knob_value);
-        }
-
-        // Set remaining parameters to defaults.
-        for (auto i = num_state_params; i < num_params; ++i) {
-            const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
-            const auto knob_value = get_knob_default(param);
-            do_notify(param, knob_value);
+        // Do we have a meaningful value?
+        if (host_value != State_rules::no_value) {
+            const auto& spec = User_params::param_spec(i);
+            const auto knob_value = Value_conv::host_to_knob(static_cast<double>(host_value), spec.semantics);
+            stored_values[i] = knob_value;
         }
     }
 
     // Read editor state into temporary map.
     auto edit_state = State_map{};
-    for (auto i = decltype(num_kv_pairs){}; i < num_kv_pairs; ++i) {
+    for (auto i = decltype(num_stored_pairs){}; i < num_stored_pairs; ++i) {
         // Read key.
         auto key = std::string{};
         if (!read_container(key)) {
@@ -428,7 +442,7 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
         // Read the value according to the tag.
         auto value = State_item{};
         switch (tag) {
-            case State_tag::bool_: {
+            case State_tag::Bool: {
                 auto v = bool{};
                 if (!read_value(v)) {
                     return false;
@@ -436,7 +450,7 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
                 value = v;
                 break;
             }
-            case State_tag::int_: {
+            case State_tag::Int: {
                 auto v = int32_t{};
                 if (!read_value(v)) {
                     return false;
@@ -444,7 +458,7 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
                 value = v;
                 break;
             }
-            case State_tag::double_: {
+            case State_tag::Double: {
                 auto v = double{};
                 if (!read_value(v)) {
                     return false;
@@ -452,16 +466,8 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
                 value = v;
                 break;
             }
-            case State_tag::string_: {
+            case State_tag::String: {
                 auto v = std::string{};
-                if (!read_container(v)) {
-                    return false;
-                }
-                value = std::move(v);
-                break;
-            }
-            case State_tag::bytes_: {
-                auto v = std::vector<uint8_t>{};
                 if (!read_container(v)) {
                     return false;
                 }
@@ -473,9 +479,45 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
         edit_state.emplace(std::move(key), std::move(value));
     }
 
-    _editor->load_state(edit_state);
+    this->_update_state(stored_values, edit_state);
 
     return true;
+}
+
+// MARK: - preset load
+
+bool Clap_plugin::presetLoadFromLocation(uint32_t location_kind, const char* location, const char* load_key) noexcept
+{
+    if (location_kind != CLAP_PRESET_DISCOVERY_LOCATION_FILE) return false;
+    if (!location) return false;
+
+    const auto preset_path = std::filesystem::path{location};
+    if (!std::filesystem::exists(preset_path)) {
+        return false;
+    }
+
+    // load to json
+    auto file = std::ifstream{preset_path};
+    if (file) {
+        using Json = nlohmann::ordered_json;
+        auto json = Json{};
+        try {
+            file >> json;
+        } catch (...) {
+            return false;
+        }
+        const auto params = _state_adapter.param_values(json);
+        const auto editor_state = _state_adapter.editor_state(json);
+        this->_update_state(params, editor_state);
+
+        // Tell the host
+        if (auto* preset_ext = (const clap_host_preset_load_t*)_host->get_extension(_host, CLAP_EXT_PRESET_LOAD); preset_ext) {
+            preset_ext->loaded(_host, location_kind, location, load_key);
+        }
+        return true;
+    }
+
+    return false;
 }
 
 // MARK: - audio ports

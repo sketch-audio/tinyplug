@@ -30,6 +30,8 @@ auto Clap_view::on_show() noexcept -> void
     _platform_view->on_show();
     _deps.editor->on_gui_show({
         .actions = _actions.actor(),
+        .format = Format::Clap,
+        .state_adapter = _state_adapter.actor(),
         .undo_redo = _undo_history.actor(),
     });
 }

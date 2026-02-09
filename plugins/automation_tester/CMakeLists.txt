@@ -13,8 +13,10 @@ add_property(${PLUGIN_TARGET} TINY_FRAMEWORK_CODE "tiny")
 add_property(${PLUGIN_TARGET} TINY_MANUFACTURER_CODE "Tiny") # At least one capital letter.
 add_property(${PLUGIN_TARGET} TINY_PLUGIN_CODE "atmt") # Must be unique per manufacturer code!
 
-add_property(${PLUGIN_TARGET} TINY_PRODUCT_NAME "Automation Tester (Outputs DC!)")
-add_property(${PLUGIN_TARGET} TINY_PRODUCT_SHORT_NAME "Auto") # Must be <= 16 chars, for Pro Tools.
+add_property(${PLUGIN_TARGET} TINY_PRODUCT_NAME "Automation Tester")
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_NAME "Automation Tester (Outputs DC!)")
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_SHORT_NAME "Auto") # Must be <= 16 chars, for Pro Tools.
+
 add_property(${PLUGIN_TARGET} TINY_BASE_FILENAME "AutomationTester")
 add_property(${PLUGIN_TARGET} TINY_BASE_IDENTIFIER "com.tinyplug.AutomationTester")
 add_property(${PLUGIN_TARGET} TINY_VERSION_STRING "1.0.0")

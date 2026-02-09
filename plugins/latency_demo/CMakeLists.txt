@@ -14,7 +14,9 @@ add_property(${PLUGIN_TARGET} TINY_MANUFACTURER_CODE "Tiny") # At least one capi
 add_property(${PLUGIN_TARGET} TINY_PLUGIN_CODE "ltnc") # Must be unique per manufacturer code!
 
 add_property(${PLUGIN_TARGET} TINY_PRODUCT_NAME "Latency Demo")
-add_property(${PLUGIN_TARGET} TINY_PRODUCT_SHORT_NAME "Late") # Must be <= 16 chars, for Pro Tools.
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_NAME "Latency Demo")
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_SHORT_NAME "Late") # Must be <= 16 chars, for Pro Tools.
+
 add_property(${PLUGIN_TARGET} TINY_BASE_FILENAME "LatencyDemo")
 add_property(${PLUGIN_TARGET} TINY_BASE_IDENTIFIER "com.tinyplug.LatencyDemo")
 add_property(${PLUGIN_TARGET} TINY_VERSION_STRING "1.0.0")

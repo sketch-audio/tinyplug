@@ -14,7 +14,9 @@ add_property(${PLUGIN_TARGET} TINY_MANUFACTURER_CODE "Tiny") # At least one capi
 add_property(${PLUGIN_TARGET} TINY_PLUGIN_CODE "gain") # Must be unique per manufacturer code!
 
 add_property(${PLUGIN_TARGET} TINY_PRODUCT_NAME "Gain Demo")
-add_property(${PLUGIN_TARGET} TINY_PRODUCT_SHORT_NAME "Gain") # Must be <= 16 chars, for Pro Tools.
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_NAME "Gain Demo")
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_SHORT_NAME "Gain") # Must be <= 16 chars, for Pro Tools.
+
 add_property(${PLUGIN_TARGET} TINY_BASE_FILENAME "GainDemo")
 add_property(${PLUGIN_TARGET} TINY_BASE_IDENTIFIER "com.tinyplug.GainDemo")
 add_property(${PLUGIN_TARGET} TINY_VERSION_STRING "1.0.0")

@@ -10,14 +10,6 @@
 
 namespace tiny {
 
-// VST3 state header:
-// - Framework code
-// - Manufacturer code
-// - Plug-in code
-// - Number of items (processor: num params, controller: num key-value pairs)
-static constexpr auto num_header_items = size_t{4};
-using State_header = std::array<uint32_t, num_header_items>;
-
 // In VST3, exports are implemented as read-only parameters.
 static constexpr auto export_param_offset = int32_t{0x40000000};
 

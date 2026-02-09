@@ -56,6 +56,8 @@ Steinberg::tresult PLUGIN_API Vst3_view::attached(void* parent, Steinberg::FIDSt
     _platform_view->on_show();
     _deps.editor->on_gui_show({
         .actions = _actions.actor(),
+        .format = Format::Vst3,
+        .state_adapter = _state_adapter.actor(),
         .undo_redo = _undo_history.actor(),
     });
     

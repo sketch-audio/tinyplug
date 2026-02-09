@@ -57,6 +57,23 @@ private:
 
     Deps _deps{};
 
+    State_adapter _state_adapter{{
+        .load_model = []() {
+            return State_adapter::Load_model{
+                .param_tree = &User_params::param_tree(),
+                .num_params = User_params::num_params
+            };
+        },
+        .save_model = [this]() {
+            return State_adapter::Save_model{
+                .version = 1,
+                .param_tree = &User_params::param_tree(),
+                .param_values = std::vector<double>(_ui_params.begin(), _ui_params.end()),
+                .editor_state = _deps.editor ? _deps.editor->save_state() : State_map{}
+            };
+        },
+    }};
+
     std::unique_ptr<Platform_view> _platform_view{nullptr};
 
     std::array<Tagged_meter, num_meters> _ui_meters{};

@@ -1,5 +1,8 @@
 #import "auv3_AUAudioUnit.h"
 
+#include <filesystem>
+#include <fstream>
+
 #import <AVFoundation/AVFoundation.h>
 #import <CoreAudioKit/AUViewController.h>
 
@@ -7,17 +10,26 @@
 #import "BufferedAudioBus.hpp"
 #import "DSPKernel.hpp"
 
+#include "platform/platform_paths.hpp"
 #include "plug_info.h"
+#include "auv3_preset_list.h"
 
 #if !__has_feature(objc_arc)
 static_assert(false, "ARC must be enabled for this file");
 #endif
+
+static auto presets_path() -> std::filesystem::path
+{
+    using namespace tiny;
+    return Platform_paths::shared_writable({Plug_info::company_directory_name, Plug_info::product_directory_name}) / "Presets";
+}
 
 @interface Auv3_AUAudioUnit()
 @property (nonatomic, readwrite) AUParameterTree *parameterTree;
 @property AUAudioUnitBusArray *inputBusArray;
 @property AUAudioUnitBusArray *outputBusArray;
 @property (nonatomic, readonly) AUAudioUnitBus *outputBus;
+@property (nonatomic, readwrite) AUAudioUnitPreset *preset;
 @end
 
 @implementation Auv3_AUAudioUnit {
@@ -34,6 +46,9 @@ static_assert(false, "ARC must be enabled for this file");
     BufferedInputBus _sidechainBus;
 #endif
     NSArray<AUAudioUnitBus *> *_inputBuses;
+    NSArray<AUAudioUnitPreset*>* _factory_presets;
+    
+    std::unique_ptr<tiny::State_adapter> _state_adapter;
     
     std::unique_ptr<AUProcessHelper> _processHelper;
     std::unordered_map<AUParameterAddress, AUParameterObserverToken> _observerTokens;
@@ -50,6 +65,53 @@ static_assert(false, "ARC must be enabled for this file");
     _parameterTreeSetup = false;
     
     _observerTokens = {};
+    
+    using namespace tiny;
+    auto temp = [NSMutableArray arrayWithCapacity:Preset_list::num_presets];
+    for (size_t i = {}; i < Preset_list::num_presets; ++i) {
+        auto preset = [[AUAudioUnitPreset alloc] init];
+        preset.number = static_cast<NSInteger>(i);
+        preset.name = [NSString stringWithUTF8String:Preset_list::names[i]];
+        [temp addObject:preset];
+    }
+    _factory_presets = [temp copy];
+    
+    using User_params = Param_infos<Param_model>;
+    //const auto num_params = User_params::num_params;
+    
+    using Provider = State_adapter::Provider;
+    __weak typeof(self) self_ = self;
+    _state_adapter = std::make_unique<State_adapter>(Provider{
+        .load_model = [self_]() {
+            return State_adapter::Load_model{
+                .param_tree = &User_params::param_tree(),
+                .num_params = User_params::num_params
+            };
+        },
+        .save_model = [self_](){
+            auto s = self_;
+            if (!s) return State_adapter::Save_model{};
+            
+            const auto knob_defaults = User_params::make_defaults<double>(Value_space::Knob);
+            auto values = std::vector<double>(knob_defaults.begin(), knob_defaults.end());
+            for (AUParameter *param in s->_parameterTree.allParameters) {
+                const auto addr = static_cast<uint32_t>(param.address);
+                const auto& spec = User_params::param_spec(addr);
+                const auto host = param.value;
+                const auto knob = Value_conv::host_to_knob(host, spec.semantics);
+                values[param.address] = knob;
+            }
+            
+            auto editor_state = s->_editor->save_state();
+            
+            return State_adapter::Save_model{
+                .version = 1,
+                .param_tree = &User_params::param_tree(),
+                .param_values = values,
+                .editor_state = editor_state
+            };
+        }
+    });
     
     return self;
 }
@@ -513,117 +575,188 @@ static_assert(false, "ARC must be enabled for this file");
     };
 }
 
+// MARK: - State helpers
+
+- (void)addParamValues:(const tiny::Maybe_values<double>&)maybe_values toDictionary:(NSMutableDictionary<NSString *, id> *)state {
+    using namespace tiny;
+    
+    const auto num_params = static_cast<int32_t>(maybe_values.size());
+    auto numParamsEntry = [NSNumber numberWithInt:num_params];
+    [state setObject:numParamsEntry forKey:@(State_rules::Auv3::num_params)];
+    
+    // Serialize the parameter values to our optional key.
+    if (num_params <= 0) return;
+    
+    auto data = [NSMutableData data];
+    
+    auto write_value = [&](const auto& value) {
+        [data appendBytes:&value length: sizeof(value)];
+    };
+    
+    using User_params = Param_infos<Param_model>;
+    
+    for (auto i = 0; i < num_params; ++i) {
+        const auto value = maybe_values[i];
+        if (value.has_value()) {
+            const auto& spec = User_params::param_spec(i);
+            const auto host = Value_conv::knob_to_host(*value, spec.semantics);
+            const auto to_write = static_cast<float>(host);
+            write_value(to_write);
+        }
+        else {
+            write_value(State_rules::no_value);
+        }
+    }
+    [state setObject:data forKey:@(State_rules::Auv3::values_from_preset)];
+}
+
+- (void)addEditorState:(const tiny::State_map&)edit_state toDictionary:(NSMutableDictionary<NSString *, id> *)state {
+    using namespace tiny;
+    
+    // Number of edit items.
+    const auto num_edit_items = static_cast<int32_t>(edit_state.size());
+    NSNumber *numEditItems = [NSNumber numberWithInt:num_edit_items];
+    [state setObject:numEditItems forKey:@(State_rules::Auv3::num_editor_items)];
+    
+    // Editor state map.
+    if (num_edit_items > 0) {
+        // Write key-value pairs to NSData
+        NSMutableData *data = [NSMutableData data];
+        
+        // Helpers
+        auto write_value = [&](const auto& value) {
+            [data appendBytes:&value length:sizeof(value)];
+        };
+        
+        auto write_container = [&](const auto& container) {
+            const auto num = static_cast<uint32_t>(container.size());
+            [data appendBytes:&num length:sizeof(num)];
+            [data appendBytes:container.data() length:sizeof(container[0]) * num];
+        };
+        
+        for (const auto& [key, value] : edit_state) {
+            write_container(key);
+            const auto tag = tiny::tag_for(value);
+            write_value(tag);
+            switch (tag) {
+                case tiny::State_tag::Bool: {
+                    if (const auto* v = std::get_if<bool>(&value)) {
+                        write_value(*v);
+                    }
+                    break;
+                }
+                case tiny::State_tag::Int: {
+                    if (const auto* v = std::get_if<int32_t>(&value)) {
+                        write_value(*v);
+                    }
+                    break;
+                }
+                case tiny::State_tag::Double: {
+                    if (const auto* v = std::get_if<double>(&value)) {
+                        write_value(*v);
+                    }
+                    break;
+                }
+                case tiny::State_tag::String: {
+                    if (const auto* v = std::get_if<std::string>(&value)) {
+                        write_container(*v);
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        
+        [state setObject:data forKey:@(State_rules::Auv3::editor_state_map)];
+    }
+}
+
 // MARK: - Full State
 
 -(NSDictionary<NSString *,id> *)fullState {
-    NSMutableDictionary<NSString *, id> *state = [[super fullState] mutableCopy];
+    using namespace tiny;
     
-    using User_params = tiny::Param_infos<tiny::Param_model>;
-    const auto num_params = static_cast<int32_t>(User_params::num_params);
+    // Grab the base implementation.
+    NSMutableDictionary<NSString *,id> *state = [[super fullState] mutableCopy]; // auto would deduce as `id`
     
-    // Store number of parameters.
-    NSNumber *numParams = [NSNumber numberWithInt:num_params];
-    [state setObject:numParams forKey:@"tinyplug-num-params"]; // !!!
+    // Store number of parameters (the parameter values are in the base implementation).
+    using User_params = Param_infos<tiny::Param_model>;
+    auto numParamsEntry = [NSNumber numberWithInt:static_cast<int32_t>(User_params::num_params)];
+    [state setObject:numParamsEntry forKey:@(State_rules::Auv3::num_params)];
     
     // Store editor state.
     if (_editor) {
         const auto edit_state = _editor->save_state();
-        
-        // Number of edit items.
-        const auto num_edit_items = static_cast<int32_t>(edit_state.size());
-        NSNumber *numEditItems = [NSNumber numberWithInt:num_edit_items];
-        [state setObject:numEditItems forKey:@"tinyplug-num-editor-items"]; // !!!
-        
-        // Editor state map.
-        if (num_edit_items > 0) {
-            // Write key-value pairs to NSData
-            NSMutableData *data = [NSMutableData data];
-            
-            // Helpers
-            auto write_value = [&](const auto& value) {
-                [data appendBytes:&value length:sizeof(value)];
-            };
-            
-            auto write_container = [&](const auto& container) {
-                const auto num = static_cast<uint32_t>(container.size());
-                [data appendBytes:&num length:sizeof(num)];
-                [data appendBytes:container.data() length:sizeof(container[0]) * num];
-            };
-            
-            for (const auto& [key, value] : edit_state) {
-                write_container(key);
-                const auto tag = tiny::tag_for(value);
-                write_value(tag);
-                switch (tag) {
-                    case tiny::State_tag::bool_: {
-                        if (const auto* v = std::get_if<bool>(&value)) {
-                            write_value(*v);
-                        }
-                        break;
-                    }
-                    case tiny::State_tag::int_: {
-                        if (const auto* v = std::get_if<int32_t>(&value)) {
-                            write_value(*v);
-                        }
-                        break;
-                    }
-                    case tiny::State_tag::double_: {
-                        if (const auto* v = std::get_if<double>(&value)) {
-                            write_value(*v);
-                        }
-                        break;
-                    }
-                    case tiny::State_tag::string_: {
-                        if (const auto* v = std::get_if<std::string>(&value)) {
-                            write_container(*v);
-                        }
-                        break;
-                    }
-                    case tiny::State_tag::bytes_: {
-                        if (const auto* v = std::get_if<std::vector<uint8_t>>(&value)) {
-                            write_container(*v);
-                        }
-                        break;
-                    }
-                }
-            }
-            
-            [state setObject:data forKey:@"tinyplug-editor-state-map"]; //
-        }
+        [self addEditorState:edit_state toDictionary:state];
     }
 
     return [state copy];
 }
 
 - (void)setFullState:(NSDictionary<NSString *,id> *)fullState {
-    [super setFullState:fullState];
+    using namespace tiny;
+    
+    if (fullState == nil) return;
+    
+    [super setFullState:fullState]; // Call base.
     
     using User_params = tiny::Param_infos<tiny::Param_model>;
     const auto num_params = static_cast<int32_t>(User_params::num_params);
+    
+    const auto num_stored_params = [&]() {
+        id numParamsEntry = [fullState objectForKey:@(State_rules::Auv3::num_params)];
+        if ([numParamsEntry isKindOfClass:[NSNumber class]]) {
+            return [numParamsEntry intValue];
+        }
+        return 0;
+    }();
+    
+    // Is this a preset or regular state?
+    id values_from_preset = [fullState objectForKey:@(State_rules::Auv3::values_from_preset)];
+    if (values_from_preset != nil && [values_from_preset isKindOfClass:[NSData class]]) {
+        auto data = (NSData*)values_from_preset;
+        
+        //
+        const auto* bytes = static_cast<const uint8_t*>([data bytes]);
+        const auto size = static_cast<size_t>([data length]);
+        size_t offset = 0;
 
-    //
-    id version  = [fullState objectForKey:@"tinyplug-num-params"]; // !!!
-    if ([version isKindOfClass:[NSNumber class]]) {
-        const auto num_state_params = [version intValue];
-
-        // The base implementation already set parameters contained in state.
-        // We just have to set the rest to their defaults.
-        if (num_params < num_state_params) {
-            using User_params = tiny::Param_infos<tiny::Param_model>;
-            for (auto i = num_state_params; i < num_params; ++i) {
-                const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
-                const auto def_val = tiny::get_host_default(param);
-                [[_parameterTree parameterWithAddress:i] setValue:def_val];
+        auto read_value = [&](auto& value) {
+            if (offset + sizeof(value) <= size) {
+                std::memcpy(&value, bytes + offset, sizeof(value));
+                offset += sizeof(value);
+                return true;
             }
+            return false;
+        };
+        
+        for (auto i = 0; i < num_stored_params; ++i) {
+            const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
+            auto host = float{};
+            const auto success = read_value(host);
+            assert(success && "Bad state!");
+            if (!State_rules::is_persistent(param) || host == State_rules::no_value) continue;
+            [[_parameterTree parameterWithAddress:i] setValue:host];
         }
     }
     
-    id numEditItems = [fullState objectForKey:@"tinyplug-num-editor-items"]; // !!!
+    // The base implementation already set parameters contained in state.
+    // We just have to set the rest to their defaults.
+    if (num_params > num_stored_params) {
+        for (auto i = num_stored_params; i < num_params; ++i) {
+            const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
+            const auto def_val = tiny::get_host_default(param);
+            [[_parameterTree parameterWithAddress:i] setValue:def_val];
+        }
+    }
+    
+    id numEditItems = [fullState objectForKey:@(State_rules::Auv3::num_editor_items)];
     if ([numEditItems isKindOfClass:[NSNumber class]]) {
         const auto num_edit_items = [numEditItems intValue];
 
         if (num_edit_items > 0) {
-            id data = [fullState objectForKey:@"tinyplug-editor-state-map"]; //
+            id data = [fullState objectForKey:@(State_rules::Auv3::editor_state_map)];
 
             if ([data isKindOfClass:[NSData class]]) {
                 //
@@ -659,36 +792,32 @@ static_assert(false, "ARC must be enabled for this file");
 
                     auto value = tiny::State_item{};
                     switch (tag) {
-                        case tiny::State_tag::bool_: {
+                        case tiny::State_tag::Bool: {
                             auto v = bool{};
                             read_value(v);
                             value = v;
                             break;
                         }
-                        case tiny::State_tag::int_: {
+                        case tiny::State_tag::Int: {
                             auto v = int32_t{};
                             read_value(v);
                             value = v;
                             break;
                         }
-                        case tiny::State_tag::double_: {
+                        case tiny::State_tag::Double: {
                             auto v = double{};
                             read_value(v);
                             value = v;
                             break;
                         }
-                        case tiny::State_tag::string_: {
+                        case tiny::State_tag::String: {
                             auto v = std::string{};
                             read_container(v);
                             value = v;
                             break;
                         }
-                        case tiny::State_tag::bytes_: {
-                            auto v = std::vector<uint8_t>{};
-                            read_container(v);
-                            value = v;
+                        default:
                             break;
-                        }
                     }
                     edit_state.emplace(std::move(key), std::move(value));
                 }
@@ -698,6 +827,210 @@ static_assert(false, "ARC must be enabled for this file");
         }
     }
 }
+
+// MARK: - Presets
+
+- (NSArray<AUAudioUnitPreset *> *)factoryPresets {
+    return _factory_presets;
+}
+
+- (AUAudioUnitPreset *)currentPreset {
+    return _preset;
+}
+
+- (NSDictionary<NSString *,id> *)presetDictFor:(const std::string&)path {
+    using namespace tiny;
+    
+    auto file = std::ifstream{path};
+    
+    if (file.is_open()) {
+        try {
+            using Json = nlohmann::ordered_json;
+            auto json = Json{};
+            file >> json;
+            
+            const auto param_values = _state_adapter->param_values(json);
+            const auto editor_state = _state_adapter->editor_state(json);
+            
+            auto dict = [[NSMutableDictionary alloc] init];
+            
+            // Add minimal keys:
+            [dict setObject:[NSNumber numberWithInt:0] forKey:@(kAUPresetVersionKey)]; //
+            [dict setObject:[NSNumber numberWithInt:Plug_info::Auv2::type] forKey:@(kAUPresetTypeKey)];
+            [dict setObject:[NSNumber numberWithInt:Plug_info::Auv2::subtype] forKey:@(kAUPresetSubtypeKey)];
+            [dict setObject:[NSNumber numberWithInt:Plug_info::manufacturer_code] forKey:@(kAUPresetManufacturerKey)];
+            //[dict setObject:[NSData data] forKey:@(kAUPresetDataKey)]; // We're writing the parameter values ourself in the preset.
+            
+            [self addParamValues:param_values toDictionary:dict];
+            [self addEditorState:editor_state toDictionary:dict];
+            
+            return dict;
+        }
+        catch (...) {
+            //
+        }
+    }
+    
+    return nil;
+}
+
+- (void)setCurrentPreset:(AUAudioUnitPreset *)currentPreset {
+    using namespace tiny;
+    
+    if (currentPreset == nil) {
+        _preset = nil;
+        return;
+    }
+    
+    if (currentPreset.number >= 0) {
+        // Factory preset.
+        const auto bundle_resources = Platform_paths::format_readable({/*bundle id*/});
+        const auto filename = std::string{[currentPreset.name UTF8String]} + "." + Plug_info::Presets::extension;
+        
+        const auto path = bundle_resources / filename;
+        
+        if (!std::filesystem::exists(path) || !std::filesystem::is_regular_file(path)) return;
+        
+        // Load
+        auto dict = [self presetDictFor:path];
+        [self setFullState:dict];
+        
+        _preset = currentPreset;
+    }
+    else {
+        // User preset.
+        auto dict = [self presetStateFor:currentPreset error:nil];
+        [self setFullState:dict];
+        _preset = currentPreset;
+    }
+}
+
+- (BOOL)supportsUserPresets {
+    return true;
+}
+
+- (NSArray<AUAudioUnitPreset *> *)userPresets {
+    using namespace tiny;
+    
+    const auto presets_writable = presets_path();
+    if (!std::filesystem::exists(presets_writable) || !std::filesystem::is_directory(presets_writable)) {
+        return @[];
+    }
+    
+    const auto target_ext = std::string{"."} + std::string{Plug_info::Presets::extension};
+    
+    auto preset_names = std::vector<std::string>{};
+    for (const auto& entry : std::filesystem::directory_iterator(presets_writable)) {
+        if (entry.is_regular_file() && entry.path().extension() == target_ext) {
+            preset_names.push_back(entry.path().stem().string());
+        }
+    }
+    
+    std::ranges::sort(preset_names);
+    
+    auto au_presets = [NSMutableArray array];
+    auto number = -1;
+    for (auto& name : preset_names) {
+        auto au_preset = [[AUAudioUnitPreset alloc] init];
+        au_preset.name = [NSString stringWithUTF8String:name.c_str()];
+        au_preset.number = number;
+        [au_presets addObject:au_preset];
+        number -= 1;
+    }
+    
+    return [au_presets copy];
+}
+
+- (BOOL)saveUserPreset:(AUAudioUnitPreset *)userPreset error:(NSError *__autoreleasing  _Nullable *)outError {
+    using namespace tiny;
+    
+    const auto presets_writable = presets_path();
+    const auto filename = std::string{[userPreset.name UTF8String]} + "." + Plug_info::Presets::extension;
+    const auto path = presets_writable / filename;
+    
+    auto ec = std::error_code{};
+
+    if (!std::filesystem::exists(presets_writable)) {
+        std::filesystem::create_directories(presets_writable, ec);
+        if (ec) {
+            if (outError) {
+                *outError = [NSError errorWithDomain:NSCocoaErrorDomain
+                                                code:NSFileWriteNoPermissionError
+                                            userInfo:@{NSLocalizedDescriptionKey: @"Could not create presets directory."}];
+            }
+            return NO;
+        }
+    }
+    
+    const auto name = std::string{[userPreset.name UTF8String]};
+    const auto preset_json = _state_adapter->preset_state({{"preset-name", name}});
+    
+    // 4. Write to file
+    auto file = std::ofstream{path};
+    if (file.is_open()) {
+        file << preset_json.dump(4);
+        file.close();
+        return YES;
+    } else {
+        if (outError) {
+            *outError = [NSError errorWithDomain:NSCocoaErrorDomain
+                                            code:NSFileWriteUnknownError
+                                        userInfo:@{NSLocalizedDescriptionKey: @"Failed to open file for writing."}];
+        }
+        return NO;
+    }
+    
+    return true;
+}
+
+- (BOOL)deleteUserPreset:(AUAudioUnitPreset *)userPreset error:(NSError *__autoreleasing  _Nullable *)outError {
+    using namespace tiny;
+
+    const auto presets_writable = presets_path();
+    const auto filename = std::string{[userPreset.name UTF8String]} + "." + Plug_info::Presets::extension;
+    const auto path = presets_writable / filename;
+
+    auto ec = std::error_code{};
+    
+    // 2. Check if it exists first
+    if (!std::filesystem::exists(path, ec)) {
+        if (outError) {
+            *outError = [NSError errorWithDomain:NSCocoaErrorDomain
+                                            code:NSFileNoSuchFileError
+                                        userInfo:@{NSLocalizedDescriptionKey: @"Preset file not found."}];
+        }
+        return NO;
+    }
+
+    // 3. Attempt to delete
+    if (std::filesystem::remove(path, ec)) {
+        return YES;
+    } else {
+        // 4. Handle failure (e.g., permissions or file locked)
+        if (outError) {
+            *outError = [NSError errorWithDomain:NSCocoaErrorDomain
+                                            code:NSFileWriteNoPermissionError
+                                        userInfo:@{NSLocalizedDescriptionKey: @(ec.message().c_str())}];
+        }
+        return NO;
+    }
+}
+
+- (NSDictionary<NSString *,id> *)presetStateFor:(AUAudioUnitPreset *)userPreset error:(NSError *__autoreleasing  _Nullable *)outError {
+    using namespace tiny;
+    
+    // Obtain the presets path.
+    const auto presets_writable = presets_path();
+    const auto filename = std::string{[userPreset.name UTF8String]} + "." + Plug_info::Presets::extension;
+    const auto path = presets_writable / filename;
+    
+    if (std::filesystem::exists(path) && std::filesystem::is_regular_file(path)) {
+        return [self presetDictFor:path];
+    }
+    
+    return nil;
+}
+
 
 // MARK: - Timer
 

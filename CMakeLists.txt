@@ -50,6 +50,7 @@ endif()
 # NEW BUILD
 include(cmake/helpers.cmake)
 include(formats/formats.cmake)
+include(presets/make_preset_exporter.cmake)
 
 # Enable SDKs.
 set(AAX_SDK_ROOT_DIR ${TINY_AAX_SDK_PATH})

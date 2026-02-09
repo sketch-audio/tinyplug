@@ -35,6 +35,11 @@ auto Over_recognizer::process_events(Event_list& events) -> void
             [&](const Pointer_exit& exit) {
                 resolve_events(exit.pos, _over, false);
             },
+#if PLATFORM_IOS
+            [&](const Pointer_up& up) {
+                resolve_events(up.pos, _over, false);
+            },
+#endif
             [](const auto&) {}
         }, event.event);
     }

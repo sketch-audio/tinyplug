@@ -1,0 +1,11 @@
+// This is a generated header.
+#pragma once
+#include <cstddef>
+#include <array>
+
+namespace tiny {
+struct Preset_list {
+    static constexpr auto num_presets = size_t{@PRESET_COUNT@};
+    static constexpr auto names = std::array<const char*, num_presets>{@PRESET_NAMES@};
+};
+} // namespace tiny

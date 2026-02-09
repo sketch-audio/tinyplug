@@ -6,21 +6,26 @@
 	<array>
 		<dict>
 			<key>name</key>
-			<string>${TINY_COMPANY_NAME}: ${TINY_PRODUCT_NAME}</string>
+			<string>${TINY_COMPANY_NAME}: ${TINY_PLUGIN_NAME}</string>
 			<key>description</key>
 			<string>${TINY_PRODUCT_NAME}</string>
-			<key>factoryFunction</key>
-			<string>Auv2_effectFactory</string>
+            <key>resourceUsage</key>
+            <dict>
+                <key>network.client</key>
+                <true/>
+                <key>temporary-exception.files.all.read-write</key>
+                <true/>
+            </dict>
 			<key>manufacturer</key>
 			<string>${TINY_MANUFACTURER_CODE}</string>
-			<key>sandboxSafe</key>
-			<true/>
 			<key>subtype</key>
 			<string>${TINY_PLUGIN_CODE}</string>
 			<key>type</key>
 			<string>${TINY_AUV2_TYPE}</string>
 			<key>version</key>
 			<integer>${TINY_BUNDLE_VERSION_INT}</integer>
+            <key>factoryFunction</key>
+			<string>Auv2_effectFactory</string>
 		</dict>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>

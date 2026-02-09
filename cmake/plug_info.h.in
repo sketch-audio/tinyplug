@@ -14,13 +14,18 @@ struct Plug_info {
     static constexpr const char company_name[] = "@TINY_COMPANY_NAME@";
     static constexpr const char company_website[] = "@TINY_COMPANY_WEBSITE@";
     static constexpr const char company_email[] = "@TINY_COMPANY_EMAIL@";
+    static constexpr const char company_directory_name[] = "@TINY_COMPANY_DIRECTORY_NAME@";
 
     static constexpr auto framework_code = uint32_t{'@TINY_FRAMEWORK_CODE@'};
     static constexpr auto manufacturer_code = uint32_t{'@TINY_MANUFACTURER_CODE@'};
     static constexpr auto plugin_code = uint32_t{'@TINY_PLUGIN_CODE@'};
 
     static constexpr const char product_name[] = "@TINY_PRODUCT_NAME@";
-    static constexpr const char product_short_name[] = "@TINY_PRODUCT_SHORT_NAME@";
+    static constexpr const char product_directory_name[] = "@TINY_PRODUCT_DIRECTORY_NAME@";
+
+    static constexpr const char plugin_name[] = "@TINY_PLUGIN_NAME@";
+    static constexpr const char plugin_short_name[] = "@TINY_PLUGIN_SHORT_NAME@";
+
     static constexpr const char base_file_name[] = "@TINY_BASE_FILENAME@";
     static constexpr const char base_identifier[] = "@TINY_BASE_IDENTIFIER@";
     static constexpr const char version_string[] = "@TINY_VERSION_STRING@";
@@ -47,6 +52,8 @@ struct Plug_info {
         using Feature_list = std::array<const char*, @TINY_CLAP_FEATURE_COUNT@>;
         static constexpr char description[] = "@TINY_CLAP_DESCRIPTION@";
         static constexpr auto features = Feature_list{@TINY_CLAP_FEATURE_VALUES@};
+        static constexpr char factory_preset_discovery_id[] = "@TINY_BASE_IDENTIFIER@.factory-preset-discovery";
+        static constexpr char user_preset_discovery_id[] = "@TINY_BASE_IDENTIFIER@.user-preset-discovery";
     };
 
     struct Vst3 {
@@ -54,6 +61,11 @@ struct Plug_info {
         static constexpr auto controller_uid = Uid_arr{@TINY_VST3_CONTROLLER_UID_LITERALS@};
         static constexpr auto processor_uid = Uid_arr{@TINY_VST3_PROCESSOR_UID_LITERALS@};
         static constexpr char subcategories[] = "@TINY_VST3_SUBCATEGORIES@";
+    };
+
+    struct Presets {
+        static constexpr auto version = size_t{@TINY_PRESET_VERSION@};
+        static constexpr char extension[] = "@TINY_PRESET_EXTENSION@";
     };
 };
 

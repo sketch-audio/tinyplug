@@ -7,6 +7,7 @@ function(make_auv3_plugin USER_TARGET)
     read_property(${USER_TARGET} TINY_BASE_FILENAME)
     read_property(${USER_TARGET} TINY_BASE_IDENTIFIER)
     read_property(${USER_TARGET} TINY_PRODUCT_NAME)
+    read_property(${USER_TARGET} TINY_PLUGIN_NAME)
     read_property(${USER_TARGET} TINY_VERSION_STRING)
     read_property(${USER_TARGET} TINY_BUILD_NUMBER)
 
@@ -101,6 +102,8 @@ function(make_auv3_plugin USER_TARGET)
 
     # Extension
     # ---
+    configure_preset_list(${USER_TARGET} ${CMAKE_CURRENT_BINARY_DIR}/auv3_preset_list.h)
+
     set(EXT_TARGET ${TINY_BASE_FILENAME}_extension) # AUv3 extension
     add_executable(${EXT_TARGET})
     target_sources(${EXT_TARGET} PRIVATE
@@ -143,6 +146,29 @@ function(make_auv3_plugin USER_TARGET)
         ${SOURCE_DIR}/cmake/Info-Extension.plist.in
         ${INFO_EXT_PLIST}
     )
+
+    # Get bundle output directory for extension
+    read_property(${USER_TARGET} TINY_PRESET_EXTENSION)
+    read_property(${USER_TARGET} TINY_NATIVE_PRESETS_DIR)
+    # 1. Collect the file paths (manual list is safer, but GLOB works here)
+    file(GLOB PRESET_FILES "${TINY_NATIVE_PRESETS_DIR}/*.${TINY_PRESET_EXTENSION}")
+
+    # 2. Tell CMake to put these into the bundle's Resources folder
+    target_sources(${EXT_TARGET} PRIVATE ${PRESET_FILES})
+    set_source_files_properties(${PRESET_FILES} PROPERTIES 
+        MACOSX_PACKAGE_LOCATION Resources
+    )
+
+    read_property(${USER_TARGET} TINY_RESOURCE_LIST)
+    if(TINY_RESOURCE_LIST)
+        target_sources(${EXT_TARGET} PRIVATE ${TINY_RESOURCE_LIST})
+        set_source_files_properties(${TINY_RESOURCE_LIST} PROPERTIES
+            MACOSX_PACKAGE_LOCATION Resources
+        )
+    endif()
+
+    # 3. Add them to your target
+    target_sources(${EXT_TARGET} PRIVATE ${PRESET_FILES})
 
     # See: https://developer.apple.com/documentation/xcode/build-settings-reference
     set_target_properties(${EXT_TARGET} PROPERTIES

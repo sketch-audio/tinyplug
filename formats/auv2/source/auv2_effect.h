@@ -8,6 +8,7 @@
 #include <AudioToolbox/AudioToolbox.h>
 
 #include "tinyplug/tinyplug.h"
+#include "tinyplug/change_list.hpp"
 
 #include "plug_processor.h"
 #include "models/meter_model.h"
@@ -17,6 +18,8 @@
 
 #include "auv2_adapters.h"
 #include "auv2_view.h"
+
+#include "auv2_preset_list.h" // Generated.
 
 namespace tiny {
 
@@ -28,7 +31,7 @@ public:
 
     using Super = ausdk::AUBase;
     Auv2_effect(AudioUnit component);
-    ~Auv2_effect() = default;
+    ~Auv2_effect();
 
     OSStatus Initialize() override;
 
@@ -65,6 +68,9 @@ public:
     OSStatus SaveState(CFPropertyListRef* outData) override;
     OSStatus RestoreState(CFPropertyListRef plist) override;
 
+    OSStatus GetPresets(CFArrayRef* outData) const override;
+    OSStatus NewFactoryPresetSet(const AUPreset& inNewFactoryPreset) override;
+
     // latency
     Float64 GetLatency() override
     {
@@ -99,7 +105,23 @@ public:
 
 private:
 
+    auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void;
+
     double _sr{48000};
+
+    mutable std::array<AUPreset, Preset_list::num_presets> _au_presets{}; // Strings will need released.
+    //mutable CFArrayRef _presets_array{nullptr};
+    auto _retain_presets() const -> void;
+    auto _release_presets() const -> void;
+
+    State_adapter _state_adapter{{
+        .load_model = []() {
+            return State_adapter::Load_model{
+                .param_tree = &User_params::param_tree(),
+                .num_params = User_params::num_params,
+            };
+        }
+    }};
 
     std::vector<AUChannelInfo> cinfo{};
 
@@ -127,8 +149,8 @@ private:
     Clump_map _clumps{};
 
     // 
-    static constexpr auto to_processor_size = 2 * num_params + 1;
-    using To_processor_queue = Lock_free_queue<Tagged_event, to_processor_size>; // mpsc?
+    static constexpr auto to_processor_size = 4 * num_params + 1;
+    using To_processor_queue = Lock_free_queue<Tagged_event, to_processor_size, Queue_concurrency::mpsc>; // I believe SetParameter can happen from a variety of threads.
 
     static constexpr auto to_editor_size = num_params + num_meters + 1;
     using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
@@ -136,6 +158,7 @@ private:
     // Right now just for latency.
     using Private_queue = Lock_free_queue<Private_message, 16>;
 
+    Change_list _changes{}; // State, UI updates (not for SetParameter).
     To_processor_queue _to_processor{};
     To_editor_queue _to_editor{};
     Private_queue _pqueue{};
@@ -204,8 +227,7 @@ private:
                         event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
                         event.mArgument.mParameter.mElement = 0;
                         AUEventListenerNotify(NULL, NULL, &event);
-                        [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{Set_param{a.address, plain_value}, 0});
-                        assert(success && "Push to processor queue failed! Increase queue size.");
+                        _changes.push(Set_param{a.address, plain_value});
                     },
                     [&](const Action_end& a) {
                         auto event = AudioUnitEvent{};

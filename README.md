@@ -68,6 +68,22 @@ Tinyplug offers well-defined handling of latency changes.
     - Apply the host-accepted latency on receipt of an `Accepted_latency` event
 - Your kernel should make latency proposal and application realtime-safe operations.
 
+## Presets
+Tinyplug comes with a built-in preset system that allows for tight integration with the plug-in format and DAW.
+
+Presets are json files with an extension of your choosing. They contain the persistable parameter values and the editor state.
+
+- To save a preset, ask for the current preset state (from `State_adapter::Actor`), give it a name, and save it to a file with your custom extension.
+- To load a preset from your plug-in's interface, load the json into memory, obtain the knob values (from `State_adapter::Actor`) and emit actions setting the parameter values.
+- The host may also load a preset from its own interface, in which case it sets the parameter values. If you need to update your UI in response to a host-loaded preset, consider adding some "extra" state when saving the preset. AUv3 hosts may even save a user preset on their own. If this is the case, the editor state receives an extra `"preset-name"` key with value `std::string`.
+
+Then in your build, let tinyplug know your preset extension and directory. The framework will automatically make your presets available in the native formats and bundle them (when possible) in the correct location so that they may appear in the host interface.
+- AAX: `.tfx` placed in your plug-in bundle.
+- AUv2: custom
+- AUv3: custom
+- CLAP: custom
+- VST3: `.vstpreset` (will need to be placed by your installer)
+
 ## Platform library
 - Message dialog
 - Confirm dialog

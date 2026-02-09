@@ -1,11 +1,21 @@
 set(TINY_SHARED_LIB tiny_shared_lib)
 add_library(${TINY_SHARED_LIB} STATIC)
 
+include(FetchContent)
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.12.0
+    GIT_SHALLOW 1
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
 if(APPLE)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         set(PLATFORM_SOURCES 
             platform/source/ios_context.mm
             platform/source/ios_dialogs.mm
+            platform/source/ios_paths.mm
             platform/source/ios_view.mm
         )
     else()
@@ -20,6 +30,7 @@ if(APPLE)
         set(PLATFORM_SOURCES 
             platform/source/mac_context.mm
             platform/source/mac_dialogs.mm
+            platform/source/mac_paths.cpp
             platform/source/mac_view.mm
         )
     endif()
@@ -27,6 +38,7 @@ elseif(WIN32)
     set(PLATFORM_SOURCES
         platform/source/win_context.cpp
         platform/source/win_dialogs.cpp
+        platform/source/win_paths.cpp
         platform/source/win_view.cpp
     )
 endif()
@@ -38,6 +50,7 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
     tinyplug/gesture_recognizers.cpp
     tinyplug/notification_queue.cpp
     tinyplug/serial_queue.cpp
+    tinyplug/state_adapter.cpp
     tinyplug/task_launcher.cpp
     tinyplug/task_manager.cpp
     tinyplug/undo_history.cpp
@@ -64,7 +77,7 @@ target_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(${TINY_SHARED_LIB} PUBLIC skia) # from tiny_deps
+target_link_libraries(${TINY_SHARED_LIB} PUBLIC skia nlohmann_json::nlohmann_json) # skia from tiny_deps
 if(APPLE)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         target_link_libraries(${TINY_SHARED_LIB} PUBLIC

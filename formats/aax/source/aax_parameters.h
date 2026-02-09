@@ -72,11 +72,6 @@ private:
 
     auto _build_chunk() const -> void;
 
-    // Chunk
-    static constexpr auto tinyplug_chunk_id = AAX_CTypeID{'tiny'};
-    static constexpr auto tinyplug_num_params = "tinyplug-num-params";
-    static constexpr auto tinyplug_edit_keys = "tinyplug-edit-keys";
-
     std::unique_ptr<Plug_processor> _processor = std::make_unique<Plug_processor>();
     std::unique_ptr<Plug_editor> _editor{};
     Task_manager _tasks{};
@@ -98,7 +93,7 @@ private:
     std::array<float, num_meters> _meters{};
     std::array<double, num_meters> _last_meters{};
 
-    static constexpr auto to_processor_size = 2 * num_params + 1;
+    static constexpr auto to_processor_size = 4 * num_params + 1;
     using To_processor_queue = Lock_free_queue<User_action, to_processor_size>;
     To_processor_queue _to_processor{}; // In AAX, this is actually only for non-automatable parameters.
 

@@ -21,25 +21,6 @@ class SkCanvas; // Skia canvas
 
 namespace tiny {
 
-// MARK: - Editor state
-enum class State_tag : uint32_t {
-    bool_ = 0, int_, double_, string_, bytes_
-};
-using State_item = std::variant<bool, int32_t, double, std::string, std::vector<uint8_t>>;
-
-constexpr auto tag_for(const State_item& item) -> State_tag
-{
-    return std::visit(Inline_visitor{
-        [](const bool&) { return State_tag::bool_; },
-        [](const int32_t&) { return State_tag::int_; },
-        [](const double&) { return State_tag::double_; },
-        [](const std::string&) { return State_tag::string_; },
-        [](const std::vector<uint8_t>&) { return State_tag::bytes_; },
-    }, item);
-}
-
-using State_map = std::unordered_map<std::string, State_item>;
-
 // MARK: - helpers
 
 struct Coords {

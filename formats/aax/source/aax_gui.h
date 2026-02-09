@@ -46,6 +46,23 @@ private:
     Ui_receiver _receiver{};
     Task_manager* _tasks{};
 
+    State_adapter _state_adapter{{
+        .load_model = []() {
+            return State_adapter::Load_model{
+                .param_tree = &User_params::param_tree(),
+                .num_params = User_params::num_params
+            };
+        },
+        .save_model = [this]() {
+            return State_adapter::Save_model{
+                .version = 1,
+                .param_tree = &User_params::param_tree(),
+                .param_values = std::vector<double>(_ui_params.begin(), _ui_params.end()),
+                .editor_state = _editor ? _editor->save_state() : State_map{}
+            };
+        },
+    }};
+
     std::unique_ptr<Platform_view> _platform_view{nullptr};
 
     std::array<double, num_params> _ui_params{User_params::make_defaults<double>(Value_space::Knob)};

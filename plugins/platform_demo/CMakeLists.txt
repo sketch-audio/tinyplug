@@ -14,7 +14,9 @@ add_property(${PLUGIN_TARGET} TINY_MANUFACTURER_CODE "Tiny") # At least one capi
 add_property(${PLUGIN_TARGET} TINY_PLUGIN_CODE "plfm") # Must be unique per manufacturer code!
 
 add_property(${PLUGIN_TARGET} TINY_PRODUCT_NAME "Platform Demo")
-add_property(${PLUGIN_TARGET} TINY_PRODUCT_SHORT_NAME "Plat") # Must be <= 16 chars, for Pro Tools.
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_NAME "Platform Demo")
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_SHORT_NAME "Plat") # Must be <= 16 chars, for Pro Tools.
+
 add_property(${PLUGIN_TARGET} TINY_BASE_FILENAME "PlatformDemo")
 add_property(${PLUGIN_TARGET} TINY_BASE_IDENTIFIER "com.tinyplug.PlatformDemo")
 add_property(${PLUGIN_TARGET} TINY_VERSION_STRING "1.0.0")

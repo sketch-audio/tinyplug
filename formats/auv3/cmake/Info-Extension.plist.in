@@ -28,7 +28,7 @@
                     <key>manufacturer</key>
                     <string>${TINY_MANUFACTURER_CODE}</string>
                     <key>name</key>
-                    <string>${TINY_COMPANY_NAME}: ${TINY_PRODUCT_NAME}</string>
+                    <string>${TINY_COMPANY_NAME}: ${TINY_PLUGIN_NAME}</string>
                     <key>sandboxSafe</key>
                     <true/>
                     <key>subtype</key>

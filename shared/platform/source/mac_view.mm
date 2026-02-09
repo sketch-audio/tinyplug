@@ -370,8 +370,9 @@ auto Platform_view::on_show() -> void
 
 auto Platform_view::on_hide() -> void
 {
+    if (!_owns_view) return;
     if (auto view = static_cast<TINY_MAC_VIEW*>(_view)) {
-        [view stopDisplayLink];
+        [view stopDisplayLink]; // We stop in dealloc for AUv2.
     }
 }
 

@@ -15,6 +15,7 @@ function(make_aax_plugin USER_TARGET AAX_SDK_ROOT_DIR)
     read_property(${USER_TARGET} TINY_BASE_FILENAME)
     read_property(${USER_TARGET} TINY_BASE_IDENTIFIER)
     read_property(${USER_TARGET} TINY_PRODUCT_NAME)
+    read_property(${USER_TARGET} TINY_PLUGIN_SHORT_NAME)
     read_property(${USER_TARGET} TINY_VERSION_STRING)
     read_property(${USER_TARGET} TINY_BUILD_NUMBER)
 
@@ -95,6 +96,34 @@ function(make_aax_plugin USER_TARGET AAX_SDK_ROOT_DIR)
             VERBATIM
         )
 
+        # Copy the native presets into the bundle resources folder.
+        read_property(${USER_TARGET} TINY_PRESET_EXTENSION)
+        read_property(${USER_TARGET} TINY_NATIVE_PRESETS_DIR)
+        copy_presets(
+            ${AAX_TARGET}
+            ".${TINY_PRESET_EXTENSION}"
+            ${TINY_NATIVE_PRESETS_DIR}
+            "${AAX_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+        )
+        
+        # Copy the format presets to the bundle Factory Presets folder.
+        read_property(${USER_TARGET} TINY_FORMAT_PRESETS_DIR)
+        copy_presets(
+            ${AAX_TARGET}
+            ".tfx"
+            ${TINY_FORMAT_PRESETS_DIR}
+            "${AAX_BUNDLE_OUTPUT_DIR}/Contents/Factory Presets/${TINY_PLUGIN_SHORT_NAME}"
+        )
+
+        read_property(${USER_TARGET} TINY_RESOURCE_LIST)
+        if (TINY_RESOURCE_LIST)
+            copy_file_list(
+                ${AAX_TARGET}
+                "${TINY_RESOURCE_LIST}"
+                "${AAX_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+            )
+        endif()
+
         if(TINY_INSTALL_PLUGINS)
             set(AAX_INSTALL_DIR "/Library/Application Support/Avid/Audio/Plug-Ins")
             add_custom_command(
@@ -129,6 +158,25 @@ function(make_aax_plugin USER_TARGET AAX_SDK_ROOT_DIR)
         add_custom_command(
             TARGET ${AAX_TARGET} POST_BUILD 
             COMMAND attrib +s ${AAX_BUNDLE_OUTPUT_DIR}
+        )
+
+        # Copy the native presets into the bundle resources folder.
+        read_property(${USER_TARGET} TINY_PRESET_EXTENSION)
+        read_property(${USER_TARGET} TINY_NATIVE_PRESETS_DIR)
+        copy_presets(
+            ${AAX_TARGET}
+            ".${TINY_PRESET_EXTENSION}"
+            ${TINY_NATIVE_PRESETS_DIR}
+            "${AAX_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+        )
+        
+        # Copy the format presets to the bundle Factory Presets folder.
+        read_property(${USER_TARGET} TINY_FORMAT_PRESETS_DIR)
+        copy_presets(
+            ${AAX_TARGET}
+            ".tfx"
+            ${TINY_FORMAT_PRESETS_DIR}
+            "${AAX_BUNDLE_OUTPUT_DIR}/Contents/Factory Presets/${TINY_PLUGIN_SHORT_NAME}"
         )
 
         if(TINY_INSTALL_PLUGINS)

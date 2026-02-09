@@ -318,7 +318,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* stat
     // Streamer convenience wrapper. 
     auto streamer = Steinberg::IBStreamer{state};
 
-    auto header = State_header{};
+    auto header = State_rules::Vst3::Header{};
     if (!streamer.readInt32uArray(header.data(), static_cast<int32_t>(header.size()))) {
         return Steinberg::kResultFalse;
     }
@@ -328,46 +328,50 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* stat
     assert(header[1] == Plug_info::manufacturer_code && "Unexpected manufacturer code.");
     assert(header[2] == Plug_info::plugin_code && "Unexpected plug-in code.");
 
-    const auto num_state_params = header[3];
+    const auto num_stored_values = header[3];
 
-    // Notify kernel (if not an interface parameter).
-    auto do_notify = [this](const auto& param, auto plain_value) {
-        if (param.policy != Host_policy::interface) {
-            _queue.push(Set_param{param.address, plain_value});
+    // Notify kernel (we perform the persistence check again here on the current model).
+    auto notify = [&](const auto& spec, auto plain_value) {
+        if (State_rules::is_persistent(spec)) {
+            [[maybe_unused]] const auto success = _queue.push(Set_param{spec.address, plain_value});
+            assert(success && "Queue is full, increase size!");
+        }
+    };
+    
+    auto read_and_notify = [&](const auto& knob_values, auto index) {
+        // Do we have a real value?
+        if (const auto knob_value = knob_values[index]; knob_value != State_rules::no_value) {
+            const auto& spec = User_params::param_spec(index);
+            const auto plain_value = Value_conv::knob_to_plain(knob_value, spec.semantics);
+            notify(spec, plain_value);
         }
     };
 
     // Read processor state into temporary vector.
-    auto state_params = std::vector<float>(num_state_params);
-    for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
-        if (!streamer.readFloat(state_params[i])) {
+    auto stored_values = std::vector<float>(num_stored_values);
+    for (auto i = decltype(num_stored_values){}; i < num_stored_values; ++i) {
+        if (!streamer.readFloat(stored_values[i])) {
             return Steinberg::kResultFalse;
         }
     }
 
-    if (num_params <= num_state_params) {
+    if (num_params <= num_stored_values) {
         // Set values stored in state.
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
-            const auto knob_value = state_params[i];
-            const auto& param = User_params::param_spec(i);
-            const auto plain_value = Value_conv::knob_to_plain(knob_value, param.semantics);
-            do_notify(param, plain_value);
+            read_and_notify(stored_values, i);
         }
     }
     else {
         // Set values stored in state.
-        for (auto i = decltype(num_state_params){}; i < num_state_params; ++i) {
-            const auto knob_value = state_params[i];
-            const auto& param = User_params::param_spec(i);
-            const auto plain_value = Value_conv::knob_to_plain(knob_value, param.semantics);
-            do_notify(param, plain_value);
+        for (auto i = decltype(num_stored_values){}; i < num_stored_values; ++i) {
+            read_and_notify(stored_values, i);
         }
 
         // Set remaining parameters to defaults.
-        for (auto i = num_state_params; i < num_params; ++i) {
+        for (auto i = num_stored_values; i < num_params; ++i) {
             const auto& param = User_params::param_spec(i);
             const auto plain_value = get_plain_default(param);
-            do_notify(param, plain_value);
+            notify(param, plain_value);
         }
     }
 
@@ -386,7 +390,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* stat
     auto streamer = Steinberg::IBStreamer{state};
 
     // Generate the header.
-    auto header = State_header{
+    auto header = State_rules::Vst3::Header{
         Plug_info::framework_code, // Reserved
         Plug_info::manufacturer_code,
         Plug_info::plugin_code,
@@ -398,9 +402,13 @@ Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* stat
     }
 
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
-        const auto& lpoint = _last_points[i]; // Grab value from last automation points.
-        const auto knob_value = static_cast<float>(lpoint.value);
-        if (!streamer.writeFloat(knob_value)) {
+        const auto& last_point = _last_points[i]; // Grab value from last automation points.
+        const auto knob_value = static_cast<float>(last_point.value);
+
+        const auto& spec = User_params::param_spec(i);
+        const auto to_write = State_rules::is_persistent(spec) ? knob_value : State_rules::no_value;
+
+        if (!streamer.writeFloat(to_write)) {
             return Steinberg::kResultFalse;
         }
     }

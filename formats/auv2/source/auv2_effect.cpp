@@ -8,9 +8,12 @@ Auv2_effect::Auv2_effect(AudioUnit component) : Super{component, num_inputs, num
 {
     _editor.emplace(_tasks.actor());
 
+    this->_retain_presets();
+
     CreateElements(); // So we can create the sidechain.
 
     // Set up parameters.
+    _clumps = tree_to_clump_map(User_params::param_tree());
     const auto& params = User_params::param_specs(Param_order::Indexable);
 
     Globals()->UseIndexedParameters(User_params::num_params);
@@ -31,6 +34,11 @@ Auv2_effect::Auv2_effect(AudioUnit component) : Super{component, num_inputs, num
     Outputs().GetElement(0)->SetName(str);
 }
 
+Auv2_effect::~Auv2_effect()
+{
+    this->_release_presets();
+}
+
 OSStatus Auv2_effect::Initialize()
 {
     Super::Initialize();
@@ -41,7 +49,7 @@ OSStatus Auv2_effect::Initialize()
     _latency = _processor->latency_samps();
     _sr = sample_rate;
 
-    _events.reserve(128);
+    _events.reserve(4 * num_params + 1);
 
     return noErr;
 }
@@ -175,7 +183,7 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
                 break;
             }
             case control: {
-                flags |= kAudioUnitParameterFlag_IsReadable; // Logic shows a uneditable control.
+                //flags |= kAudioUnitParameterFlag_IsReadable; // Logic shows a uneditable control.
                 break;
             }
             case hidden: {
@@ -405,9 +413,51 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
     return noErr;
 }
 
-#define tinyplug_num_params "tinyplug-num-params"
-#define tinyplug_num_editor_items "tinyplug-num-editor-items"
-#define tinyplug_editor_state_map "tinyplug-editor-state-map"
+auto Auv2_effect::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void
+{
+    // Notify kernel and view (if not an interface parameter).
+    auto change_list = std::vector<Set_param>{};
+
+    auto notify = [&](const auto& param, auto knob_value) {
+        const auto can_notify = knob_value.has_value() && State_rules::is_persistent(param);
+        if (can_notify) {
+            const auto host = Value_conv::knob_to_host(*knob_value, param.semantics);
+            const auto plain = Value_conv::knob_to_plain(*knob_value, param.semantics);
+            Globals()->SetParameter(param.address, static_cast<float>(host));
+            change_list.push_back(Set_param{param.address, plain}); // We'll publish as a batch.
+            _to_editor.push(Set_param{param.address, *knob_value});
+        }
+    };
+
+    const auto num_stored_values = knob_values.size();
+
+    if (num_params <= num_stored_values) {
+        // Read as many values as we can.
+        for (auto i = decltype(num_params){}; i < num_params; ++i) {
+            const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
+            notify(param, knob_values[i]);
+        }
+    }
+    else {
+        // Set values stored in state.
+        for (auto i = decltype(num_stored_values){}; i < num_stored_values; ++i) {
+            const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
+            notify(param, knob_values[i]);
+        }
+
+        // Set remaining parameters to defaults.
+        for (auto i = num_stored_values; i < num_params; ++i) {
+            const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
+            const auto knob_value = get_knob_default(param);
+            notify(param, std::optional<double>{knob_value});
+        }
+    }
+
+    _changes.push_n(change_list); // Batch publish everything.
+
+    // Editor
+    _editor->load_state(editor_state);
+}
 
 // MARK: - save state
 
@@ -416,25 +466,29 @@ OSStatus Auv2_effect::SaveState(CFPropertyListRef* outData)
     const auto result = Super::SaveState(outData);
     if (result != noErr) return result;
 
-    // Cast to mutable dictionary.
-    auto dict = const_cast<CFMutableDictionaryRef>(reinterpret_cast<CFDictionaryRef>(*outData)); // Yee haw.
-    if (CFGetTypeID(dict) == CFDictionaryGetTypeID()) {
-        // Get the editor state.
-        const auto edit_state = _editor->save_state();
-        const auto num_editor_items = static_cast<int32_t>(edit_state.size());
+    // Cast to mutable dictionary (yee haw).
+    auto dict = const_cast<CFMutableDictionaryRef>(reinterpret_cast<CFDictionaryRef>(*outData));
+    if (CFGetTypeID(dict) != CFDictionaryGetTypeID()) return kAudioUnitErr_InvalidProperty;
 
-        // Helper
-        auto set_num = [&](const auto key, const auto value) {
-            const auto num = CFNumberCreate(nullptr, kCFNumberSInt32Type, &value);
-            CFDictionarySetValue(dict, key, num);
-            CFRelease(num);
-        };
+    // Get the editor state.
+    const auto edit_state = _editor->save_state();
+    const auto num_editor_items = static_cast<int32_t>(edit_state.size());
 
-        set_num(CFSTR(tinyplug_num_params), static_cast<int32_t>(num_params));
-        set_num(CFSTR(tinyplug_num_editor_items), num_editor_items);
+    // Helper
+    auto set_num = [&](const auto key, const auto value) {
+        const auto cf_key = CFStringCreateWithCString(kCFAllocatorDefault, key, kCFStringEncodingUTF8);
+        const auto cf_num = CFNumberCreate(nullptr, kCFNumberSInt32Type, &value);
+        CFDictionarySetValue(dict, cf_key, cf_num);
+        CFRelease(cf_num);
+        CFRelease(cf_key);
+    };
 
-        if (num_editor_items == 0) return result; // Don't write an empty editor state.
+    // Required!
+    set_num(State_rules::Auv2::num_params, static_cast<int32_t>(num_params));
+    set_num(State_rules::Auv2::num_editor_items, num_editor_items);
 
+    if (num_editor_items > 0) {
+        // Serialize editor state.
         auto editor_data = ausdk::Owned<CFMutableDataRef>::from_create(CFDataCreateMutable(nullptr, 0));
 
         auto write_value = [&](const auto& value) {
@@ -452,28 +506,23 @@ OSStatus Auv2_effect::SaveState(CFPropertyListRef* outData)
             const auto tag = tag_for(val);
             write_value(tag);
             switch (tag) {
-                case State_tag::bool_: {
+                case State_tag::Bool: {
                     const auto value = std::get_if<bool>(&val);
                     if (value) write_value(*value);
                     break;
                 }
-                case State_tag::int_: {
+                case State_tag::Int: {
                     const auto value = std::get_if<int32_t>(&val);
                     if (value) write_value(*value);
                     break;
                 }
-                case State_tag::double_: {
+                case State_tag::Double: {
                     const auto value = std::get_if<double>(&val);
                     if (value) write_value(*value);
                     break;
                 }
-                case State_tag::string_: {
+                case State_tag::String: {
                     const auto value = std::get_if<std::string>(&val);
-                    if (value) write_container(*value);
-                    break;
-                }
-                case State_tag::bytes_: {
-                    const auto value = std::get_if<std::vector<uint8_t>>(&val);
                     if (value) write_container(*value);
                     break;
                 }
@@ -482,7 +531,9 @@ OSStatus Auv2_effect::SaveState(CFPropertyListRef* outData)
             }
         }
 
-        CFDictionarySetValue(dict, CFSTR(tinyplug_editor_state_map), *editor_data);
+        const auto data_key = CFStringCreateWithCString(kCFAllocatorDefault, State_rules::Auv2::editor_state_map, kCFStringEncodingUTF8);
+        [[maybe_unused]] const auto release_editor_key = Deferred{[&]() { if (data_key) CFRelease(data_key); }};
+        CFDictionarySetValue(dict, data_key, *editor_data);
     }
 
     return result;
@@ -492,7 +543,7 @@ OSStatus Auv2_effect::SaveState(CFPropertyListRef* outData)
 
 OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
 {
-    const auto result = Super::RestoreState(plist);
+    const auto result = Super::RestoreState(plist); // Base class maintains Globals().
     if (result != noErr) return result;
 
     // Cast to dictionary.
@@ -501,7 +552,9 @@ OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
 
     // Helper
     auto read_num = [&](const auto key, auto& out) {
-        const auto value = CFDictionaryGetValue(dict, key);
+        const auto cf_key = CFStringCreateWithCString(kCFAllocatorDefault, key, kCFStringEncodingUTF8);
+        const auto value = CFDictionaryGetValue(dict, cf_key);
+        CFRelease(cf_key);
         if (value && CFGetTypeID(value) == CFNumberGetTypeID()) {
             CFNumberGetValue(static_cast<CFNumberRef>(value), kCFNumberSInt32Type, &out);
             return true;
@@ -509,128 +562,209 @@ OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
         return false;
     };
 
-    auto val = int32_t{};
-    read_num(CFSTR(tinyplug_num_params), val);
-    const auto num_state_params = static_cast<uint32_t>(val); // ...
+    // --- Parameter Values ---
+    auto params_val = int32_t{};
+    if (read_num(State_rules::Auv2::num_params, params_val)) {
+        const auto num_stored_params = static_cast<uint32_t>(params_val);
 
-    if (num_state_params <= num_params) {
-        // TODO: - Can we load state from a newer version?
-    }
-    else {
-        // Set remaining Globals() to defaults.
-        for (auto i = num_state_params; i < num_params; ++i) {
+        if (num_params <= num_stored_params) {
+            // The base implementation already set Globals() for us.
+        }
+        else {
+            // Set remaining Globals() to defaults.
+            for (auto i = num_stored_params; i < num_params; ++i) {
+                const auto& param = User_params::param_spec(i);
+                const auto host_value = get_host_default(param);
+                Globals()->SetParameter(i, static_cast<float>(host_value));
+            }
+        }
+
+        // Globals() now contains the full state. Notify everyone.
+        // Interface parameters were omitted for us by the base implementation!
+        auto change_list = std::vector<Set_param>{};
+
+        for (auto i = decltype(num_params){}; i < num_params; ++i) {
             const auto& param = User_params::param_spec(i);
-            const auto host_value = get_host_default(param);
-            Globals()->SetParameter(i, static_cast<float>(host_value));
+            const auto host_value = Globals()->GetParameter(i);
+            const auto plain_value = Value_conv::host_to_plain(host_value, param.semantics);
+            const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
+
+            change_list.push_back(Set_param{param.address, plain_value});
+            _to_editor.push(Set_param{param.address, knob_value});
         }
+
+        _changes.push_n(change_list); // Batch publish everything.
     }
 
-    // Globals() now contains the full state. Notify everyone.
-    // Interface parameters were omitted for us by the base implementation!
-    for (auto i = decltype(num_params){}; i < num_params; ++i) {
-        const auto& param = User_params::param_spec(i);
-        const auto host_value = Globals()->GetParameter(i);
-        const auto plain_value = Value_conv::host_to_plain(host_value, param.semantics);
-        const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
+    // --- Editor State ---
+    auto editor_val = int32_t{};
+    if (read_num(State_rules::Auv2::num_editor_items, editor_val)) {
+        const auto num_editor_items = static_cast<uint32_t>(editor_val);
+        if (num_editor_items == 0) return result; // No editor state to read.
 
-        [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{.offset = {}, .event = Set_param{param.address, plain_value}});
-        assert(success && "Push to processor queue failed! Increase queue size.");
+        // Get the data.
+        const auto data_key = CFStringCreateWithCString(kCFAllocatorDefault, State_rules::Auv2::editor_state_map, kCFStringEncodingUTF8);
+        [[maybe_unused]] const auto release_editor_key = Deferred{[&]() { if (data_key) CFRelease(data_key); }};
 
-        _to_editor.push(Set_param{param.address, knob_value});
-    }
+        const auto* editor_data = static_cast<CFDataRef>(CFDictionaryGetValue(dict, data_key));
+        if (!editor_data || CFGetTypeID(editor_data) != CFDataGetTypeID()) return result;
 
-    // Read editor state.
-    auto num_editor_items = int32_t{};
-    read_num(CFSTR(tinyplug_num_editor_items), num_editor_items);
+        auto offset = CFIndex{}; // Keep track of where we are.
 
-    if (num_editor_items == 0) return result; // No editor state to read.
-
-    // Get the data.
-    const auto* editor_data = static_cast<CFDataRef>(CFDictionaryGetValue(dict, CFSTR(tinyplug_editor_state_map)));
-    if (!editor_data || CFGetTypeID(editor_data) != CFDataGetTypeID()) return result;
-
-    auto offset = CFIndex{}; // Keep track of where we are.
-
-    auto read_value = [&](auto& value) {
-        const auto size = static_cast<CFIndex>(sizeof(value));
-        if (offset + size <= CFDataGetLength(editor_data)) {
-            CFDataGetBytes(editor_data, CFRange{offset, size}, reinterpret_cast<UInt8*>(&value));
-            offset += size;
-            return true;
-        }
-        return false;
-    };
-
-    auto read_container = [&](auto& container) {
-        using Element = typename std::decay<decltype(container)>::type::value_type; // ...
-        auto num = uint32_t{};
-        if (read_value(num)) {
-            const auto size = static_cast<CFIndex>(sizeof(Element) * num);
+        auto read_value = [&](auto& value) {
+            const auto size = static_cast<CFIndex>(sizeof(value));
             if (offset + size <= CFDataGetLength(editor_data)) {
-                container.resize(num);
-                CFDataGetBytes(editor_data, CFRange{offset, size}, reinterpret_cast<UInt8*>(container.data()));
+                CFDataGetBytes(editor_data, CFRange{offset, size}, reinterpret_cast<UInt8*>(&value));
                 offset += size;
                 return true;
             }
+            return false;
+        };
+
+        auto read_container = [&](auto& container) {
+            using Element = typename std::decay<decltype(container)>::type::value_type; // ...
+            auto num = uint32_t{};
+            if (read_value(num)) {
+                const auto size = static_cast<CFIndex>(sizeof(Element) * num);
+                if (offset + size <= CFDataGetLength(editor_data)) {
+                    container.resize(num);
+                    CFDataGetBytes(editor_data, CFRange{offset, size}, reinterpret_cast<UInt8*>(container.data()));
+                    offset += size;
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        auto edit_state = State_map{};
+        for (auto i = decltype(num_editor_items){}; i < num_editor_items; ++i) {
+            auto key = std::string{};
+            if (!read_container(key)) break;
+
+            auto tag = State_tag{};
+            if (!read_value(tag)) break;
+
+            auto value = State_item{};
+            switch (tag) {
+                case State_tag::Bool: {
+                    auto v = bool{};
+                    if (read_value(v)) {
+                        value = v;
+                    }
+                    break;
+                }
+                case State_tag::Int: {
+                    auto v = int32_t{};
+                    if (read_value(v)) {
+                        value = v;
+                    }
+                    break;
+                }
+                case State_tag::Double: {
+                    auto v = double{};
+                    if (read_value(v)) {
+                        value = v;
+                    }
+                    break;
+                }
+                case State_tag::String: {
+                    auto v = std::string{};
+                    if (read_container(v)) {
+                        value = std::move(v);
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+
+            edit_state.emplace(std::move(key), std::move(value));
         }
-        return false;
-    };
 
-    auto edit_state = State_map{};
-    for (auto i = decltype(num_editor_items){}; i < num_editor_items; ++i) {
-        auto key = std::string{};
-        if (!read_container(key)) break;
-
-        auto tag = State_tag{};
-        if (!read_value(tag)) break;
-
-        auto value = State_item{};
-        switch (tag) {
-            case State_tag::bool_: {
-                auto v = bool{};
-                if (read_value(v)) {
-                    value = v;
-                }
-                break;
-            }
-            case State_tag::int_: {
-                auto v = int32_t{};
-                if (read_value(v)) {
-                    value = v;
-                }
-                break;
-            }
-            case State_tag::double_: {
-                auto v = double{};
-                if (read_value(v)) {
-                    value = v;
-                }
-                break;
-            }
-            case State_tag::string_: {
-                auto v = std::string{};
-                if (read_container(v)) {
-                    value = std::move(v);
-                }
-                break;
-            }
-            case State_tag::bytes_: {
-                auto v = std::vector<uint8_t>{};
-                if (read_container(v)) {
-                    value = std::move(v);
-                }
-                break;
-            }
-            default:
-                break;
-        }
-
-        edit_state.emplace(std::move(key), std::move(value));
+        _editor->load_state(edit_state);
     }
-
-    _editor->load_state(edit_state);
     
     return result;
+}
+
+// MARK: - Presets
+
+OSStatus Auv2_effect::GetPresets(CFArrayRef* outData) const
+{
+    if (!outData) return noErr;
+
+    auto mutable_arr = CFArrayCreateMutable(kCFAllocatorDefault, Preset_list::num_presets, nullptr);
+    for (auto i = size_t{0}; i < Preset_list::num_presets; ++i) {
+        CFArrayAppendValue(mutable_arr, &_au_presets[i]);
+    }
+
+    *outData = (CFArrayRef)mutable_arr;
+    return noErr;
+}
+
+OSStatus Auv2_effect::NewFactoryPresetSet(const AUPreset& inNewFactoryPreset)
+{
+    const auto preset_number = static_cast<size_t>(inNewFactoryPreset.presetNumber);
+    if (preset_number >= Preset_list::num_presets) return kAudioUnitErr_InvalidPropertyValue;
+
+    // The preset is a file in the bundle resources with the native extension.
+    const auto preset_name = CFStringCreateWithCString(kCFAllocatorDefault, Preset_list::names[preset_number], kCFStringEncodingUTF8);
+    [[maybe_unused]] const auto release_preset_name = Deferred{[&]() { if (preset_name) CFRelease(preset_name); }};
+
+    const auto preset_ext = CFStringCreateWithCString(kCFAllocatorDefault, Plug_info::Presets::extension, kCFStringEncodingUTF8);
+    [[maybe_unused]] const auto release_preset_ext = Deferred{[&]() { if (preset_ext) CFRelease(preset_ext); }};
+
+    const auto bundle_id = CFStringCreateWithCString(kCFAllocatorDefault, Plug_info::Auv2::bundle_id, kCFStringEncodingUTF8);
+    [[maybe_unused]] const auto release_bundle_id = Deferred{[&]() { if (bundle_id) CFRelease(bundle_id); }};
+
+    auto bundle = CFBundleGetBundleWithIdentifier(bundle_id);
+    if (!bundle) return kAudioUnitErr_InvalidPropertyValue;
+
+    auto preset_url = CFBundleCopyResourceURL(bundle, preset_name, preset_ext, nullptr);
+    if (!preset_url) return kAudioUnitErr_InvalidPropertyValue;
+    [[maybe_unused]] const auto release_preset_url = Deferred{[&]() { if (preset_url) CFRelease(preset_url); }};
+
+    if (!preset_url) return kAudioUnitErr_InvalidPropertyValue;
+
+    auto json_data = CFDataRef{nullptr};
+    [[maybe_unused]] const auto release_json_data = Deferred{[&]() { if (json_data) CFRelease(json_data); }};
+
+    // CFURLCreateDataAndPropertiesFromResource is deprecated, we need to use CFReadStream to get the json_data.
+    CFReadStreamRef stream = CFReadStreamCreateWithFile(kCFAllocatorDefault, preset_url);
+    if (!stream) return kAudioUnitErr_InvalidPropertyValue;
+    [[maybe_unused]] const auto release_stream = Deferred{[&]() { if (stream) CFRelease(stream); }};
+
+    if (CFReadStreamOpen(stream)) {
+        auto data = CFDataCreateMutable(kCFAllocatorDefault, 0); // We're moving this out later.
+
+        auto buffer = std::vector<UInt8>(4096);
+        auto bytes_read = CFIndex{0};
+        do {
+            bytes_read = CFReadStreamRead(stream, buffer.data(), static_cast<CFIndex>(buffer.size()));
+            if (bytes_read > 0) {
+                CFDataAppendBytes(data, buffer.data(), bytes_read);
+            }
+        } while (bytes_read > 0);
+        json_data = data;
+        CFReadStreamClose(stream);
+    }
+
+    if (!json_data) return kAudioUnitErr_InvalidPropertyValue;
+
+    try {
+        const auto* raw_bytes = reinterpret_cast<const char*>(CFDataGetBytePtr(json_data));
+        const auto size = static_cast<size_t>(CFDataGetLength(json_data));
+        auto json = nlohmann::json::parse(raw_bytes, raw_bytes + size);
+
+        const auto param_values = _state_adapter.param_values(json);
+        const auto editor_state = _state_adapter.editor_state(json);
+        this->_update_state(param_values, editor_state);
+    }
+    catch (...) {
+        return kAudioUnitErr_InvalidPropertyValue;
+    }
+    
+    return noErr;
 }
 
 // MARK: - Render
@@ -649,11 +783,19 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
     }
 
     _events.clear(); // Events are only valid for the current render cycle.
+
+    _changes.consume([&](auto address, auto value) {
+        assert(_events.size() < _events.capacity() && "Events vector full!");
+        _events.push_back(Tagged_event{
+            .offset = 0,
+            .event = Set_param{.address = address, .value = value}
+        });
+    });
+
+
     auto param_event = Tagged_event{};
     while (_to_processor.pop(param_event)) {
-        if (_events.size() == _events.capacity()) {
-            std::cout << "Events vector full!\n";
-        }
+        assert(_events.size() < _events.capacity() && "Events vector full!");
         _events.push_back(param_event);
     }
 
@@ -839,6 +981,28 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
 auto Auv2_effect::create_view() -> void*
 {
     return _view->create_view();
+}
+
+auto Auv2_effect::_retain_presets() const -> void
+{
+    for (auto i = size_t{0}; i < Preset_list::num_presets; ++i) {
+        const auto name = Preset_list::names[i];
+        const auto str = CFStringCreateWithCString(kCFAllocatorDefault, name, kCFStringEncodingUTF8);
+        _au_presets[i] = {
+            .presetNumber = static_cast<SInt32>(i),
+            .presetName = str
+        };
+    }
+}
+
+auto Auv2_effect::_release_presets() const -> void
+{
+    for (auto& preset : _au_presets) {
+        if (preset.presetName) {
+            CFRelease(preset.presetName);
+            preset.presetName = nullptr;
+        }
+    }
 }
 
 // MARK: - entry

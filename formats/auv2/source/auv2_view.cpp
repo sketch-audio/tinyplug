@@ -29,6 +29,8 @@ auto Auv2_view::create_view() -> void*
     _platform_view->on_show();
     _deps.editor->on_gui_show({
         .actions = _actions.actor(),
+        .format = Format::Auv2,
+        .state_adapter = _state_adapter.actor(),
         .undo_redo = _undo_history.actor(),
     });
 

@@ -100,6 +100,25 @@ function(make_clap_plugin USER_TARGET CLAP_SDK CLAP_HELPERS)
             VERBATIM
         )
 
+        # All we need are the native presets.
+        read_property(${USER_TARGET} TINY_PRESET_EXTENSION)
+        read_property(${USER_TARGET} TINY_NATIVE_PRESETS_DIR)
+        copy_presets(
+            ${CLAP_TARGET}
+            ".${TINY_PRESET_EXTENSION}"
+            ${TINY_NATIVE_PRESETS_DIR}
+            "${CLAP_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+        )
+
+        read_property(${USER_TARGET} TINY_RESOURCE_LIST)
+        if (TINY_RESOURCE_LIST)
+            copy_file_list(
+                ${CLAP_TARGET}
+                "${TINY_RESOURCE_LIST}"
+                "${CLAP_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+            )
+        endif()
+
         if(TINY_INSTALL_PLUGINS)
             # User library so we don't have to elevate.
             set(CLAP_INSTALL_DIR $ENV{HOME}/Library/Audio/Plug-Ins/CLAP)
@@ -112,9 +131,36 @@ function(make_clap_plugin USER_TARGET CLAP_SDK CLAP_HELPERS)
             )
         endif()
     elseif(WIN32)
+        # On CLAP we create a pseudo-bundle directory structure matching the VST3 spec.
+        set(CLAP_BUNDLE_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${TINY_BASE_FILENAME}.clap)
         set_target_properties(${CLAP_TARGET} PROPERTIES
             OUTPUT_NAME ${TINY_BASE_FILENAME}
             SUFFIX .clap
+            LIBRARY_OUTPUT_DIRECTORY_DEBUG ${CLAP_BUNDLE_OUTPUT_DIR}/Contents/x86_64-win
+            LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CLAP_BUNDLE_OUTPUT_DIR}/Contents/x86_64-win
+        )
+
+        # All we need are the native presets.
+        read_property(${USER_TARGET} TINY_PRESET_EXTENSION)
+        read_property(${USER_TARGET} TINY_NATIVE_PRESETS_DIR)
+        copy_presets(
+            ${CLAP_TARGET}
+            ".${TINY_PRESET_EXTENSION}"
+            ${TINY_NATIVE_PRESETS_DIR}
+            "${CLAP_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+        )
+
+        add_custom_command(
+            TARGET ${CLAP_TARGET} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SOURCE_DIR}/cmake/PlugIn.ico ${VST3_BUNDLE_OUTPUT_DIR}
+        )
+        add_custom_command(
+            TARGET ${CLAP_TARGET} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SOURCE_DIR}/cmake/desktop.ini ${CLAP_BUNDLE_OUTPUT_DIR}
+        )
+        add_custom_command(
+            TARGET ${CLAP_TARGET} POST_BUILD 
+            COMMAND attrib +s ${CLAP_BUNDLE_OUTPUT_DIR}
         )
 
         if(TINY_INSTALL_PLUGINS)

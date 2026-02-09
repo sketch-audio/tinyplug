@@ -438,7 +438,7 @@ struct Param_group {
     // The group name.
     const char* name{""};
 
-    // Required for AUv3, otherwise unused.
+    // Used by AUv3 and presets. Must be unique among siblings.
     const char* string_id{nullptr};
 
     // The group nodes.
@@ -450,7 +450,7 @@ struct Param_spec {
     // The parameter's unique address.
     uint32_t address{};
 
-    // Required for AUv3, otherwise unused.
+    // Used by AUv3 and presets. Must be unique among siblings.
     const char* string_id{nullptr};
 
     // Name.
