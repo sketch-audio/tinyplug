@@ -179,6 +179,15 @@ function(make_aax_plugin USER_TARGET AAX_SDK_ROOT_DIR)
             "${AAX_BUNDLE_OUTPUT_DIR}/Contents/Factory Presets/${TINY_PLUGIN_SHORT_NAME}"
         )
 
+        read_property(${USER_TARGET} TINY_RESOURCE_LIST)
+        if (TINY_RESOURCE_LIST)
+            copy_file_list(
+                ${AAX_TARGET}
+                "${TINY_RESOURCE_LIST}"
+                "${AAX_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+            )
+        endif()
+
         if(TINY_INSTALL_PLUGINS)
             # Copy plugin to Avid's system folder (will ask for admin rights)
             add_custom_command(

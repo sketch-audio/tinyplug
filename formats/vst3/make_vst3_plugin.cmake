@@ -177,6 +177,15 @@ function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
             "${VST3_BUNDLE_OUTPUT_DIR}/Contents/Resources"
         )
 
+        read_property(${USER_TARGET} TINY_RESOURCE_LIST)
+        if (TINY_RESOURCE_LIST)
+            copy_file_list(
+                ${VST3_TARGET}
+                "${TINY_RESOURCE_LIST}"
+                "${VST3_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+            )
+        endif()
+
         add_custom_command(
             TARGET ${VST3_TARGET} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different ${VST3_SDK_ROOT_DIR}/cmake/templates/VST_Logo_Steinberg.ico ${VST3_BUNDLE_OUTPUT_DIR}
@@ -196,6 +205,17 @@ function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
                 COMMAND "${SOURCE_DIR}/cmake/postbuild_copy.bat" "${VST3_BUNDLE_OUTPUT_DIR}"
                 COMMENT "Copying VST3 plugin to system folder (will prompt for administrator)"
                 VERBATIM
+            )
+
+            # copy format presets to %PROGRAMDATA%\VST3 Presets\Company Name\Product Name
+            read_property(${USER_TARGET} TINY_FORMAT_PRESETS_DIR)
+            read_property(${USER_TARGET} TINY_COMPANY_NAME)
+            read_property(${USER_TARGET} TINY_PLUGIN_NAME)
+            copy_presets(
+                ${VST3_TARGET}
+                ".vstpreset"
+                ${TINY_FORMAT_PRESETS_DIR}
+                "$ENV{PROGRAMDATA}\\VST3 Presets\\${TINY_COMPANY_NAME}\\${TINY_PLUGIN_NAME}"
             )
         endif()
     endif()

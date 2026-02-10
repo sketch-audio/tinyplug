@@ -150,9 +150,18 @@ function(make_clap_plugin USER_TARGET CLAP_SDK CLAP_HELPERS)
             "${CLAP_BUNDLE_OUTPUT_DIR}/Contents/Resources"
         )
 
+        read_property(${USER_TARGET} TINY_RESOURCE_LIST)
+        if (TINY_RESOURCE_LIST)
+            copy_file_list(
+                ${CLAP_TARGET}
+                "${TINY_RESOURCE_LIST}"
+                "${CLAP_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+            )
+        endif()
+
         add_custom_command(
             TARGET ${CLAP_TARGET} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SOURCE_DIR}/cmake/PlugIn.ico ${VST3_BUNDLE_OUTPUT_DIR}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SOURCE_DIR}/cmake/PlugIn.ico ${CLAP_BUNDLE_OUTPUT_DIR}
         )
         add_custom_command(
             TARGET ${CLAP_TARGET} POST_BUILD
@@ -164,12 +173,14 @@ function(make_clap_plugin USER_TARGET CLAP_SDK CLAP_HELPERS)
         )
 
         if(TINY_INSTALL_PLUGINS)
+        set(CLAP_INSTALL_DEST "$ENV{LOCALAPPDATA}\\Programs\\Common\\CLAP\\${TINY_BASE_FILENAME}.clap")
             add_custom_command(
                 TARGET ${CLAP_TARGET} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E make_directory "$ENV{LOCALAPPDATA}\\Programs\\Common\\CLAP"
-                COMMAND ${CMAKE_COMMAND} -E copy
-                    "$<TARGET_FILE_DIR:${CLAP_TARGET}>\\${TINY_BASE_FILENAME}.clap"
-                    "$ENV{LOCALAPPDATA}\\Programs\\Common\\CLAP\\${TINY_BASE_FILENAME}.clap"
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${CLAP_BUNDLE_OUTPUT_DIR}"
+                    "${CLAP_INSTALL_DEST}"
+                COMMAND attrib +s "${CLAP_INSTALL_DEST}"
                 COMMENT "Copying CLAP plugin to $ENV{LOCALAPPDATA}\\Programs\\Common\\CLAP"
                 VERBATIM
             )

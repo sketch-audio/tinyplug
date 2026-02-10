@@ -48,12 +48,13 @@ public:
 
         const auto bundle_id = std::string{Plug_info::base_identifier} + ".clap";
         const auto location_path = Platform_paths::format_readable(bundle_id);
+        const auto path_str = location_path.string();
 
-        const auto location = clap_preset_discovery_location{
+        const auto location = clap_preset_discovery_location_t{
             .flags = CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT,
             .name = "Factory Presets",
             .kind = CLAP_PRESET_DISCOVERY_LOCATION_FILE,
-            .location = location_path.c_str(),
+            .location = path_str.c_str(),
         };
         indexer()->declare_location(indexer(), &location);
 
@@ -110,12 +111,13 @@ public:
             .manufacturer = Plug_info::company_directory_name,
             .product = Plug_info::product_directory_name,
         });
+        const auto path_str = location_path.string();
 
-        const auto location = clap_preset_discovery_location{
+        const auto location = clap_preset_discovery_location_t{
             .flags = CLAP_PRESET_DISCOVERY_IS_USER_CONTENT,
             .name = "User Presets",
             .kind = CLAP_PRESET_DISCOVERY_LOCATION_FILE,
-            .location = location_path.c_str(),
+            .location = path_str.c_str(),
         };
         indexer()->declare_location(indexer(), &location);
 
