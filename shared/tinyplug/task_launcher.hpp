@@ -35,7 +35,7 @@ public:
 
 private:
 
-    size_t _num_threads{std::thread::hardware_concurrency()};
+    size_t _num_threads{1};//{ std::thread::hardware_concurrency() };
     std::vector<std::thread> _threads{};
     std::vector<Notification_queue> _queues{_num_threads};
     std::atomic<size_t> _idx{};
