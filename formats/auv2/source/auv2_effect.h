@@ -148,15 +148,21 @@ private:
 
     Clump_map _clumps{};
 
-    // 
-    static constexpr auto to_processor_size = 4 * num_params + 1;
-    using To_processor_queue = Lock_free_queue<Tagged_event, to_processor_size, Queue_concurrency::mpsc>; // I believe SetParameter can happen from a variety of threads.
+    static constexpr auto queue_size = []() {
+        const auto state = 4 * num_params;
+        const auto automation = 64 * std::bit_width(num_params); // We expect number of automated parameters to be small but we need to be able to handle a lot of flux.
+        return state + automation + 1;
+    }();
 
-    static constexpr auto to_editor_size = num_params + num_meters + 1;
+    // 
+    //static constexpr auto to_processor_size = 4 * num_params + 1;
+    using To_processor_queue = Lock_free_queue<Tagged_event, queue_size, Queue_concurrency::mpsc>; // I believe SetParameter can happen from a variety of threads.
+
+    static constexpr auto to_editor_size = num_params + 12 * num_meters + 1; // Approx number of 32 sample buffers between UI updates at 60fps.
     using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
 
     // Right now just for latency.
-    using Private_queue = Lock_free_queue<Private_message, 16>;
+    using Private_queue = Lock_free_queue<Private_message, 24>;
 
     Change_list _changes{}; // State, UI updates (not for SetParameter).
     To_processor_queue _to_processor{};

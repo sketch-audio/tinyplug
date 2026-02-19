@@ -368,6 +368,8 @@ auto Clap_plugin::_update_state(const Maybe_values<double>& knob_values, const S
 
     // Editor
     _editor->load_state(editor_state);
+
+    _host->request_process(_host); // We're using process to flush.
 }
 
 bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept

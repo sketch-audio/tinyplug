@@ -48,8 +48,12 @@ Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* co
     addAudioOutput(u"Output", SpeakerArr::kStereo, BusTypes::kMain);
 
     // Create the event IO.
-
-    _events.reserve(128); // Want fixed size event vector.
+    static constexpr auto events_size = []() {
+        const auto state = 4 * num_params;
+        const auto automation = 64 * std::bit_width(num_params); // We expect number of automated parameters to be small but we need to be able to handle a lot of flux.
+        return state + automation + 1;
+    }();
+    _events.reserve(events_size); // Want fixed size event vector.
 
     // Get knob defaults for automation points.
     for (const auto& param : User_params::param_specs(Param_order::Indexable)) {

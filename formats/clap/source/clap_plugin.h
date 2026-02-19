@@ -166,11 +166,11 @@ private:
 
     std::array<double, num_meters> _last_meters{};
 
-    static constexpr auto to_processor_size = 4 * num_params + 1;
-    static constexpr auto to_editor_size = num_params + num_meters + 1;
+    static constexpr auto queue_size = 4 * num_params + 1;
+    static constexpr auto to_editor_size = num_params + 12 * num_meters + 1;
 
-    using From_flush_queue = Lock_free_queue<Render_event, to_processor_size>;
-    using From_ui_queue = Lock_free_queue<User_action, to_processor_size>;
+    using From_flush_queue = Lock_free_queue<Render_event, queue_size>; //
+    using From_ui_queue = Lock_free_queue<User_action, queue_size>;
     using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
 
     From_flush_queue _from_flush{};

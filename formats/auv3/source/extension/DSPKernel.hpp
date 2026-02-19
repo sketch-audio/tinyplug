@@ -241,12 +241,18 @@ private:
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
     std::array<float, num_meters> _meters{};
-    
-    static constexpr auto param_queue_min_size = 4 * num_params + 1;
-    using Param_queue = tiny::Lock_free_queue<tiny::Render_event, param_queue_min_size>;
+
+    static constexpr auto queue_size = []() {
+        const auto state = 4 * num_params;
+        const auto automation = 64 * std::bit_width(num_params); // We expect number of automated parameters to be small but we need to be able to handle a lot of flux.
+        return state + automation + 1;
+    }();
+
+    //static constexpr auto param_queue_min_size = 4 * num_params + 1;
+    using Param_queue = tiny::Lock_free_queue<tiny::Render_event, queue_size, tiny::Queue_concurrency::mpsc>; // I believe SetParameter can happen from multiple threads
     Param_queue _param_queue{};
     
-    static constexpr auto to_editor_size = num_params + num_meters + 1;
+    static constexpr auto to_editor_size = num_params + 12 * num_meters + 1;
     using To_editor_queue = tiny::Overwrite_queue<tiny::Ui_event, to_editor_size>;
     To_editor_queue _to_editor{};
     

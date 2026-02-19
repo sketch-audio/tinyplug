@@ -97,7 +97,7 @@ private:
     using To_processor_queue = Lock_free_queue<User_action, to_processor_size>;
     To_processor_queue _to_processor{}; // In AAX, this is actually only for non-automatable parameters.
 
-    static constexpr auto to_editor_size = num_params + num_meters + 1;
+    static constexpr auto to_editor_size = num_params + 12 * num_meters + 1;
     using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
     To_editor_queue _to_editor{};
 
