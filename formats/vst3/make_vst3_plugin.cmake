@@ -1,60 +1,5 @@
-# Enable the VST3 SDK. Only need to do this once.
-function(enable_vst3_sdk VST3_SDK_VER OUT_VST3_SDK OUT_VST3_SDK_ROOT_DIR)
-    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
-        set(${OUT_VST3_SDK} "n/a" PARENT_SCOPE)
-        set(${OUT_VST3_SDK_ROOT_DIR} "n/a" PARENT_SCOPE)
-        return()
-    endif()
-
-    include(FetchContent)
-
-    # https://github.com/kunitoki/yup
-    set(SMTG_ADD_VST3_UTILITIES OFF)
-    set(SMTG_CREATE_MODULE_INFO OFF)
-    set(SMTG_ENABLE_VST3_HOSTING_EXAMPLES OFF)
-    set(SMTG_ENABLE_VST3_PLUGIN_EXAMPLES OFF)
-    set(SMTG_ENABLE_VSTGUI_SUPPORT OFF)
-    set(SMTG_RUN_VST_VALIDATOR OFF)
-
-    if(WIN32)
-        set(SMTG_USE_STATIC_CRT ON) # We need this for Skia.
-    endif()
-
-    FetchContent_Declare(
-        vst3sdk
-        GIT_REPOSITORY https://github.com/steinbergmedia/vst3sdk.git
-        GIT_TAG ${VST3_SDK_VER}
-    )
-
-    FetchContent_MakeAvailable(vst3sdk)
-
-    # Exclude sdk_hosting and validator from the default build
-    set_target_properties(sdk_hosting PROPERTIES EXCLUDE_FROM_ALL TRUE)
-    set_target_properties(validator PROPERTIES EXCLUDE_FROM_ALL TRUE)
-
-    # The VST3 SDK apparently needs these to be defined.
-    if (CMAKE_BUILD_TYPE MATCHES Release)
-        add_compile_definitions(NDEBUG RELEASE)
-    else()
-        add_compile_definitions(_DEBUG DEVELOPMENT)
-    endif()
-
-    smtg_enable_vst3_sdk() # sdk
-
-    # Get all the include dirs that Steinberg added
-    get_target_property(_vst3_includes sdk INTERFACE_INCLUDE_DIRECTORIES)
-
-    # Re-apply them as SYSTEM includes
-    if(_vst3_includes)
-        target_include_directories(sdk SYSTEM INTERFACE ${_vst3_includes})
-    endif()
-
-    set(${OUT_VST3_SDK} sdk PARENT_SCOPE)
-    set(${OUT_VST3_SDK_ROOT_DIR} ${vst3sdk_SOURCE_DIR} PARENT_SCOPE)
-endfunction()
-
 # Make a VST3 plug-in from a user target.
-function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
+function(make_vst3_plugin USER_TARGET)
     if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
         return()
     endif()
@@ -78,21 +23,15 @@ function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
         ${SOURCE_DIR}/source/vst3_view.cpp
         ${SOURCE_DIR}/source/vst3_view.h
     )
+    add_vst3_main_source(${VST3_TARGET})
 
-    if(APPLE)
-        target_sources(${VST3_TARGET} PRIVATE ${VST3_SDK_ROOT_DIR}/public.sdk/source/main/macmain.cpp)
-    elseif(WIN32)
-        target_sources(${VST3_TARGET} PRIVATE ${VST3_SDK_ROOT_DIR}/public.sdk/source/main/dllmain.cpp)
-    endif()
-
-    target_link_libraries(${VST3_TARGET} PRIVATE ${VST3_SDK})
+    target_link_libraries(${VST3_TARGET} PRIVATE tiny::vst3sdk)
     target_link_libraries(${VST3_TARGET} PRIVATE ${USER_TARGET})
 
     if(APPLE)
         target_link_libraries(${VST3_TARGET} PRIVATE "-framework Cocoa")
         target_compile_options(${VST3_TARGET} PRIVATE -Wall -Wextra -pedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
         target_link_options(${VST3_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
-        #target_link_options(${VST3_TARGET} PRIVATE -Wl,-s)
     elseif(WIN32)
         target_compile_options(${VST3_TARGET} PRIVATE /W4)
     endif()
@@ -188,7 +127,7 @@ function(make_vst3_plugin USER_TARGET VST3_SDK VST3_SDK_ROOT_DIR)
 
         add_custom_command(
             TARGET ${VST3_TARGET} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${VST3_SDK_ROOT_DIR}/cmake/templates/VST_Logo_Steinberg.ico ${VST3_BUNDLE_OUTPUT_DIR}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SOURCE_DIR}/cmake/templates/PlugIn.ico ${VST3_BUNDLE_OUTPUT_DIR}
         )
         add_custom_command(
             TARGET ${VST3_TARGET} POST_BUILD

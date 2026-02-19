@@ -1,41 +1,5 @@
-# Enable the CLAP SDK. Only need to do this once.
-function(enable_clap_sdk CLAP_SDK_VER OUT_CLAP_SDK OUT_CLAP_HELPERS)
-    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
-        set(${OUT_CLAP_SDK} "n/a" PARENT_SCOPE)
-        set(${OUT_CLAP_HELPERS} "n/a" PARENT_SCOPE)
-        return()
-    endif()
-
-    include(FetchContent)
-
-    FetchContent_Declare(
-        clap
-        GIT_REPOSITORY https://github.com/free-audio/clap.git
-        GIT_TAG ${CLAP_SDK_VER}
-        FIND_PACKAGE_ARGS NAMES clap
-    )
-
-    FetchContent_Declare(
-        clap-helpers
-        GIT_REPOSITORY https://github.com/free-audio/clap-helpers.git
-        GIT_TAG main # clap-helpers not tagged...
-        FIND_PACKAGE_ARGS NAMES clap-helpers
-    )
-
-    # Suppress a CLAP dependency (dev) warning.
-    if(WIN32)
-        cmake_policy(SET CMP0177 NEW)
-        set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 1 CACHE INTERNAL "No dev warnings")
-    endif()
-
-    FetchContent_MakeAvailable(clap clap-helpers)
-
-    set(${OUT_CLAP_SDK} clap PARENT_SCOPE)
-    set(${OUT_CLAP_HELPERS} clap-helpers PARENT_SCOPE)
-endfunction()
-
 # Make a CLAP plug-in from a user target.
-function(make_clap_plugin USER_TARGET CLAP_SDK CLAP_HELPERS)
+function(make_clap_plugin USER_TARGET)
     if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
         return()
     endif()
@@ -58,15 +22,7 @@ function(make_clap_plugin USER_TARGET CLAP_SDK CLAP_HELPERS)
         ${SOURCE_DIR}/source/clap_view.h
     )
 
-    # Don't issue warnings for clap library code.
-    get_target_property(CLAP_SOURCE_DIR ${CLAP_SDK} SOURCE_DIR)
-    get_target_property(CLAP_HELPERS_SOURCE_DIR ${CLAP_HELPERS} SOURCE_DIR)
-    target_include_directories(${CLAP_TARGET} SYSTEM PRIVATE
-        ${CLAP_SOURCE_DIR}/include
-        ${CLAP_HELPERS_SOURCE_DIR}/include
-    )
-
-    target_link_libraries(${CLAP_TARGET} PRIVATE ${CLAP_SDK} ${CLAP_HELPERS})
+    target_link_libraries(${CLAP_TARGET} PRIVATE tiny::clap tiny::clap-helpers)
     target_link_libraries(${CLAP_TARGET} PRIVATE ${USER_TARGET})
 
     if(APPLE)

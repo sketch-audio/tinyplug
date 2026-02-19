@@ -4,9 +4,8 @@ add_library(${TINY_SHARED_LIB} STATIC)
 include(FetchContent)
 FetchContent_Declare(
     nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG v3.12.0
-    GIT_SHALLOW 1
+    URL https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.zip
+    URL_HASH SHA256=34660b5e9a407195d55e8da705ed26cc6d175ce5a6b1fb957e701fb4d5b04022
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
@@ -77,7 +76,7 @@ target_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(${TINY_SHARED_LIB} PUBLIC skia nlohmann_json::nlohmann_json) # skia from tiny_deps
+target_link_libraries(${TINY_SHARED_LIB} PUBLIC tiny::skia nlohmann_json::nlohmann_json)
 if(APPLE)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         target_link_libraries(${TINY_SHARED_LIB} PUBLIC

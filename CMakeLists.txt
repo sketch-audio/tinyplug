@@ -39,39 +39,11 @@ FetchContent_Declare(
     tiny_deps
     SOURCE_DIR ${TINY_DEPS_PATH}
 )
-FetchContent_MakeAvailable(tiny_deps) # skia skia-window-contexts
+FetchContent_MakeAvailable(tiny_deps)
 
-# AAX SDK path is optional.
-set(TINY_AAX_SDK_PATH "" CACHE PATH "Path to AAX SDK.")
-if (NOT TINY_AAX_SDK_PATH)
-    set(TINY_AAX_SDK_PATH "n/a") # !!!
-endif()
-
-# NEW BUILD
 include(cmake/helpers.cmake)
 include(formats/formats.cmake)
 include(presets/make_preset_exporter.cmake)
-
-# Enable SDKs.
-set(AAX_SDK_ROOT_DIR ${TINY_AAX_SDK_PATH})
-message(STATUS "[tiny] AAX SDK Root Directory: ${AAX_SDK_ROOT_DIR}")
-
-set(AUV2_SDK_VER 1.3.0) # See: https://github.com/apple/AudioUnitSDK/tags
-enable_auv2_sdk(${AUV2_SDK_VER} AUV2_SDK)
-message(STATUS "[tiny] AUv2 SDK Version: ${AUV2_SDK_VER}")
-message(STATUS "[tiny] AUv2 SDK: ${AUV2_SDK}")
-
-set(CLAP_SDK_VER 1.2.7) # See: https://github.com/free-audio/clap/tags
-enable_clap_sdk(${CLAP_SDK_VER} CLAP_SDK CLAP_HELPERS)
-message(STATUS "[tiny] CLAP SDK Version: ${CLAP_SDK_VER}")
-message(STATUS "[tiny] CLAP SDK: ${CLAP_SDK}")
-message(STATUS "[tiny] CLAP Helpers: ${CLAP_HELPERS}")
-
-set(VST3_SDK_VER v3.7.14_build_55) # See: https://github.com/steinbergmedia/vst3sdk/tags
-enable_vst3_sdk(${VST3_SDK_VER} VST3_SDK VST3_SDK_ROOT_DIR)
-message(STATUS "[tiny] VST3 SDK Version: ${VST3_SDK_VER}")
-message(STATUS "[tiny] VST3 SDK: ${VST3_SDK}")
-message(STATUS "[tiny] VST3 SDK Root Directory: ${VST3_SDK_ROOT_DIR}")
 
 # Add shared library.
 add_subdirectory(shared)
@@ -83,11 +55,5 @@ endif()
 
 # Forward SDK variables to parent scope only if this is NOT the top-level project.
 if(NOT CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
-    set(AAX_SDK_ROOT_DIR ${AAX_SDK_ROOT_DIR} PARENT_SCOPE)
-    set(AUV2_SDK ${AUV2_SDK} PARENT_SCOPE)
-    set(CLAP_SDK ${CLAP_SDK} PARENT_SCOPE)
-    set(CLAP_HELPERS ${CLAP_HELPERS} PARENT_SCOPE)
-    set(VST3_SDK ${VST3_SDK} PARENT_SCOPE)
-    set(VST3_SDK_ROOT_DIR ${VST3_SDK_ROOT_DIR} PARENT_SCOPE)
     set(TINY_SHARED_LIB ${TINY_SHARED_LIB} PARENT_SCOPE)
 endif()

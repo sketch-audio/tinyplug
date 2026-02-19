@@ -72,9 +72,9 @@ target_link_libraries(${PLUGIN_TARGET} PUBLIC ${TINY_SHARED_LIB})
 
 # Build the wrappers
 # ---
-make_aax_plugin(${PLUGIN_TARGET} ${AAX_SDK_ROOT_DIR}) # Skips build if not specified.
-make_auv2_plugin(${PLUGIN_TARGET} ${AUV2_SDK}) # Skips build if not Apple.
+make_aax_plugin(${PLUGIN_TARGET})
+make_auv2_plugin(${PLUGIN_TARGET}) # Skips build if not Apple.
 make_auv3_plugin(${PLUGIN_TARGET})
-make_clap_plugin(${PLUGIN_TARGET} ${CLAP_SDK} ${CLAP_HELPERS})
-make_vst3_plugin(${PLUGIN_TARGET} ${VST3_SDK} ${VST3_SDK_ROOT_DIR})
+make_clap_plugin(${PLUGIN_TARGET})
+make_vst3_plugin(${PLUGIN_TARGET})
 # ---

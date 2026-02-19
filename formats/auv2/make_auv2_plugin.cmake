@@ -1,50 +1,5 @@
-# Enable the Audio Unit (v2) SDK. Only need to do this once.
-function(enable_auv2_sdk AUV2_SDK_VER OUT_AUV2_SDK)
-    if(NOT APPLE OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
-        set(${OUT_AUV2_SDK} "n/a" PARENT_SCOPE)
-        return()
-    endif()
-
-    # ...
-    if (TARGET AudioUnitSDK)
-        set(${OUT_AUV2_SDK} AudioUnitSDK PARENT_SCOPE)
-        return()
-    endif()
-
-    # Build the Audio Unit (v2) SDK as an external project.
-    include(ExternalProject)
-
-    add_library(AudioUnitSDK INTERFACE)
-
-    set(AUV2_SDK_EXT AudioUnitSDK_Ext)
-    set(AUV2_SDK_PROJ ${CMAKE_CURRENT_BINARY_DIR}/${AUV2_SDK_EXT}-prefix/src/${AUV2_SDK_EXT})
-    set(AUV2_SDK_DSTROOT ${CMAKE_CURRENT_BINARY_DIR}/AudioUnitSDK)
-
-    # Expected output:
-    set(AUV2_SDK_PATH ${AUV2_SDK_DSTROOT}/usr/local) # Append usr/local.
-    set(AUV2_SDK_LIB ${AUV2_SDK_PATH}/lib/libAudioUnitSDK.a)
-    set(AUV2_SDK_INCLUDE ${AUV2_SDK_PATH}/include)
-    
-    ExternalProject_Add(${AUV2_SDK_EXT}
-        GIT_REPOSITORY https://github.com/apple/AudioUnitSDK.git
-        GIT_TAG AudioUnitSDK-${AUV2_SDK_VER}
-        CONFIGURE_COMMAND ""
-        BUILD_COMMAND ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/build_sdk.sh 
-            ${AUV2_SDK_PROJ} 
-            ${AUV2_SDK_DSTROOT}
-            ${AUV2_SDK_LIB}
-            ${AUV2_SDK_VERSION}
-        INSTALL_COMMAND ""
-    )
-
-    target_link_libraries(AudioUnitSDK INTERFACE ${AUV2_SDK_LIB})
-    target_include_directories(AudioUnitSDK INTERFACE ${AUV2_SDK_INCLUDE})
-
-    set(${OUT_AUV2_SDK} AudioUnitSDK PARENT_SCOPE)
-endfunction()
-
 # Make an AUv2 plug-in from a user target.
-function(make_auv2_plugin USER_TARGET AUV2_SDK)
+function(make_auv2_plugin USER_TARGET)
     if(NOT APPLE OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
         return()
     endif()
@@ -78,10 +33,10 @@ function(make_auv2_plugin USER_TARGET AUV2_SDK)
         ${SOURCE_DIR}/source/auv2_view.h
     )
 
-    target_link_libraries(${AUV2_TARGET} PRIVATE ${AUV2_SDK})
+    target_link_libraries(${AUV2_TARGET} PRIVATE tiny::ausdk)
     target_link_libraries(${AUV2_TARGET} PRIVATE ${USER_TARGET})
 
-    target_link_libraries(${AUV2_TARGET} PRIVATE "-framework Cocoa" "-framework AudioToolbox")
+    target_link_libraries(${AUV2_TARGET} PRIVATE "-framework Cocoa")
     target_compile_options(${AUV2_TARGET} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
     target_link_options(${AUV2_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
 

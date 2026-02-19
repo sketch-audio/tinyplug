@@ -1,7 +1,7 @@
 # Make an AAX plug-in from a user target.
-function(make_aax_plugin USER_TARGET AAX_SDK_ROOT_DIR)
+function(make_aax_plugin USER_TARGET)
     # Requires AAX SDK path.
-    if(AAX_SDK_ROOT_DIR STREQUAL "n/a" OR CMAKE_SYSTEM_NAME STREQUAL "iOS") # !!!
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         return()
     endif()
 
@@ -33,36 +33,9 @@ function(make_aax_plugin USER_TARGET AAX_SDK_ROOT_DIR)
         ${SOURCE_DIR}/source/aax_parameters.h
         ${SOURCE_DIR}/source/aax_taper_delegate.h
     )
+    add_aax_exports_source(${AAX_TARGET})
 
-    # AAX SDK sources
-    target_sources(${AAX_TARGET} PRIVATE ${AAX_SDK_ROOT_DIR}/Interfaces/AAX_Exports.cpp)
-
-    # AAX SDK includes
-    target_include_directories(${AAX_TARGET} SYSTEM PRIVATE 
-        ${AAX_SDK_ROOT_DIR}/Interfaces
-        ${AAX_SDK_ROOT_DIR}/Interfaces/ACF
-    )
-
-    if(APPLE)
-        set(AAX_LIB_NAME libAAXLibrary_libcpp.a)
-        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-            set(AAX_LIB_DIR ${AAX_SDK_ROOT_DIR}/Libs/Debug)
-        else()
-            set(AAX_LIB_DIR ${AAX_SDK_ROOT_DIR}/Libs/Release)
-        endif()
-        find_library(AAX_LIB ${AAX_LIB_NAME} PATHS ${AAX_LIB_DIR} NO_DEFAULT_PATH REQUIRED)
-    elseif(WIN32)
-        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-            set(AAX_LIB_NAME AAXLibrary_x64_D)
-            set(AAX_LIB_DIR ${AAX_SDK_ROOT_DIR}/Libs/Debug)
-        else()
-            set(AAX_LIB_NAME AAXLibrary_x64)
-            set(AAX_LIB_DIR ${AAX_SDK_ROOT_DIR}/Libs/Release)
-        endif()
-        find_library(AAX_LIB ${AAX_LIB_NAME} PATHS ${AAX_LIB_DIR} NO_DEFAULT_PATH REQUIRED)
-    endif()
-
-    target_link_libraries(${AAX_TARGET} PRIVATE ${AAX_LIB})
+    target_link_libraries(${AAX_TARGET} PRIVATE tiny::aaxsdk)
     target_link_libraries(${AAX_TARGET} PRIVATE ${USER_TARGET})
 
     if(APPLE)
@@ -146,9 +119,10 @@ function(make_aax_plugin USER_TARGET AAX_SDK_ROOT_DIR)
         )
 
         # Get icon file from the SDK.
+        get_target_property(SDK_ICON_PATH tiny::aaxsdk AAX_SDK_ICON_PATH)
         add_custom_command(
             TARGET ${AAX_TARGET} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${AAX_SDK_ROOT_DIR}/Utilities/PlugIn.ico ${AAX_BUNDLE_OUTPUT_DIR}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SDK_ICON_PATH} ${AAX_BUNDLE_OUTPUT_DIR}
         )
         add_custom_command(
             TARGET ${AAX_TARGET} POST_BUILD
