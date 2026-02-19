@@ -181,6 +181,11 @@ auto Window_context::teardown() -> void
 
 // MARK: - drawing
 
+auto Window_context::set_drawable(void*) -> void
+{
+    // Apple-only.
+}
+
 auto Window_context::begin_draw() -> void
 {
     // Update the frame index.

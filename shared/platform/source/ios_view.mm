@@ -5,6 +5,7 @@
 #include <unordered_set>
 
 #import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
 
 #include "../window_context.h"
 
@@ -12,7 +13,7 @@
 static_assert(false, "This is a non-ARC file");
 #endif
 
-@interface IosView : UIView
+@interface IosView : UIView <CAMetalDisplayLinkDelegate>
 - (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate;
 - (void)startDisplayLink;
 - (void)stopDisplayLink;
@@ -20,6 +21,8 @@ static_assert(false, "This is a non-ARC file");
 
 @implementation IosView {
     std::shared_ptr<tiny::View_delegate> _delegate;
+
+    CAMetalDisplayLink* _metalDisplayLink;
     CADisplayLink* _displayLink;
     
     tiny::User_interaction _interaction;
@@ -69,15 +72,40 @@ static_assert(false, "This is a non-ARC file");
 
 - (void)startDisplayLink {
     [self stopDisplayLink];
-    _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onDisplayLink:)];
-    [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+
+    if (@available(iOS 17, *)) {
+        auto metal_view = [[self subviews] firstObject]; // Assume the context set us up?
+        if (!metal_view) return;
+        _metalDisplayLink = [[CAMetalDisplayLink alloc] initWithMetalLayer:(CAMetalLayer*)metal_view.layer];
+        _metalDisplayLink.delegate = self;
+        [_metalDisplayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    }
+    else {
+        _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onDisplayLink:)];
+        [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    }
 }
 
 - (void)stopDisplayLink {
-    if (_displayLink) {
-        [_displayLink invalidate];
-        _displayLink = nil;
+    if (@available(iOS 17, *)) {
+        if (_metalDisplayLink) {
+            [_metalDisplayLink invalidate];
+            [_metalDisplayLink release]; // ??
+            _metalDisplayLink = nil;
+        }
     }
+    else {
+        if (_displayLink) {
+            [_displayLink invalidate];
+            _displayLink = nil;
+        }
+    }
+}
+
+- (void)metalDisplayLink:(CAMetalDisplayLink *)link needsUpdate:(CAMetalDisplayLinkUpdate *)update {
+    auto drawable = update.drawable;
+    _delegate->set_drawable(drawable);
+    [self drawRect:{}];
 }
 
 - (void)dealloc {

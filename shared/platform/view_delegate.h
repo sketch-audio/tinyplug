@@ -17,6 +17,8 @@ public:
     ~View_delegate();
 
     auto assign_context(std::unique_ptr<Window_context> context) -> void;
+
+    auto set_drawable(void* drawable) -> void; // macOS 14
     auto draw(const User_interaction& interaction, const Time_point& time_now) -> void;
     auto notify(const Ui_notification&) -> void;
     auto invalidate_context() -> void;

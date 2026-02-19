@@ -4,6 +4,7 @@
 
 #import <Cocoa/Cocoa.h>
 #import <CoreVideo/CVDisplayLink.h>
+#import <QuartzCore/QuartzCore.h> // CAMetalDisplayLink
 
 #include "../window_context.h"
 
@@ -17,7 +18,7 @@ static_assert(false, "This is a non-ARC file");
 #endif
 
 // TINY_MAC_VIEW
-@interface TINY_MAC_VIEW : NSView
+@interface TINY_MAC_VIEW : NSView <CAMetalDisplayLinkDelegate>
 - (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate onAutorelease:(std::function<void()>)onAutorelease;
 - (void)startDisplayLink;
 - (void)stopDisplayLink;
@@ -40,6 +41,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     tiny::User_interaction _interaction;
     tiny::Event_stream _events;
 
+    CAMetalDisplayLink* _metalDisplayLink; // macOS 14+
     CVDisplayLinkRef _displayLink;
     dispatch_source_t _displaySource;
 }
@@ -82,37 +84,59 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 - (void)startDisplayLink {
     [self stopDisplayLink];
 
-    NSScreen *screen = self.window.screen;
-    if (!screen) return;
+    if (@available(macOS 14, *)) {
+        _metalDisplayLink = [[CAMetalDisplayLink alloc] initWithMetalLayer:(CAMetalLayer*)self.layer];
+        _metalDisplayLink.delegate = self;
+        [_metalDisplayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    } 
+    else {
+        NSScreen *screen = self.window.screen;
+        if (!screen) return;
 
-    CGDirectDisplayID displayID = [[screen.deviceDescription objectForKey:@"NSScreenNumber"] unsignedIntValue];
+        CGDirectDisplayID displayID = [[screen.deviceDescription objectForKey:@"NSScreenNumber"] unsignedIntValue];
 
-    _displaySource = dispatch_source_create(DISPATCH_SOURCE_TYPE_DATA_ADD, 0, 0, dispatch_get_main_queue());
-    __block TINY_MAC_VIEW* self_ = self; // Need block pointer!
-    dispatch_source_set_event_handler(_displaySource, ^(){
-        if (self_) {
-            [self_ draw];
+        _displaySource = dispatch_source_create(DISPATCH_SOURCE_TYPE_DATA_ADD, 0, 0, dispatch_get_main_queue());
+        __block TINY_MAC_VIEW* self_ = self; // Need block pointer!
+        dispatch_source_set_event_handler(_displaySource, ^(){
+            if (self_) {
+                [self_ draw];
+            }
+        });
+        dispatch_resume(_displaySource);
+
+        if (CVDisplayLinkCreateWithCGDisplay(displayID, &_displayLink) == kCVReturnSuccess) {
+            CVDisplayLinkSetOutputCallback(_displayLink, &on_display_link, _displaySource);
+            CVDisplayLinkStart(_displayLink);
         }
-    });
-    dispatch_resume(_displaySource);
-
-    if (CVDisplayLinkCreateWithCGDisplay(displayID, &_displayLink) == kCVReturnSuccess) {
-        CVDisplayLinkSetOutputCallback(_displayLink, &on_display_link, _displaySource);
-        CVDisplayLinkStart(_displayLink);
     }
 }
 
 - (void)stopDisplayLink {
-    if (_displayLink) {
-        CVDisplayLinkStop(_displayLink);
-        CVDisplayLinkRelease(_displayLink);
-        _displayLink = nil;
+    if (@available(macos 14, *)) {
+        if (_metalDisplayLink) {
+            [_metalDisplayLink invalidate];
+            [_metalDisplayLink release]; // From metal idea.
+            _metalDisplayLink = nil;
+        }
     }
+    else {
+        if (_displayLink) {
+            CVDisplayLinkStop(_displayLink);
+            CVDisplayLinkRelease(_displayLink);
+            _displayLink = nil;
+        }
 
-    if (_displaySource) {
-        dispatch_source_cancel(_displaySource);
-        _displaySource = nil;
+        if (_displaySource) {
+            dispatch_source_cancel(_displaySource);
+            _displaySource = nil;
+        }
     }
+}
+
+- (void)metalDisplayLink:(CAMetalDisplayLink *)link needsUpdate:(CAMetalDisplayLinkUpdate *)update {
+    auto drawable = update.drawable;
+    _delegate->set_drawable(drawable);
+    [self draw];
 }
 
 - (void)draw {

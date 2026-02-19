@@ -35,6 +35,7 @@ public:
     auto setup(const Setup& setup) -> void;
     auto teardown() -> void;
 
+    auto set_drawable(void* drawable) -> void; // macOS 14
     auto begin_draw() -> void;
     auto get_canvas() -> Canvas;
     auto end_draw() -> void;

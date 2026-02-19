@@ -20,6 +20,11 @@ auto View_delegate::assign_context(std::unique_ptr<Window_context> context) -> v
     this->resize_context();
 }
 
+auto View_delegate::set_drawable(void* drawable) -> void
+{
+    _context->set_drawable(drawable);
+}
+
 auto View_delegate::draw(const User_interaction& interaction, const Time_point& time_now) -> void
 {
     if (!_context) return;

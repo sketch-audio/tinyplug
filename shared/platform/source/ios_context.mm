@@ -68,12 +68,32 @@ auto Window_context::teardown() -> void
 
     auto device = static_cast<id<MTLDevice>>(_device);
     [device release];
+    
+    id metal_view = static_cast<id>(_metal_view);
+    [metal_view release];
+}
+
+auto Window_context::set_drawable(void* drawable) -> void
+{
+    _drawable = CFRetain((GrMTLHandle)drawable);
 }
 
 auto Window_context::begin_draw() -> void
 {
     auto layer = static_cast<CAMetalLayer*>(_layer);
-    auto drawable = [layer nextDrawable];
+    
+    const auto drawable = [&]() -> id<CAMetalDrawable> {
+        // Have to make sure we don't call next drawable when using CAMetalDisplayLink.
+        if (@available(iOS 17, *)) {
+            return static_cast<id<CAMetalDrawable>>(_drawable); // We might have gotten the drawable externally.
+        }
+        else {
+            auto nextDrawable = [layer nextDrawable];
+            if (!nextDrawable) return nil;
+            _drawable = CFRetain((GrMTLHandle)nextDrawable);
+            return nextDrawable;
+        }
+    }();
     if (!drawable) return;
 
     auto texture_info = GrMtlTextureInfo{};
@@ -92,8 +112,6 @@ auto Window_context::begin_draw() -> void
 
     assert(surface && "Failed to create skia surface!");
     _surface = surface;
-
-    _drawable = CFRetain((GrMTLHandle)drawable);
 }
 
 auto Window_context::get_canvas() -> Canvas
@@ -104,6 +122,8 @@ auto Window_context::get_canvas() -> Canvas
 
 auto Window_context::end_draw() -> void
 {
+    if (!_drawable) return;
+
     if (auto direct_context = _context.get()) {
         direct_context->flush();
         direct_context->submit();
