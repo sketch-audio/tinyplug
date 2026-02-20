@@ -127,7 +127,7 @@ function(make_vst3_plugin USER_TARGET)
 
         add_custom_command(
             TARGET ${VST3_TARGET} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SOURCE_DIR}/cmake/templates/PlugIn.ico ${VST3_BUNDLE_OUTPUT_DIR}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SOURCE_DIR}/cmake/PlugIn.ico ${VST3_BUNDLE_OUTPUT_DIR}
         )
         add_custom_command(
             TARGET ${VST3_TARGET} POST_BUILD
