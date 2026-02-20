@@ -23,7 +23,7 @@ function(make_vst3_plugin USER_TARGET)
         ${SOURCE_DIR}/source/vst3_view.cpp
         ${SOURCE_DIR}/source/vst3_view.h
     )
-    add_vst3_main_source(${VST3_TARGET})
+    tiny_add_vst3_main(${VST3_TARGET})
 
     target_link_libraries(${VST3_TARGET} PRIVATE tiny::vst3sdk)
     target_link_libraries(${VST3_TARGET} PRIVATE ${USER_TARGET})

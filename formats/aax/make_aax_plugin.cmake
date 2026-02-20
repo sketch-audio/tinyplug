@@ -33,7 +33,7 @@ function(make_aax_plugin USER_TARGET)
         ${SOURCE_DIR}/source/aax_parameters.h
         ${SOURCE_DIR}/source/aax_taper_delegate.h
     )
-    add_aax_exports_source(${AAX_TARGET})
+    tiny_add_aax_main(${AAX_TARGET})
 
     target_link_libraries(${AAX_TARGET} PRIVATE tiny::aaxsdk)
     target_link_libraries(${AAX_TARGET} PRIVATE ${USER_TARGET})
