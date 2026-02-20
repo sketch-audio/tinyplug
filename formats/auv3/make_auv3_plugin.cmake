@@ -16,6 +16,7 @@ function(make_auv3_plugin USER_TARGET)
     read_property(${USER_TARGET} TINY_MANUFACTURER_CODE)
     read_property(${USER_TARGET} TINY_PLUGIN_CODE)
     read_property(${USER_TARGET} TINY_AUV2_TYPE) # same as AUv2
+    read_property(${USER_TARGET} TINY_APP_XCASSETS)
 
     derive_build_number(${TINY_VERSION_STRING} TINY_AUV3_BUNDLE_VERSION)
     read_property(${USER_TARGET} TINY_PLUGIN_WANTS_SIDECHAIN)
@@ -43,7 +44,12 @@ function(make_auv3_plugin USER_TARGET)
     # App
     # ---
     set(APP_TARGET ${TINY_BASE_FILENAME}_app)
-    set(ASSETS_PATH ${SOURCE_DIR}/assets/Assets.xcassets)
+
+    if (TINY_APP_XCASSETS)
+        set(ASSETS_PATH ${TINY_APP_XCASSETS})
+    else()
+        set(ASSETS_PATH ${SOURCE_DIR}/assets/Assets.xcassets)
+    endif()
 
     add_executable(${APP_TARGET})
     target_sources(${APP_TARGET} PRIVATE
