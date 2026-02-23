@@ -90,6 +90,7 @@ auto Aax_gui::CreateViewContainer() -> void
                     }
                     _gestured.erase(a.address);
                 },
+                [&](const auto&) {}
             }, action);
         }
     };
@@ -148,7 +149,23 @@ AAX_Result Aax_gui::ParameterUpdated(AAX_CParamID inParamID)
 auto Aax_gui::on_draw(View_context& view_context) -> void
 {
     view_impl::run_frame(
-        User_meters::meter_specs(), _receiver, _ui_params, _ui_meters, view_context, _editor, _actions, _undo_history, *_tasks
+        User_meters::meter_specs(),
+        _receiver,
+        _ui_params,
+        _ui_meters,
+        view_context,
+        _editor,
+        _actions,
+        _undo_history,
+        *_tasks,
+        [this](auto w, auto h) {
+            auto* view = GetViewContainer();
+            if (!view) return;
+            auto size = AAX_Point{static_cast<float>(h), static_cast<float>(w)}; // vert, horz
+            const auto result = view->SetViewSize(size);
+            if (result != AAX_SUCCESS) return;
+            _platform_view->resize(static_cast<int32_t>(w), static_cast<int32_t>(h));
+        }
     );
 }
 

@@ -244,6 +244,7 @@ private:
                         event.mArgument.mParameter.mElement = 0;
                         AUEventListenerNotify(NULL, NULL, &event);
                     },
+                    [](const auto&) {}
                 }, action);
             }
         },

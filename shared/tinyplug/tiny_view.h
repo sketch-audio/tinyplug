@@ -6,6 +6,7 @@
 #include <iostream>
 #include <ranges>
 #include <span>
+#include <unordered_set>
 #include <variant>
 
 #include "../platform/platform.h"
@@ -126,8 +127,23 @@ struct Event {
     bool consumed{};
 };
 
+struct Event_origin {
+    Coords pos{};
+    uintptr_t tag{};
+    bool operator==(const Event_origin&) const = default;
+
+    struct Hasher {
+        auto operator()(const Event_origin& origin) const -> size_t
+        {
+            return std::hash<uintptr_t>{}(origin.tag);
+        }
+    };
+};
+
+
 struct Event_list {
     std::vector<Event> events{}; // All events in the list can be considered simultaneous.
+    std::unordered_set<Event_origin, Event_origin::Hasher> pointer_origins{}; // The held pointer tags.
     Steady_time timestamp{};
 
     auto events_in(const Frame& frame) -> Event_list
@@ -142,7 +158,7 @@ struct Event_list {
                 }
             }, event.event);
         }
-        return {filtered, timestamp};
+        return {filtered, pointer_origins, timestamp};
     }
 };
 
@@ -151,11 +167,18 @@ struct Event_stream {
     auto push(const Event& event) -> void
     {
         events.push_back(event);
+
+        if (const auto* down = std::get_if<Pointer_down>(&event.event)) {
+            pointer_origins.insert({down->pos, event.pointer_tag});
+        }
+        else if (std::holds_alternative<Pointer_up>(event.event) || std::holds_alternative<Pointer_cancel>(event.event)) {
+            erase_origin(event.pointer_tag);
+        }
     }
 
     auto consume(Steady_time timestamp) -> Event_list
     {
-        const auto list = Event_list{consolidate_moves(events), timestamp};
+        const auto list = Event_list{consolidate_moves(events), pointer_origins, timestamp};
         events.clear();
         return list;
     }
@@ -163,6 +186,7 @@ struct Event_stream {
 private:
 
     std::vector<Event> events{};
+    std::unordered_set<Event_origin, Event_origin::Hasher> pointer_origins{};
 
     auto consolidate_moves(const std::vector<Event>& es) -> std::vector<Event>
     {
@@ -183,6 +207,17 @@ private:
         }
         std::ranges::reverse(out_rev);
         return out_rev;
+    }
+
+    auto erase_origin(uintptr_t tag) -> void
+    {
+        // Find origin with tag and erase.
+        for (auto it = pointer_origins.begin(); it != pointer_origins.end(); ++it) {
+            if (it->tag == tag) {
+                pointer_origins.erase(it);
+                break;
+            }
+        }
     }
 
 };
@@ -264,8 +299,8 @@ namespace view_impl {
 
 // MARK: - run_frame
 
-template<typename M, typename S, typename A0, typename A1, typename C, typename V, typename A, typename U, typename T>
-constexpr auto run_frame(
+template<typename M, typename S, typename A0, typename A1, typename C, typename V, typename A, typename U, typename T, typename F>
+inline auto run_frame(
     const M& _meter_specs,
     const S& _receiver,
     A0& _ui_params, 
@@ -274,7 +309,8 @@ constexpr auto run_frame(
     V* _custom_view,
     A& _actions,
     U& _undo_history,
-    T& _tasks
+    T& _tasks,
+    F _resize_policy
 ) -> void
 {
     _tasks.bind_main(std::this_thread::get_id());
@@ -345,6 +381,9 @@ constexpr auto run_frame(
         _receiver.action_handler(action);
         if (const auto* s = std::get_if<Set_param>(&action)) {
             _ui_params[s->address] = s->value; // Update the local copy.
+        }
+        else if (const auto* r = std::get_if<Request_resize>(&action)) {
+            _resize_policy(r->width, r->height);
         }
     }
 

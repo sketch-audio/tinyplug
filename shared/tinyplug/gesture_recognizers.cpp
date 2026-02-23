@@ -19,24 +19,39 @@ auto Over_recognizer::set_frame(const Frame& frame) -> void
 
 auto Over_recognizer::process_events(Event_list& events) -> void
 {
+    const auto has_touches = !events.pointer_origins.empty();
+    auto touch_is_ours = [&](auto tag) {
+        // We consider a touch to be "ours" if it originated within our frame, even if it has since left.
+        for (const auto& origin : events.pointer_origins) {
+            if (origin.tag == tag) {
+                return _frame.contains(origin.pos);
+            }
+        }
+        return false;
+    };
+
     for (const auto& event : events.events) {
         if (event.consumed) continue;
         std::visit(Inline_visitor{
             [&](const Pointer_move& move) {
+                if (has_touches && !touch_is_ours(event.pointer_tag)) return;
                 const auto was_over = _over;
                 const auto now_over = _frame.contains(move.pos);
                 resolve_events(move.pos, was_over, now_over);
             },
             [&](const Pointer_enter& enter) {
+                if (has_touches && !touch_is_ours(event.pointer_tag)) return;
                 const auto was_over = _over;
                 const auto now_over = _frame.contains(enter.pos);
                 resolve_events(enter.pos, was_over, now_over);
             },
             [&](const Pointer_exit& exit) {
+                if (has_touches && !touch_is_ours(event.pointer_tag)) return;
                 resolve_events(exit.pos, _over, false);
             },
 #if PLATFORM_IOS
             [&](const Pointer_up& up) {
+                if (has_touches && !touch_is_ours(event.pointer_tag)) return;
                 resolve_events(up.pos, _over, false);
             },
 #endif
@@ -223,6 +238,7 @@ auto Click_recognizer::process_events(Event_list& events) -> void
 auto Drag_recognizer::set_frame(const Frame& frame) -> void
 {
     _frame = frame;
+    if (!_cancels_on_frame_change) return;
 
     if (_fpos.has_value() || _tag.has_value() || _initiated) {
         _callbacks.on_cancelled();

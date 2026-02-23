@@ -937,6 +937,7 @@ auto Clap_plugin::_handle_user_actions(const clap_output_events_t* out_events) -
                     out_events->try_push(out_events, &e.header);
                 }
             },
+            [](const auto&) {}
         }, user_action);
     }
 }

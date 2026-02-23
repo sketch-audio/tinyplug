@@ -247,6 +247,7 @@ static auto presets_path() -> std::filesystem::path
                     auto* token = it != s->_observerTokens.end() ? it->second : nil;
                     [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeRelease];
                 },
+                [](const auto&) {}
             }, action);
         }
     };

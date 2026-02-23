@@ -167,8 +167,8 @@ public:
         Coords tpos{};
     };
 
-    explicit Drag_recognizer(const Gesture_callbacks<Info>& callbacks, bool greedy = false)
-        : _callbacks{callbacks}, _greedy{greedy} {}
+    explicit Drag_recognizer(const Gesture_callbacks<Info>& callbacks, bool greedy = false, bool cancels_on_frame_change = true)
+        : _callbacks{callbacks}, _greedy{greedy}, _cancels_on_frame_change{cancels_on_frame_change} {}
 
     auto set_frame(const Frame& frame) -> void override;
     auto process_events(Event_list& events) -> void override;
@@ -177,6 +177,7 @@ private:
 
     Gesture_callbacks<Info> _callbacks{};
     bool _greedy{};
+    bool _cancels_on_frame_change{};
 
     Frame _frame{};
 

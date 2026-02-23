@@ -41,7 +41,18 @@ auto Auv2_view::on_draw(View_context& view_context) -> void
 {
     _deps.executor.on_main();
     view_impl::run_frame(
-        User_meters::meter_specs(), _deps.receiver, _ui_params, _ui_meters, view_context, _deps.editor, _actions, _undo_history, *_deps.tasks
+        User_meters::meter_specs(),
+        _deps.receiver,
+        _ui_params,
+        _ui_meters,
+        view_context,
+        _deps.editor,
+        _actions,
+        _undo_history,
+        *_deps.tasks,
+        [this](auto w, auto h) {
+            _platform_view->resize(static_cast<int32_t>(w), static_cast<int32_t>(h));
+        }
     );
 }
 

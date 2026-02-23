@@ -42,8 +42,9 @@ using Ui_event = std::variant<Set_param, Set_meter>;
 
 struct Action_start { uint32_t address{}; };
 struct Action_end { uint32_t address{}; };
+struct Request_resize { uint32_t width{}; uint32_t height{}; };
 
-using User_action = std::variant<Action_start, Set_param, Action_end>;
+using User_action = std::variant<Action_start, Set_param, Action_end, Request_resize>;
 
 struct Ui_receiver {
     using Get_value = std::function<double(uint32_t)>;
