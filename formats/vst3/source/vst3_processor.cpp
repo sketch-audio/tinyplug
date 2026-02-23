@@ -475,6 +475,7 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
 
             if (_events.size() == _events.capacity()) {
                 // _events vector is full!
+                assert(false && "Event vector is full, increase capacity!");
                 std::cout << "Events vector full!\n";
             };
 
