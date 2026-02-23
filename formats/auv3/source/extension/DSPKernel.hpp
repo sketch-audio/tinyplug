@@ -148,6 +148,9 @@ public:
 //        if (tail != _tail) {
 //            // tail changed
 //        }
+        
+        const auto beats_per_sample = _context.tempo_real / (60 * mSampleRate);
+        _context.beat_pos += frameCount * beats_per_sample;
     }
     
     // Called by the process helper on the audio thread so we can send events to kernel directly.
@@ -180,6 +183,7 @@ public:
     
     void handleParameterEvent(AUEventSampleTime now, AUParameterEvent const& parameterEvent) {
         // Implement handling incoming Parameter events as needed
+        this->setParameter(parameterEvent.parameterAddress, parameterEvent.value);
     }
     
     // tiny
@@ -305,6 +309,7 @@ private:
             _context.transport_state.recording = recording;
             _context.transport_state.cycling = cycling;
             
+            _context.sample_pos = static_cast<int64_t>(samplePos);
             _context.cycle_start = cycleStart;
             _context.cycle_end = cycleEnd;
 
