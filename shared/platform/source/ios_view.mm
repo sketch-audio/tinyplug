@@ -161,6 +161,7 @@ static_assert(false, "This is a non-ARC file");
                 auto it = _active_pointers.find(closest_touch);
                 if (it != _active_pointers.end()) {
                     auto& pointer_data = it->second;
+                    if (pointer_data.started_drag) continue;
                     pointer_data.pending_gesture = true;
                     pointer_data.pos_down = std::nullopt;
                     pointer_data.started_drag = false;
@@ -188,6 +189,7 @@ static_assert(false, "This is a non-ARC file");
                 auto it = _active_pointers.find(closest_touch);
                 if (it != _active_pointers.end()) {
                     auto& pointer_data = it->second;
+                    if (pointer_data.started_drag) continue;
                     pointer_data.pending_gesture = true;
                     pointer_data.pos_down = std::nullopt;
                     pointer_data.started_drag = false;
@@ -215,6 +217,7 @@ static_assert(false, "This is a non-ARC file");
                 auto it = _active_pointers.find(closest_touch);
                 if (it != _active_pointers.end()) {
                     auto& pointer_data = it->second;
+                    if (pointer_data.started_drag) continue;
                     pointer_data.pending_gesture = true;
                     pointer_data.pos_down = std::nullopt;
                     pointer_data.started_drag = false;
