@@ -40,15 +40,15 @@ public:
 
     void RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_t channelCount, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues) override;
 
-    auto pop_meter(Ui_event& event) -> bool
+    auto pop_meter(Set_meter& set_meter) -> bool
     {
-        return _to_editor.pop(event);
+        return _meter_queue.pop(set_meter);
     }
 
     auto dump_meters() -> void
     {
         enumerate<uint32_t>(_last_meters, [this](auto i, const auto& e) {
-            _to_editor.push(Set_meter{i, e});
+            _meter_queue.push(Set_meter{i, e});
         });
     }
 
@@ -97,9 +97,9 @@ private:
     using To_processor_queue = Lock_free_queue<User_action, to_processor_size>;
     To_processor_queue _to_processor{}; // In AAX, this is actually only for non-automatable parameters.
 
-    static constexpr auto to_editor_size = num_params + 12 * num_meters + 1;
-    using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
-    To_editor_queue _to_editor{};
+    static constexpr auto to_editor_size = 25 * num_meters + 1;
+    using Meter_queue = Lock_free_queue<Set_meter, to_editor_size>;
+    Meter_queue _meter_queue{};
 
     // Latency
     // ---

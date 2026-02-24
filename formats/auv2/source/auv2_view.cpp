@@ -21,10 +21,6 @@ auto Auv2_view::create_view() -> void*
     _platform_view->on_create();
     _deps.editor->on_gui_create();
 
-    _ui_params = make_array_by_indices<double, num_params>(
-        [this](auto i) { return _deps.receiver.get_knob_value(static_cast<uint32_t>(i)); }
-    );
-
     _deps.tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
     _platform_view->on_show();
     _deps.editor->on_gui_show({
@@ -40,6 +36,9 @@ auto Auv2_view::create_view() -> void*
 auto Auv2_view::on_draw(View_context& view_context) -> void
 {
     _deps.executor.on_main();
+    _ui_params = make_array_by_indices<double, num_params>(
+        [this](auto i) { return _deps.receiver.get_param(static_cast<uint32_t>(i)); }
+    );
     view_impl::run_frame(
         User_meters::meter_specs(),
         _deps.receiver,

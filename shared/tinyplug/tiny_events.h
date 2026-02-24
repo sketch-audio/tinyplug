@@ -47,11 +47,11 @@ struct Request_resize { uint32_t width{}; uint32_t height{}; };
 using User_action = std::variant<Action_start, Set_param, Action_end, Request_resize>;
 
 struct Ui_receiver {
-    using Get_value = std::function<double(uint32_t)>;
-    using Pop_event = std::function<bool(Ui_event&)>;
+    using Get_param = std::function<double(uint32_t)>;
+    using Pop_meter = std::function<bool(Set_meter&)>;
     using Action_handler = std::function<void(const User_action&)>;
-    Get_value get_knob_value = [](auto) { return 0; };
-    Pop_event pop_event = [](auto&) { return false; };
+    Get_param get_param = [](auto) { return 0; };
+    Pop_meter pop_meter = [](auto&) { return false; };
     Action_handler action_handler = [](auto&) {};
 };
 

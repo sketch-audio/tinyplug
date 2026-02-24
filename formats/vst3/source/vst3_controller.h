@@ -8,6 +8,7 @@
 
 #include "vst3_view.h"
 
+#include "tinyplug/change_list.hpp"
 #include "tinyplug/task_manager.hpp"
 
 namespace tiny {
@@ -59,6 +60,12 @@ public:
         return _last_size;
     }
 
+    template<typename F>
+    auto consume_changes(F&& f) -> void
+    {
+        _state_queue.consume(std::forward<F>(f));
+    }
+
 protected:
 
     std::optional<Plug_editor> _editor{};
@@ -69,9 +76,10 @@ protected:
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 
-    static constexpr auto to_editor_size = num_params + 12 * num_meters + 1;
-    using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
-    To_editor_queue _to_editor{};
+    static constexpr auto meter_size = 25 * num_meters + 1;
+    using Meter_queue = Lock_free_queue<Set_meter, meter_size>;
+    Meter_queue _meter_queue{};
+    Change_list _state_queue{};
     std::array<double, num_meters> _last_meters{};
 
     std::unordered_set<uint32_t> _gestured{};

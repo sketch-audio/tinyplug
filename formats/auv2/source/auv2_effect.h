@@ -158,15 +158,14 @@ private:
     //static constexpr auto to_processor_size = 4 * num_params + 1;
     using To_processor_queue = Lock_free_queue<Tagged_event, queue_size, Queue_concurrency::mpsc>; // I believe SetParameter can happen from a variety of threads.
 
-    static constexpr auto to_editor_size = num_params + 12 * num_meters + 1; // Approx number of 32 sample buffers between UI updates at 60fps.
-    using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
-
-    // Right now just for latency.
-    using Private_queue = Lock_free_queue<Private_message, 24>;
+    static constexpr auto meter_size = 25 * num_meters + 1; // Approx number of 32 sample buffers between UI updates at 60fps (25).
+    using Meter_queue = Lock_free_queue<Set_meter, meter_size>;
+    using Private_queue = Lock_free_queue<Private_message, 24>; // Right now just to send latency change notifications.
 
     Change_list _changes{}; // State, UI updates (not for SetParameter).
     To_processor_queue _to_processor{};
-    To_editor_queue _to_editor{};
+
+    Meter_queue _meter_queue{};
     Private_queue _pqueue{};
 
     // Render
@@ -199,14 +198,14 @@ private:
             }
         }},
         .receiver = {
-            .get_knob_value = [this](auto id) {
+            .get_param = [this](auto id) {
                 const auto& param = User_params::param_spec(id);
                 const auto host = Globals()->GetParameter(id);
                 const auto knob = Value_conv::host_to_knob(host, param.semantics);
                 return knob;
             },
-            .pop_event = [this](auto& event) {
-                return _to_editor.pop(event);
+            .pop_meter = [this](auto& event) {
+                return _meter_queue.pop(event);
             },
             .action_handler = [this](auto& action) {
                 std::visit(Inline_visitor{

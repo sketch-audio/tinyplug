@@ -474,16 +474,16 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setParamNormalized(Steinberg::Vst
 
     // Is it a parameter?
     if (tag < num_params) {
-        _to_editor.push(Set_param{.address = tag, .value = value});
+        _state_queue.push(Set_param{.address = tag, .value = value});
     }
-    // Is it an export?
+    // Is it a meter?
     else if (tag >= export_param_offset && tag < export_param_offset + num_meters) {
         const auto id = tag - export_param_offset;
 
         // Convert back to plain for UI.
         const auto& spec = User_meters::meter_spec(id);
         const auto plain = norm_to_plain(value, spec.range);
-        _to_editor.push(Set_meter{.address = id, .value = plain});
+        _meter_queue.push(Set_meter{.address = id, .value = plain});
 
         _last_meters[id] = plain; // Cache plain because we might dump to UI.
     }
@@ -511,11 +511,11 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
     {
         // Make the UI connection.
         auto receiver = Ui_receiver{
-            .get_knob_value = [this](auto id) {
+            .get_param = [this](auto id) {
                 return getParamNormalized(id);
             },
-            .pop_event = [this](auto& e) {
-                return _to_editor.pop(e);
+            .pop_meter = [this](auto& e) {
+                return _meter_queue.pop(e);
             },
             .action_handler = [this](auto& a) {
                 std::visit(Inline_visitor{
@@ -540,7 +540,7 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
         // A workaround for now, push all exports into the queue.
         // This is so we can get correct values on first appearance.
         enumerate<uint32_t>(_last_meters, [this](auto i, const auto& e) {
-            _to_editor.push(Set_meter{.address = i, .value = e});
+            _meter_queue.push(Set_meter{.address = i, .value = e});
         });
 
         return new Vst3_view{{.controller = this, .editor = &(*_editor), .receiver = std::move(receiver), .tasks = &_tasks}};

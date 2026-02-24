@@ -132,7 +132,7 @@ public:
         for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
             if (context.meters[i] != _last_meters[i]) {
                 const auto value = context.meters[i];
-                _to_editor.push(tiny::Set_meter{.address = i, .value = value});
+                _meter_queue.push(tiny::Set_meter{.address = i, .value = value});
                 _last_meters[i] = value;
             }
             _meters[i] = 0; // Reset for peak meters.
@@ -160,9 +160,8 @@ public:
                 const auto address = static_cast<uint32_t>(event->parameter.parameterAddress);
                 const auto& spec = User_params::param_spec(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
-                const auto norm = tiny::Value_conv::host_to_knob(event->parameter.value, spec.semantics);
                 _processor->handle_event(tiny::Set_param{.address = address, .value = plain});
-                _to_editor.push(tiny::Set_param{.address = address, .value = norm});
+                _hostvalues[address].store(event->parameter.value, std::memory_order_relaxed); // Maintain host values.
                 break;
             }
             case AURenderEventParameterRamp: {
@@ -170,9 +169,8 @@ public:
                 const auto dur_samples = static_cast<int32_t>(event->parameter.rampDurationSampleFrames);
                 const auto& spec = User_params::param_spec(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
-                const auto norm = tiny::Value_conv::host_to_knob(event->parameter.value, spec.semantics);
                 _processor->handle_event(tiny::Ramp_param{.address = address, .target = plain, .dur_samples = dur_samples});
-                _to_editor.push(tiny::Set_param{.address = address, .value = norm});
+                _hostvalues[address].store(event->parameter.value, std::memory_order_relaxed); // Maintain host values.
                 break;
             }
                 
@@ -205,16 +203,14 @@ public:
         return _processor->tail_samps() / mSampleRate;
     }
     
-    auto pop_event(tiny::Ui_event& event) -> bool
+    auto pop_meter(tiny::Set_meter& meter) -> bool
     {
-        return _to_editor.pop(event);
+        return _meter_queue.pop(meter);
     }
     
-    auto onHostUpdated(AUParameterAddress address, AUValue value) -> void
+    auto onHostUpdated(AUParameterAddress /*address*/, AUValue /*value*/) -> void
     {
-        const auto& param = User_params::param_spec(static_cast<uint32_t>(address));
-        const auto norm = tiny::Value_conv::host_to_knob(value, param.semantics);
-        _to_editor.push(tiny::Set_param{.address = static_cast<uint32_t>(address), .value = norm});
+        // We're immediate in the gui so nothing to do here.
     }
     
 private:
@@ -256,9 +252,9 @@ private:
     using Param_queue = tiny::Lock_free_queue<tiny::Render_event, queue_size, tiny::Queue_concurrency::mpsc>; // I believe SetParameter can happen from multiple threads
     Param_queue _param_queue{};
     
-    static constexpr auto to_editor_size = num_params + 12 * num_meters + 1;
-    using To_editor_queue = tiny::Overwrite_queue<tiny::Ui_event, to_editor_size>;
-    To_editor_queue _to_editor{};
+    static constexpr auto meter_size = 25 * num_meters + 1;
+    using Meter_queue = tiny::Lock_free_queue<tiny::Set_meter, meter_size>;
+    Meter_queue _meter_queue{};
     
     // Values in host space.
     using Host_value = std::atomic<float>;

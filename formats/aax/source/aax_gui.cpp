@@ -39,8 +39,8 @@ auto Aax_gui::CreateViewContainer() -> void
     }
 
     // We have to make our own UI connection.
-    _receiver = {
-        .get_knob_value = [params](auto id) {
+    _receiver = Ui_receiver{
+        .get_param = [params](auto id) {
             if (const auto aax_id = tiny_id_to_aax(id)) {
                 const auto* id_cstr = (*aax_id).c_str();
                 AAX_IParameter* param = nullptr;
@@ -50,7 +50,7 @@ auto Aax_gui::CreateViewContainer() -> void
             }
             return double{};
         },
-        .pop_event = [params](auto& e) -> bool {
+        .pop_meter = [params](auto& e) -> bool {
             return params ? params->pop_meter(e) : false;
         },
         .action_handler = [this, view, params](auto& action) {
@@ -97,7 +97,7 @@ auto Aax_gui::CreateViewContainer() -> void
 
     // Now we have the receiver.
     _ui_params = make_array_by_indices<double, num_params>(
-        [this](auto i) { return _receiver.get_knob_value(static_cast<uint32_t>(i)); }
+        [this](auto i) { return _receiver.get_param(static_cast<uint32_t>(i)); }
     );
 
     _tasks->bind_main(std::this_thread::get_id()); // Can we do it here?

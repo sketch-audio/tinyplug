@@ -596,7 +596,7 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
         if (context.meters[i] != _last_meters[i]) {
             // Send an output event.
             const auto value = context.meters[i];
-            _to_editor.push(Set_meter{.address = static_cast<uint32_t>(i), .value = value});
+            _meter_queue.push(Set_meter{.address = static_cast<uint32_t>(i), .value = value});
 
             // Cache for next time.
             _last_meters[i] = value;

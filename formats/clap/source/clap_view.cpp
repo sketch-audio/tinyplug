@@ -72,10 +72,6 @@ auto Clap_view::set_parent(const clap_window* window) noexcept -> bool
     auto* platform_window = is_mac ? window->cocoa : window->win32;
     _platform_view->receive_parent(platform_window);
     
-    _ui_params = make_array_by_indices<double, num_params>(
-        [this](auto i) { return _deps.receiver.get_knob_value(static_cast<uint32_t>(i)); }
-    );
-
     return true;
 }
 
@@ -83,6 +79,9 @@ auto Clap_view::set_parent(const clap_window* window) noexcept -> bool
 
 auto Clap_view::on_draw(View_context& view_context) -> void
 {
+    _ui_params = make_array_by_indices<double, num_params>(
+        [this](auto i) { return _deps.receiver.get_param(static_cast<uint32_t>(i)); }
+    );
     view_impl::run_frame(
         User_meters::meter_specs(),
         _deps.receiver,

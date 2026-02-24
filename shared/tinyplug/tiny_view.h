@@ -316,41 +316,36 @@ inline auto run_frame(
     _tasks.bind_main(std::this_thread::get_id());
 
     // Pop the exports.
-    auto event = Ui_event{};
-    while (_receiver.pop_event(event)) {
-        std::visit(Inline_visitor{
-            [&](const Set_param& p) {
-                _ui_params[p.address] = p.value;
-            },
-            [&](const Set_meter& e) {
-                //
-                auto& uiexport = _ui_meters[e.address];
-                const auto type = _meter_specs[e.address].policy;
+    auto meter = Set_meter{};
+    while (_receiver.pop_meter(meter)) {
+        const auto addr = meter.address;
+        const auto value = meter.value;
 
-                using enum Meter_policy;
-                switch (type) {
-                    case peak: {
-                        if (!uiexport.updated) {
-                            uiexport.value = 0; // Reset on first update in frame where we receive an event.
-                        }
-                        uiexport.value = std::max(uiexport.value, e.value);
-                        uiexport.last_is_zero = (e.value == 0.f);
-                        uiexport.updated = true;
-                        break;
-                    }
-                    case stream: {
-                        uiexport.value = e.value;
-                        uiexport.updated = true;
-                        break;
-                    }
-                    case trig: {
-                        uiexport.value = 1;
-                        uiexport.trigged = true;
-                        break;
-                    }
+        auto& ui_meter = _ui_meters[addr];
+        const auto type = _meter_specs[addr].policy;
+        
+        using enum Meter_policy;
+        switch (type) {
+            case peak: {
+                if (!ui_meter.updated) {
+                    ui_meter.value = 0; // Reset on first update in frame where we receive an event.
                 }
+                ui_meter.value = std::max(ui_meter.value, value);
+                ui_meter.last_is_zero = (value == 0.f);
+                ui_meter.updated = true;
+                break;
             }
-        }, event);
+            case stream: {
+                ui_meter.value = value;
+                ui_meter.updated = true;
+                break;
+            }
+            case trig: {
+                ui_meter.value = 1;
+                ui_meter.trigged = true;
+                break;
+            }
+        }
     }
 
     // Adapt tagged meters to values.

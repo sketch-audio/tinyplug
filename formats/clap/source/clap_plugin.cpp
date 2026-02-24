@@ -179,7 +179,7 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
         if (context.meters[i] != _last_meters[i]) {
             // Send export and cache.
             const auto value = context.meters[i];
-            _to_editor.push(Set_meter{.address = i, .value = value});
+            _meter_queue.push(Set_meter{.address = i, .value = value});
             _last_meters[i] = value;
         }
         _meters[i] = 0; // Reset for peak meters.
@@ -754,14 +754,14 @@ bool Clap_plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
 {
     // Make the UI connection.
     auto receiver = Ui_receiver{
-        .get_knob_value = [this](auto id) {
+        .get_param = [this](auto id) {
             const auto& param = User_params::param_spec(id);
             const auto host_value = _hostvalues[id].load(std::memory_order_relaxed);
             const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
             return knob_value;
         },
-        .pop_event = [this](auto& event) {
-            return _to_editor.pop(event);
+        .pop_meter = [this](auto& event) {
+            return _meter_queue.pop(event);
         },
         .action_handler = [this](auto& action) {
             this->_handle_user_action(action);

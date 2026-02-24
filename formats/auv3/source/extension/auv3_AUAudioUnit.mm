@@ -208,7 +208,7 @@ static auto presets_path() -> std::filesystem::path
     using namespace tiny;
     __weak typeof(self) self_ = self;
     return Ui_receiver{
-        .get_knob_value = [self_](uint32_t addr) {
+        .get_param = [self_](uint32_t addr) {
             auto s = self_;
             if (!s) return double{};
             const auto& spec = Param_infos<Param_model>::param_spec(addr);
@@ -216,10 +216,10 @@ static auto presets_path() -> std::filesystem::path
             const auto knob = Value_conv::host_to_knob(host, spec.semantics);
             return knob;
         },
-        .pop_event = [self_](Ui_event& event) {
+        .pop_meter = [self_](Set_meter& meter) {
             auto s = self_;
             if (!s) return false;
-            return s->_kernel.pop_event(event);
+            return s->_kernel.pop_meter(meter);
         },
         .action_handler = [self_](const User_action& action) {
             auto s = self_;
@@ -461,7 +461,7 @@ static auto presets_path() -> std::filesystem::path
     _processHelper = std::make_unique<AUProcessHelper>(_kernel, inputChannelCount, outputChannelCount);
     [self startDispatchTimer];
 
-    // go through all parameters
+    // Since we're immediate in the gui we might be able to get rid of these observer tokens.
     __block DSPKernel *kernel = &_kernel;
     for (AUParameter *param in _parameterTree.allParameters) {
         AUParameterObserverToken token = [param tokenByAddingParameterObserver:^(AUParameterAddress address, AUValue value) {

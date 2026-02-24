@@ -26,11 +26,6 @@ public:
 
     auto on_show() -> void
     {
-        // Update the ui params
-        _ui_params = make_array_by_indices<double, num_params>(
-            [this](auto i) { return _deps.receiver.get_knob_value(static_cast<uint32_t>(i)); }
-        );
-
         _deps.tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
         _platform_view->on_show();
         _deps.editor->on_gui_show({

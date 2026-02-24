@@ -333,15 +333,12 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
     const auto& param = params[inID];
 
     const auto plain_value = Value_conv::host_to_plain(inValue, param.semantics);
-    const auto knob_value = Value_conv::host_to_knob(inValue, param.semantics);
 
     [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
         .offset = static_cast<int32_t>(inBufferOffsetInFrames),
         .event = Set_param{.address = inID, .value = plain_value}
     });
     assert(success && "Push to processor queue failed! Increase queue size.");
-
-    _to_editor.push(Set_param{.address = inID, .value = knob_value});
 
     return Super::SetParameter(inID, inScope, inElement, inValue, inBufferOffsetInFrames);
 }
@@ -359,15 +356,12 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                 const auto offset = event.eventValues.immediate.bufferOffset;
                 const auto value = event.eventValues.immediate.value;
                 const auto plain_value = Value_conv::host_to_plain(value, param.semantics);
-                const auto knob_value = Value_conv::host_to_knob(value, param.semantics);
 
                 [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
                     .offset = static_cast<int32_t>(offset),
                     .event = Set_param{.address = event.parameter, .value = plain_value}
                 });
                 assert(success && "Push to processor queue failed! Increase queue size.");
-
-                _to_editor.push(Set_param{.address = event.parameter, .value = knob_value});
 
                 // Maintain host values.
                 Super::SetParameter(event.parameter, event.scope, event.element, value, offset);
@@ -382,7 +376,6 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
 
                 const auto plain_initial = Value_conv::host_to_plain(initial, param.semantics);
                 const auto plain_target = Value_conv::host_to_plain(target, param.semantics);
-                const auto knob_target = Value_conv::host_to_knob(target, param.semantics);
 
                 // Do we need to be sending set initial?
                 [[maybe_unused]] const auto set_success = _to_processor.push(Tagged_event{
@@ -400,8 +393,6 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                     }
                 });
                 assert(ramp_success && "Push to processor queue failed! Increase queue size.");
-
-                _to_editor.push(Set_param{.address = event.parameter, .value = knob_target});
 
                 // Maintain host values.
                 const auto off = static_cast<UInt32>(offset);
@@ -425,7 +416,6 @@ auto Auv2_effect::_update_state(const Maybe_values<double>& knob_values, const S
             const auto plain = Value_conv::knob_to_plain(*knob_value, param.semantics);
             Globals()->SetParameter(param.address, static_cast<float>(host));
             change_list.push_back(Set_param{param.address, plain}); // We'll publish as a batch.
-            _to_editor.push(Set_param{param.address, *knob_value});
         }
     };
 
@@ -587,10 +577,8 @@ OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
             const auto& param = User_params::param_spec(i);
             const auto host_value = Globals()->GetParameter(i);
             const auto plain_value = Value_conv::host_to_plain(host_value, param.semantics);
-            const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
 
             change_list.push_back(Set_param{param.address, plain_value});
-            _to_editor.push(Set_param{param.address, knob_value});
         }
 
         _changes.push_n(change_list); // Batch publish everything.
@@ -957,7 +945,7 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
         if (context.meters[i] != _last_meters[i]) {
             // Send an output event.
             const auto value = context.meters[i];
-            _to_editor.push(Set_meter{.address = i, .value = value});
+            _meter_queue.push(Set_meter{.address = i, .value = value});
 
             // Cache for next time.
             _last_meters[i] = value;

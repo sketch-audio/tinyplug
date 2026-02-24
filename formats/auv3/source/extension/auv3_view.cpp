@@ -21,6 +21,9 @@ auto Auv3_view::create_view() -> void*
 
 auto Auv3_view::on_draw(View_context& view_context) -> void
 {
+    _ui_params = make_array_by_indices<double, num_params>(
+        [this](auto i) { return _deps.receiver.get_param(static_cast<uint32_t>(i)); }
+    );
     view_impl::run_frame(
         User_meters::meter_specs(),
         _deps.receiver,

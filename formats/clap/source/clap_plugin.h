@@ -166,17 +166,17 @@ private:
 
     std::array<double, num_meters> _last_meters{};
 
-    static constexpr auto queue_size = 4 * num_params + 1;
-    static constexpr auto to_editor_size = num_params + 12 * num_meters + 1;
+    static constexpr auto queue_size = 4 * num_params + 1; // State only
+    static constexpr auto meter_size = 25 * num_meters + 1;
 
     using From_flush_queue = Lock_free_queue<Render_event, queue_size>; //
     using From_ui_queue = Lock_free_queue<User_action, queue_size>;
-    using To_editor_queue = Overwrite_queue<Ui_event, to_editor_size>;
+    using Meter_queue = Lock_free_queue<Set_meter, meter_size>;
 
     From_flush_queue _from_flush{};
     From_ui_queue _from_ui{};
 
-    To_editor_queue _to_editor{};
+    Meter_queue _meter_queue{};
 
     State_adapter _state_adapter{{
         .load_model = []() {
@@ -223,10 +223,6 @@ private:
 
                 // Maintain host atomics.
                 _hostvalues[id].store(value_event->value, std::memory_order_relaxed);
-
-                // Notify UI.
-                const auto knob_value = Value_conv::host_to_knob(value_event->value, param.semantics);
-                _to_editor.push(Set_param{.address = id, .value = knob_value});
 
                 break;
             }
