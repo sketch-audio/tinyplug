@@ -20,6 +20,10 @@ function(make_auv3_plugin USER_TARGET)
 
     derive_build_number(${TINY_VERSION_STRING} TINY_AUV3_BUNDLE_VERSION)
     read_property(${USER_TARGET} TINY_PLUGIN_WANTS_SIDECHAIN)
+
+    # For entitlements files.
+    read_property(${USER_TARGET} TINY_COMPANY_DIRECTORY_NAME)
+    read_property(${USER_TARGET} TINY_PRODUCT_DIRECTORY_NAME)
     
     set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
 
@@ -76,6 +80,13 @@ function(make_auv3_plugin USER_TARGET)
         target_link_libraries(${APP_TARGET} PRIVATE
             "-framework AppKit"
             "-framework Foundation"
+        )
+        configure_file(
+            ${SOURCE_DIR}/cmake/Entitlements-App.plist.in
+            ${CMAKE_CURRENT_BINARY_DIR}/Entitlements-App.plist
+        )
+        set_target_properties(${APP_TARGET} PROPERTIES
+            XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_BINARY_DIR}/Entitlements-App.plist"
         )
     endif()
     target_include_directories(${APP_TARGET} PUBLIC ${SOURCE_DIR}/source/shared)
@@ -139,6 +150,13 @@ function(make_auv3_plugin USER_TARGET)
             "-framework AVFoundation"
             "-framework CoreAudioKit"
             "-framework Foundation"
+        )
+        configure_file(
+            ${SOURCE_DIR}/cmake/Entitlements-Extension.plist.in
+            ${CMAKE_CURRENT_BINARY_DIR}/Entitlements-Extension.plist
+        )
+        set_target_properties(${EXT_TARGET} PROPERTIES
+            XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_BINARY_DIR}/Entitlements-Extension.plist"
         )
     endif()
     target_link_libraries(${EXT_TARGET} PUBLIC ${USER_TARGET})
