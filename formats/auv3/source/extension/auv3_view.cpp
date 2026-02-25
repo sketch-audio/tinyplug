@@ -40,7 +40,7 @@ auto Auv3_view::on_draw(View_context& view_context) -> void
 
 auto Auv3_view::on_notify(const Ui_notification& notification) -> void
 {
-    _editor->on_gui_notify(notification);
+    _deps.editor->on_gui_notify(notification);
 }
 
 } // namespace tiny

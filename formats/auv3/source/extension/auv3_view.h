@@ -87,7 +87,6 @@ private:
     }};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
-    std::shared_ptr<Plug_editor> _editor{nullptr};
 
     std::array<Tagged_meter, num_meters> _ui_meters{};
     std::array<double, num_params> _ui_params{User_params::make_defaults<double>(Value_space::Knob)};
