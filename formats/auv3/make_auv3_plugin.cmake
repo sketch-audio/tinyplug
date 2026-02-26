@@ -87,6 +87,15 @@ function(make_auv3_plugin USER_TARGET)
         )
         set_target_properties(${APP_TARGET} PROPERTIES
             XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_BINARY_DIR}/Entitlements-App.plist"
+            # Strip and generate dSYM for release builds.
+            XCODE_ATTRIBUTE_DEPLOYMENT_POSTPROCESSING[variant=Release] "YES"
+            XCODE_ATTRIBUTE_STRIP_INSTALLED_PRODUCT[variant=Release] "YES"
+            XCODE_ATTRIBUTE_GCC_GENERATE_DEBUGGING_SYMBOLS[variant=Release] "YES"
+            XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=Release] "dwarf-with-dsym"
+            # Required (as far as I can tell) for notarization.
+            XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME "YES"
+            XCODE_ATTRIBUTE_OTHER_CODE_SIGN_FLAGS "--timestamp"
+            XCODE_ATTRIBUTE_CODE_SIGN_INJECT_BASE_ENTITLEMENTS[variant=Release] "NO"
         )
     endif()
     target_include_directories(${APP_TARGET} PUBLIC ${SOURCE_DIR}/source/shared)
@@ -157,10 +166,21 @@ function(make_auv3_plugin USER_TARGET)
         )
         set_target_properties(${EXT_TARGET} PROPERTIES
             XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_BINARY_DIR}/Entitlements-Extension.plist"
+            # Strip and generate dSYM for release builds.
+            XCODE_ATTRIBUTE_DEPLOYMENT_POSTPROCESSING[variant=Release] "YES"
+            XCODE_ATTRIBUTE_STRIP_INSTALLED_PRODUCT[variant=Release] "YES"
+            XCODE_ATTRIBUTE_STRIP_STYLE[variant=Release] "all" # May not be needed now that we're passing exports.txt
+            XCODE_ATTRIBUTE_GCC_GENERATE_DEBUGGING_SYMBOLS[variant=Release] "YES"
+            XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=Release] "dwarf-with-dsym"
+            # Required (as far as I can tell) for notarization.
+            XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME "YES"
+            XCODE_ATTRIBUTE_OTHER_CODE_SIGN_FLAGS "--timestamp"
+            XCODE_ATTRIBUTE_CODE_SIGN_INJECT_BASE_ENTITLEMENTS[variant=Release] "NO"
         )
+        target_link_options(${EXT_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
     endif()
-    target_link_libraries(${EXT_TARGET} PUBLIC ${USER_TARGET})
-    target_include_directories(${EXT_TARGET} PUBLIC ${SOURCE_DIR}/source/shared)
+    target_link_libraries(${EXT_TARGET} PRIVATE ${USER_TARGET})
+    target_include_directories(${EXT_TARGET} PRIVATE ${SOURCE_DIR}/source/shared)
 
     # Configure Info.plist
     set(TINY_AUV3_IDENTIFIER "${TINY_BASE_IDENTIFIER}.auv3") # Must match bundle identifier.
