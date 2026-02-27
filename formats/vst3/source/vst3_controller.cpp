@@ -97,8 +97,8 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
             switch (policy) {
                 case automation: return Vst3_flags::kCanAutomate;
                 case control: return Vst3_flags::kNoFlags; // Will any hosts display a control?
-                case hidden: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly};
-                case interface: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly};
+                // case hidden: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly}; // Studio Pro doesn't send editor changes to the processor for hidden/read-only combo.
+                // case interface: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly};
                 default: return Vst3_flags::kNoFlags;
             }
         }();
