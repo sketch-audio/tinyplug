@@ -109,6 +109,9 @@ private:
     // Communicates the accepted latency from `setActive` to `process`.
     Latency_flag _accepted_latency{};
 
+    static constexpr auto max_change_count = 65536.; // !!!
+    double _change_count{};
+
     auto normalize_input_events(Steinberg::Vst::ProcessData& data) -> void;
 
 };

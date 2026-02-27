@@ -298,13 +298,15 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     // Has the kernel proposed a new latency?
     if (const auto proposed_latency = context.propose_latency; proposed_latency/* && *proposed_latency != _latency*/) {
         // Notify controller and sit on the pending latency.
-        add_output_event(latency_param_id, static_cast<double>(*proposed_latency));
+        _change_count += 1.;
+        add_output_event(latency_param_id, static_cast<double>(_change_count / max_change_count));
         _pending_latency.store(*proposed_latency, std::memory_order_release);
     }
 
     if (_did_reset) {
         // Force host to check latency.
-        add_output_event(latency_param_id, static_cast<double>(_latency));
+        _change_count += 1.;
+        add_output_event(latency_param_id, static_cast<double>(_change_count / max_change_count));
         _did_reset = false;
     }
 
