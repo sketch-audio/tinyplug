@@ -205,7 +205,7 @@ function(copy_presets TARGET EXTENSION SOURCE_DIR DEST_DIR)
             # Register the copy command
             add_custom_command(
                 TARGET ${TARGET} POST_BUILD
-                #COMMAND ${CMAKE_COMMAND} -E make_directory "${DEST_DIR}"
+                COMMAND ${CMAKE_COMMAND} -E make_directory "${DEST_DIR}"
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${PRESET_FILE}"
                     "${DEST_DIR}/${PRESET_FILENAME}"
@@ -224,6 +224,7 @@ function(copy_file_list TARGET FILE_LIST DEST_DIR)
 
         add_custom_command(
             TARGET ${TARGET} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${DEST_DIR}"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${FILE_PATH}"
                 "${DEST_DIR}/${FILE_NAME}"
