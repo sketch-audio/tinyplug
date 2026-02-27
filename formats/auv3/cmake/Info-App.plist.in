@@ -6,6 +6,8 @@
     <string>${TINY_BASE_IDENTIFIER}</string>
     <key>CFBundleName</key>
     <string>${TINY_PRODUCT_NAME}</string>
+    <key>CFBundleDisplayName</key>
+    <string>${TINY_PRODUCT_NAME}</string>
     <key>CFBundleVersion</key>
     <string>${TINY_BUILD_NUMBER}</string>
     <key>CFBundleShortVersionString</key>
