@@ -87,11 +87,6 @@ function(make_auv3_plugin USER_TARGET)
         )
         set_target_properties(${APP_TARGET} PROPERTIES
             XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_BINARY_DIR}/Entitlements-App.plist"
-            # Strip and generate dSYM for release builds.
-            XCODE_ATTRIBUTE_DEPLOYMENT_POSTPROCESSING[variant=Release] "YES"
-            XCODE_ATTRIBUTE_STRIP_INSTALLED_PRODUCT[variant=Release] "YES"
-            XCODE_ATTRIBUTE_GCC_GENERATE_DEBUGGING_SYMBOLS[variant=Release] "YES"
-            XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=Release] "dwarf-with-dsym"
             # Required (as far as I can tell) for notarization.
             XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME "YES"
             XCODE_ATTRIBUTE_OTHER_CODE_SIGN_FLAGS "--timestamp"
