@@ -13,7 +13,12 @@ namespace tiny {
 
 using Misbehaviour_handler = clap::helpers::MisbehaviourHandler;
 using Checking_level = clap::helpers::CheckingLevel;
-using Preset_discovery_base = clap::helpers::PresetDiscoveryProvider<Misbehaviour_handler::Ignore, Checking_level::Minimal>;
+
+#if defined(NDEBUG)
+using Preset_discovery_base = clap::helpers::PresetDiscoveryProvider<Misbehaviour_handler::Ignore, Checking_level::None>;
+#else
+using Preset_discovery_base = clap::helpers::PresetDiscoveryProvider<Misbehaviour_handler::Terminate, Checking_level::Maximal>;
+#endif
 
 // MARK: - Factory Presets
 

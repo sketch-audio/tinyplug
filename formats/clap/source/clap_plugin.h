@@ -19,7 +19,13 @@
 
 using MisbehaviourHandler = clap::helpers::MisbehaviourHandler; // Studio One appears to be misbehaving.
 using CheckingLevel = clap::helpers::CheckingLevel;
+
+// Only terminate in debug mode
+#if defined(NDEBUG)
 using PluginBase = clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal>;
+#else
+using PluginBase = clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::None>;
+#endif
 
 namespace tiny {
 
