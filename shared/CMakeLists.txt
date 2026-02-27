@@ -35,6 +35,12 @@ if(APPLE)
         )
     endif()
 elseif(WIN32)
+    set(WIN_GRAPHICS_GPU "0") # GPU renderer not ready for prime time. Need to figure out some wait-free synchronization mechanism.
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/win_config.h.in 
+        ${CMAKE_CURRENT_BINARY_DIR}/win_config.h
+    )
+    target_include_directories(${TINY_SHARED_LIB} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
     set(PLATFORM_SOURCES
         platform/source/win_context.cpp
         platform/source/win_dialogs.cpp
@@ -98,7 +104,9 @@ if(APPLE)
         )
     endif()
 elseif(WIN32)
-    target_link_libraries(${TINY_SHARED_LIB} PUBLIC d3d12.lib dxgi.lib d3dcompiler.lib)
+    if (WIN_GRAPHICS_GPU EQUAL 1)
+        target_link_libraries(${TINY_SHARED_LIB} PUBLIC d3d12.lib dxgi.lib d3dcompiler.lib)
+    endif()
 endif()
 
 # Forward to parent scope.

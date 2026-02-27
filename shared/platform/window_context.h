@@ -14,9 +14,7 @@
 #include "include/gpu/ganesh/GrDirectContext.h"
 #include "include/gpu/ganesh/mtl/GrMtlTypes.h"
 #elif PLATFORM_WINDOWS
-#define SK_DIRECT3D // tiny_deps builds Skia with D3D but we still need this define here.
-#include "include/gpu/ganesh/GrDirectContext.h"
-#include "include/gpu/ganesh/d3d/GrD3DTypes.h"
+// Impl now
 #endif
 
 namespace tiny {
@@ -31,6 +29,9 @@ public:
     struct Canvas {
         SkCanvas* skia_canvas;
     };
+
+    Window_context();
+    ~Window_context();
 
     auto setup(const Setup& setup) -> void;
     auto teardown() -> void;
@@ -63,22 +64,8 @@ private:
 #endif
 
 #if PLATFORM_WINDOWS
-    sk_sp<GrDirectContext> fContext;
-    
-    inline static constexpr int kNumFrames = 2;
-    HWND fWindow;
-    gr_cp<ID3D12Device> fDevice;
-    gr_cp<ID3D12CommandQueue> fQueue;
-    gr_cp<IDXGISwapChain3> fSwapChain;
-    gr_cp<ID3D12Resource> fBuffers[kNumFrames];
-    sk_sp<SkSurface> fSurfaces[kNumFrames];
-
-    // Synchronization objects.
-    unsigned int fBufferIndex;
-    HANDLE fFenceEvent;
-    gr_cp<ID3D12Fence> fFence;
-    uint64_t fFenceValues[kNumFrames];
-
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
     auto setupSurfaces(int width, int height) -> void;
 #endif
 };

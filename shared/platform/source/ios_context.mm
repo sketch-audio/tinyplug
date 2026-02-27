@@ -27,6 +27,9 @@ static_assert(false, "This is a non-ARC file");
 
 namespace tiny {
 
+Window_context::Window_context() = default;
+Window_context::~Window_context() = default;
+
 auto Window_context::setup(const Setup& setup) -> void
 {
     auto view = static_cast<UIView*>(setup.native_handle);

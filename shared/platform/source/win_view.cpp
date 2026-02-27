@@ -27,6 +27,7 @@
 #pragma comment(linker,"/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 #include "../window_context.h"
+#include "win_config.h" // WIN_GRAPHICS_GPU
 
 #define WM_TINY_SETCURSOR (WM_APP + 1) // Reset cursor message for dialogs.
 
@@ -216,11 +217,21 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
                 const auto time_now = System_clock::now();
 
                 auto ps = PAINTSTRUCT{};
-                BeginPaint(window, &ps);
+                [[maybe_unused]] auto hdc = BeginPaint(window, &ps);
+
+#if !WIN_GRAPHICS_GPU
+                delegate->set_drawable(hdc);
+#endif
+
                 binder->interaction.modifier_keys = resolve_modifiers();
                 binder->interaction.events = binder->events.consume(Steady_clock::now());
                 delegate->draw(binder->interaction, time_now); // Delegate window context handles everything.
                 binder->interaction.scroll_deltas = {};
+
+#if !WIN_GRAPHICS_GPU
+                ReleaseDC(window, hdc);
+#endif
+
                 EndPaint(window, &ps);
             }
             return 0;

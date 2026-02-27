@@ -1,0 +1,5 @@
+#pragma once
+
+#ifndef WIN_GRAPHICS_GPU
+#define WIN_GRAPHICS_GPU @WIN_GRAPHICS_GPU@
+#endif

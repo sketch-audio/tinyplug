@@ -14,6 +14,9 @@
 
 namespace tiny {
 
+Window_context::Window_context() = default;
+Window_context::~Window_context() = default;
+
 auto Window_context::setup(const Setup& setup) -> void
 {
     auto view = static_cast<NSView*>(setup.native_handle);
