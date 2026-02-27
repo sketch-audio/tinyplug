@@ -2,5 +2,8 @@
 
 #ifndef TINY_MAC_VIEW
 #define TINY_MAC_VIEW @TINY_MAC_VIEW@
+#endif
+
+#ifndef TINY_MAC_METAL_VIEW
 #define TINY_MAC_METAL_VIEW @TINY_MAC_METAL_VIEW@
 #endif
