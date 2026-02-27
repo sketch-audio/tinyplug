@@ -21,6 +21,7 @@ if(APPLE)
         # configure file at cmake/mac_config.h.in
         string(REPLACE "." "_" VERSION_STRING "${PROJECT_VERSION}")
         set(TINY_MAC_VIEW "MacView_${PROJECT_NAME}_v${VERSION_STRING}")
+        set(TINY_MAC_METAL_VIEW "MacMetalView_${PROJECT_NAME}_v${VERSION_STRING}")
         configure_file(
             ${CMAKE_CURRENT_SOURCE_DIR}/cmake/mac_config.h.in 
             ${CMAKE_CURRENT_BINARY_DIR}/mac_config.h

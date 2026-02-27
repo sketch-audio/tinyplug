@@ -13,16 +13,15 @@
 static_assert(false, "This is a non-ARC file");
 #endif
 
-@interface IosView : UIView <CAMetalDisplayLinkDelegate>
+@interface IosView : UIView {
+    std::shared_ptr<tiny::View_delegate> _delegate;
+}
 - (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate;
 - (void)startDisplayLink;
 - (void)stopDisplayLink;
 @end
 
 @implementation IosView {
-    std::shared_ptr<tiny::View_delegate> _delegate;
-
-    CAMetalDisplayLink* _metalDisplayLink;
     CADisplayLink* _displayLink;
     
     tiny::User_interaction _interaction;
@@ -72,40 +71,15 @@ static_assert(false, "This is a non-ARC file");
 
 - (void)startDisplayLink {
     [self stopDisplayLink];
-
-    if (@available(iOS 17, *)) {
-        auto metal_view = [[self subviews] firstObject]; // Assume the context set us up?
-        if (!metal_view) return;
-        _metalDisplayLink = [[CAMetalDisplayLink alloc] initWithMetalLayer:(CAMetalLayer*)metal_view.layer];
-        _metalDisplayLink.delegate = self;
-        [_metalDisplayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
-    }
-    else {
-        _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onDisplayLink:)];
-        [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
-    }
+    _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onDisplayLink:)];
+    [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
 }
 
 - (void)stopDisplayLink {
-    if (@available(iOS 17, *)) {
-        if (_metalDisplayLink) {
-            [_metalDisplayLink invalidate];
-            [_metalDisplayLink release]; // ??
-            _metalDisplayLink = nil;
-        }
+    if (_displayLink) {
+        [_displayLink invalidate];
+        _displayLink = nil;
     }
-    else {
-        if (_displayLink) {
-            [_displayLink invalidate];
-            _displayLink = nil;
-        }
-    }
-}
-
-- (void)metalDisplayLink:(CAMetalDisplayLink *)link needsUpdate:(CAMetalDisplayLinkUpdate *)update {
-    auto drawable = update.drawable;
-    _delegate->set_drawable(drawable);
-    [self drawRect:{}];
 }
 
 - (void)dealloc {
@@ -340,13 +314,55 @@ static_assert(false, "This is a non-ARC file");
 
 @end
 
+// MARK: - IosMetalView
+
+API_AVAILABLE(ios(17.0))
+@interface IosMetalView : IosView <CAMetalDisplayLinkDelegate>
+@end
+
+@implementation IosMetalView {
+    CAMetalDisplayLink* _metalDisplayLink;
+}
+
+- (void)startDisplayLink {
+    [self stopDisplayLink];
+    
+    auto metal_view = [[self subviews] firstObject]; // Assume the context set us up?
+    if (!metal_view) return;
+    _metalDisplayLink = [[CAMetalDisplayLink alloc] initWithMetalLayer:(CAMetalLayer*)metal_view.layer];
+    _metalDisplayLink.delegate = self;
+    [_metalDisplayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+}
+
+- (void)stopDisplayLink {
+    if (_metalDisplayLink) {
+        [_metalDisplayLink invalidate];
+        [_metalDisplayLink release]; // ??
+        _metalDisplayLink = nil;
+    }
+}
+
+- (void)metalDisplayLink:(CAMetalDisplayLink *)link needsUpdate:(CAMetalDisplayLinkUpdate *)update {
+    auto drawable = update.drawable;
+    _delegate->set_drawable(drawable);
+    [self drawRect:{}];
+}
+
+@end
+
 // MARK: - Platform_view
 
 namespace tiny {
 
 Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view, std::function<void()>) : _delegate{delegate}, _owns_view{owns_view}
 {
-    UIView* view = [[IosView alloc] initWithDelegate:delegate];
+    UIView* view;
+    
+    if (@available(iOS 17, *)) {
+        view = [[IosMetalView alloc] initWithDelegate:delegate];
+    } else {
+        view = [[IosView alloc] initWithDelegate:delegate];
+    }
 
     auto context = std::make_unique<Window_context>();
     context->setup({.native_handle = static_cast<void*>(view)});
