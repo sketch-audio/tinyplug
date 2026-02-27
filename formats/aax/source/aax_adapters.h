@@ -1,5 +1,8 @@
 #pragma once
 
+#include <algorithm>
+#include <array>
+#include <bit>
 #include <charconv>
 #include <format>
 #include <optional>
@@ -59,7 +62,20 @@ inline auto unjoin_keys(const std::string& s) -> std::vector<Key_tag> {
 inline auto tiny_id_to_aax(uint32_t tiny_id) -> std::optional<std::string>
 {
     // Prefix: "0x", Base: 16 (with leading 0s)
-    return std::format("0x{:08x}", tiny_id);
+    // return std::format("0x{:08x}", tiny_id);
+
+    auto buf = std::to_array("0x00000000");
+
+    const auto size = buf.size();
+    const auto n_hex = std::max((std::bit_width(tiny_id) + 3) / 4, 1);
+    const auto w_pos = buf.data() + 2 + (8 - n_hex);
+
+    const auto [ptr, ec] = std::to_chars(w_pos, buf.data() + size, tiny_id, 16); // aax_id_base
+    if (ec != std::errc{}) {
+        return std::nullopt;
+    }
+
+    return std::string(buf.data(), ptr);
 }
 
 inline auto aax_id_to_tiny(AAX_CParamID aax_id) noexcept -> std::optional<uint32_t>
