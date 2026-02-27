@@ -13,11 +13,13 @@ if (APPLE)
     enable_language(OBJCXX)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64") # Universal build.
 
-    if (CMAKE_GENERATOR STREQUAL "Xcode")
-        # Xcode complaining about std::filesystem::path in AUv3 build.
-        set(CMAKE_XCODE_ATTRIBUTE_MACOSX_DEPLOYMENT_TARGET "11.0")
-        set(CMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "14.0")
-    endif()
+    # Current requirement by Skia. We could possibly lower this but would require some investigation.
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0")
+    set(CMAKE_IPHONEOS_DEPLOYMENT_TARGET "14.0")
+
+    # Xcode still complaining about std::filesystem::path in AUv3 build...
+    set(CMAKE_XCODE_ATTRIBUTE_MACOSX_DEPLOYMENT_TARGET "11.0")
+    set(CMAKE_XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "14.0")
 
     # If you want to run AUv3 on device.
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer")
