@@ -36,6 +36,7 @@
                     <key>tags</key>
                     <array>
                         <string>Effect</string>
+                        ${TINY_AUV3_TAGS}
                     </array>
                     <key>type</key>
                     <string>${TINY_AUV2_TYPE}</string>

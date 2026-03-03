@@ -18,8 +18,8 @@
     <string>APPL</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
-    <key>UILaunchStoryboardName</key>
-    <string></string>
+    <key>UILaunchScreen</key>
+    <dict/>
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
@@ -51,5 +51,6 @@
             </array>
         </dict>
     </dict>
+    ${TINY_APP_PLIST_ENTRIES}
 </dict>
 </plist>

@@ -24,6 +24,18 @@ function(make_auv3_plugin USER_TARGET)
     # For entitlements files.
     read_property(${USER_TARGET} TINY_COMPANY_DIRECTORY_NAME)
     read_property(${USER_TARGET} TINY_PRODUCT_DIRECTORY_NAME)
+
+    read_property(${USER_TARGET} TINY_APP_PLIST_ENTRIES)
+    if(NOT TINY_APP_PLIST_ENTRIES)
+        set(TINY_APP_PLIST_ENTRIES "")
+    endif()
+
+    read_property(${USER_TARGET} TINY_AUV3_SIZE_TAG)
+    if(TINY_AUV3_SIZE_TAG)
+        set(TINY_AUV3_TAGS "<string>${TINY_AUV3_SIZE_TAG}</string>")
+    else()
+        set(TINY_AUV3_TAGS "")
+    endif()
     
     set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
 
@@ -75,6 +87,16 @@ function(make_auv3_plugin USER_TARGET)
         target_link_libraries(${APP_TARGET} PRIVATE
             "-framework Foundation"
             "-framework UIKit"
+        )
+        set_target_properties(${APP_TARGET} PROPERTIES
+            # Install stuff required so Xcode recognizes this as an app bundle (for distribution).
+            XCODE_ATTRIBUTE_SKIP_INSTALL "NO"
+            XCODE_ATTRIBUTE_INSTALL_PATH "/Applications"
+            XCODE_ATTRIBUTE_DEPLOYMENT_POSTPROCESSING "YES"
+            # Strip and generate dSYM for release builds.
+            XCODE_ATTRIBUTE_GCC_GENERATE_DEBUGGING_SYMBOLS[variant=Release] "YES"
+            XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=Release] "dwarf-with-dsym"
+            XCODE_ATTRIBUTE_STRIP_INSTALLED_PRODUCT "YES"
         )
     else()
         target_link_libraries(${APP_TARGET} PRIVATE
@@ -146,6 +168,13 @@ function(make_auv3_plugin USER_TARGET)
             "-framework CoreAudioKit"
             "-framework Foundation"
             "-framework UIKit"
+        )
+        set_target_properties(${EXT_TARGET} PROPERTIES
+            # Strip and generate dSYM for release builds.
+            XCODE_ATTRIBUTE_DEPLOYMENT_POSTPROCESSING "YES"
+            XCODE_ATTRIBUTE_GCC_GENERATE_DEBUGGING_SYMBOLS[variant=Release] "YES"
+            XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT[variant=Release] "dwarf-with-dsym"
+            XCODE_ATTRIBUTE_STRIP_INSTALLED_PRODUCT "YES"
         )
     else()
         target_link_libraries(${EXT_TARGET} PRIVATE
