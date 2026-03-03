@@ -213,19 +213,23 @@ auto Click_recognizer::process_events(Event_list& events) -> void
                 if (_frame.contains(down.pos) && down.button == Pointer_button::right) {
                     const auto match = (_desc.button == down.button && _desc.count == 1);
                     if (match) _callbacks.on_started({down.pos});
-                }
-                if (_desc.greedy) {
-                    event.consumed = true;
+
+                    if (_desc.greedy) {
+                        event.consumed = true;
+                    }
                 }
             },
 #endif
             [&](const Pointer_click& click) {
                 if (_frame.contains(click.pos)) {
-                    const auto match = (_desc.button == click.button && _desc.count == click.count);
+                    const auto single = (_desc.button == click.button && _desc.count == 1 && click.count >= 1); // Allow multiple clicks to trigger single-click handlers.
+                    const auto dbl = (_desc.button == click.button && _desc.count == 2 && click.count == 2);
+                    const auto match = single || dbl;
                     if (match) _callbacks.on_started({click.pos});
-                }
-                if (_desc.greedy) {
-                    event.consumed = true;
+
+                    if (_desc.greedy) {
+                        event.consumed = true;
+                    }
                 }
             },
             [](const auto&) {}
