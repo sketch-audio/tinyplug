@@ -22,6 +22,9 @@ struct Platform_dialogs {
     static auto open_url(const std::string& url, Task_manager::Actor tasks) -> void;
 
     // Callback runs automatically in the executor's task launcher (some background thread). Because of sandboxing requirements on iOS, we can only guarantee access to the file during your callback scope! You are responsible for escaping back to main safely.
+    static auto save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Task_manager::Actor tasks) -> void;
+
+    // Callback runs automatically in the executor's task launcher (some background thread). Because of sandboxing requirements on iOS, we can only guarantee access to the file during your callback scope! You are responsible for escaping back to main safely.
     static auto open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void;
 };
 

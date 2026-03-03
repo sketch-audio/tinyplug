@@ -1204,6 +1204,60 @@ auto Platform_dialogs::open_url(const std::string& url, Task_manager::Actor task
     });
 }
 
+auto Platform_dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Task_manager::Actor tasks) -> void
+{
+    tasks.on_background([=, on_save = std::move(on_save)]() {
+        if (const auto plugin_window = find_plugin_window()) {
+            auto wtitle = string_to_wstring(title);
+            auto wdefault_path = string_to_wstring(default_path);
+            auto wname = string_to_wstring(name);
+            auto wext = string_to_wstring(extension);
+
+            // 1. Prepare the buffer with the initial filename
+            auto file_buffer = std::array<wchar_t, 1024>{};
+            std::fill_n(file_buffer.data(), file_buffer.size(), 0);
+            if (!wname.empty()) {
+                wcscpy_s(file_buffer.data(), file_buffer.size(), wname.c_str());
+            }
+
+            // 2. Construct the Filter (e.g., "Project Files (*.ext)\0*.ext\0All Files\0*.*\0\0")
+            // Note: Must end with two null terminators.
+            std::wstring filter = L"Supported Files (*." + wext + L")\0*." + wext + L"\0All Files (*.*)\0*.*\0";
+
+            OPENFILENAMEW save_file_name = {};
+            save_file_name.lStructSize = sizeof(OPENFILENAMEW);
+            save_file_name.hwndOwner = plugin_window->hwnd;
+            save_file_name.lpstrFile = file_buffer.data();
+            save_file_name.nMaxFile = static_cast<DWORD>(file_buffer.size());
+            save_file_name.lpstrFilter = filter.c_str();
+            save_file_name.lpstrTitle = wtitle.c_str();
+            save_file_name.lpstrInitialDir = wdefault_path.empty() ? nullptr : wdefault_path.c_str();
+            
+            // 3. Set the default extension (automatically appended if user doesn't type one)
+            save_file_name.lpstrDefExt = wext.c_str();
+
+            // 4. Flags: Added OFN_OVERWRITEPROMPT for safety
+            save_file_name.Flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_OVERWRITEPROMPT | OFN_EXPLORER;
+
+            const auto result = GetSaveFileNameW(&save_file_name);
+            
+            if (result) {
+                const auto selected_path = wstring_to_string(std::wstring{save_file_name.lpstrFile});
+                tasks.on_background([=, on_save = std::move(on_save)]() {
+                    on_save(selected_path);
+                });
+            }
+            else {
+                tasks.on_background([on_save = std::move(on_save)]() {
+                    on_save(std::nullopt);
+                });
+            }
+
+            SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); 
+        }
+    });
+}
+
 auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void
 {
     tasks.on_background([=, on_open=std::move(on_open)]() {

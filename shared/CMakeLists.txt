@@ -101,6 +101,7 @@ if(APPLE)
             "-framework Metal"
             "-framework QuartzCore"
             "-framework CoreVideo"
+            "-framework UniformTypeIdentifiers"
         )
     endif()
 elseif(WIN32)

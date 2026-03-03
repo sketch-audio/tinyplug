@@ -141,6 +141,43 @@ auto Platform_dialogs::open_url(const std::string& url, Task_manager::Actor /*ta
     }
 }
 
+auto Platform_dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Task_manager::Actor tasks) -> void {
+    
+    //const auto title_copy = title;
+    //const auto default_path_copy = default_path;
+    const auto name_copy = name;
+    const auto extension_copy = extension;
+
+    tasks.on_background([=, on_save = std::move(on_save)]() mutable {
+        NSString* ns_name = [NSString stringWithUTF8String:name_copy.c_str()];
+        NSString* ns_ext = [NSString stringWithUTF8String:extension_copy.c_str()];
+        NSString* tempFilename = [NSString stringWithFormat:@"%@.%@", ns_name, ns_ext];
+        NSURL* tempURL = [[NSURL fileURLWithPath:NSTemporaryDirectory()] URLByAppendingPathComponent:tempFilename];
+        auto tempPathStr = std::string{[tempURL.path UTF8String]};
+
+        on_save(tempPathStr); // Write to temp.
+
+        // 3. Once written, jump to UI thread to present the "Move" dialog
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (![[NSFileManager defaultManager] fileExistsAtPath:tempURL.path]) return;
+
+            UIDocumentPickerViewController* picker = [[UIDocumentPickerViewController alloc] initForExportingURLs:@[tempURL] asCopy:NO];
+
+            OpenFileHelper* helper = [[OpenFileHelper alloc] init];
+            helper.completion = ^(NSArray<NSURL *> *urls) {
+                // Cleanup temp if it wasn't moved (e.g., user cancelled)
+                [[NSFileManager defaultManager] removeItemAtURL:tempURL error:nil];
+                [helper release];
+            };
+
+            picker.delegate = helper;
+            UIViewController* topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+            while (topVC.presentedViewController) topVC = topVC.presentedViewController;
+            [topVC presentViewController:picker animated:YES completion:nil];
+        });
+    });
+}
+
 // MARK: - open file
 
 auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void

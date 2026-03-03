@@ -1,6 +1,7 @@
 #include "../platform_dialogs.h"
 
 #import <Cocoa/Cocoa.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #if __has_feature(objc_arc)
 static_assert(false, "This is a non-ARC file");
@@ -134,6 +135,90 @@ auto Platform_dialogs::open_url(const std::string& url, Task_manager::Actor /*ta
         NSURL* nsurl = [NSURL URLWithString:ns_url];
         if (nsurl) {
             [[NSWorkspace sharedWorkspace] openURL:nsurl];
+        }
+    });
+}
+
+auto Platform_dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Task_manager::Actor tasks) -> void
+{
+    // Copy to locals.
+    const auto title_copy = title;
+    const auto default_path_copy = default_path;
+    const auto name_copy = name;
+    const auto extension_copy = extension;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSSavePanel* panel = [NSSavePanel savePanel];
+        [panel setTitle:[NSString stringWithUTF8String:title_copy.c_str()]];
+        if (!default_path_copy.empty()) {
+            NSString* ns_path = [NSString stringWithUTF8String:default_path_copy.c_str()];
+            NSURL* url = [NSURL fileURLWithPath:ns_path];
+            if (url) {
+                [panel setDirectoryURL:url];
+            }
+        }
+
+        if (!name_copy.empty()) {
+            [panel setNameFieldStringValue:[NSString stringWithUTF8String:name_copy.c_str()]];
+        }
+
+        if (!extension_copy.empty()) {
+            NSString* ns_extension = [NSString stringWithUTF8String:extension_copy.c_str()];
+            UTType* type = [UTType typeWithFilenameExtension:ns_extension];
+            [panel setAllowedContentTypes:@[type]];
+        }
+
+        [panel setCanCreateDirectories:YES];
+        [panel setAllowsOtherFileTypes:NO];
+        [panel setExtensionHidden:NO];
+        [panel setCanSelectHiddenExtension:YES];
+
+        NSWindow* keyWindow = [[NSApplication sharedApplication] keyWindow];
+        if (keyWindow != nil) {
+            [panel beginSheetModalForWindow:keyWindow completionHandler:^(NSModalResponse result) {
+                if (result == NSModalResponseOK) {
+                    NSURL* selectedURL = [panel URL];
+                    if (selectedURL) {
+                        NSString* path = [selectedURL path];
+                        const auto result_path = std::string{[path UTF8String]};
+                        tasks.on_background([=, on_save=std::move(on_save)] {
+                            on_save(result_path);
+                        });
+                    } else {
+                        tasks.on_background([on_save=std::move(on_save)] {
+                            on_save(std::nullopt);
+                        });
+                    }
+                } else {
+                    tasks.on_background([on_save=std::move(on_save)] {
+                        on_save(std::nullopt);
+                    });
+                }
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [keyWindow makeKeyAndOrderFront:nil];
+                });
+            }];
+        } 
+        else {
+            NSModalResponse result = [panel runModal];
+            if (result == NSModalResponseOK) {
+                NSURL* selectedURL = [panel URL];
+                if (selectedURL) {
+                    NSString* path = [selectedURL path];
+                    const auto result_path = std::string{[path UTF8String]};
+                    tasks.on_background([=, on_save=std::move(on_save)] {
+                        on_save(result_path);
+                    });
+                } else {
+                    tasks.on_background([on_save=std::move(on_save)] {
+                        on_save(std::nullopt);
+                    });
+                }
+            } else {
+                tasks.on_background([on_save=std::move(on_save)] {
+                    on_save(std::nullopt);
+                });
+            }
         }
     });
 }
