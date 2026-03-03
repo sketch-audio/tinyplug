@@ -549,21 +549,21 @@ auto Platform_view::resize(int32_t w, int32_t h) -> void
 static constexpr auto prompt_max_length = 256;
 static wchar_t prompt_buffer[prompt_max_length] = L"";
 
-inline auto string_to_wstring(const std::string& str) -> std::wstring
+static auto string_to_wstring(const std::string& str) -> std::wstring
 {
     if (str.empty()) return {};
-    const auto size_needed = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
+    const auto size_needed = MultiByteToWideChar(CP_UTF8, 0, str.data(), static_cast<int>(str.length()), nullptr, 0);
     auto wstr = std::wstring(size_needed, 0);
-    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &wstr[0], size_needed);
+    MultiByteToWideChar(CP_UTF8, 0, str.data(), static_cast<int>(str.length()), &wstr[0], size_needed);
     return wstr;
 }
 
-inline auto wstring_to_string(const std::wstring& wstr) -> std::string
+static auto wstring_to_string(const std::wstring& wstr) -> std::string
 {
     if (wstr.empty()) return {};
-    const auto size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    const auto size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.length()), nullptr, 0, nullptr, nullptr);
     auto str = std::string(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &str[0], size_needed, nullptr, nullptr);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.length()), &str[0], size_needed, nullptr, nullptr);
     return str;
 }
 
