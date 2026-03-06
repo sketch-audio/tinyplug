@@ -28,6 +28,7 @@ struct State_rules {
         static constexpr auto chunk_id = uint32_t{'tiny'}; // AAX_CTypeID;
         static constexpr const char num_params[] = "tinyplug-num-params";
         static constexpr const char edit_keys[] = "tinyplug-edit-keys";
+        static constexpr const char host_bypass[] = "tinyplug-host-bypass";
     };
 
     /**

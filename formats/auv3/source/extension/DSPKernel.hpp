@@ -13,6 +13,8 @@
 #include "models/param_model.h"
 #include "plug_info.h"
 
+#include "dsp/host_bypass.hpp"
+
 /*
  DSPKernel
  As a non-ObjC class, this is safe to use from render thread.
@@ -30,6 +32,10 @@ public:
         mOutputChannelCount = outputChannelCount;
         _processor->reset(mSampleRate);
         _latency = _processor->latency_samps();
+        
+        _bypass.reset(static_cast<float>(inSampleRate));
+        _bypass.set_latency(_latency);
+        
     }
     
     void deInitialize() {
@@ -37,11 +43,11 @@ public:
     
     // MARK: - Bypass
     bool isBypassed() {
-        return mBypassed;
+        return _bypass.is_bypassed();
     }
     
     void setBypass(bool shouldBypass) {
-        mBypassed = shouldBypass;
+        _bypass.set_bypassed(shouldBypass);
     }
     
     // MARK: - Parameter Getter / Setter
@@ -102,16 +108,10 @@ public:
         
         const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
         if (accepted_latency) {
-            _processor->handle_event(tiny::Accepted_latency{*accepted_latency});
-            assert(_processor->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
-        }
-        
-        if (mBypassed) {
-            // Pass the samples through
-            for (UInt32 channel = 0; channel < inputBuffers.size(); ++channel) {
-                std::copy_n(inputBuffers[channel], frameCount, outputBuffers[channel]);
-            }
-            return;
+            const auto new_latency = *accepted_latency;
+            _processor->handle_event(tiny::Accepted_latency{new_latency});
+            _bypass.set_latency(new_latency);
+            assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
         }
         
         auto context = tiny::Dsp_context{.meters = _meters, .propose_latency = {}};
@@ -126,7 +126,13 @@ public:
         context.sbuffers = sidechainBuffers;
         context.num_frames = frameCount;
         
-        _processor->process(context);
+        const auto can_skip = _bypass.can_skip_effect();
+        
+        if (!can_skip) {
+            _processor->process(context);
+        }
+        
+        _bypass.process(inputBuffers, outputBuffers, frameCount);
         
         // Send exports.
         for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
@@ -223,7 +229,7 @@ private:
     int mInputChannelCount = 2;
     int mOutputChannelCount = 2;
     
-    bool mBypassed = false;
+//    bool mBypassed = false;
     AUAudioFrameCount mMaxFramesToRender = 1024;
     
     using User_params = tiny::Param_infos<tiny::Param_model>;
@@ -276,6 +282,8 @@ private:
     Latency_flag _accepted_latency{};
     
     tiny::Musical_context _context{};
+    
+    tiny::Host_bypass _bypass{};
     
     // MARK: - Musical Context Helpers
     

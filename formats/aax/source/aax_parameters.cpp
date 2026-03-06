@@ -1,5 +1,6 @@
 #include "aax_parameters.h"
 
+#include <cassert>
 #include <cstring>
 
 #include "AAX_CBinaryTaperDelegate.h"
@@ -144,21 +145,24 @@ AAX_Result Aax_parameters::EffectInit()
     const auto sl = static_cast<int32_t>(_processor->latency_samps());
     Controller()->SetSignalLatency(sl); // Nothing pending, assume success.
 
+    _bypass.reset(sample_rate);
+    _bypass.set_latency(static_cast<size_t>(sl));
+
     // Pro Tool Bypass
-    // const auto bypass_id = AAX_CString{cDefaultMasterBypassID};
-    // auto bypass_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<bool>(
-    //     bypass_id.CString(),
-    //     AAX_CString{"Bypass (Pro Tools)"},
-    //     false,
-    //     AAX_CBinaryTaperDelegate<bool>(),
-    //     AAX_CBinaryDisplayDelegate<bool>("Bypass", "On"),
-    //     true
-    // ));
-    // bypass_param->AddShortenedName("Bypass");
-    // bypass_param->SetNumberOfSteps(2);
-    // bypass_param->SetType(AAX_eParameterType_Discrete);
-    // mParameterManager.AddParameter(bypass_param.release());
-    // mPacketDispatcher.RegisterPacket(bypass_id.CString(), AAX_FIELD_INDEX(Aax_context, bypass));
+    const auto bypass_id = AAX_CString{cDefaultMasterBypassID};
+    auto bypass_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<bool>(
+        bypass_id.CString(),
+        AAX_CString{"Bypass"},
+        false,
+        AAX_CBinaryTaperDelegate<bool>(),
+        AAX_CBinaryDisplayDelegate<bool>("Bypass", "On"),
+        true
+    ));
+    bypass_param->AddShortenedName("Bypass");
+    bypass_param->SetNumberOfSteps(2);
+    bypass_param->SetType(AAX_eParameterType_Discrete);
+    AddSynchronizedParameter(*bypass_param);
+    mParameterManager.AddParameter(bypass_param.release());
 
     return AAX_SUCCESS;
 }
@@ -392,6 +396,15 @@ AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk
 
     _editor->load_state(state_map);
 
+    // Try to load the bypass state.
+    auto bypassed = float{};
+    if (mChunkParser.FindFloat(State_rules::Aax::host_bypass, &bypassed)) {
+        _bypass.set_bypassed(bypassed >= 0.5f);
+    }
+    else {
+        //_bypass.set_bypassed(false);
+    }
+
     return AAX_SUCCESS;
 }
 
@@ -469,8 +482,10 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
     // Accept latency.
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
-        _processor->handle_event(Accepted_latency{*accepted_latency});
-        assert(_processor->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+        const auto new_latency = static_cast<uint32_t>(*accepted_latency);
+        _processor->handle_event(Accepted_latency{new_latency});
+        _bypass.set_latency(new_latency);
+        assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
 
     // Handle synchronized events.
@@ -478,6 +493,15 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
         const auto* sync_value = inSynchronizedParamValues[i];
         const auto aax_id = sync_value->first;
         const auto aax_param = sync_value->second;
+
+        if (std::strcmp(aax_id, cDefaultMasterBypassID) == 0) {
+            // Handle bypass immediately
+            auto b_value = bool{};
+            if (aax_param->GetValueAsBool(&b_value)) {
+                _bypass.set_bypassed(b_value);
+            }
+            continue;
+        }
 
         if (const auto tiny_id = aax_id_to_tiny(aax_id); *tiny_id < num_params) {
             // ...
@@ -589,7 +613,14 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
         .num_frames = num_frames,
         .meters = _meters
     };
-    _processor->process(context);
+
+    const auto can_skip = _bypass.can_skip_effect();
+    if (!can_skip) {
+        _processor->process(context);
+    }
+
+    const auto num_channels = static_cast<size_t>(channelCount);
+    _bypass.process({_ibuffers.begin(), num_channels}, {_obuffers.begin(), num_channels}, num_frames);
 
     // Write exports to meters.
     for (size_t i = 0; i < num_meters; ++i) {
@@ -694,6 +725,11 @@ void Aax_parameters::_build_chunk() const
                 break;
         }
     }
+
+    // Add the bypass state.
+    const auto bypassed = _bypass.is_bypassed();
+    mChunkParser.AddFloat(State_rules::Aax::host_bypass, bypassed ? 1.f : 0.f);
+
 }
 
 } // namespace tiny

@@ -17,6 +17,8 @@
 #include "clap_adapters.h"
 #include "clap_view.h"
 
+#include "dsp/host_bypass.hpp"
+
 using MisbehaviourHandler = clap::helpers::MisbehaviourHandler; // Studio One appears to be misbehaving.
 using CheckingLevel = clap::helpers::CheckingLevel;
 
@@ -184,6 +186,8 @@ private:
 
     Meter_queue _meter_queue{};
 
+    Host_bypass _bypass{};
+
     State_adapter _state_adapter{{
         .load_model = []() {
             return State_adapter::Load_model{
@@ -213,6 +217,14 @@ private:
             case CLAP_EVENT_PARAM_VALUE: {
                 const auto* value_event = reinterpret_cast<const clap_event_param_value*>(event);
                 const auto id = value_event->param_id;
+
+                if (id == Reserved::bypass_id) {
+                    const auto bypass = value_event->value >= 0.5;
+                    _bypass.set_bypassed(bypass);
+                    return;
+                }
+
+                if (id >= num_params) return;
                 const auto& param = User_params::param_spec(id);
 
                 // Send plain value to kernel.

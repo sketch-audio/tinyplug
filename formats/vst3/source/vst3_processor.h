@@ -10,6 +10,8 @@
 #include "models/meter_model.h"
 #include "models/param_model.h"
 
+#include "dsp/host_bypass.hpp"
+
 namespace tiny {
 
 class Vst3_processor : public Steinberg::Vst::AudioEffect {
@@ -81,6 +83,9 @@ private:
     size_t _schannels{Plug_info::wants_sidechain ? max_schannels : 0};
     size_t _ochannels{max_ochannels};
 
+    using Channel_data = std::vector<float>;
+    std::array<Channel_data, max_ichannels> _input_data{}; // We might be processing in place.
+
     // Pointers to host io buffers.
     std::array<const float*, max_ichannels> _ibuffers{};
     std::array<const float*, max_schannels> _sbuffers{};
@@ -111,6 +116,8 @@ private:
 
     static constexpr auto max_change_count = 65536.; // !!!
     double _change_count{};
+
+    Host_bypass _bypass{};
 
     auto normalize_input_events(Steinberg::Vst::ProcessData& data) -> void;
 

@@ -14,6 +14,8 @@
 #include "models/param_model.h"
 #include "plug_editor.h"
 
+#include "dsp/host_bypass.hpp"
+
 namespace tiny {
 
 class Aax_parameters : public AAX_CMonolithicParameters {
@@ -108,6 +110,8 @@ private:
     Latency_flag _pending_latency{};
     Latency_flag _accepted_latency{};
     // ---
+
+    Host_bypass _bypass{};
 
     // Notifications
     std::atomic<bool> _delay_comp{true}; // Track Pro Tools delay compensation mode.

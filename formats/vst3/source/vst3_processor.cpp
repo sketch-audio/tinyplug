@@ -92,6 +92,15 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setupProcessing(Steinberg::Vst::Pr
     // Called before any processing.
     _processor->reset(newSetup.sampleRate);
     _latency = _processor->latency_samps();
+
+    _bypass.reset(static_cast<float>(newSetup.sampleRate));
+    _bypass.set_latency(_latency);
+
+    for (auto& channel : _input_data) {
+        channel.resize(static_cast<size_t>(newSetup.maxSamplesPerBlock));
+        std::fill(channel.begin(), channel.end(), 0.f);
+    }
+
     _did_reset = true;
     return Steinberg::Vst::AudioEffect::setupProcessing(newSetup);
 }
@@ -161,8 +170,10 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
 {
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
-        _processor->handle_event(Accepted_latency{*accepted_latency});
-        assert(_processor->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+        const auto new_latency = static_cast<uint32_t>(*accepted_latency);
+        _processor->handle_event(Accepted_latency{new_latency});
+        _bypass.set_latency(new_latency);
+        assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
 
     // Process events in state queue.
@@ -193,12 +204,19 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     _meters.fill(0);
     auto context = Dsp_context{.meters = _meters};
 
+    // Copy main input to internal buffers in case of in-place processing.
+    for (size_t i = 0; i < _ichannels; ++i) {
+        const auto* in = data.inputs[0].channelBuffers32[i];
+        auto& channel = _input_data[i];
+        std::copy(in, in + data.numSamples, channel.begin());
+    }
+
     // So we can process with an offset.
     auto do_process = [this, &data, &context](size_t num_frames, size_t offset) {
         // Assign buffer ptrs.
         assert(data.inputs[0].numChannels == static_cast<Steinberg::int32>(_ichannels));
         for (size_t i = 0; i < _ichannels; ++i) {
-            _ibuffers[i] = &data.inputs[0].channelBuffers32[i][offset];
+            _ibuffers[i] = &_input_data[i][offset];
         }
         assert(data.outputs[0].numChannels == static_cast<Steinberg::int32>(_ochannels));
         for (size_t i = 0; i < _ochannels; ++i) {
@@ -207,7 +225,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
         if constexpr (Plug_info::wants_sidechain) {
             assert(data.inputs[1].numChannels == static_cast<Steinberg::int32>(_schannels));
             for (size_t i = 0; i < _schannels; ++i) {
-                _sbuffers[i] = &data.inputs[1].channelBuffers32[i][offset];
+                _sbuffers[i] = &data.inputs[1].channelBuffers32[i][offset]; // Assume sidechain not "in-place"
             }
         }
 
@@ -253,27 +271,58 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     auto now = decltype(frame_count){};
     auto remaining = frame_count;
 
-    while (remaining > 0) {
-        if (!event) {
-            const auto offset = frame_count - remaining;
-            do_process(static_cast<size_t>(remaining), static_cast<size_t>(offset));
-            break;
-        }
+    const auto can_skip = _bypass.can_skip_effect();
 
-        const auto frames_until_event = std::max({}, event->offset - now);
-
-        if (frames_until_event > 0) {
-            const auto offset = frame_count - remaining;
-            do_process(static_cast<size_t>(frames_until_event), static_cast<size_t>(offset));
-            remaining -= frames_until_event;
-            now += frames_until_event;
-        }
-
-        do {
+    if (can_skip) {
+        // Manifest events until the end of the block.
+        while (event) {
             _processor->handle_event(event->event);
             next_event();
-        } while (event && event->offset <= now);
+        }
     }
+    else {
+        while (remaining > 0) {
+            if (!event) {
+                const auto offset = frame_count - remaining;
+                do_process(static_cast<size_t>(remaining), static_cast<size_t>(offset));
+                break;
+            }
+
+            const auto frames_until_event = std::max({}, event->offset - now);
+
+            if (frames_until_event > 0) {
+                const auto offset = frame_count - remaining;
+                do_process(static_cast<size_t>(frames_until_event), static_cast<size_t>(offset));
+                remaining -= frames_until_event;
+                now += frames_until_event;
+            }
+
+            do {
+                _processor->handle_event(event->event);
+                next_event();
+            } while (event && event->offset <= now);
+        }
+    }
+
+    auto in_buffers = [&]() {
+        auto arr = std::array<const float*, max_ichannels>{};
+        for (size_t i = 0; i < _ichannels; ++i) {
+            arr[i] = &_input_data[i][0];
+        }
+        return arr;
+    }();
+
+    auto out_buffers = [&]() {
+        auto arr = std::array<float*, max_ochannels>{};
+        for (size_t i = 0; i < _ochannels; ++i) {
+            arr[i] = &data.outputs[0].channelBuffers32[i][0];
+        }
+        return arr;
+    }();
+
+    const auto min_channels = std::min(data.inputs[0].numChannels, data.outputs[0].numChannels);
+    const auto num_channels = static_cast<size_t>(min_channels);
+    _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, static_cast<size_t>(data.numSamples));
 
     auto add_output_event = [&](int32_t id, double value) {
         auto event_index = Steinberg::int32{};
@@ -381,6 +430,15 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* stat
         }
     }
 
+    // Try to read bypass state.
+    auto bypass_value = float{};
+    if (streamer.readFloat(bypass_value)) {
+        _bypass.set_bypassed(bypass_value >= 0.5f);
+    }
+    else {
+        //_bypass.set_bypassed(false);
+    }
+
     return Steinberg::kResultOk;
 }
 
@@ -417,6 +475,12 @@ Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* stat
         if (!streamer.writeFloat(to_write)) {
             return Steinberg::kResultFalse;
         }
+    }
+
+    // Write bypass.
+    const auto bypass_value = _bypass.is_bypassed() ? 1.f : 0.f;
+    if (!streamer.writeFloat(bypass_value)) {
+        return Steinberg::kResultFalse;
     }
 
     return Steinberg::kResultOk;
@@ -460,6 +524,16 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
         auto& queue = *param_changes.getParameterData(i);
 
         const auto id = queue.getParameterId();
+
+        if (id == bypass_param_id) {
+            // Handle immediately
+            auto value = Steinberg::Vst::ParamValue{};
+            auto offset = int32_t{};
+            queue.getPoint(0, offset, value);
+            _bypass.set_bypassed(value >= 0.5);
+            continue;
+        }
+        
         if (id >= User_params::num_params) continue; // Be defensive.
 
         const auto& param = User_params::param_spec(id); // To denormalize the automation values.

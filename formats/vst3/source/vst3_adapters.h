@@ -15,6 +15,7 @@ static constexpr auto export_param_offset = int32_t{0x40000000};
 
 // tinyplug uses a read-only parameter for notifying latency changes.
 static constexpr auto latency_param_id = int32_t{0x60000000};
+static constexpr auto bypass_param_id = int32_t{0x60000001};
 
 using Uid_arr = Plug_info::Vst3::Uid_arr;
 

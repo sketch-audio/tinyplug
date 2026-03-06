@@ -24,6 +24,9 @@ bool Clap_plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32
         _latency = _processor->latency_samps();
         _sr = sampleRate;
         _once = true;
+
+        _bypass.reset(static_cast<float>(sampleRate));
+        _bypass.set_latency(_latency);
     }
 
     // Are we here because the kernel wanted a latency change?
@@ -59,8 +62,10 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
 {
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
-        _processor->handle_event(Accepted_latency{*accepted_latency});
-        assert(_processor->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+        const auto new_latency = *accepted_latency;
+        _processor->handle_event(Accepted_latency{new_latency});
+        _bypass.set_latency(new_latency);
+        assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
 
     this->_handle_host_flushed();
@@ -152,27 +157,63 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
     auto now = decltype(frame_count){};
     auto remaining = frame_count;
 
-    while (remaining > 0) {
-        if (!event) {
-            const auto offset = frame_count - remaining;
-            do_process(remaining, offset);
-            break;
-        }
+    const auto can_skip = _bypass.can_skip_effect();
 
-        const auto frames_until_event = std::max({}, event->time - now);
-
-        if (frames_until_event > 0) {
-            const auto offset = frame_count - remaining;
-            do_process(frames_until_event, offset);
-            remaining -= frames_until_event;
-            now += frames_until_event;
-        }
-
-        do {
+    if (can_skip) {
+        // Manifest events until end of block.
+        while (event) {
             this->_handle_host_event<true>(event);
             next_event();
-        } while (event && event->time <= now);
+        }
     }
+    else {
+        // Process with events.
+        while (remaining > 0) {
+            if (!event) {
+                const auto offset = frame_count - remaining;
+                do_process(remaining, offset);
+                break;
+            }
+
+            const auto frames_until_event = std::max({}, event->time - now);
+
+            if (frames_until_event > 0) {
+                const auto offset = frame_count - remaining;
+                do_process(frames_until_event, offset);
+                remaining -= frames_until_event;
+                now += frames_until_event;
+            }
+
+            do {
+                this->_handle_host_event<true>(event);
+                next_event();
+            } while (event && event->time <= now);
+        }
+    }
+
+    auto in_buffers = [&]() {
+        auto arr = std::array<const float*, max_ichannels>{};
+        const auto& input_port = process->audio_inputs[0];
+        assert(input_port.channel_count == static_cast<uint32_t>(_ichannels));
+        for (size_t i = 0; i < _ichannels; ++i) {
+            arr[i] = &input_port.data32[i][0];
+        }
+        return arr;
+    }();
+
+    auto out_buffers = [&]() {
+        auto arr = std::array<float*, max_ochannels>{};
+        const auto& output_port = process->audio_outputs[0];
+        assert(output_port.channel_count == static_cast<uint32_t>(_ochannels));
+        for (size_t i = 0; i < _ochannels; ++i) {
+            arr[i] = &output_port.data32[i][0];
+        }
+        return arr;
+    }();
+
+    const auto min_channels = std::min(process->audio_inputs[0].channel_count, process->audio_outputs[0].channel_count);
+    const auto num_channels = static_cast<size_t>(min_channels);
+    _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, frame_count);
 
     // Send exports.
     for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
@@ -323,6 +364,12 @@ bool Clap_plugin::stateSave(const clap_ostream* stream) noexcept
         }
     }
     // ---
+
+    // -- Write the host bypass value --
+    const auto bypass_value = _bypass.is_bypassed() ? 1.f : 0.f;
+    if (!write_value(bypass_value)) {
+        return false;
+    }
 
     return true;
 }
@@ -481,6 +528,16 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
         edit_state.emplace(std::move(key), std::move(value));
     }
 
+    // Try to read the host bypass value.
+    auto bypass_value = float{};
+    if (read_value(bypass_value)) {
+        const auto bypass = bypass_value >= 0.5f;
+        _bypass.set_bypassed(bypass);
+    }
+    else {
+        //_bypass.set_bypassed(false);
+    }
+
     this->_update_state(stored_values, edit_state);
 
     return true;
@@ -545,7 +602,7 @@ bool Clap_plugin::audioPortsInfo(uint32_t index, bool isInput, clap_audio_port_i
     info->flags = is_main ? CLAP_AUDIO_PORT_IS_MAIN : uint32_t{};
     info->channel_count = static_cast<uint32_t>(channel_count); // 
     info->port_type = port_type;
-    info->in_place_pair = CLAP_INVALID_ID;
+    info->in_place_pair = CLAP_INVALID_ID; // No in-place.
 
     return true;
 }
@@ -625,13 +682,27 @@ bool Clap_plugin::configurableAudioPortsApplyConfiguration(const clap_audio_port
 
 uint32_t Clap_plugin::paramsCount() const noexcept
 {
-    return num_params;
+    return num_params + 1; // Bypass presents at the end.
 }
 
 bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexcept
 {
+    if (!info) return false;
+
+    if (paramIndex == num_params) {
+        *info = {};
+        info->id = Reserved::bypass_id;
+        info->flags = CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_BYPASS | CLAP_PARAM_IS_AUTOMATABLE;
+        info->cookie = nullptr;
+        std::strncpy(info->name, "Bypass", CLAP_NAME_SIZE);
+        info->min_value = 0;
+        info->max_value = 1;
+        info->default_value = 0;
+        return true;
+    }
+
     // The index is the order of appearance in the UI, and isn't necessarily the same as the id.
-    if (paramIndex >= num_params || !info) return false;
+    if (paramIndex >= num_params) return false;
 
     const auto& params = User_params::param_specs(Param_order::Presentation); // Report params in presentation order!
 
@@ -692,6 +763,12 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
 
 bool Clap_plugin::paramsValue(clap_id paramId, double* value) noexcept
 {
+    if (paramId == Reserved::bypass_id) {
+        const auto bypass = _bypass.is_bypassed();
+        *value = bypass ? 1. : 0.;
+        return true;
+    }
+
     if (paramId >= num_params) return false;
     *value = _hostvalues[paramId].load(std::memory_order_relaxed);
     return true;
@@ -699,6 +776,13 @@ bool Clap_plugin::paramsValue(clap_id paramId, double* value) noexcept
 
 bool Clap_plugin::paramsValueToText(clap_id paramId, double value, char* display, uint32_t size) noexcept
 {
+    if (paramId == Reserved::bypass_id) {
+        const auto str = value >= 0.5 ? "On" : "Off";
+        std::strncpy(display, str, size);
+        display[size - 1] = '\0'; // In case str is longer than display.
+        return true;
+    }
+
     if (paramId >= num_params || !display) return false;
 
     const auto& param = User_params::param_spec(paramId);
@@ -711,6 +795,7 @@ bool Clap_plugin::paramsValueToText(clap_id paramId, double value, char* display
 
 bool Clap_plugin::paramsTextToValue(clap_id paramId, const char* display, double* value) noexcept
 {
+    // Not parsing bypass at the moment.
     if (paramId >= num_params || !display) return false;
 
     const auto& param = User_params::param_spec(paramId);

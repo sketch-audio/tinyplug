@@ -8,6 +8,10 @@
 
 namespace tiny {
 
+struct Reserved {
+    static constexpr auto bypass_id = int32_t{0x60000000};
+};
+
 // Build module paths for the user's parameter tree. (Presentation order.)
 inline auto tree_to_clap_modules(const Param_node& root) -> std::vector<std::string> {
     auto result = std::vector<std::string>{};

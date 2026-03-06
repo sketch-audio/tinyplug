@@ -1,6 +1,7 @@
 #include "auv2_effect.h"
 
 #include <AudioUnitSDK/ComponentBase.h>
+#include <AudioUnitSDK/AUUtility.h> // Serialize
 
 namespace tiny {
 
@@ -49,6 +50,9 @@ OSStatus Auv2_effect::Initialize()
     _latency = _processor->latency_samps();
     _sr = sample_rate;
 
+    _bypass.reset(static_cast<float>(sample_rate));
+    _bypass.set_latency(_latency);
+
     _events.reserve(4 * num_params + 1);
 
     return noErr;
@@ -61,6 +65,11 @@ OSStatus Auv2_effect::GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope i
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
 
     switch (inID) {
+        case kAudioUnitProperty_BypassEffect: {
+            outDataSize = sizeof(UInt32);
+            outWritable = true;
+            return noErr;
+        }
         case kAudioUnitProperty_CocoaUI: {
             outDataSize = sizeof(AudioUnitCocoaViewInfo);
             outWritable = false;
@@ -91,9 +100,16 @@ OSStatus Auv2_effect::GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope i
 
 OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, void* outData)
 {
+    using namespace ausdk; // Serialize
+
     if (inScope != kAudioUnitScope_Global || !outData) return kAudioUnitErr_InvalidScope;
 
     switch (inID) {
+        case kAudioUnitProperty_BypassEffect: {
+            const auto bypass = _bypass.is_bypassed();
+            Serialize<UInt32>(bypass ? 1 : 0, outData);
+            return noErr;
+        }
         case kAudioUnitProperty_CocoaUI: {
             auto* info = static_cast<AudioUnitCocoaViewInfo*>(outData);
 
@@ -142,6 +158,24 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
     }
 
     return Super::GetProperty(inID, inScope, inElement, outData);
+}
+
+OSStatus Auv2_effect::SetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, const void* inData, UInt32 inDataSize)
+{
+    using namespace ausdk; // Serialize
+
+    if (inScope != kAudioUnitScope_Global || !inData) return kAudioUnitErr_InvalidScope;
+
+    switch (inID) {
+        case kAudioUnitProperty_BypassEffect: {
+            const auto bypass = Deserialize<UInt32>(inData) != 0;
+            _bypass.set_bypassed(bypass);
+            return noErr;
+        }
+        default: break;
+    }
+
+    return Super::SetProperty(inID, inScope, inElement, inData, inDataSize);
 }
 
 // MARK: - GetParameterList
@@ -766,8 +800,10 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
 
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
-        _processor->handle_event(Accepted_latency{*accepted_latency});
-        assert(_processor->latency_samps() == *accepted_latency && "Kernel must apply the accepted latency!");
+        const auto new_latency = static_cast<uint32_t>(*accepted_latency);
+        _processor->handle_event(Accepted_latency{new_latency});
+        _bypass.set_latency(new_latency);
+        assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
 
     _events.clear(); // Events are only valid for the current render cycle.
@@ -918,27 +954,59 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
     auto now = decltype(frame_count){};
     auto remaining = frame_count;
 
-    while (remaining > 0) {
-        if (!event) {
-            const auto offset = frame_count - remaining;
-            do_process(remaining, offset);
-            break;
-        }
+    const auto can_skip = _bypass.can_skip_effect();
 
-        const auto frames_until_event = std::max({}, static_cast<uint32_t>(event->offset) - now);
-
-        if (frames_until_event > 0) {
-            const auto offset = frame_count - remaining;
-            do_process(frames_until_event, offset);
-            remaining -= frames_until_event;
-            now += frames_until_event;
-        }
-
-        do {
+    if (can_skip) {
+        // Manifest events until end of block.
+        while (event) {
             _processor->handle_event(event->event);
             next_event();
-        } while (event && static_cast<uint32_t>(event->offset) <= now);
+        }
     }
+    else {
+        // Process with events.
+        while (remaining > 0) {
+            if (!event) {
+                const auto offset = frame_count - remaining;
+                do_process(remaining, offset);
+                break;
+            }
+
+            const auto frames_until_event = std::max({}, static_cast<uint32_t>(event->offset) - now);
+
+            if (frames_until_event > 0) {
+                const auto offset = frame_count - remaining;
+                do_process(frames_until_event, offset);
+                remaining -= frames_until_event;
+                now += frames_until_event;
+            }
+
+            do {
+                _processor->handle_event(event->event);
+                next_event();
+            } while (event && static_cast<uint32_t>(event->offset) <= now);
+        }
+    }
+
+    auto in_buffers = [&]() {
+        auto arr = std::array<const float*, max_ichannels>{};
+        for (size_t i = 0; i < Input(0).NumberChannels(); ++i) {
+            arr[i] = static_cast<const float*>(Input(0).GetFloat32ChannelData(static_cast<UInt32>(i)));
+        }
+        return arr;
+    }();
+
+    auto out_buffers = [&]() {
+        auto arr = std::array<float*, max_ochannels>{};
+        for (size_t i = 0; i < Output(0).NumberChannels(); ++i) {
+            arr[i] = static_cast<float*>(Output(0).GetFloat32ChannelData(static_cast<UInt32>(i)));
+        }
+        return arr;
+    }();
+
+    const auto min_channels = std::min(Input(0).NumberChannels(), Output(0).NumberChannels());
+    const auto num_channels = static_cast<size_t>(min_channels);
+    _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, frame_count);
 
     // Send exports.
     for (auto i = decltype(num_meters){}; i < num_meters; ++i) {

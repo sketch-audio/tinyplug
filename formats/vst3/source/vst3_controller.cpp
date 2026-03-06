@@ -137,6 +137,18 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
     };
     parameters.addParameter(latency_info);
 
+    // Add the bypass parameter.
+    auto bypass_info = Steinberg::Vst::ParameterInfo{
+        .id = bypass_param_id,
+        .title = u"Bypass",
+        .shortTitle = u"Bypass",
+        .stepCount = 1,
+        .defaultNormalizedValue = 0,
+        .unitId = Steinberg::Vst::kRootUnitId,
+        .flags = (Steinberg::Vst::ParameterInfo::kCanAutomate | Steinberg::Vst::ParameterInfo::kIsBypass)
+    };
+    parameters.addParameter(bypass_info);
+
     return result;
 }
 
@@ -213,6 +225,19 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setComponentState(Steinberg::IBSt
             const auto knob_value = get_knob_default(param);
             notify(param, knob_value);
         }
+    }
+
+    // Try to read the bypass parameter
+    auto bypass_value = float{};
+    if (streamer.readFloat(bypass_value)) {
+        setParamNormalized(bypass_param_id, bypass_value);
+    }
+    else {
+        //setParamNormalized(bypass_param_id, 0.f);
+    }
+
+    if (auto* handler = getComponentHandler()) {
+        handler->restartComponent(Steinberg::Vst::kParamValuesChanged);
     }
 
     return Steinberg::kResultOk;
@@ -418,6 +443,12 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getState(Steinberg::IBStream* sta
 //------------------------------------------------------------------------
 Steinberg::tresult PLUGIN_API Vst3_controller::getParamStringByValue(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue valueNormalized, Steinberg::Vst::String128 string)
 {
+    if (tag == bypass_param_id) {
+        const auto str = valueNormalized >= 0.5f ? "On" : "Off"; // Bypass
+        Steinberg::Vst::StringConvert::convert(str, string);
+        return Steinberg::kResultTrue;
+    }
+
     // Called by host to get a string for given normalized value of a specific parameter.
     // (without having to set the value!)
     if (tag >= User_params::num_params) return Steinberg::kResultFalse;
@@ -450,12 +481,24 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamValueByString(Steinberg::
 
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::normalizedParamToPlain(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue valueNormalized)
 {
+    if (tag == bypass_param_id) {
+        return valueNormalized >= 0.5f ? 1.f : 0.f; // Bypass
+    }
+
+    if (tag >= User_params::num_params) return 0.f;
+
     const auto& param = User_params::param_spec(tag);
     return Value_conv::knob_to_plain(valueNormalized, param.semantics);
 }
 
 Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::plainParamToNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue plainValue)
 {
+    if (tag == bypass_param_id) {
+        return plainValue >= 0.5f ? 1.f : 0.f; // Bypass
+    }
+
+    if (tag >= User_params::num_params) return 0.f;
+
     const auto& param = User_params::param_spec(tag);
     return Value_conv::plain_to_knob(plainValue, param.semantics);
 }

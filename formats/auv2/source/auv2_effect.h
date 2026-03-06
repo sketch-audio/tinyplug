@@ -21,6 +21,8 @@
 
 #include "auv2_preset_list.h" // Generated.
 
+#include "dsp/host_bypass.hpp"
+
 namespace tiny {
 
 class Auv2_effect : public ausdk::AUBase {
@@ -51,6 +53,7 @@ public:
 
     OSStatus GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, UInt32& outDataSize, bool& outWritable) override;
     OSStatus GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, void* outData) override;
+    OSStatus SetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, const void* inData, UInt32 inDataSize) override;
 
     OSStatus GetParameterList(AudioUnitScope inScope, AudioUnitParameterID* outParameterList, UInt32& outNumParameters) override;
     OSStatus GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID inParameterID, AudioUnitParameterInfo& outParameterInfo) override;
@@ -182,6 +185,8 @@ private:
 
     // Communicates the accepted latency from `setActive` to `process`.
     Latency_flag _accepted_latency{};
+
+    Host_bypass _bypass{};
 
     // AUv2 view adapter.
     std::unique_ptr<Auv2_view> _view = std::make_unique<Auv2_view>(Auv2_view::Deps{
