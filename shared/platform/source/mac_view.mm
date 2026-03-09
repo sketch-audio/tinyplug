@@ -203,7 +203,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         .event = Pointer_down{button, pos}
     });
 
-    [super mouseDown:event];
+    //[super mouseDown:event]; // REAPER was resizing window on double-click.
 }
 
 - (void)mouseUp:(NSEvent *)event {
@@ -226,7 +226,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         });
     }
 
-    [super mouseUp:event];
+    //[super mouseUp:event];
 }
 
 - (void)mouseMoved:(NSEvent *)event {
@@ -240,7 +240,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         .event = Pointer_move{pos}
     });
 
-    [super mouseMoved:event];
+    //[super mouseMoved:event];
 }
 
 - (void)mouseDragged:(NSEvent *)event {
@@ -253,7 +253,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         .event = Pointer_move{pos}
     });
 
-    [super mouseDragged:event];
+    //[super mouseDragged:event];
 }
 
 - (void)rightMouseDown:(NSEvent *)event {
@@ -266,7 +266,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         .event = Pointer_down{Pointer_button::right, pos}
     });
 
-    [super rightMouseDown:event];
+    //[super rightMouseDown:event];
 }
 
 - (void)rightMouseUp:(NSEvent *)event {
@@ -279,7 +279,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         .event = Pointer_up{Pointer_button::right, pos}
     });
 
-    [super rightMouseUp:event];
+    //[super rightMouseUp:event];
 }
 
 - (void)rightMouseDragged:(NSEvent *)event {
@@ -292,14 +292,14 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         .event = Pointer_move{pos}
     });
 
-    [super rightMouseDragged:event];
+    //[super rightMouseDragged:event];
 }
 
 - (void)scrollWheel:(NSEvent *)event {
     const auto deltas = tiny::Coords{event.scrollingDeltaX, event.scrollingDeltaY};
     _interaction.scroll_deltas = deltas;
     _interaction.inertial_scroll = (event.momentumPhase != NSEventPhaseNone);
-    [super scrollWheel:event];
+    //[super scrollWheel:event];
 }
 
 - (void)mouseEntered:(NSEvent *)event {
@@ -312,7 +312,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         .event = Pointer_enter{pos}
     });
 
-    [super mouseEntered:event];
+    //[super mouseEntered:event];
 }
 
 - (void)mouseExited:(NSEvent *)event {
@@ -325,7 +325,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         .event = Pointer_exit{pos}
     });
 
-    [super mouseExited:event];
+    //[super mouseExited:event];
 }
 
 @end
