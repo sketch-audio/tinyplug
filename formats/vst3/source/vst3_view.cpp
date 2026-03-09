@@ -101,8 +101,10 @@ Steinberg::tresult PLUGIN_API Vst3_view::onFocus(Steinberg::TBool /*state*/)
     return Steinberg::kResultFalse;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_view::setFrame(Steinberg::IPlugFrame* /*frame*/)
+Steinberg::tresult PLUGIN_API Vst3_view::setFrame(Steinberg::IPlugFrame* frame)
 {
+    if (!frame) return Steinberg::kResultFalse;
+    Super::setFrame(frame);
     return Steinberg::kResultTrue;
 }
 
