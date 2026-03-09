@@ -363,6 +363,8 @@ OSStatus Auv2_effect::GetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
 OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames)
 {
+    if (inID >= num_params) return kAudioUnitErr_InvalidParameter;
+
     const auto& params = User_params::param_specs(Param_order::Indexable);
     const auto& param = params[inID];
 
@@ -379,10 +381,16 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
 
 OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEvent, UInt32 inNumEvents)
 {
+    if (!inParameterEvent) return kAudioUnitErr_InvalidParameter;
+
     const auto& params = User_params::param_specs(Param_order::Indexable);
 
     for (auto i = decltype(inNumEvents){}; i < inNumEvents; ++i) {
         const auto& event = inParameterEvent[i];
+
+        if (event.scope != kAudioUnitScope_Global || event.element != 0) continue;
+        if (event.parameter >= num_params) continue; // Invalid parameter, skip.
+
         const auto& param = params[event.parameter];
 
         switch (event.eventType) {
@@ -910,12 +918,12 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
         }
 
         auto num_schannels = size_t{};
-        if constexpr (Plug_info::wants_sidechain) {
+        if (Plug_info::wants_sidechain && HasInput(1)) {
             num_schannels = Input(1).NumberChannels();
             [[maybe_unused]] const auto num_sbuffers = Input(1).GetBufferList().mNumberBuffers;
             assert(num_schannels == num_sbuffers && "Channel mismatch!");
             for (size_t i = 0; i < num_schannels; ++i) {
-                _sbuffers[i] = static_cast<const float*>(Input(1).GetFloat32ChannelData(static_cast<UInt32>(i) )) + offset;
+                _sbuffers[i] = static_cast<const float*>(Input(1).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
             }
         }
 
@@ -972,19 +980,23 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
                 break;
             }
 
-            const auto frames_until_event = std::max({}, static_cast<uint32_t>(event->offset) - now);
+            // Events with negative offsets should start now.
+            const auto event_offset = std::max(int32_t{}, event->offset);
+            const auto frames_until_event = std::max({}, static_cast<uint32_t>(event_offset) - now);
 
             if (frames_until_event > 0) {
                 const auto offset = frame_count - remaining;
                 do_process(frames_until_event, offset);
-                remaining -= frames_until_event;
-                now += frames_until_event;
+
+                const auto advance = std::min(frames_until_event, remaining);
+                remaining -= advance;
+                now += advance;
             }
 
             do {
                 _processor->handle_event(event->event);
                 next_event();
-            } while (event && static_cast<uint32_t>(event->offset) <= now);
+            } while (event && event->offset <= static_cast<int32_t>(now));
         }
     }
 
