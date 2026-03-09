@@ -17,7 +17,7 @@ using Checking_level = clap::helpers::CheckingLevel;
 #if defined(NDEBUG)
 using Preset_discovery_base = clap::helpers::PresetDiscoveryProvider<Misbehaviour_handler::Ignore, Checking_level::None>;
 #else
-using Preset_discovery_base = clap::helpers::PresetDiscoveryProvider<Misbehaviour_handler::Terminate, Checking_level::Maximal>;
+using Preset_discovery_base = clap::helpers::PresetDiscoveryProvider<Misbehaviour_handler::Ignore, Checking_level::Maximal>; // REAPER sensitive here.
 #endif
 
 // MARK: - Factory Presets
