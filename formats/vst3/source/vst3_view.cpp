@@ -83,16 +83,23 @@ Steinberg::tresult PLUGIN_API Vst3_view::getSize(Steinberg::ViewRect* size)
     
     const auto platform_size = _platform_view ? _platform_view->get_size() : initial_size;
     *size = {0, 0, platform_size.w, platform_size.h};
+
+    _deps.controller->resized({platform_size.w, platform_size.h}); // Remember for next time.
+
     return Steinberg::kResultTrue;
 }
 
 Steinberg::tresult PLUGIN_API Vst3_view::onSize(Steinberg::ViewRect* newSize)
 {
-    if (!_platform_view || !newSize) return Steinberg::kResultFalse;
+    if (!newSize) return Steinberg::kResultFalse;
+
     const auto w = newSize->getWidth();
     const auto h = newSize->getHeight();
-    _platform_view->resize(w, h);
     _deps.controller->resized({w, h}); // Remember for next time.
+
+    if (!_platform_view) return Steinberg::kResultTrue;
+    _platform_view->resize(w, h);
+    
     return Steinberg::kResultTrue;
 }
 
