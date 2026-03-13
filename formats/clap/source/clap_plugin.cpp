@@ -278,34 +278,65 @@ bool Clap_plugin::stateSave(const clap_ostream* stream) noexcept
         num_params,
         num_editor_items
     };
-    const auto expected = sizeof(header);
-    const auto result = stream->write(stream, header.data(), expected);
-    if (result != expected) {
-        return false;
+    {
+        const auto total = sizeof(header);
+        auto sent = size_t{};
+        while (sent < total) {
+            const auto n = stream->write(stream, header.data() + sent, total - sent);
+            if (n <= 0) return false;
+            sent += static_cast<size_t>(n);
+        }
     }
 
-    // Helpers
+    // Helpers — loop until full chunk accepted (hosts may accept fewer bytes than requested).
     auto write_value = [&](const auto& data) {
-        const auto expected = sizeof(data);
-        const auto result = stream->write(stream, &data, expected);
-        return result == expected;
+        const auto total = sizeof(data);
+        auto sent = size_t{};
+        const auto* ptr = reinterpret_cast<const char*>(&data);
+        while (sent < total) {
+            const auto n = stream->write(stream, ptr + sent, total - sent);
+            if (n <= 0) return false;
+            sent += static_cast<size_t>(n);
+        }
+        return true;
     };
 
     auto write_container = [&](const auto& data) {
+        // Write number of items.
         const auto num = static_cast<uint32_t>(data.size());
-        const auto num_result = stream->write(stream, &num, sizeof(num));
-        if (num_result != sizeof(num)) {
-            return false;
+        {
+            auto sent = size_t{};
+            const auto* ptr = reinterpret_cast<const char*>(&num);
+            while (sent < sizeof(num)) {
+                const auto n = stream->write(stream, ptr + sent, sizeof(num) - sent);
+                if (n <= 0) return false;
+                sent += static_cast<size_t>(n);
+            }
         }
-        const auto data_result = stream->write(stream, data.data(), sizeof(data[0]) * num);
-        return static_cast<size_t>(data_result) == sizeof(data[0]) * num;
+        if (num == 0) return true;
+
+        // Write items.
+        const auto total = sizeof(data[0]) * num;
+        auto sent = size_t{};
+        const auto* ptr = reinterpret_cast<const char*>(data.data());
+        while (sent < total) {
+            const auto n = stream->write(stream, ptr + sent, total - sent);
+            if (n <= 0) return false;
+            sent += static_cast<size_t>(n);
+        }
+        return true;
     };
 
     // --- Write the processor state ---
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
-        const auto host_value = static_cast<float>(_hostvalues[i].load(std::memory_order_relaxed));
-
         const auto& spec = User_params::param_spec(i);
+        auto raw = _hostvalues[i].load(std::memory_order_relaxed);
+
+        if (std::get_if<Fixed_semantics>(&spec.semantics)) {
+            raw = norm_to_plain(plain_to_norm(raw, spec.semantics), spec.semantics); // Clamp fixed to step values.
+        }
+
+        const auto host_value = static_cast<float>(raw);
         const auto to_write = State_rules::is_persistent(spec) ? host_value : State_rules::no_value;
 
         if (!write_value(to_write)) {
@@ -424,10 +455,14 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
     if (!stream) return false;
 
     auto header = State_rules::Clap::Header{};
-    const auto expected = sizeof(header);
-    const auto result = stream->read(stream, header.data(), expected);
-    if (result != expected) {
-        return false;
+    {
+        const auto total = sizeof(header);
+        auto got = size_t{};
+        while (got < total) {
+            const auto n = stream->read(stream, header.data() + got, total - got);
+            if (n <= 0) return false;
+            got += static_cast<size_t>(n);
+        }
     }
 
     // Validate header.
@@ -438,22 +473,41 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
     const auto num_stored_values = header[3];
     const auto num_stored_pairs = header[4];
 
-    // Helpers
+    // Helpers — loop until full chunk received (hosts may deliver fewer bytes than requested).
     auto read_value = [&](auto& data) {
-        const auto expected = sizeof(data);
-        const auto result = stream->read(stream, &data, expected);
-        return result == expected;
+        const auto total = sizeof(data);
+        auto got = size_t{};
+        auto* ptr = reinterpret_cast<char*>(&data);
+        while (got < total) {
+            const auto n = stream->read(stream, ptr + got, total - got);
+            if (n <= 0) return false;
+            got += static_cast<size_t>(n);
+        }
+        return true;
     };
 
     auto read_container = [&](auto& data) {
         auto num = uint32_t{};
-        const auto num_result = stream->read(stream, &num, sizeof(num));
-        if (num_result != sizeof(num)) {
-            return false;
+        {
+            auto got = size_t{};
+            auto* ptr = reinterpret_cast<char*>(&num);
+            while (got < sizeof(num)) {
+                const auto n = stream->read(stream, ptr + got, sizeof(num) - got);
+                if (n <= 0) return false;
+                got += static_cast<size_t>(n);
+            }
         }
         data.resize(num);
-        const auto data_result = stream->read(stream, data.data(), sizeof(data[0]) * num);
-        return static_cast<size_t>(data_result) == sizeof(data[0]) * num;
+        if (num == 0) return true;
+        const auto total = sizeof(data[0]) * num;
+        auto got = size_t{};
+        auto* ptr = reinterpret_cast<char*>(data.data());
+        while (got < total) {
+            const auto n = stream->read(stream, ptr + got, total - got);
+            if (n <= 0) return false;
+            got += static_cast<size_t>(n);
+        }
+        return true;
     };
 
     // Read processor state into temporary vector.
@@ -770,7 +824,17 @@ bool Clap_plugin::paramsValue(clap_id paramId, double* value) noexcept
     }
 
     if (paramId >= num_params) return false;
-    *value = _hostvalues[paramId].load(std::memory_order_relaxed);
+
+    const auto& spec = User_params::param_spec(paramId);
+    const auto raw = _hostvalues[paramId].load(std::memory_order_relaxed);
+    auto result = raw;
+
+    if (std::get_if<Fixed_semantics>(&spec.semantics)) {
+        // Snap to nearest step so paramsValue() round-trips through state save/load.
+        result = norm_to_plain(plain_to_norm(raw, spec.semantics), spec.semantics);
+    }
+
+    *value = static_cast<double>(static_cast<float>(result)); // We dump state as floats so the cast makes sure we round-trip through state save/load.
     return true;
 }
 
@@ -795,14 +859,22 @@ bool Clap_plugin::paramsValueToText(clap_id paramId, double value, char* display
 
 bool Clap_plugin::paramsTextToValue(clap_id paramId, const char* display, double* value) noexcept
 {
-    // Not parsing bypass at the moment.
-    if (paramId >= num_params || !display) return false;
+    if (!display) return false;
+
+    if (paramId == Reserved::bypass_id) {
+        if (std::strcmp(display, "On")  == 0) { *value = 1.0; return true; }
+        if (std::strcmp(display, "Off") == 0) { *value = 0.0; return true; }
+        return false;
+    }
+
+    if (paramId >= num_params) return false;
 
     const auto& param = User_params::param_spec(paramId);
     const auto str = std::string{display};
 
     if (const auto plain = Host_formatter::format_value(str, param.semantics)) {
-        *value = Value_conv::plain_to_host(*plain, param.semantics);
+        const auto clamped = std::clamp(*plain, get_plain_min(param), get_plain_max(param)); // Clamp fixes some round-tripping issues flagged by the validator.
+        *value = Value_conv::plain_to_host(clamped, param.semantics);
         return true;
     }
 
