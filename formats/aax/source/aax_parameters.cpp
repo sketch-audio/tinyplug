@@ -61,7 +61,10 @@ AAX_Result Aax_parameters::EffectInit()
                 if (std::strlen(param.short_name) > 0) {
                     aax_param->AddShortenedName(param.short_name);
                 }
-                aax_param->SetNumberOfSteps(static_cast<uint32_t>(num_items));
+                // AAX validator reports errors for parameters with more than 2048 steps. 
+                // See: https://dev.avid.com/MP_DeveloperForumSupport?filterId=a9T310000004FCnEAM#!/feedtype=SINGLE_QUESTION_DETAIL&dc=Developer_Community_Q_A&criteria=ALLQUESTIONS&id=9065A000000oScuQAE
+                const auto steps = std::min(num_items, 2048);
+                aax_param->SetNumberOfSteps(static_cast<uint32_t>(steps));
                 aax_param->SetType(AAX_eParameterType_Discrete);
                 if (aax_param->Automatable()) {
                     AddSynchronizedParameter(*aax_param);
@@ -83,7 +86,11 @@ AAX_Result Aax_parameters::EffectInit()
                 if (std::strlen(param.short_name) > 0) {
                     aax_param->AddShortenedName(param.short_name);
                 }
-                aax_param->SetNumberOfSteps(static_cast<uint32_t>(i.max_val - i.min_val + 1));
+                // AAX validator reports errors for parameters with more than 2048 steps. 
+                // See: https://dev.avid.com/MP_DeveloperForumSupport?filterId=a9T310000004FCnEAM#!/feedtype=SINGLE_QUESTION_DETAIL&dc=Developer_Community_Q_A&criteria=ALLQUESTIONS&id=9065A000000oScuQAE
+                const auto steps = std::min(i.max_val - i.min_val + 1, 2048);
+                assert(steps >= 0 && "Int_semantics must have max_val >= min_val."); // Otherwise we're gonna have an issue with the cast.
+                aax_param->SetNumberOfSteps(static_cast<uint32_t>(steps));
                 aax_param->SetType(AAX_eParameterType_Discrete);
                 if (aax_param->Automatable()) {
                     AddSynchronizedParameter(*aax_param);
@@ -106,7 +113,12 @@ AAX_Result Aax_parameters::EffectInit()
                 if (std::strlen(param.short_name) > 0) {
                     aax_param->AddShortenedName(param.short_name);
                 }
-                aax_param->SetNumberOfSteps(static_cast<uint32_t>((f.max_val - f.min_val) / f.step_size + 1)); // Step count here is number of values.
+                // AAX validator reports errors for parameters with more than 2048 steps. 
+                // See: https://dev.avid.com/MP_DeveloperForumSupport?filterId=a9T310000004FCnEAM#!/feedtype=SINGLE_QUESTION_DETAIL&dc=Developer_Community_Q_A&criteria=ALLQUESTIONS&id=9065A000000oScuQAE
+                const auto steps_raw = (f.max_val - f.min_val) / f.step_size + 1;
+                const auto steps = std::min(steps_raw, 2048.);
+                assert(steps >= 0 && "Fixed_semantics must have max_val >= min_val."); // Otherwise we're gonna have an issue with the cast.
+                aax_param->SetNumberOfSteps(static_cast<uint32_t>(steps)); // Step count here is number of values.
                 aax_param->SetType(AAX_eParameterType_Continuous);
                 if (aax_param->Automatable()) {
                     AddSynchronizedParameter(*aax_param);
@@ -129,7 +141,7 @@ AAX_Result Aax_parameters::EffectInit()
                 if (std::strlen(param.short_name) > 0) {
                     aax_param->AddShortenedName(param.short_name);
                 }
-                aax_param->SetNumberOfSteps(2048); // Is this the most we can have?
+                aax_param->SetNumberOfSteps(2048); // Most steps that will pass validation.
                 aax_param->SetType(AAX_eParameterType_Continuous);
                 if (aax_param->Automatable()) {
                     AddSynchronizedParameter(*aax_param);
