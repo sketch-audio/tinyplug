@@ -6,6 +6,7 @@ function(make_aax_plugin USER_TARGET)
     endif()
 
     read_property(${USER_TARGET} TINY_AAX_CATEGORIES)
+    read_property(${USER_TARGET} TINY_AAX_PAGE_TABLE_PATH)
     # Configure header aax_categories.h.in
     configure_file(
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/aax_categories.h.in
@@ -37,6 +38,10 @@ function(make_aax_plugin USER_TARGET)
 
     target_link_libraries(${AAX_TARGET} PRIVATE tiny::aaxsdk)
     target_link_libraries(${AAX_TARGET} PRIVATE ${USER_TARGET})
+
+    if(TINY_AAX_PAGE_TABLE_PATH)
+        target_compile_definitions(${AAX_TARGET} PRIVATE TINY_AAX_PAGE_TABLE=1) # Make sure to copy to bundle resources below.
+    endif()
 
     if(APPLE)
         target_link_libraries(${AAX_TARGET} PRIVATE "-framework Cocoa")
@@ -95,6 +100,17 @@ function(make_aax_plugin USER_TARGET)
                 ${AAX_TARGET}
                 "${TINY_RESOURCE_LIST}"
                 "${AAX_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+            )
+        endif()
+
+        read_property(${USER_TARGET} TINY_AAX_PAGE_TABLE_PATH)
+        if (TINY_AAX_PAGE_TABLE_PATH)
+            # Copy page table to bundle resources folder.
+            add_custom_command(
+                TARGET ${AAX_TARGET} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TINY_AAX_PAGE_TABLE_PATH} ${AAX_BUNDLE_OUTPUT_DIR}/Contents/Resources
+                COMMENT "Copying AAX page table to bundle resources folder"
+                VERBATIM
             )
         endif()
 
@@ -160,6 +176,17 @@ function(make_aax_plugin USER_TARGET)
                 ${AAX_TARGET}
                 "${TINY_RESOURCE_LIST}"
                 "${AAX_BUNDLE_OUTPUT_DIR}/Contents/Resources"
+            )
+        endif()
+
+        read_property(${USER_TARGET} TINY_AAX_PAGE_TABLE_PATH)
+        if (TINY_AAX_PAGE_TABLE_PATH)
+            # Copy page table to bundle resources folder.
+            add_custom_command(
+                TARGET ${AAX_TARGET} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TINY_AAX_PAGE_TABLE_PATH} ${AAX_BUNDLE_OUTPUT_DIR}/Contents/Resources
+                COMMENT "Copying AAX page table to bundle resources folder"
+                VERBATIM
             )
         endif()
 

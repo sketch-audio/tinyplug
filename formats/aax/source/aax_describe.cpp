@@ -1,3 +1,5 @@
+#include <string>
+
 // AAX Includes
 #include "AAX_ICollection.h"
 #include "AAX_IComponentDescriptor.h"
@@ -26,6 +28,11 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
         descriptor->AddCategory(TINY_AAX_CATEGORIES);
         descriptor->AddProcPtr((void*)Aax_parameters::Create, kAAX_ProcPtrID_Create_EffectParameters);
         descriptor->AddProcPtr((void*)Aax_gui::Create, kAAX_ProcPtrID_Create_EffectGUI);
+
+#if TINY_AAX_PAGE_TABLE
+        const auto table_name = std::string{Plug_info::base_file_name} + "Pages.xml";
+        descriptor->AddResourceInfo(AAX_eResourceType_PageTable, table_name.c_str());
+#endif
 
         //
         auto make_setup = [](bool stereo) {

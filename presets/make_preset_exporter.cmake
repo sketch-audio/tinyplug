@@ -19,6 +19,19 @@ function(make_tfx_exporter USER_TARGET PRESET_DIR)
     target_link_libraries(${PRESETS_TARGET} PRIVATE ${USER_TARGET} tiny::aaxsdk)
 endfunction()
 
+# No extra SDK required — links only against the plugin lib.
+function(make_pagetable_manifest USER_TARGET)
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        return()
+    endif()
+
+    read_property(${USER_TARGET} TINY_BASE_FILENAME)
+    set(MANIFEST_TARGET "${TINY_BASE_FILENAME}_pagetable_manifest")
+    set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
+    add_executable(${MANIFEST_TARGET} ${SOURCE_DIR}/pagetable_manifest.cpp)
+    target_link_libraries(${MANIFEST_TARGET} PRIVATE ${USER_TARGET})
+endfunction()
+
 # VST3 SDK required.
 function(make_vstpreset_exporter USER_TARGET PRESET_DIR)
     if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
