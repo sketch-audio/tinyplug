@@ -946,18 +946,75 @@ struct Host_formatter {
         }, semantics);
     }
 
-    static auto format_value(const std::string& string, const Value_semantics& /*semantics*/) -> std::optional<double>
+    static auto format_value(const std::string& string, const Value_semantics& semantics) -> std::optional<double>
     {
-        char* end = nullptr;
-        errno = 0;
-        const auto result = std::strtod(string.c_str(), &end);
+        // Strip a suffix from a string, also consuming any whitespace between
+        // the numeric part and the suffix.
+        auto strip_suffix = [](const std::string& s, const char* suffix) -> std::optional<std::string> {
+            const auto suf_len = std::strlen(suffix);
+            auto i = s.size();
+            while (i > 0 && s[i - 1] == ' ') --i; // trailing whitespace
+            if (i < suf_len || s.compare(i - suf_len, suf_len, suffix) != 0) return std::nullopt;
+            i -= suf_len;
+            while (i > 0 && s[i - 1] == ' ') --i; // whitespace before suffix
+            return s.substr(0, i);
+        };
 
-        // Check for conversion success
-        if (end != string.c_str() && *end == '\0' && errno == 0) {
-            return result;
-        }
+        // Parse a double, accepting an optional leading '+' that strtod rejects.
+        auto parse_double = [](const std::string& s) -> std::optional<double> {
+            if (s.empty()) return std::nullopt;
+            char* end = nullptr;
+            errno = 0;
+            const char* start = s.c_str();
+            if (*start == '+') ++start;
+            const auto result = std::strtod(start, &end);
+            if (end != start && *end == '\0' && errno == 0) return result;
+            return std::nullopt;
+        };
 
-        return std::nullopt;
+        return std::visit(Inline_visitor{
+            [&](const Bool_semantics&) -> std::optional<double> {
+                if (string == "True")  return 1.0;
+                if (string == "False") return 0.0;
+                return std::nullopt;
+            },
+            [&](const List_semantics& l) -> std::optional<double> {
+                for (size_t i = 0; i < l.items.size(); ++i) {
+                    if (std::strcmp(string.c_str(), l.items[i]) == 0) return static_cast<double>(i);
+                }
+                return std::nullopt;
+            },
+            [&](const Int_semantics&) -> std::optional<double> {
+                return parse_double(string);
+            },
+            [&](const auto& fr) -> std::optional<double> {
+                using enum Units;
+                switch (fr.units) {
+                    case generic:
+                        return parse_double(string);
+                    case percent:
+                        if (const auto s = strip_suffix(string, "%"))  return parse_double(*s);
+                        return parse_double(string);
+                    case decibels:
+                        if (const auto s = strip_suffix(string, "dB")) return parse_double(*s);
+                        return parse_double(string);
+                    case hertz:
+                        if (const auto s = strip_suffix(string, "kHz")) {
+                            if (const auto v = parse_double(*s)) return *v * 1000.0;
+                        }
+                        if (const auto s = strip_suffix(string, "Hz"))  return parse_double(*s);
+                        return parse_double(string);
+                    case milliseconds:
+                        if (const auto s = strip_suffix(string, "ms"))  return parse_double(*s);
+                        return parse_double(string);
+                    case degrees:
+                        if (const auto s = strip_suffix(string, "°"))   return parse_double(*s);
+                        return parse_double(string);
+                    default:
+                        return std::nullopt;
+                }
+            }
+        }, semantics);
     }
 };
 
