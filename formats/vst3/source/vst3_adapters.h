@@ -45,7 +45,7 @@ struct Flattened_units {
 inline auto tree_to_units(const Param_node& root) -> Flattened_units
 {
     auto result = Flattened_units{};
-    auto next_unit_id = int32_t{};
+    auto next_unit_id = int32_t{1};
 
     const auto visit = [&](const Param_node& node, int32_t parent_id, const auto& self) -> std::optional<int32_t> {
         return std::visit(Inline_visitor{
@@ -54,13 +54,17 @@ inline auto tree_to_units(const Param_node& root) -> Flattened_units
                 return std::nullopt;
             },
             [&](const Param_group& group) -> std::optional<int32_t> {
-                const int32_t this_unit_id = next_unit_id++;
+                // Groups without a name are transparent wrappers — don't create a unit,
+                // just pass the current parent down to children.
+                const int32_t this_unit_id = !*group.name ? parent_id : next_unit_id++;
 
-                result.units.push_back(Unit_info{
-                    .unit_id = this_unit_id,
-                    .parent_id = parent_id,
-                    .name = group.name
-                });
+                if (!!*group.name) {
+                    result.units.push_back(Unit_info{
+                        .unit_id = this_unit_id,
+                        .parent_id = parent_id,
+                        .name = group.name
+                    });
+                }
 
                 for (const auto& child : group.nodes) {
                     std::visit(Inline_visitor{
@@ -81,7 +85,7 @@ inline auto tree_to_units(const Param_node& root) -> Flattened_units
         }, node);
     };
 
-    visit(root, -1, visit);
+    visit(root, 0, visit);
     return result;
 }
 

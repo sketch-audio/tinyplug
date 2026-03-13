@@ -204,25 +204,35 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
     _meters.fill(0);
     auto context = Dsp_context{.meters = _meters};
 
+    const auto has_inputs = data.numInputs > 0 && data.inputs;
+    const auto has_sidechain = data.numInputs > 1 && data.inputs;
+    const auto has_outputs = data.numOutputs > 0 && data.outputs;
+
     // Copy main input to internal buffers in case of in-place processing.
-    for (size_t i = 0; i < _ichannels; ++i) {
-        const auto* in = data.inputs[0].channelBuffers32[i];
-        auto& channel = _input_data[i];
-        std::copy(in, in + data.numSamples, channel.begin());
+    if (has_inputs) {
+        for (size_t i = 0; i < _ichannels; ++i) {
+            const auto* in = data.inputs[0].channelBuffers32[i];
+            auto& channel = _input_data[i];
+            std::copy(in, in + data.numSamples, channel.begin());
+        }
     }
 
     // So we can process with an offset.
-    auto do_process = [this, &data, &context](size_t num_frames, size_t offset) {
+    auto do_process = [this, &data, &context, has_inputs, has_outputs, has_sidechain](size_t num_frames, size_t offset) {
         // Assign buffer ptrs.
-        assert(data.inputs[0].numChannels == static_cast<Steinberg::int32>(_ichannels));
-        for (size_t i = 0; i < _ichannels; ++i) {
-            _ibuffers[i] = &_input_data[i][offset];
+        if (has_inputs) {
+            assert(data.inputs[0].numChannels == static_cast<Steinberg::int32>(_ichannels));
+            for (size_t i = 0; i < _ichannels; ++i) {
+                _ibuffers[i] = &_input_data[i][offset];
+            }
         }
-        assert(data.outputs[0].numChannels == static_cast<Steinberg::int32>(_ochannels));
-        for (size_t i = 0; i < _ochannels; ++i) {
-            _obuffers[i] = &data.outputs[0].channelBuffers32[i][offset];
+        if (has_outputs) {
+            assert(data.outputs[0].numChannels == static_cast<Steinberg::int32>(_ochannels));
+            for (size_t i = 0; i < _ochannels; ++i) {
+                _obuffers[i] = &data.outputs[0].channelBuffers32[i][offset];
+            }
         }
-        if constexpr (Plug_info::wants_sidechain) {
+        if (has_sidechain && Plug_info::wants_sidechain) {
             assert(data.inputs[1].numChannels == static_cast<Steinberg::int32>(_schannels));
             for (size_t i = 0; i < _schannels; ++i) {
                 _sbuffers[i] = &data.inputs[1].channelBuffers32[i][offset]; // Assume sidechain not "in-place"
@@ -230,37 +240,41 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
         }
 
         // Resolve the musical context.
-        const auto* vst_context = data.processContext;
-        const auto sample_pos = vst_context->projectTimeSamples;
-        const auto beat_pos = vst_context->projectTimeMusic;
-        const auto cycle_start = vst_context->cycleStartMusic;
-        const auto cycle_end = vst_context->cycleEndMusic;
-        const auto tempo = vst_context->tempo;
-        const auto sr = vst_context->sampleRate;
-        const auto ts_numer = vst_context->timeSigNumerator;
-        const auto ts_denom = vst_context->timeSigDenominator;
+        context.musical_context = Musical_context{}; // Default in case processContext is null.
+        if (const auto* vst_context = data.processContext; vst_context) {
+            const auto sample_pos = vst_context->projectTimeSamples;
+            const auto beat_pos = vst_context->projectTimeMusic;
+            const auto cycle_start = vst_context->cycleStartMusic;
+            const auto cycle_end = vst_context->cycleEndMusic;
+            const auto tempo = vst_context->tempo;
+            const auto sr = vst_context->sampleRate;
+            const auto ts_numer = vst_context->timeSigNumerator;
+            const auto ts_denom = vst_context->timeSigDenominator;
 
-        using enum Steinberg::Vst::ProcessContext::StatesAndFlags;
-        const auto transport_state = vst_context->state;
-        const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
+            using enum Steinberg::Vst::ProcessContext::StatesAndFlags;
+            const auto transport_state = vst_context->state;
+            const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
 
-        context.musical_context = {
-            .sample_pos = sample_pos + static_cast<int64_t>(offset),
-            .beat_pos = beat_pos + frames_to_beats(static_cast<int64_t>(offset), tempo, sr),
-            .cycle_start = cycle_start,
-            .cycle_end = cycle_end,
-            .tempo_ideal = tempo,
-            .time_sig = {ts_numer, ts_denom},
-            .transport_state = {
-                .moving = has_flag(transport_state, kPlaying),
-                .cycling = has_flag(transport_state, kCycleActive),
-                .recording = has_flag(transport_state, kRecording)
-            }
-        };
+            context.musical_context = {
+                .sample_pos = sample_pos + static_cast<int64_t>(offset),
+                .beat_pos = beat_pos + frames_to_beats(static_cast<int64_t>(offset), tempo, sr),
+                .cycle_start = cycle_start,
+                .cycle_end = cycle_end,
+                .tempo_ideal = tempo,
+                .time_sig = {ts_numer, ts_denom},
+                .transport_state = {
+                    .moving = has_flag(transport_state, kPlaying),
+                    .cycling = has_flag(transport_state, kCycleActive),
+                    .recording = has_flag(transport_state, kRecording)
+                }
+            };
+        }
 
-        context.ibuffers = {_ibuffers.begin(), _ichannels};
-        context.obuffers = {_obuffers.begin(), _ochannels};
-        context.sbuffers = {_sbuffers.begin(), _schannels};
+        using In = std::span<const float*>;
+        using Out = std::span<float*>;
+        context.ibuffers = has_inputs ? In{_ibuffers.begin(), _ichannels} : In{};
+        context.obuffers = has_outputs ? Out{_obuffers.begin(), _ochannels} : Out{};
+        context.sbuffers = has_sidechain ? In{_sbuffers.begin(), _schannels} : In{};
         context.num_frames = num_frames;
 
         _processor->process(context);
@@ -304,31 +318,39 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
         }
     }
 
-    auto in_buffers = [&]() {
-        auto arr = std::array<const float*, max_ichannels>{};
-        for (size_t i = 0; i < _ichannels; ++i) {
-            arr[i] = &_input_data[i][0];
-        }
-        return arr;
-    }();
+    if (has_inputs && has_outputs && data.numSamples > 0) {
+        auto in_buffers = [&]() {
+            auto arr = std::array<const float*, max_ichannels>{};
+            for (size_t i = 0; i < _ichannels; ++i) {
+                arr[i] = &_input_data[i][0];
+            }
+            return arr;
+        }();
 
-    auto out_buffers = [&]() {
-        auto arr = std::array<float*, max_ochannels>{};
-        for (size_t i = 0; i < _ochannels; ++i) {
-            arr[i] = &data.outputs[0].channelBuffers32[i][0];
-        }
-        return arr;
-    }();
+        auto out_buffers = [&]() {
+            auto arr = std::array<float*, max_ochannels>{};
+            for (size_t i = 0; i < _ochannels; ++i) {
+                arr[i] = &data.outputs[0].channelBuffers32[i][0];
+            }
+            return arr;
+        }();
 
-    const auto min_channels = std::min(data.inputs[0].numChannels, data.outputs[0].numChannels);
-    const auto num_channels = static_cast<size_t>(min_channels);
-    _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, static_cast<size_t>(data.numSamples));
+        const auto min_channels = std::min(data.inputs[0].numChannels, data.outputs[0].numChannels);
+        const auto num_channels = static_cast<size_t>(min_channels);
+        _bypass.process(
+            {in_buffers.begin(), num_channels},
+            {out_buffers.begin(), num_channels},
+            static_cast<size_t>(data.numSamples)
+        );
+    }
 
     auto add_output_event = [&](int32_t id, double value) {
         auto event_index = Steinberg::int32{};
-        auto& queue = *data.outputParameterChanges->addParameterData(static_cast<uint32_t>(id), event_index);
+        if (!data.outputParameterChanges) return;
+        auto* queue = data.outputParameterChanges->addParameterData(static_cast<uint32_t>(id), event_index);
+        if (!queue) return;
         auto point_index = Steinberg::int32{};
-        queue.addPoint(0, value, point_index); // offset, value, index
+        queue->addPoint(0, value, point_index); // offset, value, index
     };
 
     // Send exports as output parameter changes.
@@ -517,11 +539,14 @@ Steinberg::uint32 PLUGIN_API Vst3_processor::getProcessContextRequirements()
 
 auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -> void
 {
+    if (!data.inputParameterChanges) return;
     auto& param_changes = *data.inputParameterChanges;
     const auto num_changes = param_changes.getParameterCount();
 
     for (auto i = decltype(num_changes){}; i < num_changes; ++i) {
-        auto& queue = *param_changes.getParameterData(i);
+        auto* queue_ptr = param_changes.getParameterData(i);
+        if (!queue_ptr) continue;
+        auto& queue = *queue_ptr;
 
         const auto id = queue.getParameterId();
 

@@ -115,8 +115,8 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
     for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
         auto export_info = Steinberg::Vst::ParameterInfo{
             .id = static_cast<Steinberg::Vst::ParamID>(i + export_param_offset),
-            .title = u"",
-            .shortTitle = u"",
+            .title = u"Meter",
+            .shortTitle = u"Meter",
             .stepCount = 0,
             .defaultNormalizedValue = 0,
             .unitId = Steinberg::Vst::kRootUnitId,

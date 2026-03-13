@@ -47,8 +47,8 @@ public:
     DEFINE_INTERFACES
         // Here you can add more supported VST3 interfaces
         // DEF_INTERFACE (Vst::IXXX)
-    END_DEFINE_INTERFACES(Steinberg::Vst::EditController)
-    DELEGATE_REFCOUNT(Steinberg::Vst::EditController)
+    END_DEFINE_INTERFACES(Steinberg::Vst::EditControllerEx1)
+    DELEGATE_REFCOUNT(Steinberg::Vst::EditControllerEx1)
 
     auto resized(Rect_size size) -> void
     {
