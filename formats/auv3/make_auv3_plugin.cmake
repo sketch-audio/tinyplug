@@ -13,6 +13,7 @@ function(make_auv3_plugin USER_TARGET)
 
     # Additional AUv2 properties.
     read_property(${USER_TARGET} TINY_COMPANY_NAME)
+    read_property(${USER_TARGET} TINY_COMPANY_WEBSITE)
     read_property(${USER_TARGET} TINY_MANUFACTURER_CODE)
     read_property(${USER_TARGET} TINY_PLUGIN_CODE)
     read_property(${USER_TARGET} TINY_AUV2_TYPE) # same as AUv2
@@ -30,6 +31,28 @@ function(make_auv3_plugin USER_TARGET)
         set(TINY_APP_PLIST_ENTRIES "")
     endif()
 
+    # Optional app info properties (for the standalone app UI).
+    read_property(${USER_TARGET} TINY_APP_DESCRIPTION)
+    if(NOT TINY_APP_DESCRIPTION)
+        set(TINY_APP_DESCRIPTION "")
+    endif()
+    read_property(${USER_TARGET} TINY_APP_MANUAL_URL)
+    if(NOT TINY_APP_MANUAL_URL)
+        set(TINY_APP_MANUAL_URL "")
+    endif()
+    read_property(${USER_TARGET} TINY_APP_SUPPORT_URL)
+    if(NOT TINY_APP_SUPPORT_URL)
+        set(TINY_APP_SUPPORT_URL "")
+    endif()
+    read_property(${USER_TARGET} TINY_APP_PRIVACY_URL)
+    if(NOT TINY_APP_PRIVACY_URL)
+        set(TINY_APP_PRIVACY_URL "")
+    endif()
+    read_property(${USER_TARGET} TINY_APP_STORE_URL)
+    if(NOT TINY_APP_STORE_URL)
+        set(TINY_APP_STORE_URL "")
+    endif()
+
     read_property(${USER_TARGET} TINY_AUV3_SIZE_TAG)
     if(TINY_AUV3_SIZE_TAG)
         set(TINY_AUV3_TAGS "<string>${TINY_AUV3_SIZE_TAG}</string>")
@@ -38,6 +61,11 @@ function(make_auv3_plugin USER_TARGET)
     endif()
     
     set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
+
+    configure_file(
+        ${SOURCE_DIR}/../../cmake/app_info.h.in
+        ${CMAKE_CURRENT_BINARY_DIR}/app_info.h
+    )
 
     # See: https://www.jviotti.com/2022/12/21/building-objective-c-ios-apps-with-cmake.html
     set(CMAKE_OBJC_STANDARD 99)
@@ -115,7 +143,10 @@ function(make_auv3_plugin USER_TARGET)
             XCODE_ATTRIBUTE_CODE_SIGN_INJECT_BASE_ENTITLEMENTS[variant=Release] "NO"
         )
     endif()
-    target_include_directories(${APP_TARGET} PUBLIC ${SOURCE_DIR}/source/shared)
+    target_include_directories(${APP_TARGET} PUBLIC
+        ${SOURCE_DIR}/source/shared
+        ${CMAKE_CURRENT_BINARY_DIR} # for app_info.h
+    )
 
     # Configure Info.plist
     set(INFO_APP_PLIST ${CMAKE_CURRENT_BINARY_DIR}/Info-App.plist)
