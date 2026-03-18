@@ -15,3 +15,12 @@
 #define APP_SUPPORT_URL     "@TINY_APP_SUPPORT_URL@"
 #define APP_PRIVACY_URL     "@TINY_APP_PRIVACY_URL@"
 #define APP_STORE_URL       "@TINY_APP_STORE_URL@"
+
+// License storage subdirectory (matches C++ Plug_info::company/product_directory_name).
+#define APP_COMPANY_DIRECTORY_NAME "@TINY_COMPANY_DIRECTORY_NAME@"
+#define APP_PRODUCT_DIRECTORY_NAME "@TINY_PRODUCT_DIRECTORY_NAME@"
+
+// IAP / App Group (iOS only; empty string if not set).
+#define APP_GROUP_ID        "@TINY_APP_GROUP_ID@"
+#define APP_IAP_PRODUCT_ID  "@TINY_APP_IAP_PRODUCT_ID@"
+#define APP_IAP_TRIAL_ID    "@TINY_APP_IAP_TRIAL_ID@"

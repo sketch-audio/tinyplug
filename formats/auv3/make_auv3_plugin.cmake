@@ -53,6 +53,30 @@ function(make_auv3_plugin USER_TARGET)
         set(TINY_APP_STORE_URL "")
     endif()
 
+    # IAP / App Group properties (iOS only; empty string defaults keep non-IAP builds unaffected).
+    read_property(${USER_TARGET} TINY_APP_GROUP_ID)
+    if(NOT TINY_APP_GROUP_ID)
+        set(TINY_APP_GROUP_ID "")
+    endif()
+    read_property(${USER_TARGET} TINY_APP_IAP_PRODUCT_ID)
+    if(NOT TINY_APP_IAP_PRODUCT_ID)
+        set(TINY_APP_IAP_PRODUCT_ID "")
+    endif()
+    read_property(${USER_TARGET} TINY_APP_IAP_TRIAL_ID)
+    if(NOT TINY_APP_IAP_TRIAL_ID)
+        set(TINY_APP_IAP_TRIAL_ID "")
+    endif()
+
+    # Compose the App Group entitlement XML block (empty string when not set).
+    if(TINY_APP_GROUP_ID)
+        set(TINY_APP_GROUP_ENTITLEMENT "\t<key>com.apple.security.application-groups</key>\n\t<array>\n\t\t<string>${TINY_APP_GROUP_ID}</string>\n\t</array>\n")
+    else()
+        set(TINY_APP_GROUP_ENTITLEMENT "")
+    endif()
+
+    # Custom ViewController sources (injected by client when IAP/licensing UI is needed).
+    read_property(${USER_TARGET} TINY_APP_CUSTOM_VC_SOURCES)
+
     read_property(${USER_TARGET} TINY_AUV3_SIZE_TAG)
     if(TINY_AUV3_SIZE_TAG)
         set(TINY_AUV3_TAGS "<string>${TINY_AUV3_SIZE_TAG}</string>")
@@ -95,6 +119,16 @@ function(make_auv3_plugin USER_TARGET)
         set(ASSETS_PATH ${SOURCE_DIR}/assets/Assets.xcassets)
     endif()
 
+    # Custom VC sources on iOS only right now! Work around to get the macOS build to work.
+    if(TINY_APP_CUSTOM_VC_SOURCES AND CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        set(APP_VC_SOURCES ${TINY_APP_CUSTOM_VC_SOURCES})
+    else()
+        set(APP_VC_SOURCES
+            ${SOURCE_DIR}/source/app/ViewController.h
+            ${SOURCE_DIR}/source/app/ViewController.m
+        )
+    endif()
+
     add_executable(${APP_TARGET})
     target_sources(${APP_TARGET} PRIVATE
         ${SOURCE_DIR}/source/app/AppDelegate.h
@@ -102,9 +136,8 @@ function(make_auv3_plugin USER_TARGET)
         ${SOURCE_DIR}/source/app/main.m
         ${SOURCE_DIR}/source/app/SceneDelegate.h
         ${SOURCE_DIR}/source/app/SceneDelegate.m
-        ${SOURCE_DIR}/source/app/ViewController.h
-        ${SOURCE_DIR}/source/app/ViewController.m
         ${SOURCE_DIR}/source/shared/TargetPlatforms.h
+        ${APP_VC_SOURCES}
         ${ASSETS_PATH}
     )
     set_source_files_properties(${ASSETS_PATH} PROPERTIES
@@ -115,6 +148,18 @@ function(make_auv3_plugin USER_TARGET)
         target_link_libraries(${APP_TARGET} PRIVATE
             "-framework Foundation"
             "-framework UIKit"
+        )
+        if(TINY_APP_IAP_PRODUCT_ID)
+            target_link_libraries(${APP_TARGET} PRIVATE "-framework StoreKit")
+            # Maybe we need to call some code from the user target. (This is sort of a hack right now so we can get device_identifier.mm in the standalone)
+            target_link_libraries(${APP_TARGET} PRIVATE ${USER_TARGET})
+        endif()
+        configure_file(
+            ${SOURCE_DIR}/cmake/Entitlements-iOS.plist.in
+            ${CMAKE_CURRENT_BINARY_DIR}/Entitlements-App-iOS.plist
+        )
+        set_target_properties(${APP_TARGET} PROPERTIES
+            XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_BINARY_DIR}/Entitlements-App-iOS.plist"
         )
         set_target_properties(${APP_TARGET} PROPERTIES
             # Install stuff required so Xcode recognizes this as an app bundle (for distribution).
@@ -199,6 +244,13 @@ function(make_auv3_plugin USER_TARGET)
             "-framework CoreAudioKit"
             "-framework Foundation"
             "-framework UIKit"
+        )
+        configure_file(
+            ${SOURCE_DIR}/cmake/Entitlements-iOS.plist.in
+            ${CMAKE_CURRENT_BINARY_DIR}/Entitlements-Extension-iOS.plist
+        )
+        set_target_properties(${EXT_TARGET} PROPERTIES
+            XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_BINARY_DIR}/Entitlements-Extension-iOS.plist"
         )
         set_target_properties(${EXT_TARGET} PROPERTIES
             # Strip and generate dSYM for release builds.

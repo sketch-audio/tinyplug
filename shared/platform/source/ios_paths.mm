@@ -17,6 +17,16 @@ auto Platform_paths::format_readable(const std::string& /*bundle_id*/) -> std::f
 
 auto Platform_paths::shared_writable(const Subpath& subpath) -> std::filesystem::path
 {
+    if (!subpath.app_group_id.empty()) {
+        NSString* group = [NSString stringWithUTF8String:subpath.app_group_id.c_str()];
+        NSURL* container = [[NSFileManager defaultManager]
+            containerURLForSecurityApplicationGroupIdentifier:group];
+        if (container) {
+            return std::filesystem::path{[container.path UTF8String]}
+                / subpath.manufacturer / subpath.product;
+        }
+    }
+
     auto paths = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
     auto app_support = [paths firstObject];
     if (!app_support) return {};

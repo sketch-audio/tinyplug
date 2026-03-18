@@ -34,6 +34,8 @@ struct Plug_info {
     static constexpr auto wants_sidechain = bool{@TINY_PLUGIN_WANTS_SIDECHAIN@};
     static constexpr auto can_process_mono = bool{@TINY_PLUGIN_CAN_PROCESS_MONO@};
 
+    static constexpr const char app_group_id[] = "@TINY_APP_GROUP_ID@";
+
     struct Aax {
         static constexpr auto manufacturer_id = uint32_t{'@TINY_MANUFACTURER_CODE@'};
         static constexpr auto product_id = uint32_t{'@TINY_PLUGIN_CODE@'};

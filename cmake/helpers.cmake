@@ -1,6 +1,6 @@
-# Add a custom property to a target.
+# Add a custom property to a target. Accepts one or more values.
 macro(add_property target property value)
-    set_property(TARGET ${target} PROPERTY ${property} ${value})
+    set_property(TARGET ${target} PROPERTY ${property} ${value} ${ARGN})
 endmacro()
 
 # Read a custom property on a target into a variable of the same name.
@@ -75,6 +75,11 @@ function(configure_plug_info plugin_target output)
 
     read_property(${plugin_target} TINY_PLUGIN_WANTS_SIDECHAIN)
     read_property(${plugin_target} TINY_PLUGIN_CAN_PROCESS_MONO)
+
+    read_property(${plugin_target} TINY_APP_GROUP_ID)
+    if(NOT TINY_APP_GROUP_ID)
+        set(TINY_APP_GROUP_ID "")
+    endif()
 
     read_property(${plugin_target} TINY_CLAP_DESCRIPTION)
     read_property(${plugin_target} TINY_CLAP_FEATURES)
