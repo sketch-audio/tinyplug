@@ -764,6 +764,15 @@ static auto presets_path() -> std::filesystem::path
         }
     }
     
+    // Set interface parameters to their default values.
+    for (auto i = decltype(num_params){}; i < num_params; ++i) {
+        const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
+        if (param.policy == Host_policy::interface) {
+            const auto def_val = tiny::get_host_default(param);
+            [[_parameterTree parameterWithAddress:i] setValue:def_val];
+        }
+    }
+    
     id numEditItems = [fullState objectForKey:@(State_rules::Auv3::num_editor_items)];
     if ([numEditItems isKindOfClass:[NSNumber class]]) {
         const auto num_edit_items = [numEditItems intValue];
