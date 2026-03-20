@@ -19,6 +19,16 @@ function(make_auv3_plugin USER_TARGET)
     read_property(${USER_TARGET} TINY_AUV2_TYPE) # same as AUv2
     read_property(${USER_TARGET} TINY_APP_XCASSETS)
 
+    # iOS device family: "ipad" (default), "iphone", or "universal" (iPhone + iPad).
+    read_property(${USER_TARGET} TINY_IOS_DEVICE_FAMILY)
+    if(TINY_IOS_DEVICE_FAMILY STREQUAL "universal")
+        set(TINY_TARGETED_DEVICE_FAMILY_VALUE "1,2")
+    elseif(TINY_IOS_DEVICE_FAMILY STREQUAL "iphone")
+        set(TINY_TARGETED_DEVICE_FAMILY_VALUE "1")
+    else()
+        set(TINY_TARGETED_DEVICE_FAMILY_VALUE "2") # default: iPad only
+    endif()
+
     derive_build_number(${TINY_VERSION_STRING} TINY_AUV3_BUNDLE_VERSION)
     read_property(${USER_TARGET} TINY_PLUGIN_WANTS_SIDECHAIN)
 
@@ -194,6 +204,16 @@ function(make_auv3_plugin USER_TARGET)
     )
 
     # Configure Info.plist
+    set(IPHONE_ORIENTATIONS "<key>UISupportedInterfaceOrientations</key>\n\t<array>\n\t\t<string>UIInterfaceOrientationPortrait</string>\n\t\t<string>UIInterfaceOrientationLandscapeLeft</string>\n\t\t<string>UIInterfaceOrientationLandscapeRight</string>\n\t\t<string>UIInterfaceOrientationPortraitUpsideDown</string>\n\t</array>")
+    set(IPAD_ORIENTATIONS "<key>UISupportedInterfaceOrientations~ipad</key>\n\t<array>\n\t\t<string>UIInterfaceOrientationPortrait</string>\n\t\t<string>UIInterfaceOrientationLandscapeLeft</string>\n\t\t<string>UIInterfaceOrientationLandscapeRight</string>\n\t\t<string>UIInterfaceOrientationPortraitUpsideDown</string>\n\t</array>")
+    if(TINY_TARGETED_DEVICE_FAMILY_VALUE STREQUAL "1")
+        set(TINY_ORIENTATION_PLIST_ENTRIES "${IPHONE_ORIENTATIONS}")
+    elseif(TINY_TARGETED_DEVICE_FAMILY_VALUE STREQUAL "2")
+        set(TINY_ORIENTATION_PLIST_ENTRIES "${IPAD_ORIENTATIONS}")
+    else()
+        set(TINY_ORIENTATION_PLIST_ENTRIES "${IPHONE_ORIENTATIONS}\n\t${IPAD_ORIENTATIONS}")
+    endif()
+
     set(INFO_APP_PLIST ${CMAKE_CURRENT_BINARY_DIR}/Info-App.plist)
     configure_file(
         ${SOURCE_DIR}/cmake/Info-App.plist.in
@@ -204,7 +224,7 @@ function(make_auv3_plugin USER_TARGET)
         OUTPUT_NAME ${TINY_BASE_FILENAME}
         MACOSX_BUNDLE YES
         MACOSX_BUNDLE_INFO_PLIST ${INFO_APP_PLIST}
-        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2" # iPhone and iPad
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "${TINY_TARGETED_DEVICE_FAMILY_VALUE}"
         XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "14.0"
         XCODE_ATTRIBUTE_MACOSX_DEPLOYMENT_TARGET "11.0"
         XCODE_ATTRIBUTE_LAUNCH_SCREEN_STORYBOARD "NO"
@@ -329,7 +349,7 @@ function(make_auv3_plugin USER_TARGET)
         MACOSX_BUNDLE_INFO_PLIST ${INFO_EXT_PLIST}
         XCODE_PRODUCT_TYPE "com.apple.product-type.app-extension"
         XCODE_ATTRIBUTE_EMBEDDED_CONTENT_CONTAINS_SWIFT "NO"
-        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2" # iPhone and iPad
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "${TINY_TARGETED_DEVICE_FAMILY_VALUE}"
         XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "14.0"
         XCODE_ATTRIBUTE_MACOSX_DEPLOYMENT_TARGET "11.0"
         XCODE_ATTRIBUTE_LAUNCH_SCREEN_STORYBOARD "NO"
