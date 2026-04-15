@@ -164,6 +164,7 @@ public:
         switch (event->head.eventType) {
             case AURenderEventParameter: {
                 const auto address = static_cast<uint32_t>(event->parameter.parameterAddress);
+                if (address >= num_params) return;
                 const auto& spec = User_params::param_spec(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
                 _processor->handle_event(tiny::Set_param{.address = address, .value = plain});
@@ -172,6 +173,7 @@ public:
             }
             case AURenderEventParameterRamp: {
                 const auto address = static_cast<uint32_t>(event->parameter.parameterAddress);
+                if (address >= num_params) return;
                 const auto dur_samples = static_cast<int32_t>(event->parameter.rampDurationSampleFrames);
                 const auto& spec = User_params::param_spec(address);
                 const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
