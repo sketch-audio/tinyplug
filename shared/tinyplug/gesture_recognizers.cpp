@@ -55,6 +55,10 @@ auto Over_recognizer::process_events(Event_list& events) -> void
                 resolve_events(up.pos, _over, false);
             },
 #endif
+            [&](const Pointer_cancel& cancel) {
+                if (has_touches && !touch_is_ours(event.pointer_tag)) return;
+                resolve_events(cancel.pos, _over, false);
+            },
             [](const auto&) {}
         }, event.event);
     }
@@ -97,6 +101,12 @@ auto Down_recognizer::process_events(Event_list& events) -> void
             [&](const Pointer_up& up) {
                 if (_down) { // Event could have left our frame
                     _callbacks.on_ended({up.pos, false});
+                    _down = false;
+                }
+            },
+            [&](const Pointer_cancel&) {
+                if (_down) {
+                    _callbacks.on_cancelled();
                     _down = false;
                 }
             },
@@ -164,6 +174,14 @@ auto Dwell_recognizer::process_events(Event_list& events) -> void
 
                 _over_t = events.timestamp;
                 _pos = move.pos;
+            },
+            [&](const Pointer_cancel&) {
+                if (_dwelling) {
+                    _callbacks.on_cancelled();
+                    _dwelling = false;
+                }
+                _over_t = std::nullopt;
+                _down = false; // Might not have gotten up.
             },
             [&](const auto&) {
                 if (_dwelling) {
@@ -286,6 +304,12 @@ auto Drag_recognizer::process_events(Event_list& events) -> void
                     }
                     event.consumed = _greedy ? true : event.consumed;
                 }
+            },
+            [&](const Pointer_cancel&) {
+                if (_initiated) {
+                    _callbacks.on_cancelled();
+                }
+                reset();
             },
             [](const auto&) {}
         }, event.event);
