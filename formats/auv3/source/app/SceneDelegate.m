@@ -9,5 +9,7 @@
     self.window.rootViewController = [[ViewController alloc] init];
     [self.window makeKeyAndVisible];
 }
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts {
+}
 @end
 #endif
