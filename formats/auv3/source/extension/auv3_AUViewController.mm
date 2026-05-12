@@ -13,6 +13,11 @@ static_assert(false, "ARC must be enabled for this file");
 
 @interface Auv3_AUViewController : AUViewController <AUAudioUnitFactory>
 @property (nonatomic, retain) AUAudioUnit* audioUnit;
+
+// Use this to attach an externally-created AU (e.g. one already wrapped in
+// an AVAudioUnit and inserted in an AVAudioEngine). Handles the same editor +
+// parameter-tree wiring that createAudioUnitWithComponentDescription: does.
+- (void)bindToAudioUnit:(AUAudioUnit *)au;
 @end
 
 @implementation Auv3_AUViewController {
@@ -28,18 +33,26 @@ static_assert(false, "ARC must be enabled for this file");
 }
 
 - (AUAudioUnit*)createAudioUnitWithComponentDescription:(AudioComponentDescription) desc error:(NSError **)error {
-    self.audioUnit = [[Auv3_AUAudioUnit alloc] initWithComponentDescription:desc error:error];
+    AUAudioUnit *au = [[Auv3_AUAudioUnit alloc] initWithComponentDescription:desc error:error];
+    if (!au) return nil;
+    [self bindToAudioUnit:au];
+    return au;
+}
 
-    _editor = std::make_shared<tiny::Plug_editor>(_tasks.actor());
-    Auv3_AUAudioUnit* auv3 = (Auv3_AUAudioUnit*)self.audioUnit;
+- (void)bindToAudioUnit:(AUAudioUnit *)au {
+    if (!au) return;
+    self.audioUnit = au;
+
+    if (!_editor) {
+        _editor = std::make_shared<tiny::Plug_editor>(_tasks.actor());
+    }
+    Auv3_AUAudioUnit* auv3 = (Auv3_AUAudioUnit*)au;
     [auv3 setupParameterTree];
     [auv3 setEditor:_editor];
-    
+
     dispatch_async(dispatch_get_main_queue(), ^{
         [self setupViewAdapter];
     });
-
-    return self.audioUnit;
 }
 
 // main thread
