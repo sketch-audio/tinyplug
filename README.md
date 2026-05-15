@@ -1,6 +1,8 @@
 # tinyplug
 *Minimal, modern C++ audio plug-in framework*
 
+***tinyplug is not version 1.0 yet. I may break it at any time for any reason. I have shipped plug-ins with tinyplug, so backwards compatibility is going to be a priority but not guaranteed and APIs may be changed without notice.***
+
 ## Features
 Tinyplug is a C++20 audio plug-in framework that makes it easy to write audio plug-ins and build them for different platforms and formats.
 
@@ -20,7 +22,7 @@ Tinyplug is a C++20 audio plug-in framework that makes it easy to write audio pl
     - The framework handles communication between your processor and editor using simple message queues.
 - GPU-backed graphics via Google's Skia Library.
     - iOS & macOS: Metal
-    - Windows: Direct3D 12
+    - Windows: Direct3D 12 *(NOTE: - Windows uses CPU backend while I can figure out the CPU/GPU synchronization)*
 
 ## Architecture
 Your processor (`Plug_processor`) and editor (`Plug_editor`) are fully decoupled. Tinyplug handles communication between these classes and the host via simple message queues. There is no sharing of data between threads. The framework makes the source of truth wherever the plug-in format wants it to be.
@@ -89,8 +91,9 @@ Then in your build, let tinyplug know your preset extension and directory. The f
 - Confirm dialog
 - Text input dialog
 - Open url in browser
+- Save file picker
 - Open file picker
-- Dark mode status (possible on iOS?)
+- Dark mode status
 
 ## Style
 - Use Herb Sutter AAA or "left-to-right" style
@@ -113,6 +116,9 @@ Tinyplug ships with some test plug-ins that can be useful for making sure things
 - Platform demo
 
 ## Build
+- Set up dependencies: https://github.com/sketch-audio/tiny_deps
+    - Download/build scripts for plug-in SDKs.
+    - Download/build scripts for Skia (graphics dependency).
 - Be sure to also set `-DTINY_DEPS_PATH=../tiny_deps`
 - Unix makefiles: 
     - `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug|Release`
@@ -120,23 +126,18 @@ Tinyplug ships with some test plug-ins that can be useful for making sure things
 - iOS AUv3: `cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS`
 - macOS AUv3: `cmake -S . -B build-macos -G Xcode`
 
-## Notes
-- Presets, can we integrate factory presets with the format?
-- Instead of pop_exports, just have a sync_ui_values where we push everything into the ui before we present.
-- AUv3: should we rename TINY_AUV2_TYPE -> TINY_AU_TYPE?
-- AUv3: TINY_PLUGIN_CODE for AUv3 same as AUv2?
-- Should we be using optionals in `Musical_context`?
-
 ## Roadmap
-- Platform dialogs (file save)
+- **Additonal processor state** (loop content, etc.)
+- **MIDI I/O**
+- **Synth plug-ins**
+- **Block metering**
 - Basic control library
 - Multitouch on Windows
-- Software graphics backend
+- Software (CPU) graphics backend for macOS
+- Figure out GPU synchronization situation on Windows
 - More demo plug-ins
     - Meters
     - Musical_context
     - Sidechain
-- MIDI I/O
-- Synth plug-ins
 - Linux (CLAP & VST3)
 - LV2 plug-ins

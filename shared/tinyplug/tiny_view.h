@@ -315,7 +315,7 @@ inline auto run_frame(
 {
     _tasks.bind_main(std::this_thread::get_id());
 
-    // Pop the exports.
+    // TODO: consider replacing pop_meter with a sync_ui_values that pushes all current values at once before presenting.
     auto meter = Set_meter{};
     while (_receiver.pop_meter(meter)) {
         const auto addr = meter.address;

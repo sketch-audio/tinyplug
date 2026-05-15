@@ -27,6 +27,7 @@ struct Time_sig {
     int32_t denom{4};
 };
 
+// TODO: consider whether fields like beat_pos, cycle_start/end, tempo should be optional for hosts that don't provide them.
 struct Musical_context {
     int64_t sample_pos{};
     double beat_pos{};
