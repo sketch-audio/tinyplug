@@ -223,6 +223,22 @@ function(copy_presets TARGET EXTENSION SOURCE_DIR DEST_DIR)
     endif()
 endfunction()
 
+# Compile mac_view.mm into a format plugin target with a unique ObjC class name,
+# preventing collisions when multiple plugins are loaded in the same process.
+function(configure_mac_view FORMAT_TARGET BASE_FILENAME VERSION_STRING BUILD_NUMBER)
+    string(REPLACE "." "_" _version_safe "${VERSION_STRING}")
+    set(TINY_MAC_VIEW "MacView_${BASE_FILENAME}_${_version_safe}_${BUILD_NUMBER}")
+    set(TINY_MAC_METAL_VIEW "MacMetalView_${BASE_FILENAME}_${_version_safe}_${BUILD_NUMBER}")
+    configure_file(
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../shared/cmake/mac_config.h.in
+        ${CMAKE_CURRENT_BINARY_DIR}/mac_config.h
+    )
+    target_sources(${FORMAT_TARGET} PRIVATE
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../shared/platform/source/mac_view.mm
+    )
+    target_include_directories(${FORMAT_TARGET} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+endfunction()
+
 function(copy_file_list TARGET FILE_LIST DEST_DIR)
     foreach(FILE_PATH IN LISTS FILE_LIST)
         get_filename_component(FILE_NAME "${FILE_PATH}" NAME)

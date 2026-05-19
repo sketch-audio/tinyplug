@@ -309,6 +309,12 @@ function(make_auv3_plugin USER_TARGET)
     target_link_libraries(${EXT_TARGET} PRIVATE ${USER_TARGET})
     target_include_directories(${EXT_TARGET} PRIVATE ${SOURCE_DIR}/source/shared)
 
+    # Per-plugin mac view classes (macOS only — iOS extension runs out-of-process so no collision risk,
+    # but we do this for consistency with the other formats).
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        configure_mac_view(${EXT_TARGET} ${TINY_BASE_FILENAME} ${TINY_VERSION_STRING} ${TINY_BUILD_NUMBER})
+    endif()
+
     # Configure Info.plist
     set(TINY_AUV3_IDENTIFIER "${TINY_BASE_IDENTIFIER}.auv3") # Must match bundle identifier.
     derive_build_number(${TINY_VERSION_STRING} TINY_AUV3_BUILD_NUMBER)

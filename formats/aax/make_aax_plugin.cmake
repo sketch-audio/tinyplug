@@ -48,6 +48,8 @@ function(make_aax_plugin USER_TARGET)
         target_compile_options(${AAX_TARGET} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
         target_link_options(${AAX_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
         target_link_options(${AAX_TARGET} PRIVATE "-Wl,-headerpad,578")
+
+        configure_mac_view(${AAX_TARGET} ${TINY_BASE_FILENAME} ${TINY_VERSION_STRING} ${TINY_BUILD_NUMBER})
     elseif(WIN32)
         target_compile_options(${AAX_TARGET} PRIVATE /W4)
     endif()

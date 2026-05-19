@@ -18,20 +18,13 @@ if(APPLE)
             platform/source/ios_view.mm
         )
     else()
-        # configure file at cmake/mac_config.h.in
-        string(REPLACE "." "_" VERSION_STRING "${PROJECT_VERSION}")
-        set(TINY_MAC_VIEW "MacView_${PROJECT_NAME}_v${VERSION_STRING}")
-        set(TINY_MAC_METAL_VIEW "MacMetalView_${PROJECT_NAME}_v${VERSION_STRING}")
-        configure_file(
-            ${CMAKE_CURRENT_SOURCE_DIR}/cmake/mac_config.h.in 
-            ${CMAKE_CURRENT_BINARY_DIR}/mac_config.h
-        )
-        target_include_directories(${TINY_SHARED_LIB} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-        set(PLATFORM_SOURCES 
+        # mac_view.mm is compiled per-plugin-format (in each make_xxx_plugin.cmake)
+        # so that ObjC class names can be unique per plugin, avoiding runtime
+        # collisions when multiple plugins are loaded in the same process.
+        set(PLATFORM_SOURCES
             platform/source/mac_context.mm
             platform/source/mac_dialogs.mm
             platform/source/mac_paths.cpp
-            platform/source/mac_view.mm
         )
     endif()
 elseif(WIN32)

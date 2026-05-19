@@ -32,6 +32,8 @@ function(make_vst3_plugin USER_TARGET)
         target_link_libraries(${VST3_TARGET} PRIVATE "-framework Cocoa")
         target_compile_options(${VST3_TARGET} PRIVATE -Wall -Wextra -pedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
         target_link_options(${VST3_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
+
+        configure_mac_view(${VST3_TARGET} ${TINY_BASE_FILENAME} ${TINY_VERSION_STRING} ${TINY_BUILD_NUMBER})
     elseif(WIN32)
         target_compile_options(${VST3_TARGET} PRIVATE /W4)
     endif()

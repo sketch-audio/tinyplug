@@ -29,6 +29,8 @@ function(make_clap_plugin USER_TARGET)
         target_link_libraries(${CLAP_TARGET} PRIVATE "-framework Cocoa")
         target_compile_options(${CLAP_TARGET} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
         target_link_options(${CLAP_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
+
+        configure_mac_view(${CLAP_TARGET} ${TINY_BASE_FILENAME} ${TINY_VERSION_STRING} ${TINY_BUILD_NUMBER})
     elseif(WIN32)
         target_compile_options(${CLAP_TARGET} PRIVATE /W3) # Weirdly was getting warnings from the clap-helpers headers at W4.
         target_compile_definitions(${CLAP_TARGET} PRIVATE _CRT_SECURE_NO_WARNINGS)

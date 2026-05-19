@@ -40,6 +40,8 @@ function(make_auv2_plugin USER_TARGET)
     target_compile_options(${AUV2_TARGET} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
     target_link_options(${AUV2_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
 
+    configure_mac_view(${AUV2_TARGET} ${TINY_BASE_FILENAME} ${TINY_VERSION_STRING} ${TINY_BUILD_NUMBER})
+
     # Configure Info.plist 
     set(TINY_AUDIO_COMPONENT_TAGS "<string>${TINY_AUV2_BUNDLE_TAG}</string>")
     set(TINY_AUV2_BUNDLE_IDENTIFIER "${TINY_BASE_IDENTIFIER}.component")

@@ -234,7 +234,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     const auto locationInView = [self convertPoint:event.locationInWindow fromView:nil];
     const auto y = self.bounds.size.height - locationInView.y;
     const auto pos = tiny::Coords{locationInView.x, y};
-    const auto t = std::chrono::steady_clock::now();
+    [[maybe_unused]] const auto t = std::chrono::steady_clock::now();
 
     _events.push(Event{
         .event = Pointer_move{pos}
