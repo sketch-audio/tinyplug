@@ -119,6 +119,52 @@ function(make_auv3_plugin USER_TARGET)
 
     set(CMAKE_OSX_SYSROOT iphoneos)
 
+    set(AUV3_EXTENSION_SOURCES
+        ${SOURCE_DIR}/source/extension/AUProcessHelper.hpp
+        ${SOURCE_DIR}/source/extension/auv3_AUAudioUnit.h
+        ${SOURCE_DIR}/source/extension/auv3_AUAudioUnit.mm
+        ${SOURCE_DIR}/source/extension/auv3_AUViewController.mm
+        ${SOURCE_DIR}/source/extension/auv3_view.cpp
+        ${SOURCE_DIR}/source/extension/auv3_view.h
+        ${SOURCE_DIR}/source/extension/BufferedAudioBus.hpp
+        ${SOURCE_DIR}/source/extension/DSPKernel.hpp
+        ${SOURCE_DIR}/source/shared/TargetPlatforms.h
+    )
+
+    # iOS shared core framework
+    # Contains all AUv3 extension code (AU subclass, VC, view). Both the app
+    # and the extension link this single framework so the code lives once.
+    # ---
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        set(CORE_TARGET ${TINY_BASE_FILENAME}_core)
+        add_library(${CORE_TARGET} SHARED)
+        target_sources(${CORE_TARGET} PRIVATE ${AUV3_EXTENSION_SOURCES})
+        target_link_libraries(${CORE_TARGET} PRIVATE ${USER_TARGET})
+        target_link_libraries(${CORE_TARGET} PRIVATE
+            "-framework AudioToolbox"
+            "-framework AVFoundation"
+            "-framework CoreAudioKit"
+            "-framework Foundation"
+            "-framework UIKit"
+        )
+        target_include_directories(${CORE_TARGET} PRIVATE
+            ${SOURCE_DIR}/source/extension
+            ${SOURCE_DIR}/source/shared
+            ${CMAKE_CURRENT_BINARY_DIR}
+        )
+        set_target_properties(${CORE_TARGET} PROPERTIES
+            FRAMEWORK YES
+            OUTPUT_NAME "${TINY_BASE_FILENAME}_core"
+            MACOSX_FRAMEWORK_IDENTIFIER "${TINY_BASE_IDENTIFIER}.core"
+            XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "${TINY_TARGETED_DEVICE_FAMILY_VALUE}"
+            XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "14.0"
+            XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS "iphoneos iphonesimulator"
+            XCODE_ATTRIBUTE_APPLICATION_EXTENSION_API_ONLY "YES"
+            XCODE_ATTRIBUTE_COPY_PHASE_STRIP "NO"
+        )
+    endif()
+    # ---
+
     # App
     # ---
     set(APP_TARGET ${TINY_BASE_FILENAME}_app)
@@ -158,6 +204,14 @@ function(make_auv3_plugin USER_TARGET)
         target_link_libraries(${APP_TARGET} PRIVATE
             "-framework Foundation"
             "-framework UIKit"
+        )
+        # Link the shared core framework so Auv3_AUAudioUnit / Auv3_AUViewController
+        # are available in-process (registered via NSClassFromString).
+        target_link_libraries(${APP_TARGET} PRIVATE ${CORE_TARGET})
+        set_target_properties(${APP_TARGET} PROPERTIES
+            XCODE_EMBED_FRAMEWORKS ${CORE_TARGET}
+            XCODE_EMBED_FRAMEWORKS_CODE_SIGN_ON_COPY YES
+            XCODE_ATTRIBUTE_LD_RUNPATH_SEARCH_PATHS "@executable_path/Frameworks"
         )
         if(TINY_APP_IAP_PRODUCT_ID)
             target_link_libraries(${APP_TARGET} PRIVATE "-framework StoreKit")
@@ -245,17 +299,19 @@ function(make_auv3_plugin USER_TARGET)
 
     set(EXT_TARGET ${TINY_BASE_FILENAME}_extension) # AUv3 extension
     add_executable(${EXT_TARGET})
-    target_sources(${EXT_TARGET} PRIVATE
-        ${SOURCE_DIR}/source/extension/AUProcessHelper.hpp
-        ${SOURCE_DIR}/source/extension/auv3_AUAudioUnit.h
-        ${SOURCE_DIR}/source/extension/auv3_AUAudioUnit.mm
-        ${SOURCE_DIR}/source/extension/auv3_AUViewController.mm
-        ${SOURCE_DIR}/source/extension/auv3_view.cpp
-        ${SOURCE_DIR}/source/extension/auv3_view.h
-        ${SOURCE_DIR}/source/extension/BufferedAudioBus.hpp
-        ${SOURCE_DIR}/source/extension/DSPKernel.hpp
-        ${SOURCE_DIR}/source/shared/TargetPlatforms.h
-    )
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        # Extension is a thin stub — all AU/VC code lives in the shared core framework.
+        target_sources(${EXT_TARGET} PRIVATE
+            ${SOURCE_DIR}/source/extension/auv3_stub.m
+            ${SOURCE_DIR}/source/shared/TargetPlatforms.h
+        )
+        target_link_libraries(${EXT_TARGET} PRIVATE ${CORE_TARGET})
+        set_target_properties(${EXT_TARGET} PROPERTIES
+            XCODE_ATTRIBUTE_LD_RUNPATH_SEARCH_PATHS "@executable_path/../../Frameworks"
+        )
+    else()
+        target_sources(${EXT_TARGET} PRIVATE ${AUV3_EXTENSION_SOURCES})
+    endif()
 
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         target_link_libraries(${EXT_TARGET} PRIVATE
