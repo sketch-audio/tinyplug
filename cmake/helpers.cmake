@@ -236,6 +236,12 @@ function(configure_mac_view FORMAT_TARGET BASE_FILENAME VERSION_STRING BUILD_NUM
     target_sources(${FORMAT_TARGET} PRIVATE
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../shared/platform/source/mac_view.mm
     )
+    # ensure no ARC for this file
+    set_source_files_properties(
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../shared/platform/source/mac_view.mm
+        PROPERTIES
+        COMPILE_FLAGS "-fno-objc-arc"
+    )
     target_include_directories(${FORMAT_TARGET} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 endfunction()
 

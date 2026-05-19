@@ -152,15 +152,22 @@ function(make_auv3_plugin USER_TARGET)
             ${SOURCE_DIR}/source/shared
             ${CMAKE_CURRENT_BINARY_DIR}
         )
+        set(CORE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/Info-Core.plist)
+        configure_file(
+            ${SOURCE_DIR}/cmake/Info-Core.plist.in
+            ${CORE_INFO_PLIST}
+        )
         set_target_properties(${CORE_TARGET} PROPERTIES
             FRAMEWORK YES
             OUTPUT_NAME "${TINY_BASE_FILENAME}_core"
-            MACOSX_FRAMEWORK_IDENTIFIER "${TINY_BASE_IDENTIFIER}.core"
+            MACOSX_FRAMEWORK_INFO_PLIST ${CORE_INFO_PLIST}
+            XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${TINY_BASE_IDENTIFIER}.core"
             XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "${TINY_TARGETED_DEVICE_FAMILY_VALUE}"
             XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "14.0"
             XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS "iphoneos iphonesimulator"
             XCODE_ATTRIBUTE_APPLICATION_EXTENSION_API_ONLY "YES"
             XCODE_ATTRIBUTE_COPY_PHASE_STRIP "NO"
+            XCODE_ATTRIBUTE_SKIP_INSTALL "YES"
         )
     endif()
     # ---
