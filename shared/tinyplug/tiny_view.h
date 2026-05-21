@@ -345,6 +345,8 @@ inline auto run_frame(
                 ui_meter.trigged = true;
                 break;
             }
+            default:
+                break;
         }
     }
 

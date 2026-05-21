@@ -199,6 +199,8 @@ private:
                         PropertyChanged(kAudioUnitProperty_Latency, kAudioUnitScope_Global, 0);
                         break;
                     }
+                    default:
+                        break;
                 }
             }
         }},

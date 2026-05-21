@@ -129,9 +129,10 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
 
         const auto flags = transport->flags;
         const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
+        const auto doff = static_cast<double>(offset);
 
         context.musical_context = {
-            .sample_pos = static_cast<int64_t>(sample_pos + offset),
+            .sample_pos = static_cast<int64_t>(sample_pos + doff),
             .beat_pos = beat_pos + frames_to_beats(static_cast<int64_t>(offset), tempo, _sr),
             .cycle_start = cycle_start,
             .cycle_end = cycle_end,
@@ -577,6 +578,8 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
                 value = std::move(v);
                 break;
             }
+            default:
+                break;
         }
 
         edit_state.emplace(std::move(key), std::move(value));

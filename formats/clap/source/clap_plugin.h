@@ -244,6 +244,8 @@ private:
 
                 break;
             }
+            default:
+                break;
         }
     }
 

@@ -228,6 +228,8 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
                 flags |= kAudioUnitParameterFlag_OmitFromPresets;
                 break;
             }
+            default:
+                break;
         }
 
         return flags;
@@ -371,8 +373,8 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
     const auto plain_value = Value_conv::host_to_plain(inValue, param.semantics);
 
     [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
+        .event = Set_param{.address = inID, .value = plain_value},
         .offset = static_cast<int32_t>(inBufferOffsetInFrames),
-        .event = Set_param{.address = inID, .value = plain_value}
     });
     assert(success && "Push to processor queue failed! Increase queue size.");
 
@@ -400,8 +402,8 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                 const auto plain_value = Value_conv::host_to_plain(value, param.semantics);
 
                 [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
+                    .event = Set_param{.address = event.parameter, .value = plain_value},
                     .offset = static_cast<int32_t>(offset),
-                    .event = Set_param{.address = event.parameter, .value = plain_value}
                 });
                 assert(success && "Push to processor queue failed! Increase queue size.");
 
@@ -421,18 +423,18 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
 
                 // Do we need to be sending set initial?
                 [[maybe_unused]] const auto set_success = _to_processor.push(Tagged_event{
+                    .event = Set_param{.address = event.parameter, .value = plain_initial},
                     .offset = offset,
-                    .event = Set_param{.address = event.parameter, .value = plain_initial}
                 });
                 assert(set_success && "Push to processor queue failed! Increase queue size.");
 
                 [[maybe_unused]] const auto ramp_success = _to_processor.push(Tagged_event{
-                    .offset = offset,
                     .event = Ramp_param{
                         .address = event.parameter,
                         .target = plain_target,
                         .dur_samples = static_cast<int32_t>(duration)
-                    }
+                    },
+                    .offset = offset,
                 });
                 assert(ramp_success && "Push to processor queue failed! Increase queue size.");
 
@@ -441,6 +443,8 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
                 Super::SetParameter(event.parameter, event.scope, event.element, target, off + duration);
                 break;
             }
+            default:
+                break;
         }
     }
     return noErr;
@@ -819,8 +823,8 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
     _changes.consume([&](auto address, auto value) {
         assert(_events.size() < _events.capacity() && "Events vector full!");
         _events.push_back(Tagged_event{
+            .event = Set_param{.address = address, .value = value},
             .offset = 0,
-            .event = Set_param{.address = address, .value = value}
         });
     });
 
@@ -936,9 +940,10 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
         const auto ts_denom = static_cast<int32_t>(host_data.time_sig_denom);
 
         const auto to_bool = [](auto a) { return a != 0; };
+        const auto doff = static_cast<double>(offset);
 
         context.musical_context = {
-            .sample_pos = static_cast<int64_t>(sample_pos + offset),
+            .sample_pos = static_cast<int64_t>(sample_pos + doff),
             .beat_pos = beat_pos + frames_to_beats(static_cast<int64_t>(offset), tempo, _sr),
             .cycle_start = cycle_start,
             .cycle_end = cycle_end,
