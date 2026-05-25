@@ -9,6 +9,15 @@ Auv2_effect::Auv2_effect(AudioUnit component) : Super{component, num_inputs, num
 {
     _editor.emplace(_tasks.actor());
 
+#if TINY_HAS_WORKER
+    try_bind_worker(*_processor, Worker_processor_actor{
+        [this](const auto& m) { return _worker_from_proc.push(m); }
+    });
+    try_bind_worker(*_editor, Worker_editor_actor{
+        [this](const auto& m) { return _worker_from_edit.push(m); }
+    });
+#endif
+
     this->_retain_presets();
 
     CreateElements(); // So we can create the sidechain.
@@ -54,6 +63,10 @@ OSStatus Auv2_effect::Initialize()
     _bypass.set_latency(_latency);
 
     _events.reserve(4 * num_params + 1);
+
+#if TINY_HAS_WORKER
+    _worker_runner.start(sample_rate);
+#endif
 
     return noErr;
 }
@@ -805,6 +818,8 @@ OSStatus Auv2_effect::NewFactoryPresetSet(const AUPreset& inNewFactoryPreset)
 
 OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTimeStamp& inTimeStamp, UInt32 nFrames)
 {
+    this->_drain_worker_to_processor();
+
     // Pull inputs.
     for (auto i = decltype(num_inputs){}; i < num_inputs; ++i) {
         Input(i).PullInput(ioActionFlags, inTimeStamp, i, nFrames);

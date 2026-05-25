@@ -188,6 +188,41 @@ private:
 
     Host_bypass _bypass{};
 
+#if TINY_HAS_WORKER
+    // Worker channel.
+    using Worker_from_proc_q = Lock_free_queue<typename User_worker::From_processor, User_worker::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_from_edit_q = Lock_free_queue<typename User_worker::From_editor,    User_worker::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_to_proc_q   = Lock_free_queue<typename User_worker::To_processor,   User_worker::reply_capacity>;
+    using Worker_to_edit_q   = Lock_free_queue<typename User_worker::To_editor,     User_worker::reply_capacity>;
+
+    Worker_from_proc_q _worker_from_proc{};
+    Worker_from_edit_q _worker_from_edit{};
+    Worker_to_proc_q   _worker_to_proc{};
+    Worker_to_edit_q   _worker_to_edit{};
+
+    User_worker _worker{
+        Worker_replies{
+            [this](const auto& m) { return _worker_to_proc.push(m); },
+            [this](const auto& m) { return _worker_to_edit.push(m); }
+        },
+        _tasks.actor()
+    };
+#endif
+
+    auto _drain_worker_to_processor() -> void
+    {
+#if TINY_HAS_WORKER
+        try_drain_worker_to_processor(*_processor, _worker_to_proc);
+#endif
+    }
+
+    auto _drain_worker_to_editor() -> void
+    {
+#if TINY_HAS_WORKER
+        try_drain_worker_to_editor(*_editor, _worker_to_edit);
+#endif
+    }
+
     // AUv2 view adapter.
     std::unique_ptr<Auv2_view> _view = std::make_unique<Auv2_view>(Auv2_view::Deps{
         .editor = &(*_editor),
@@ -254,8 +289,16 @@ private:
                 }, action);
             }
         },
-        .tasks = &_tasks
+        .tasks = &_tasks,
+#if TINY_HAS_WORKER
+        .drain_worker_to_editor = [this]() { this->_drain_worker_to_editor(); }
+#endif
     });
+
+#if TINY_HAS_WORKER
+    // Last so its destructor (which joins the worker thread) runs first.
+    Worker_runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
+#endif
 };
 
 } // namespace tiny

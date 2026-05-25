@@ -21,6 +21,9 @@ public:
         Plug_editor* editor{};
         Ui_receiver receiver{};
         Task_manager* tasks{};
+#if TINY_HAS_WORKER
+        std::function<void()> drain_worker_to_editor{};
+#endif
     };
 
     Clap_view(Deps deps) : _deps{deps} {}

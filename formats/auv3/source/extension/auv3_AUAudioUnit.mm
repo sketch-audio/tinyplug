@@ -257,6 +257,21 @@ static auto presets_path() -> std::filesystem::path
     _editor = editor;
 }
 
+#if TINY_HAS_WORKER
+- (void)bindEditorToWorker {
+    if (!_editor) return;
+    DSPKernel* kernel = &_kernel;
+    tiny::try_bind_worker(*_editor, tiny::Worker_editor_actor{
+        [kernel](const auto& m) { return kernel->_worker_from_edit.push(m); }
+    });
+}
+
+- (void)drainWorkerToEditor {
+    if (!_editor) return;
+    tiny::try_drain_worker_to_editor(*_editor, _kernel._worker_to_edit);
+}
+#endif
+
 // MARK: - makeParameterFor
 
 - (AUParameter*)makeParameterFor:(tiny::Param_spec)spec {

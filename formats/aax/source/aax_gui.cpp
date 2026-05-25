@@ -11,6 +11,7 @@ auto Aax_gui::CreateViewContents() -> void
     auto* params = dynamic_cast<Aax_parameters*>(GetEffectParameters());
     _editor = params->get_editor();
     _tasks = params->get_tasks();
+    _params = params;
 
     auto delegate = std::make_shared<View_delegate>(
         Plug_editor::preferred_size(), // Initial size
@@ -148,6 +149,10 @@ AAX_Result Aax_gui::ParameterUpdated(AAX_CParamID inParamID)
 
 auto Aax_gui::on_draw(View_context& view_context) -> void
 {
+#if TINY_HAS_WORKER
+    if (_params) _params->drain_worker_to_editor();
+#endif
+
     view_impl::run_frame(
         User_meters::meter_specs(),
         _receiver,

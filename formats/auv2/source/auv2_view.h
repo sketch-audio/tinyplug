@@ -21,6 +21,9 @@ public:
         Main_executor executor{};
         Ui_receiver receiver{};
         Task_manager* tasks{};
+#if TINY_HAS_WORKER
+        std::function<void()> drain_worker_to_editor{};
+#endif
     };
 
     Auv2_view(Deps deps) : _deps{deps} {}

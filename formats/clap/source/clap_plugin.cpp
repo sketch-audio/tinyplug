@@ -29,6 +29,10 @@ bool Clap_plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32
         _bypass.set_latency(_latency);
     }
 
+#if TINY_HAS_WORKER
+    _worker_runner.start(sampleRate);
+#endif
+
     // Are we here because the kernel wanted a latency change?
     const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (pending_latency) {
@@ -60,6 +64,8 @@ void Clap_plugin::stopProcessing() noexcept
 
 clap_process_status Clap_plugin::process(const clap_process* process) noexcept
 {
+    this->_drain_worker_to_processor();
+
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
         const auto new_latency = *accepted_latency;
@@ -928,7 +934,14 @@ bool Clap_plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
         }
     };
 
-    _view = std::make_unique<Clap_view>(Clap_view::Deps{.editor = &(*_editor), .receiver = std::move(receiver), .tasks = &_tasks});
+    _view = std::make_unique<Clap_view>(Clap_view::Deps{
+        .editor = &(*_editor),
+        .receiver = std::move(receiver),
+        .tasks = &_tasks,
+#if TINY_HAS_WORKER
+        .drain_worker_to_editor = [this]() { this->_drain_worker_to_editor(); }
+#endif
+    });
     _view->on_create();
     return true;
 }

@@ -6,6 +6,7 @@
 #include "models/param_model.h"
 #include "plug_editor.h"
 
+#include "vst3_messaging.h"
 #include "vst3_view.h"
 
 #include "tinyplug/change_list.hpp"
@@ -17,8 +18,18 @@ class Vst3_controller : public Steinberg::Vst::EditControllerEx1 {
 public:
 
     using Super = Steinberg::Vst::EditControllerEx1;
-    Vst3_controller() : Super{} { _editor.emplace(_tasks.actor()); }
+    Vst3_controller() : Super{}
+    {
+        _editor.emplace(_tasks.actor());
+#if TINY_HAS_WORKER
+        _setup_worker();
+#endif
+    }
     ~Vst3_controller() SMTG_OVERRIDE = default;
+
+#if TINY_HAS_WORKER
+    Steinberg::tresult PLUGIN_API notify(Steinberg::Vst::IMessage* message) SMTG_OVERRIDE;
+#endif
 
     // Create function
     static Steinberg::FUnknown* createInstance(void* /*context*/)
@@ -84,6 +95,39 @@ protected:
 
     std::unordered_set<uint32_t> _gestured{};
     std::optional<Rect_size> _last_size{};
+
+#if TINY_HAS_WORKER
+    // Worker channel. The worker lives on the controller side and uses the
+    // editor's Task_manager. Editor↔worker is direct in-process; processor↔
+    // worker crosses the IPC boundary (shuttle + IMessage in both directions).
+    using Worker_from_proc_q = Lock_free_queue<typename User_worker::From_processor, User_worker::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_from_edit_q = Lock_free_queue<typename User_worker::From_editor,    User_worker::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_to_proc_q   = Lock_free_queue<typename User_worker::To_processor,   User_worker::reply_capacity>;
+    using Worker_to_edit_q   = Lock_free_queue<typename User_worker::To_editor,     User_worker::reply_capacity>;
+
+    Worker_from_proc_q _worker_from_proc{};
+    Worker_from_edit_q _worker_from_edit{};
+    Worker_to_proc_q   _worker_to_proc{};
+    Worker_to_edit_q   _worker_to_edit{};
+
+    User_worker _worker{
+        Worker_replies{
+            [this](const auto& m) { return _worker_to_proc.push(m); },
+            [this](const auto& m) { return _worker_to_edit.push(m); }
+        },
+        _tasks.actor()
+    };
+
+    vst3::Message_router _router{};
+    vst3::Message_sender _to_proc{this};
+
+    // Last so its destructor (which joins the worker thread) runs first.
+    Worker_runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
+
+    auto _setup_worker() -> void;
+#endif
+
+    auto _drain_worker_to_editor() -> void;
 
 };
 

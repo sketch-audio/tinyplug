@@ -21,6 +21,10 @@ auto Auv3_view::create_view() -> void*
 
 auto Auv3_view::on_draw(View_context& view_context) -> void
 {
+#if TINY_HAS_WORKER
+    if (_deps.drain_worker_to_editor) _deps.drain_worker_to_editor();
+#endif
+
     _ui_params = make_array_by_indices<double, num_params>(
         [this](auto i) { return _deps.receiver.get_param(static_cast<uint32_t>(i)); }
     );

@@ -8,4 +8,8 @@
 - (void)setupParameterTree;
 -(tiny::Ui_receiver)makeReceiver;
 -(void)setEditor:(std::shared_ptr<tiny::Plug_editor>)editor;
+#if TINY_HAS_WORKER
+-(void)bindEditorToWorker;
+-(void)drainWorkerToEditor;
+#endif
 @end

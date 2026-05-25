@@ -45,6 +45,7 @@ private:
     Plug_editor* _editor{};
     Ui_receiver _receiver{};
     Task_manager* _tasks{};
+    Aax_parameters* _params{};
 
     State_adapter _state_adapter{{
         .load_model = []() {
