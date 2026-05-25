@@ -18,6 +18,8 @@ function(make_vst3_plugin USER_TARGET)
         ${SOURCE_DIR}/source/vst3_controller.cpp
         ${SOURCE_DIR}/source/vst3_controller.h
         ${SOURCE_DIR}/source/vst3_entry.cpp
+        ${SOURCE_DIR}/source/vst3_messaging.cpp
+        ${SOURCE_DIR}/source/vst3_messaging.h
         ${SOURCE_DIR}/source/vst3_processor.cpp
         ${SOURCE_DIR}/source/vst3_processor.h
         ${SOURCE_DIR}/source/vst3_view.cpp

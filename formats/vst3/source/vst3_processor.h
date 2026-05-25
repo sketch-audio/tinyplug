@@ -12,6 +12,8 @@
 
 #include "dsp/host_bypass.hpp"
 
+#include "vst3_messaging.h"
+
 namespace tiny {
 
 class Vst3_processor : public Steinberg::Vst::AudioEffect {
@@ -20,8 +22,15 @@ public:
     using Super = Steinberg::Vst::AudioEffect;
     Vst3_processor() : Super{} {
         setControllerClass(tiny::map_to_fuid(tiny::Plug_info::Vst3::controller_uid));
+#if TINY_HAS_WORKER
+        _setup_worker();
+#endif
     }
     ~Vst3_processor() SMTG_OVERRIDE = default;
+
+#if TINY_HAS_WORKER
+    Steinberg::tresult PLUGIN_API notify(Steinberg::Vst::IMessage* message) SMTG_OVERRIDE;
+#endif
 
     // Create function
     static Steinberg::FUnknown* createInstance(void* /*context*/)
@@ -120,6 +129,29 @@ private:
     Host_bypass _bypass{};
 
     auto normalize_input_events(Steinberg::Vst::ProcessData& data) -> void;
+
+#if TINY_HAS_WORKER
+    // Worker channel. The worker lives on the controller side. The audio
+    // thread pushes From_processor messages lock-free into _worker_outbound;
+    // a non-realtime shuttle thread drains it and forwards each message to
+    // the controller via IMessage. Replies from the worker come back via
+    // IMessage and land in _worker_to_proc_inbox.
+    using Worker_outbound_q = Lock_free_queue<typename User_worker::From_processor, User_worker::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_to_proc_inbox_q = Lock_free_queue<typename User_worker::To_processor, User_worker::reply_capacity>;
+
+    Worker_outbound_q _worker_outbound{};
+    Worker_to_proc_inbox_q _worker_to_proc_inbox{};
+
+    vst3::Message_router _router{};
+    vst3::Message_sender _to_ctrl{this};
+
+    // Last so its destructor (which joins the shuttle thread) runs first.
+    vst3::Outbound_message_shuttle _shuttle{};
+
+    auto _setup_worker() -> void;
+#endif
+
+    auto _drain_worker_to_processor() -> void;
 
 };
 

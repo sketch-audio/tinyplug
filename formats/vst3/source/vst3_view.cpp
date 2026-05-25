@@ -129,6 +129,10 @@ Steinberg::tresult PLUGIN_API Vst3_view::checkSizeConstraint(Steinberg::ViewRect
 
 void Vst3_view::on_draw(View_context& view_context)
 {
+#if TINY_HAS_WORKER
+    if (_deps.drain_worker_to_editor) _deps.drain_worker_to_editor();
+#endif
+
     if (const auto controller = _deps.controller) {
         controller->consume_changes([this](auto addr, auto value) {
             if (addr < num_params) _ui_params[addr] = value;

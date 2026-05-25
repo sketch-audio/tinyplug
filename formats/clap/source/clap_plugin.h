@@ -34,7 +34,19 @@ namespace tiny {
 class Clap_plugin : public PluginBase {
 public:
 
-    Clap_plugin(const clap_host* host) : PluginBase{&descriptor, host}, _host{host} { _editor.emplace(_tasks.actor()); }
+    Clap_plugin(const clap_host* host) : PluginBase{&descriptor, host}, _host{host}
+    {
+        _editor.emplace(_tasks.actor());
+
+#if TINY_HAS_WORKER
+        try_bind_worker(*_processor, Worker_processor_actor{
+            [this](const auto& m) { return _worker_from_proc.push(m); }
+        });
+        try_bind_worker(*_editor, Worker_editor_actor{
+            [this](const auto& m) { return _worker_from_edit.push(m); }
+        });
+#endif
+    }
     ~Clap_plugin() override = default;
 
     static const inline clap_plugin_descriptor_t descriptor{
@@ -185,6 +197,42 @@ private:
     From_ui_queue _from_ui{};
 
     Meter_queue _meter_queue{};
+
+#if TINY_HAS_WORKER
+    // Worker channel.
+    using Worker_from_proc_q = Lock_free_queue<typename User_worker::From_processor, User_worker::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_from_edit_q = Lock_free_queue<typename User_worker::From_editor,    User_worker::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_to_proc_q   = Lock_free_queue<typename User_worker::To_processor,   User_worker::reply_capacity>;
+    using Worker_to_edit_q   = Lock_free_queue<typename User_worker::To_editor,     User_worker::reply_capacity>;
+
+    Worker_from_proc_q _worker_from_proc{};
+    Worker_from_edit_q _worker_from_edit{};
+    Worker_to_proc_q   _worker_to_proc{};
+    Worker_to_edit_q   _worker_to_edit{};
+
+    User_worker _worker{
+        Worker_replies{
+            [this](const auto& m) { return _worker_to_proc.push(m); },
+            [this](const auto& m) { return _worker_to_edit.push(m); }
+        },
+        _tasks.actor()
+    };
+    Worker_runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
+#endif
+
+    auto _drain_worker_to_processor() -> void
+    {
+#if TINY_HAS_WORKER
+        try_drain_worker_to_processor(*_processor, _worker_to_proc);
+#endif
+    }
+
+    auto _drain_worker_to_editor() -> void
+    {
+#if TINY_HAS_WORKER
+        try_drain_worker_to_editor(*_editor, _worker_to_edit);
+#endif
+    }
 
     Host_bypass _bypass{};
 

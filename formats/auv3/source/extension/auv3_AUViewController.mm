@@ -49,6 +49,9 @@ static_assert(false, "ARC must be enabled for this file");
     Auv3_AUAudioUnit* auv3 = (Auv3_AUAudioUnit*)au;
     [auv3 setupParameterTree];
     [auv3 setEditor:_editor];
+#if TINY_HAS_WORKER
+    [auv3 bindEditorToWorker];
+#endif
 
     dispatch_async(dispatch_get_main_queue(), ^{
         [self setupViewAdapter];
@@ -61,7 +64,21 @@ static_assert(false, "ARC must be enabled for this file");
     if (!_view_adapter) {
         Auv3_AUAudioUnit* auv3 = (Auv3_AUAudioUnit*)self.audioUnit;
         auto receiver = [auv3 makeReceiver];
-        _view_adapter = std::make_unique<tiny::Auv3_view>(tiny::Auv3_view::Deps{_editor.get(), receiver, &_tasks});
+#if TINY_HAS_WORKER
+        Auv3_AUAudioUnit* __weak weak_auv3 = auv3;
+        _view_adapter = std::make_unique<tiny::Auv3_view>(tiny::Auv3_view::Deps{
+            _editor.get(),
+            receiver,
+            &_tasks,
+            [weak_auv3]() { [weak_auv3 drainWorkerToEditor]; }
+        });
+#else
+        _view_adapter = std::make_unique<tiny::Auv3_view>(tiny::Auv3_view::Deps{
+            _editor.get(),
+            receiver,
+            &_tasks,
+        });
+#endif
         auto* custom_view = (__bridge PlatformView*)_view_adapter->create_view(); // also on_create
         [self.view addSubview:custom_view];
         const auto size = self.view.bounds.size;

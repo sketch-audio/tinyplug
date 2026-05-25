@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstring>
 #include <optional>
 #include <ranges>
 
@@ -14,9 +15,57 @@
 #include "plug_info.h"
 
 #include "vst3_adapters.h"
+#include "vst3_messaging.h"
 #include "vst3_processor.h"
 
 namespace tiny {
+
+// MARK: - worker
+
+#if TINY_HAS_WORKER
+
+constexpr auto k_worker_from_processor_id = "tiny/worker/from_processor";
+constexpr auto k_worker_to_processor_id   = "tiny/worker/to_processor";
+
+auto Vst3_processor::_setup_worker() -> void
+{
+    // Realtime-safe push from the audio thread: lock-free SPSC push,
+    // no allocation. The shuttle thread forwards over IMessage.
+    try_bind_worker(*_processor, Worker_processor_actor{
+        [this](const auto& m) -> bool { return _worker_outbound.push(m); }
+    });
+
+    // Shuttle drain: pop pending From_processor messages and send via
+    // IMessage. Runs on the shuttle thread (non-realtime).
+    _shuttle.register_drain([this]() {
+        auto m = typename User_worker::From_processor{};
+        while (_worker_outbound.pop(m)) {
+            _to_ctrl.send_variant(k_worker_from_processor_id, m);
+        }
+    });
+
+    // Worker → processor replies arrive via IMessage on notify().
+    _router.register_handler(k_worker_to_processor_id, [this](std::span<const std::byte> bytes, uint32_t tag) {
+        using To_proc = typename User_worker::To_processor;
+        _worker_to_proc_inbox.push(vst3::reconstruct_variant<To_proc>(bytes, tag));
+    });
+}
+
+Steinberg::tresult PLUGIN_API Vst3_processor::notify(Steinberg::Vst::IMessage* message)
+{
+    if (_router.dispatch(message)) return Steinberg::kResultOk;
+    return Super::notify(message);
+}
+
+#endif // TINY_HAS_WORKER
+
+auto Vst3_processor::_drain_worker_to_processor() -> void
+{
+#if TINY_HAS_WORKER
+    try_drain_worker_to_processor(*_processor, _worker_to_proc_inbox);
+#endif
+}
+
 
 // MARK: - initialize
 
@@ -74,7 +123,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::terminate()
 Steinberg::tresult PLUGIN_API Vst3_processor::setActive(Steinberg::TBool state)
 {
     // Called when the Plug-in is enable/disable (On/Off).
-    
+
     // When activating, we need to see if there is a pending latency.
     if (state) {
         const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
@@ -82,6 +131,14 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setActive(Steinberg::TBool state)
             _accepted_latency.store(*pending_latency, std::memory_order_release); // The kernel should manifest on the next process.
             _latency = *pending_latency;
         }
+#if TINY_HAS_WORKER
+        _shuttle.start(User_worker::poll_interval);
+#endif
+    }
+    else {
+#if TINY_HAS_WORKER
+        _shuttle.stop();
+#endif
     }
 
     return Steinberg::Vst::AudioEffect::setActive(state);
@@ -168,6 +225,8 @@ Steinberg::tresult PLUGIN_API Vst3_processor::canProcessSampleSize(Steinberg::in
 
 Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessData& data)
 {
+    this->_drain_worker_to_processor();
+
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
         const auto new_latency = static_cast<uint32_t>(*accepted_latency);

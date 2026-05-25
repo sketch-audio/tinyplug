@@ -11,8 +11,58 @@
 
 #include "vst3_adapters.h"
 #include "vst3_controller.h"
+#include "vst3_messaging.h"
 
 namespace tiny {
+
+#if TINY_HAS_WORKER
+
+constexpr auto k_worker_from_processor_id = "tiny/worker/from_processor";
+constexpr auto k_worker_to_processor_id   = "tiny/worker/to_processor";
+
+auto Vst3_controller::_setup_worker() -> void
+{
+    // Processor → worker: decode incoming IMessages (sent by the
+    // processor-side shuttle thread) and push into the from-processor
+    // inbound queue. The worker thread drains and dispatches.
+    _router.register_handler(k_worker_from_processor_id, [this](std::span<const std::byte> bytes, uint32_t tag) {
+        using From_proc = typename User_worker::From_processor;
+        _worker_from_proc.push(vst3::reconstruct_variant<From_proc>(bytes, tag));
+    });
+
+    // Editor → worker: direct in-process push.
+    try_bind_worker(*_editor, Worker_editor_actor{
+        [this](const auto& m) { return _worker_from_edit.push(m); }
+    });
+
+    // Worker → processor: install a post-cycle on the runner that drains
+    // _worker_to_proc and forwards each reply via IMessage. Runs on the
+    // worker thread (non-realtime), so allocation is fine.
+    _worker_runner.set_post_cycle([this]() {
+        if constexpr (!std::is_same_v<typename User_worker::To_processor, std::monostate>) {
+            auto reply = typename User_worker::To_processor{};
+            while (_worker_to_proc.pop(reply)) {
+                _to_proc.send_variant(k_worker_to_processor_id, reply);
+            }
+        }
+    });
+}
+
+Steinberg::tresult PLUGIN_API Vst3_controller::notify(Steinberg::Vst::IMessage* message)
+{
+    if (_router.dispatch(message)) return Steinberg::kResultOk;
+    return Super::notify(message);
+}
+
+#endif // TINY_HAS_WORKER
+
+auto Vst3_controller::_drain_worker_to_editor() -> void
+{
+#if TINY_HAS_WORKER
+    try_drain_worker_to_editor(*_editor, _worker_to_edit);
+#endif
+}
+
 
 Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* context)
 {
@@ -22,6 +72,11 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
 
     if (result != Steinberg::kResultOk)
         return result;
+
+#if TINY_HAS_WORKER
+    _worker_runner.start(0); // Sample rate unknown to controller; plug-in author
+                             // can push it via a From_processor message if needed.
+#endif
 
     // Here you could register some parameters.
 
@@ -586,7 +641,15 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
             _meter_queue.push(Set_meter{.address = i, .value = e});
         });
 
-        return new Vst3_view{{.controller = this, .editor = &(*_editor), .receiver = std::move(receiver), .tasks = &_tasks}};
+        return new Vst3_view{{
+            .controller = this,
+            .editor = &(*_editor),
+            .receiver = std::move(receiver),
+            .tasks = &_tasks,
+#if TINY_HAS_WORKER
+            .drain_worker_to_editor = [this]() { this->_drain_worker_to_editor(); }
+#endif
+        }};
     }
 
     return nullptr;

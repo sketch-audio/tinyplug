@@ -160,6 +160,10 @@ AAX_Result Aax_parameters::EffectInit()
     _bypass.reset(sample_rate);
     _bypass.set_latency(static_cast<size_t>(sl));
 
+#if TINY_HAS_WORKER
+    _worker_runner.start(sample_rate);
+#endif
+
     // Pro Tool Bypass
     const auto bypass_id = AAX_CString{cDefaultMasterBypassID};
     auto bypass_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<bool>(
@@ -491,6 +495,8 @@ AAX_Result Aax_parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, A
 
 void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_t channelCount, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues)
 {
+    this->_drain_worker_to_processor();
+
     // Accept latency.
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {

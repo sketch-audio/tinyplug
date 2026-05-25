@@ -68,6 +68,7 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
     tinyplug/lock_free_queue.hpp
     tinyplug/tiny_utils.h
     tinyplug/tiny_view.h
+    tinyplug/tiny_worker.h
     tinyplug/tinyplug.h
 )
 

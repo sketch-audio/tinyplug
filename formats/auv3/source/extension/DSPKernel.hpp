@@ -32,10 +32,14 @@ public:
         mOutputChannelCount = outputChannelCount;
         _processor->reset(mSampleRate);
         _latency = _processor->latency_samps();
-        
+
         _bypass.reset(static_cast<float>(inSampleRate));
         _bypass.set_latency(_latency);
-        
+
+#if TINY_HAS_WORKER
+        bind_worker_to_kernel_classes();
+        _worker_runner.start(inSampleRate);
+#endif
     }
     
     void deInitialize() {
@@ -99,7 +103,11 @@ public:
          modify the check in [Galaxy_Brain_AUAudioUnit allocateRenderResourcesAndReturnError]
          */
         assert(inputBuffers.size() == outputBuffers.size());
-        
+
+#if TINY_HAS_WORKER
+        drain_worker_to_processor();
+#endif
+
         // Handle set_param events.
         auto event = tiny::Render_event{};
         while(_param_queue.pop(event)) {
@@ -282,10 +290,49 @@ private:
 
     // Communicates the accepted latency from `setActive` to `process`.
     Latency_flag _accepted_latency{};
-    
+
     tiny::Musical_context _context{};
-    
+
     tiny::Host_bypass _bypass{};
+
+#if TINY_HAS_WORKER
+public:
+
+    // Worker channel.
+    using Worker_from_proc_q = tiny::Lock_free_queue<typename tiny::User_worker::From_processor, tiny::User_worker::inbound_capacity, tiny::Queue_concurrency::spsc>;
+    using Worker_from_edit_q = tiny::Lock_free_queue<typename tiny::User_worker::From_editor,    tiny::User_worker::inbound_capacity, tiny::Queue_concurrency::spsc>;
+    using Worker_to_proc_q   = tiny::Lock_free_queue<typename tiny::User_worker::To_processor,   tiny::User_worker::reply_capacity>;
+    using Worker_to_edit_q   = tiny::Lock_free_queue<typename tiny::User_worker::To_editor,     tiny::User_worker::reply_capacity>;
+
+    Worker_from_proc_q _worker_from_proc{};
+    Worker_from_edit_q _worker_from_edit{};
+    Worker_to_proc_q   _worker_to_proc{};
+    Worker_to_edit_q   _worker_to_edit{};
+
+    tiny::User_worker _worker{
+        tiny::Worker_replies{
+            [this](const auto& m) { return _worker_to_proc.push(m); },
+            [this](const auto& m) { return _worker_to_edit.push(m); }
+        },
+        tiny::Task_manager::Actor{}
+    };
+
+    auto bind_worker_to_kernel_classes() -> void
+    {
+        tiny::try_bind_worker(*_processor, tiny::Worker_processor_actor{
+            [this](const auto& m) { return _worker_from_proc.push(m); }
+        });
+    }
+
+    auto drain_worker_to_processor() -> void
+    {
+        tiny::try_drain_worker_to_processor(*_processor, _worker_to_proc);
+    }
+
+    tiny::Worker_runner<tiny::User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
+#endif
+
+private:
     
     // MARK: - Musical Context Helpers
     
