@@ -806,7 +806,7 @@ inline auto measure_text_wrapped(const std::string& string, const Font_info& fon
 // Cap for dialog width before forcing word-wrap. Without this, a long message
 // with no newlines produces a dialog as wide as the message — easily wider than
 // the screen. macOS/iOS native alerts wrap automatically; this matches that.
-constexpr auto k_max_dialog_w = 300;
+constexpr auto k_max_dialog_w = 200;
 
 // Thanks, GPT
 inline auto align_dword(LPWORD lpIn) -> LPWORD
