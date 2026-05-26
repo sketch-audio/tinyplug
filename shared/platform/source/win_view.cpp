@@ -781,6 +781,33 @@ inline auto measure_text(const std::string& string, const Font_info& font) -> st
     return {size.cx, static_cast<int>(line_count) * size.cy};
 }
 
+// Measures wrapped text height when forced to fit within `wrap_w` pixels wide.
+// Used by dialogs to size their static-text control when the message is too long
+// for a single line.
+inline auto measure_text_wrapped(const std::string& string, const Font_info& font, int wrap_w) -> int
+{
+    auto hdc = GetDC(nullptr);
+    auto wname = string_to_wstring(font.name);
+    auto hfont = CreateFontW(font.size, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH, wname.c_str());
+    auto horiginal = reinterpret_cast<HFONT>(SelectObject(hdc, hfont));
+
+    auto wstr = string_to_wstring(string);
+    RECT rect = { 0, 0, wrap_w, 0 };
+    DrawTextW(hdc, wstr.c_str(), -1, &rect, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+    const auto height = static_cast<int>(rect.bottom - rect.top);
+
+    SelectObject(hdc, horiginal);
+    DeleteObject(hfont);
+    ReleaseDC(nullptr, hdc);
+
+    return height;
+}
+
+// Cap for dialog width before forcing word-wrap. Without this, a long message
+// with no newlines produces a dialog as wide as the message — easily wider than
+// the screen. macOS/iOS native alerts wrap automatically; this matches that.
+constexpr auto k_max_dialog_w = 300;
+
 // Thanks, GPT
 inline auto align_dword(LPWORD lpIn) -> LPWORD
 {
@@ -802,11 +829,18 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
             const auto padding = 10;
             const auto button_h = 15;
 
-            const auto dialog_w = std::max(120, padding + measured_w + padding);
-            const auto dialog_h = padding + text_h + padding + button_h + padding;
+            const auto unclamped_w = padding + measured_w + padding;
+            const auto needs_wrap = unclamped_w > k_max_dialog_w;
+            const auto dialog_w = needs_wrap ? k_max_dialog_w : std::max(120, unclamped_w);
 
             const auto text_w = dialog_w - 2 * padding; // So we center properly.
             const auto button_w = dialog_w - 2 * padding;
+
+            if (needs_wrap) {
+                text_h = measure_text_wrapped(message, font, text_w);
+            }
+
+            const auto dialog_h = padding + text_h + padding + button_h + padding;
 
             // See: https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes
             HINSTANCE hInstance = GetModuleHandle(nullptr);
@@ -911,11 +945,18 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
             const auto padding = 10;
             const auto button_h = 15;
 
-            const auto dialog_w = std::max(120, padding + measured_w + padding);
-            const auto dialog_h = padding + text_h + padding + button_h + padding;
+            const auto unclamped_w = padding + measured_w + padding;
+            const auto needs_wrap = unclamped_w > k_max_dialog_w;
+            const auto dialog_w = needs_wrap ? k_max_dialog_w : std::max(120, unclamped_w);
 
             const auto text_w = dialog_w - 2 * padding; // So we center properly.
             const auto button_w = (dialog_w - 3 * padding) / 2;
+
+            if (needs_wrap) {
+                text_h = measure_text_wrapped(message, font, text_w);
+            }
+
+            const auto dialog_h = padding + text_h + padding + button_h + padding;
 
 
             // See: https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes
@@ -1043,12 +1084,19 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             const auto button_h = 15;
             const auto edit_h = font.size + 2;
 
-            const auto dialog_w = std::max(160, padding + measured_w + padding);
-            const auto dialog_h = padding + text_h + padding + button_h + padding + edit_h + padding;
+            const auto unclamped_w = padding + measured_w + padding;
+            const auto needs_wrap = unclamped_w > k_max_dialog_w;
+            const auto dialog_w = needs_wrap ? k_max_dialog_w : std::max(160, unclamped_w);
 
             const auto text_w = dialog_w - 2 * padding; // So we center properly.
             const auto button_w = (dialog_w - 3 * padding) / 2;
             const auto edit_w = dialog_w - 2 * padding;
+
+            if (needs_wrap) {
+                text_h = measure_text_wrapped(message, font, text_w);
+            }
+
+            const auto dialog_h = padding + text_h + padding + button_h + padding + edit_h + padding;
 
             // See: https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes
             HINSTANCE hInstance = GetModuleHandle(nullptr);

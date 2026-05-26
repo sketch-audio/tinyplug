@@ -17,7 +17,7 @@ auto Plug_editor::on_gui_show(const Edit_context& edit) -> void
     _click = std::make_unique<Click_recognizer>(Gesture_callbacks<Click_info>{
         .on_started = [this](const Click_info& info) {
             // Providing an execution context makes sure the dialog result is handled on the main thread.
-            Platform_dialogs::text_input("Gain", "Enter a value between 0 and 1.", [this](std::string text) {
+            Platform_dialogs::text_input("Gain", "Enter a value between 0 and 1. This prompt is deliberately long so that the dialog must word-wrap rather than stretch to fit the entire message on a single line — useful for verifying the Windows auto-wrap behavior matches macOS and iOS.", [this](std::string text) {
                 const auto addr = enum_raw(Param_address::gain);
                 const auto& param_spec = User_params::param_spec(addr);
                 if (const auto value = Host_formatter::format_value(text, param_spec.semantics)) {
