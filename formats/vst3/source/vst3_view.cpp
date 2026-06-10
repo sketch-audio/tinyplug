@@ -1,6 +1,6 @@
-#include "vst3_view.h"
+#include "vst3_view.hpp"
 
-#include "vst3_controller.h"
+#include "vst3_controller.hpp"
 
 namespace tiny {
 

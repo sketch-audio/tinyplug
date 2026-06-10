@@ -6,7 +6,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "tiny_params.h"
+#include "tiny_params.hpp"
 #include "state_rules.hpp"
 
 namespace tiny {

@@ -5,9 +5,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "tiny_events.h" // User_action
-#include "tiny_params.h" // Param_spec
-#include "tiny_utils.h" // Inline_visitor, Processor_state
+#include "tiny_events.hpp" // User_action
+#include "tiny_params.hpp" // Param_spec
+#include "tiny_utils.hpp" // Inline_visitor, Processor_state
 
 #include "action_queue.hpp"
 

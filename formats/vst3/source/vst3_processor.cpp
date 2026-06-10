@@ -10,13 +10,13 @@
 #include "public.sdk/source/vst/vstaudioeffect.h"
 #include "base/source/fstreamer.h"
 
-#include "models/meter_model.h"
-#include "models/param_model.h"
-#include "plug_info.h"
+#include "models/meter_model.hpp"
+#include "models/param_model.hpp"
+#include "plug_info.hpp"
 
-#include "vst3_adapters.h"
-#include "vst3_messaging.h"
-#include "vst3_processor.h"
+#include "vst3_adapters.hpp"
+#include "vst3_messaging.hpp"
+#include "vst3_processor.hpp"
 
 namespace tiny {
 

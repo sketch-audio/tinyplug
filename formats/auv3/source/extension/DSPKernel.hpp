@@ -8,10 +8,10 @@
 #import <vector>
 #import <span>
 
-#include "plug_processor.h"
-#include "models/meter_model.h"
-#include "models/param_model.h"
-#include "plug_info.h"
+#include "plug_processor.hpp"
+#include "models/meter_model.hpp"
+#include "models/param_model.hpp"
+#include "plug_info.hpp"
 
 #include "dsp/host_bypass.hpp"
 

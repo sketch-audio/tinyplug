@@ -4,7 +4,7 @@
 #include <memory>
 #include <optional>
 
-#include "tiny_view.h"
+#include "tiny_view.hpp"
 
 namespace tiny {
 

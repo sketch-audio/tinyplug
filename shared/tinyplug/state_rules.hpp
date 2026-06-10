@@ -5,7 +5,7 @@
 #include <optional>
 #include <vector>
 
-#include "tiny_params.h"
+#include "tiny_params.hpp"
 
 namespace tiny {
 

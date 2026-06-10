@@ -9,12 +9,12 @@
 #include "AAX_Errors.h"
 #include "AAX_Assert.h"
 
-#include "plug_info.h"
-#include "models/param_model.h"
+#include "plug_info.hpp"
+#include "models/param_model.hpp"
 
-#include "aax_categories.h"
-#include "aax_gui.h"
-#include "aax_parameters.h"
+#include "aax_categories.hpp"
+#include "aax_gui.hpp"
+#include "aax_parameters.hpp"
 
 //
 AAX_Result GetEffectDescriptions(AAX_ICollection* collection)

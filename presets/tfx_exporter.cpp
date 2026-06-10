@@ -12,11 +12,11 @@
 #include "AAX.h"
 #include "AAX_CChunkDataParser.h"
 #include "AAX_EndianSwap.h"
-#include "../formats/aax/source/aax_adapters.h"
+#include "../formats/aax/source/aax_adapters.hpp"
 
 // User model.
-#include "models/param_model.h"
-#include "plug_info.h"
+#include "models/param_model.hpp"
+#include "plug_info.hpp"
 
 #ifndef PRESET_DIR
 #define PRESET_DIR ""

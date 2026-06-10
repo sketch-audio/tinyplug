@@ -4,8 +4,8 @@
 #include <nlohmann/json.hpp>
 
 // User model.
-#include "models/param_model.h"
-#include "plug_info.h"
+#include "models/param_model.hpp"
+#include "plug_info.hpp"
 
 auto main() -> int
 {

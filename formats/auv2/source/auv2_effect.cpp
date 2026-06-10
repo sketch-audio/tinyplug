@@ -1,4 +1,4 @@
-#include "auv2_effect.h"
+#include "auv2_effect.hpp"
 
 #include <AudioUnitSDK/ComponentBase.h>
 #include <AudioUnitSDK/AUUtility.h> // Serialize

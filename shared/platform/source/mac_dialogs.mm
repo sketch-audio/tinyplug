@@ -1,4 +1,4 @@
-#include "../platform_dialogs.h"
+#include "../platform_dialogs.hpp"
 
 #import <Cocoa/Cocoa.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>

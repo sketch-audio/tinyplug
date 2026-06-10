@@ -4,14 +4,14 @@
 #include "public.sdk/source/vst/utility/stringconvert.h"
 #include "base/source/fstreamer.h"
 
-#include "tinyplug/tinyplug.h"
+#include "tinyplug/tinyplug.hpp"
 
-#include "models/meter_model.h"
-#include "models/param_model.h"
+#include "models/meter_model.hpp"
+#include "models/param_model.hpp"
 
-#include "vst3_adapters.h"
-#include "vst3_controller.h"
-#include "vst3_messaging.h"
+#include "vst3_adapters.hpp"
+#include "vst3_controller.hpp"
+#include "vst3_messaging.hpp"
 
 namespace tiny {
 

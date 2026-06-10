@@ -7,10 +7,10 @@ function(make_aax_plugin USER_TARGET)
 
     read_property(${USER_TARGET} TINY_AAX_CATEGORIES)
     read_property(${USER_TARGET} TINY_AAX_PAGE_TABLE_PATH)
-    # Configure header aax_categories.h.in
+    # Configure header aax_categories.hpp.in
     configure_file(
-        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/aax_categories.h.in
-        ${CMAKE_CURRENT_BINARY_DIR}/aax_categories.h
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/aax_categories.hpp.in
+        ${CMAKE_CURRENT_BINARY_DIR}/aax_categories.hpp
     )
 
     read_property(${USER_TARGET} TINY_BASE_FILENAME)
@@ -24,15 +24,15 @@ function(make_aax_plugin USER_TARGET)
     set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
 
     add_library(${AAX_TARGET} MODULE
-        ${SOURCE_DIR}/source/aax_adapters.h
+        ${SOURCE_DIR}/source/aax_adapters.hpp
         ${SOURCE_DIR}/source/aax_describe.cpp
         ${SOURCE_DIR}/source/aax_gui.cpp
-        ${SOURCE_DIR}/source/aax_gui.h
+        ${SOURCE_DIR}/source/aax_gui.hpp
         ${SOURCE_DIR}/source/aax_monolith.cpp
-        ${SOURCE_DIR}/source/aax_monolith.h
+        ${SOURCE_DIR}/source/aax_monolith.hpp
         ${SOURCE_DIR}/source/aax_parameters.cpp
-        ${SOURCE_DIR}/source/aax_parameters.h
-        ${SOURCE_DIR}/source/aax_taper_delegate.h
+        ${SOURCE_DIR}/source/aax_parameters.hpp
+        ${SOURCE_DIR}/source/aax_taper_delegate.hpp
     )
     tiny_add_aax_main(${AAX_TARGET})
 

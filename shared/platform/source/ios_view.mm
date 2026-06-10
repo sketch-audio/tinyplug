@@ -1,4 +1,4 @@
-#include "../platform_view.h"
+#include "../platform_view.hpp"
 
 #include <chrono>
 #include <unordered_map>
@@ -7,7 +7,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 
-#include "../window_context.h"
+#include "../window_context.hpp"
 
 #if __has_feature(objc_arc)
 static_assert(false, "This is a non-ARC file");

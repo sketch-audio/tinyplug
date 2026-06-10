@@ -133,9 +133,9 @@ function(configure_plug_info plugin_target output)
         TINY_VST3_PROCESSOR_UID_LITERALS
     )
 
-    # Configure the plug_info.h file.
+    # Configure the plug_info.hpp file.
     configure_file(
-        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/plug_info.h.in
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/plug_info.hpp.in
         ${output}
     )
 endfunction()
@@ -191,7 +191,7 @@ function(configure_preset_list AU_TARGET OUTPUT_FILE)
     endif()
 
     configure_file(
-        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/preset_list.h.in
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/preset_list.hpp.in
         ${OUTPUT_FILE}
         @ONLY
     )
@@ -230,8 +230,8 @@ function(configure_mac_view FORMAT_TARGET BASE_FILENAME VERSION_STRING BUILD_NUM
     set(TINY_MAC_VIEW "MacView_${BASE_FILENAME}_${_version_safe}_${BUILD_NUMBER}")
     set(TINY_MAC_METAL_VIEW "MacMetalView_${BASE_FILENAME}_${_version_safe}_${BUILD_NUMBER}")
     configure_file(
-        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../shared/cmake/mac_config.h.in
-        ${CMAKE_CURRENT_BINARY_DIR}/mac_config.h
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../shared/cmake/mac_config.hpp.in
+        ${CMAKE_CURRENT_BINARY_DIR}/mac_config.hpp
     )
     target_sources(${FORMAT_TARGET} PRIVATE
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../shared/platform/source/mac_view.mm

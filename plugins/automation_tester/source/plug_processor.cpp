@@ -1,4 +1,4 @@
-#include "plug_processor.h"
+#include "plug_processor.hpp"
 
 #include <algorithm> // std::max
 

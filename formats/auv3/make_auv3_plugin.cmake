@@ -125,7 +125,7 @@ function(make_auv3_plugin USER_TARGET)
         ${SOURCE_DIR}/source/extension/auv3_AUAudioUnit.mm
         ${SOURCE_DIR}/source/extension/auv3_AUViewController.mm
         ${SOURCE_DIR}/source/extension/auv3_view.cpp
-        ${SOURCE_DIR}/source/extension/auv3_view.h
+        ${SOURCE_DIR}/source/extension/auv3_view.hpp
         ${SOURCE_DIR}/source/extension/BufferedAudioBus.hpp
         ${SOURCE_DIR}/source/extension/DSPKernel.hpp
         ${SOURCE_DIR}/source/shared/TargetPlatforms.h
@@ -302,7 +302,7 @@ function(make_auv3_plugin USER_TARGET)
 
     # Extension
     # ---
-    configure_preset_list(${USER_TARGET} ${CMAKE_CURRENT_BINARY_DIR}/auv3_preset_list.h)
+    configure_preset_list(${USER_TARGET} ${CMAKE_CURRENT_BINARY_DIR}/auv3_preset_list.hpp)
 
     set(EXT_TARGET ${TINY_BASE_FILENAME}_extension) # AUv3 extension
     add_executable(${EXT_TARGET})

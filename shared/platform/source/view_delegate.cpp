@@ -1,6 +1,6 @@
-#include "../view_delegate.h"
+#include "../view_delegate.hpp"
 
-#include "../window_context.h"
+#include "../window_context.hpp"
 
 namespace tiny {
 

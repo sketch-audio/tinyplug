@@ -46,12 +46,12 @@ add_property(${PLUGIN_TARGET} TINY_VST3_SUBCATEGORIES "Fx")
 # Your plug-in's sources
 # ---
 target_sources(${PLUGIN_TARGET} PRIVATE
-    source/models/meter_model.h
-    source/models/param_model.h
+    source/models/meter_model.hpp
+    source/models/param_model.hpp
     source/plug_editor.cpp
-    source/plug_editor.h
+    source/plug_editor.hpp
     source/plug_processor.cpp
-    source/plug_processor.h
+    source/plug_processor.hpp
 )
 # ---
 
@@ -59,13 +59,13 @@ target_sources(${PLUGIN_TARGET} PRIVATE
 # ---
 configure_plug_info(
     ${PLUGIN_TARGET}
-    ${CMAKE_CURRENT_BINARY_DIR}/plug_info.h
+    ${CMAKE_CURRENT_BINARY_DIR}/plug_info.hpp
 )
 # ---
 
 target_include_directories(${PLUGIN_TARGET} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/source
-    ${CMAKE_CURRENT_BINARY_DIR} # for plug_info.h
+    ${CMAKE_CURRENT_BINARY_DIR} # for plug_info.hpp
 )
 target_link_libraries(${PLUGIN_TARGET} PUBLIC ${TINY_SHARED_LIB})
 

@@ -5,10 +5,10 @@
 #include <AudioUnit/AudioUnit.h>
 #include <AudioUnit/AUCocoaUIView.h>
 
-#include "plug_info.h"
-#include "platform/platform_view.h"
+#include "plug_info.hpp"
+#include "platform/platform_view.hpp"
 
-#include "auv2_effect.h"
+#include "auv2_effect.hpp"
 
 #ifndef TINY_AUV2_VIEW_CLASS
 #error "AUv2 view class not defined."

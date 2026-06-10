@@ -1,6 +1,6 @@
-#include "../window_context.h"
+#include "../window_context.hpp"
 
-#include "win_config.h" // WIN_GRAPHICS_GPU
+#include "win_config.hpp" // WIN_GRAPHICS_GPU
 
 #if WIN_GRAPHICS_GPU
 #define SK_DIRECT3D // tiny_deps builds Skia with D3D but we still need this define here.

@@ -1,7 +1,7 @@
 #include "clap/clap.h"
 
-#include "clap_plugin.h"
-#include "clap_preset_discovery.h"
+#include "clap_plugin.hpp"
+#include "clap_preset_discovery.hpp"
 
 namespace tiny {
 

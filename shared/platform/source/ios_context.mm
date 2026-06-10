@@ -1,4 +1,4 @@
-#include "../window_context.h"
+#include "../window_context.hpp"
 
 #import <UIKit/UIKit.h>
 #import <Metal/Metal.h>

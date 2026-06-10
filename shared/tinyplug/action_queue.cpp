@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-#include "tiny_utils.h"  // Inline_visitor
+#include "tiny_utils.hpp"  // Inline_visitor
 
 namespace tiny {
 

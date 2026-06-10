@@ -30,8 +30,8 @@ if(APPLE)
 elseif(WIN32)
     set(WIN_GRAPHICS_GPU "0") # GPU renderer not ready for prime time. Need to figure out some wait-free synchronization mechanism.
     configure_file(
-        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/win_config.h.in 
-        ${CMAKE_CURRENT_BINARY_DIR}/win_config.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/win_config.hpp.in 
+        ${CMAKE_CURRENT_BINARY_DIR}/win_config.hpp
     )
     target_include_directories(${TINY_SHARED_LIB} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
     set(PLATFORM_SOURCES
@@ -56,20 +56,20 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
 )
 
 target_sources(${TINY_SHARED_LIB} PRIVATE 
-    platform/platform_dialogs.h
-    platform/platform_view.h
-    platform/platform.h
-    platform/view_delegate.h
-    platform/window_context.h
-    tinyplug/tiny_events.h
-    tinyplug/tiny_meters.h
-    tinyplug/tiny_params.h
-    tinyplug/tiny_processor.h
+    platform/platform_dialogs.hpp
+    platform/platform_view.hpp
+    platform/platform.hpp
+    platform/view_delegate.hpp
+    platform/window_context.hpp
+    tinyplug/tiny_events.hpp
+    tinyplug/tiny_meters.hpp
+    tinyplug/tiny_params.hpp
+    tinyplug/tiny_processor.hpp
     tinyplug/lock_free_queue.hpp
-    tinyplug/tiny_utils.h
-    tinyplug/tiny_view.h
-    tinyplug/tiny_worker.h
-    tinyplug/tinyplug.h
+    tinyplug/tiny_utils.hpp
+    tinyplug/tiny_view.hpp
+    tinyplug/tiny_worker.hpp
+    tinyplug/tinyplug.hpp
 )
 
 target_include_directories(

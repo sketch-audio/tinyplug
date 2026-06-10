@@ -1,10 +1,10 @@
 #include "public.sdk/source/main/pluginfactory.h"
 
-#include "plug_info.h"
+#include "plug_info.hpp"
 
-#include "vst3_adapters.h"
-#include "vst3_controller.h"
-#include "vst3_processor.h"
+#include "vst3_adapters.hpp"
+#include "vst3_controller.hpp"
+#include "vst3_processor.hpp"
 
 //------------------------------------------------------------------------
 //  VST Plug-in Entry

@@ -1,4 +1,4 @@
-#include "vst3_messaging.h"
+#include "vst3_messaging.hpp"
 
 #include "pluginterfaces/vst/ivstattributes.h"
 

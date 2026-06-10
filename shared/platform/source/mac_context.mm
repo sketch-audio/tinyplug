@@ -1,4 +1,4 @@
-#include "../window_context.h"
+#include "../window_context.hpp"
 
 #import <Cocoa/Cocoa.h>
 #import <Metal/Metal.h>

@@ -3,7 +3,7 @@
 #include <cstring>
 #include <fstream>
 
-#include "clap_plugin.h"
+#include "clap_plugin.hpp"
 
 #include <nlohmann/json.hpp>
 

@@ -4,8 +4,8 @@
 
 #import "auv3_AUAudioUnit.h"
 
-#include "auv3_view.h"
-#include "plug_editor.h"
+#include "auv3_view.hpp"
+#include "plug_editor.hpp"
 
 #if !__has_feature(objc_arc)
 static_assert(false, "ARC must be enabled for this file");

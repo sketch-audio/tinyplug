@@ -2,7 +2,7 @@
 
 #include "AAX_IViewContainer.h"
 
-#include "aax_gui.h"
+#include "aax_gui.hpp"
 
 namespace tiny {
 

@@ -1,4 +1,4 @@
-#include "../platform_view.h"
+#include "../platform_view.hpp"
 
 #include <chrono>
 
@@ -6,9 +6,9 @@
 #import <CoreVideo/CVDisplayLink.h>
 #import <QuartzCore/QuartzCore.h> // CAMetalDisplayLink
 
-#include "../window_context.h"
+#include "../window_context.hpp"
 
-#include "mac_config.h"
+#include "mac_config.hpp"
 #ifndef TINY_MAC_VIEW
 #error "TINY_MAC_VIEW must be defined in mac_config.h"
 #endif

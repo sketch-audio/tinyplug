@@ -1,8 +1,8 @@
 #import <AudioToolbox/AudioToolbox.h>
 #import <AVFoundation/AVFoundation.h>
 
-#include "tinyplug/tinyplug.h"
-#include "plug_editor.h"
+#include "tinyplug/tinyplug.hpp"
+#include "plug_editor.hpp"
 
 @interface Auv3_AUAudioUnit : AUAudioUnit
 - (void)setupParameterTree;

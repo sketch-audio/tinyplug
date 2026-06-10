@@ -1,4 +1,4 @@
-#include "../platform_dialogs.h"
+#include "../platform_dialogs.hpp"
 
 #import <UIKit/UIKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>

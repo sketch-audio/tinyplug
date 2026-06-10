@@ -1,4 +1,4 @@
-#include "aax_parameters.h"
+#include "aax_parameters.hpp"
 
 #include <cassert>
 #include <cstring>
@@ -11,8 +11,8 @@
 #include "AAX_CUnitDisplayDelegateDecorator.h"
 #include "AAX_TransportTypes.h"
 
-#include "aax_adapters.h"
-#include "aax_taper_delegate.h"
+#include "aax_adapters.hpp"
+#include "aax_taper_delegate.hpp"
 
 namespace tiny {
 

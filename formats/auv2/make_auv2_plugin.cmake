@@ -22,15 +22,15 @@ function(make_auv2_plugin USER_TARGET)
     set(AUV2_TARGET ${TINY_BASE_FILENAME}_auv2)
     set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
 
-    configure_preset_list(${USER_TARGET} ${CMAKE_CURRENT_BINARY_DIR}/auv2_preset_list.h)
+    configure_preset_list(${USER_TARGET} ${CMAKE_CURRENT_BINARY_DIR}/auv2_preset_list.hpp)
 
     add_library(${AUV2_TARGET} MODULE
-        ${SOURCE_DIR}/source/auv2_adapters.h
+        ${SOURCE_DIR}/source/auv2_adapters.hpp
         ${SOURCE_DIR}/source/auv2_effect.cpp
-        ${SOURCE_DIR}/source/auv2_effect.h
+        ${SOURCE_DIR}/source/auv2_effect.hpp
         ${SOURCE_DIR}/source/auv2_view_factory.mm
         ${SOURCE_DIR}/source/auv2_view.cpp
-        ${SOURCE_DIR}/source/auv2_view.h
+        ${SOURCE_DIR}/source/auv2_view.hpp
     )
 
     target_link_libraries(${AUV2_TARGET} PRIVATE tiny::ausdk)

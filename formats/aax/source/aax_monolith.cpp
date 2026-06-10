@@ -23,7 +23,7 @@
 /*================================================================================================*/
 
 // Self Include
-#include "aax_monolith.h"//#include "AAX_CMonolithicParameters.h"
+#include "aax_monolith.hpp"//#include "AAX_CMonolithicParameters.h"
 
 // AAX Includes
 #include "AAX_Exception.h"

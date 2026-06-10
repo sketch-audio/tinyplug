@@ -7,7 +7,7 @@
 #include <span>
 #include <unordered_map>
 
-#include "tiny_events.h"
+#include "tiny_events.hpp"
 
 namespace tiny {
 

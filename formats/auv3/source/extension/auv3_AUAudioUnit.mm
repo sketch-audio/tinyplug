@@ -11,8 +11,8 @@
 #import "DSPKernel.hpp"
 
 #include "platform/platform_paths.hpp"
-#include "plug_info.h"
-#include "auv3_preset_list.h"
+#include "plug_info.hpp"
+#include "auv3_preset_list.hpp"
 
 #if !__has_feature(objc_arc)
 static_assert(false, "ARC must be enabled for this file");
