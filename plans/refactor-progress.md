@@ -1,0 +1,161 @@
+# Refactor progress (session log for handoff)
+
+Working branch: **`next`**. Nothing committed this session — all changes are in
+the working tree. This tracks the naming/namespace refactor (see
+[structural-and-naming-refactor.md](structural-and-naming-refactor.md) for the
+overall Phase 1/2 plan) plus a few new design docs.
+
+## Build / validate (read first)
+
+```
+cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug -DTINY_INSTALL_PLUGINS=OFF -DTINY_DEPS_PATH=../tiny_deps
+cmake --build build-debug --parallel 8
+```
+
+- **Must pass `-DCMAKE_BUILD_TYPE`** — `tiny_deps` imported targets only set
+  per-config `IMPORTED_LOCATION_<CFG>` (no config-agnostic fallback), so a
+  type-less configure fails at generate with "IMPORTED_LOCATION not set".
+- **`--parallel 8` is allowed now** (the old serial-only rule was lifted).
+- **`build-debug` (Unix Makefiles) SKIPS AUv3** — AUv3 needs the Xcode generator:
+  `cmake -S . -B build-macos -G Xcode -DTINY_DEPS_PATH=../tiny_deps`. ⚠️ **All
+  AUv3 changes this session are UNVALIDATED** — do an Xcode build before relying
+  on AUv3. (AUv3 `.mm` got real edits: `string_view` Cocoa wraps, item loop,
+  namespace/file renames.)
+- `template/` and `new_plugin.py` were **deleted** by the user (to be rewritten
+  after the refactor) — out of scope; ignore.
+- Downstream `~/Developer/hii` needs the same migrations — **not done**.
+
+## What's DONE this session (all building green on the 4 Makefile formats + core lib)
+
+1. **`.h` → `.hpp`** for all C++ headers. ObjC headers stay `.h` (the 4
+   `@interface` headers + `TargetPlatforms.h`). Generated `*.h.in` → `*.hpp.in`
+   except `app_info.h.in` (imported by a pure `.m`). Worker discovery is now
+   `__has_include("worker.hpp")`. Script: [tools/rename_headers_to_hpp.sh](../tools/rename_headers_to_hpp.sh).
+
+2. **User classes/files renamed + namespaced.** `param_model→params`,
+   `meter_model→meters`, `plug_editor→editor`, `plug_processor→processor`,
+   `plug_worker→worker`. Classes → `tiny::models::{Params,Meters}`,
+   `tiny::plugin::{Processor,Editor,Worker}`; address enums → nested `Address`.
+   Script: [tools/rename_user_classes.sh](../tools/rename_user_classes.sh).
+   (`latency_demo` is the only dual-enum plug-in — `Address` aliases params,
+   meter addresses qualified inline.)
+
+3. **Meters fully migrated** → `tiny::meters`:
+   - API: `make_specs() -> vector` replaced by per-address `make_spec(Address) -> meters::Spec`
+     switch; `Spec` dropped its `address` field; registry builds a
+     `std::array<Spec, num_meters>`.
+   - Types: `Meter_policy→Policy` (members `Peak/Stream/Trig`), `Lin_range→Range`,
+     `Meter_spec→Spec`, `Some_meter_model→Model`, `Meter_infos→Infos`.
+   - `Tagged_meter` → **`tiny::view::Meter_state`** (moved into `tiny_view.hpp`,
+     it's view-loop state not a model type).
+   - Concept now requires a `Num_meters` sentinel.
+   - The meter `plain_to_norm`/`norm_to_plain` moved into
+     `formats/vst3/source/adapters.hpp` (VST3 is the only consumer).
+
+4. **Format wrappers de-prefixed + per-format namespaces** (done format-by-format
+   with a build after each):
+   - Files dropped the format prefix (`vst3_controller.hpp→controller.hpp`, etc.).
+     Special cases: `vst3_processor→audio_effect`, `auv3_AUAudioUnit→audio_unit`
+     (file), `auv3_AUViewController→view_controller` (file).
+   - Namespaces: `tiny::{aax,auv2,auv3,clap,vst3}`. Classes dropped prefixes:
+     `vst3::{Audio_effect,Controller,View}`, `clap::{Plugin,View,Factory_presets,User_presets}`,
+     `auv2::{Effect,View}`, `auv3::View`, `aax::{Parameters,Gui}`.
+   - **ObjC class names kept** (`Auv3_AUAudioUnit`, `Auv3_AUViewController`) — only
+     their files were renamed; ObjC class-name migration deferred.
+   - Apple-template files kept as-is (`DSPKernel.hpp`, `AUProcessHelper.hpp`,
+     `BufferedAudioBus.hpp`).
+   - Generated headers de-prefixed: `aax_categories→categories`,
+     `*_preset_list→preset_list`.
+   - **Gotcha:** a format namespace can shadow an SDK namespace — `namespace
+     tiny::clap` shadowed `::clap::helpers`; fixed by qualifying SDK refs as
+     `::clap::helpers`. (VST3/AAX/AU SDKs use `Steinberg::`/`AAX_*`/`ausdk::`, no clash.)
+   - **AUv2 entry point** changed: the AUSDK component factory is now
+     `EffectFactory` (was `Auv2_effectFactory`, derived from the class name). The
+     user updated `Info.plist` `factoryFunction` + `exports.txt` (`_EffectFactory`).
+     Safe: AUs are identified by AudioComponent codes, not the factory symbol.
+
+5. **Params migrated into `tiny::params`** (incremental; whole header wrapped, with
+   a transitional `using` alias block in `namespace tiny` that shrinks each step):
+   - Semantics: `*_semantics` → `params::Semantics::{Bool,List,Int,Fixed,Real}`,
+     `Value_semantics → params::Semantics::Any`.
+   - Adapters: `Adapt_*` → `params::Adapter::{Lin,Log,Pow,Taper,Piece}`,
+     `Knob_adapter → params::Adapter::Any`, `Adapt_piece::Break_point →
+     params::Adapter::Piece::Break_point`.
+   - `Param_spec/Param_group/Param_node` → `params::Spec/Group/Node`.
+   - `Host_policy → params::Policy` (members `Automation/Control/Hidden/Interface`).
+   - `Units` members capitalized (`Generic/Percent/Decibels/Hertz/Milliseconds/Degrees`);
+     type name still `Units` (still aliased).
+   - `Param_infos → params::Infos`, `Some_param_model → params::Model`.
+   - **Enum-case capitalization** is the new house style: client param/meter enum
+     cases capitalized, sentinels `Num_params`/`Num_meters` (concepts require them).
+     (User added the `Num_params` concept requirement + capitalized client enums.)
+   - **`const char* → std::string_view`** for `Spec`/`Group` (`name`, `string_id`,
+     `short_name`) and `Semantics::List::items` (`vector<string_view>`).
+     Authoring unchanged (literals bind to `string_view`); consumers wrap in
+     `std::string{…}.c_str()` at C-API boundaries. AAX `List` display-delegate
+     materializes owning `std::string` copies (string_view::data() isn't
+     NULL-terminated).
+
+6. **MIGRATION.md** kept current — comprehensive downstream guide ([MIGRATION.md](../MIGRATION.md)).
+
+## What REMAINS
+
+### Params (finish the namespace pass)
+Still reachable only via transitional `tiny::` aliases in `tiny_params.hpp`
+(bottom of file) — migrate each into `tiny::params` and delete its alias:
+- `Value_conv → Conv`, `Host_formatter → Formatter`.
+- `Param_order → Order`, `Value_space → Space`.
+- Free-fn de-prefix: `get_plain_min→plain_min`, `get_host_default→host_default`,
+  `param_is_discrete→is_discrete`, `is_param_units→has_units`, etc.
+- `Units` (type kept; decide if it moves/renames).
+
+### `tiny_params.hpp` build-time cleanup (ideated, not done)
+The win is **evicting heavy includes** from this universally-included header:
+- **Delete `#include <format>`** — it's unused (zero `std::format`). Free win.
+- Move `Host_formatter`(`→Formatter`) impl to a new `src`/`shared` `.cpp` →
+  evicts `<sstream>` + `<iomanip>` (only `format_string` uses them, via
+  `ostringstream`/`setprecision`). Add the `.cpp` to the core lib CMake list.
+- Optionally move other non-template/non-constexpr bodies (`units_string`,
+  `get_*`, `is_param_units`, `param_is_discrete`, `flatten_tree`, `validate_*`,
+  `Value_conv`) to the same `.cpp`. Must stay in header: the `constexpr`
+  `plain_to_norm`/`norm_to_plain`, all templates (`clamp`, `knob_next`,
+  `make_array_by_indices`, `Infos`). Perf: moved fns run at control-rate, fine.
+- Organization options discussed: keep `Conv`/`Formatter` as static-method
+  structs; queries as either de-prefixed free fns (recommended), `Spec` member
+  fns (most ergonomic), or a `params::Query` struct.
+
+### Other framework namespaces (Phase 2, not started)
+`tiny::events`, `tiny::view`, `tiny::edit`, `tiny::state`, `tiny::process`,
+`tiny::task`, `tiny::worker`, `tiny::util` — same wrap-then-rename pattern.
+
+### Worker `Model` restructure (not started)
+Nested `user::Worker::Model` holding the four message aliases + constants;
+`reply_capacity→outbound_capacity`, `poll_interval→update_period`.
+
+### Phase 1 structural (not started)
+Pitchfork layout (`include/`/`src/`/`wrappers/`/`examples/`/`libs/platform/`),
+`tiny_platform` spin-out, Skia `PRIVATE`, PCH, unity builds, CMakePresets, CI.
+
+### Loose ends
+- **Validate AUv3** via an Xcode build (overdue).
+- **Commit** the working tree on `next` (consider per-logical-step commits).
+- Migrate downstream `~/Developer/hii` in lock-step.
+- Rebuild `template/` + `new_plugin.py` (deleted).
+
+## Established conventions (apply going forward)
+- Headers `.hpp`; ObjC `.h`.
+- Scoped-enum cases **Capitalized**; sentinels `Num_<things>`.
+- Per-area namespaces under `tiny::` (`models`, `plugin`, `params`, `meters`,
+  `view`, per-format `aax/auv2/auv3/clap/vst3`).
+- Nested-type grouping pattern: `Semantics::{Bool,…}` + `Any`, `Adapter::{Lin,…}` + `Any`.
+- Registry/concept naming mirrors across models: `params::Infos`/`params::Model`,
+  `meters::Infos`/`meters::Model`.
+- Migration mechanic: wrap header in target namespace → bare names inside, add
+  `using` aliases in old location → migrate refs (internal bare, external
+  qualified, `\b`-anchored perl) → delete alias → build. Keep MIGRATION.md current.
+
+## Related design docs written this session (not implemented)
+- [host-initiated-param-changes.md](host-initiated-param-changes.md) — surface
+  host preset/state loads to the editor via opt-in `on_host_event` + coalesced undo.
+- [asset-store.md](asset-store.md) — managed large-buffer resources
+  (sampler/convolution/granular/looper); reshapes how `state-model`/`block-table` ship.
