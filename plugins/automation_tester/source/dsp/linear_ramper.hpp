@@ -20,7 +20,7 @@ struct Linear_ramper {
     {
         if (samples < 0) return;
         _target = target;
-        _inc = (target - _value) / samples;
+        _inc = (target - _value) / static_cast<float>(samples);
         _count = samples;
     }
 

@@ -15,12 +15,13 @@ struct Latency {
         const auto latency_samples = _latency_ms * 1e-3f * _sr;
         const auto min_samples = latency_samples + 2; // So we can have zero latency.
         auto n = size_t{1};
-        while (n < min_samples) n *= 2;
+        while (n < static_cast<size_t>(min_samples)) n *= 2;
         _samples.assign(n, 0);
         _idx = 0;
         _msk = n - 1;
         _off = static_cast<size_t>(latency_samples);
-        _frac = static_cast<float>(latency_samples - _off);
+        const auto doff = static_cast<double>(_off);
+        _frac = static_cast<float>(latency_samples - doff);
         _eta = (1 - _frac) / (1 + _frac);
         _z = 0;
     }
