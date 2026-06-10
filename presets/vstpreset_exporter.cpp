@@ -5,7 +5,7 @@
 #include <iomanip>
 #include <sstream>
 
-#include <tinyplug/tinyplug.h>
+#include <tinyplug/tinyplug.hpp>
 #include <nlohmann/json.hpp>
 
 // VST3 SDK Headers

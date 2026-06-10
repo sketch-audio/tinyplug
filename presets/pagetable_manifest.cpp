@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include <tinyplug/tinyplug.h>
+#include <tinyplug/tinyplug.hpp>
 #include <nlohmann/json.hpp>
 
 // User model.
