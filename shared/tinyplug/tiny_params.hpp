@@ -464,7 +464,7 @@ struct Spec {
     std::string_view short_name{""};
 
     // Parameter semantics.
-    Semantics::Any semantics{Semantics::Real{}};
+    Semantics::Any semantics{std::in_place_type<Semantics::Real>};
 
     // Host policy.
     Policy policy{Policy::Automation};
