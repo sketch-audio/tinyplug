@@ -25,7 +25,7 @@
 			<key>version</key>
 			<integer>${TINY_BUNDLE_VERSION_INT}</integer>
             <key>factoryFunction</key>
-			<string>Auv2_effectFactory</string>
+			<string>EffectFactory</string>
 		</dict>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>

@@ -3,20 +3,20 @@
 #include <cstring>
 #include <fstream>
 
-#include "clap_plugin.hpp"
+#include "plugin.hpp"
 
 #include <nlohmann/json.hpp>
 
-namespace tiny {
+namespace tiny::clap {
 
 // MARK: - plugin
 
-bool Clap_plugin::init() noexcept
+bool Plugin::init() noexcept
 {
     return true;
 }
 
-bool Clap_plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t /*maxFrameCount*/) noexcept
+bool Plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t /*maxFrameCount*/) noexcept
 {
     // Reset kernel with sample rate only first time and then when sample rate changes.
     if (!_once || sampleRate != _sr) {
@@ -47,22 +47,22 @@ bool Clap_plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32
     return true;
 }
 
-void Clap_plugin::deactivate() noexcept
+void Plugin::deactivate() noexcept
 {
 }
 
-bool Clap_plugin::startProcessing() noexcept
+bool Plugin::startProcessing() noexcept
 {
     return true;
 }
 
-void Clap_plugin::stopProcessing() noexcept
+void Plugin::stopProcessing() noexcept
 {
 }
 
 // MARK: - process
 
-clap_process_status Clap_plugin::process(const clap_process* process) noexcept
+clap_process_status Plugin::process(const clap_process* process) noexcept
 {
     this->_drain_worker_to_processor();
 
@@ -250,27 +250,27 @@ clap_process_status Clap_plugin::process(const clap_process* process) noexcept
     return CLAP_PROCESS_CONTINUE;
 }
 
-void Clap_plugin::reset() noexcept
+void Plugin::reset() noexcept
 {
 }
 
-void Clap_plugin::onMainThread() noexcept
+void Plugin::onMainThread() noexcept
 {
 }
 
-const void* Clap_plugin::extension(const char* /*id*/) noexcept
+const void* Plugin::extension(const char* /*id*/) noexcept
 {
     return nullptr;
 }
 
-bool Clap_plugin::enableDraftExtensions() const noexcept
+bool Plugin::enableDraftExtensions() const noexcept
 {
     return false;
 }
 
 // MARK: - save state
 
-bool Clap_plugin::stateSave(const clap_ostream* stream) noexcept
+bool Plugin::stateSave(const clap_ostream* stream) noexcept
 {
     if (!stream) return false;
 
@@ -414,7 +414,7 @@ bool Clap_plugin::stateSave(const clap_ostream* stream) noexcept
 
 // MARK: - load state
 
-auto Clap_plugin::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void
+auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void
 {
     // Notify kernel and view (if not an interface parameter).
     auto notify = [&](const auto& param, auto knob_value) {
@@ -457,7 +457,7 @@ auto Clap_plugin::_update_state(const Maybe_values<double>& knob_values, const S
     _host->request_process(_host); // We're using process to flush.
 }
 
-bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
+bool Plugin::stateLoad(const clap_istream* stream) noexcept
 {
     if (!stream) return false;
 
@@ -608,7 +608,7 @@ bool Clap_plugin::stateLoad(const clap_istream* stream) noexcept
 
 // MARK: - preset load
 
-bool Clap_plugin::presetLoadFromLocation(uint32_t location_kind, const char* location, const char* load_key) noexcept
+bool Plugin::presetLoadFromLocation(uint32_t location_kind, const char* location, const char* load_key) noexcept
 {
     if (location_kind != CLAP_PRESET_DISCOVERY_LOCATION_FILE) return false;
     if (!location) return false;
@@ -644,12 +644,12 @@ bool Clap_plugin::presetLoadFromLocation(uint32_t location_kind, const char* loc
 
 // MARK: - audio ports
 
-uint32_t Clap_plugin::audioPortsCount(bool isInput) const noexcept
+uint32_t Plugin::audioPortsCount(bool isInput) const noexcept
 {
     return isInput ? (Plug_info::wants_sidechain ? 2 : 1) : 1;
 }
 
-bool Clap_plugin::audioPortsInfo(uint32_t index, bool isInput, clap_audio_port_info* info) const noexcept
+bool Plugin::audioPortsInfo(uint32_t index, bool isInput, clap_audio_port_info* info) const noexcept
 {
     if (!info) return false;
 
@@ -672,7 +672,7 @@ bool Clap_plugin::audioPortsInfo(uint32_t index, bool isInput, clap_audio_port_i
 
 // MARK: - configurable audio ports
 
-bool Clap_plugin::configurableAudioPortsCanApplyConfiguration(const clap_audio_port_configuration_request* requests, uint32_t request_count) const noexcept
+bool Plugin::configurableAudioPortsCanApplyConfiguration(const clap_audio_port_configuration_request* requests, uint32_t request_count) const noexcept
 {
     if (!requests) return false;
 
@@ -718,7 +718,7 @@ bool Clap_plugin::configurableAudioPortsCanApplyConfiguration(const clap_audio_p
     return config_ok;
 }
 
-bool Clap_plugin::configurableAudioPortsApplyConfiguration(const clap_audio_port_configuration_request* requests, uint32_t request_count) noexcept
+bool Plugin::configurableAudioPortsApplyConfiguration(const clap_audio_port_configuration_request* requests, uint32_t request_count) noexcept
 {
     if (!requests) return false;
 
@@ -743,12 +743,12 @@ bool Clap_plugin::configurableAudioPortsApplyConfiguration(const clap_audio_port
 
 // MARK: - params
 
-uint32_t Clap_plugin::paramsCount() const noexcept
+uint32_t Plugin::paramsCount() const noexcept
 {
     return num_params + 1; // Bypass presents at the end.
 }
 
-bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexcept
+bool Plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexcept
 {
     if (!info) return false;
 
@@ -824,7 +824,7 @@ bool Clap_plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const n
     return true;
 }
 
-bool Clap_plugin::paramsValue(clap_id paramId, double* value) noexcept
+bool Plugin::paramsValue(clap_id paramId, double* value) noexcept
 {
     if (paramId == Reserved::bypass_id) {
         const auto bypass = _bypass.is_bypassed();
@@ -847,7 +847,7 @@ bool Clap_plugin::paramsValue(clap_id paramId, double* value) noexcept
     return true;
 }
 
-bool Clap_plugin::paramsValueToText(clap_id paramId, double value, char* display, uint32_t size) noexcept
+bool Plugin::paramsValueToText(clap_id paramId, double value, char* display, uint32_t size) noexcept
 {
     if (paramId == Reserved::bypass_id) {
         const auto str = value >= 0.5 ? "On" : "Off";
@@ -866,7 +866,7 @@ bool Clap_plugin::paramsValueToText(clap_id paramId, double value, char* display
     return true;
 }
 
-bool Clap_plugin::paramsTextToValue(clap_id paramId, const char* display, double* value) noexcept
+bool Plugin::paramsTextToValue(clap_id paramId, const char* display, double* value) noexcept
 {
     if (!display) return false;
 
@@ -890,7 +890,7 @@ bool Clap_plugin::paramsTextToValue(clap_id paramId, const char* display, double
     return false;
 }
 
-void Clap_plugin::paramsFlush(const clap_input_events* in, const clap_output_events* /*out*/) noexcept
+void Plugin::paramsFlush(const clap_input_events* in, const clap_output_events* /*out*/) noexcept
 {
     if (!in) return;
 
@@ -904,19 +904,19 @@ void Clap_plugin::paramsFlush(const clap_input_events* in, const clap_output_eve
 
 // MARK: - gui
 
-bool Clap_plugin::guiIsApiSupported(const char* api, bool isFloating) noexcept
+bool Plugin::guiIsApiSupported(const char* api, bool isFloating) noexcept
 {
     return !isFloating && strcmp(api, gui_preferred_api) == 0;
 }
 
-bool Clap_plugin::guiGetPreferredApi(const char** api, bool* isFloating) noexcept
+bool Plugin::guiGetPreferredApi(const char** api, bool* isFloating) noexcept
 {
     *api = gui_preferred_api;
     *isFloating = false;
     return true;
 }
 
-bool Clap_plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
+bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
 {
     // Make the UI connection.
     auto receiver = Ui_receiver{
@@ -934,7 +934,7 @@ bool Clap_plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
         }
     };
 
-    _view = std::make_unique<Clap_view>(Clap_view::Deps{
+    _view = std::make_unique<View>(View::Deps{
         .editor = &(*_editor),
         .receiver = std::move(receiver),
         .tasks = &_tasks,
@@ -946,43 +946,43 @@ bool Clap_plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
     return true;
 }
 
-void Clap_plugin::guiDestroy() noexcept
+void Plugin::guiDestroy() noexcept
 {
     _view->on_destroy();
     _view = nullptr;
 }
 
-bool Clap_plugin::guiSetScale(double /*scale*/) noexcept
+bool Plugin::guiSetScale(double /*scale*/) noexcept
 {
     return true;
 }
 
-bool Clap_plugin::guiShow() noexcept
+bool Plugin::guiShow() noexcept
 {
     if (!_view) return false;
     _view->on_show();
     return true;
 }
 
-bool Clap_plugin::guiHide() noexcept
+bool Plugin::guiHide() noexcept
 {
     if (!_view) return false;
     _view->on_hide();
     return true;
 }
 
-bool Clap_plugin::guiGetSize(uint32_t* width, uint32_t* height) noexcept
+bool Plugin::guiGetSize(uint32_t* width, uint32_t* height) noexcept
 {
     _view->get_size(width, height);
     return true;
 }
 
-bool Clap_plugin::guiCanResize() const noexcept
+bool Plugin::guiCanResize() const noexcept
 {
     return true;
 }
 
-bool Clap_plugin::guiGetResizeHints(clap_gui_resize_hints_t* /*hints*/) noexcept
+bool Plugin::guiGetResizeHints(clap_gui_resize_hints_t* /*hints*/) noexcept
 {
     // *hints = {
     //     .can_resize_horizontally = true,
@@ -994,42 +994,42 @@ bool Clap_plugin::guiGetResizeHints(clap_gui_resize_hints_t* /*hints*/) noexcept
     return true;
 }
 
-bool Clap_plugin::guiAdjustSize(uint32_t* /*width*/, uint32_t* /*height*/) noexcept
+bool Plugin::guiAdjustSize(uint32_t* /*width*/, uint32_t* /*height*/) noexcept
 {
     return true;
 }
 
-bool Clap_plugin::guiSetSize(uint32_t width, uint32_t height) noexcept
+bool Plugin::guiSetSize(uint32_t width, uint32_t height) noexcept
 {
     return _view->set_size(width, height);
 }
 
-void Clap_plugin::guiSuggestTitle(const char* /*title*/) noexcept
+void Plugin::guiSuggestTitle(const char* /*title*/) noexcept
 {
     // floating only
 }
 
-bool Clap_plugin::guiSetParent(const clap_window* window) noexcept
+bool Plugin::guiSetParent(const clap_window* window) noexcept
 {
     if (!_view) return false;
     return _view->set_parent(window);
 }
 
-bool Clap_plugin::guiSetTransient(const clap_window* /*window*/) noexcept
+bool Plugin::guiSetTransient(const clap_window* /*window*/) noexcept
 {
     return false; // floating only
 }
 
 // MARK: - latency
 
-uint32_t Clap_plugin::latencyGet() const noexcept
+uint32_t Plugin::latencyGet() const noexcept
 {
     return _latency;
 }
 
 // MARK: - tail
 
-uint32_t Clap_plugin::tailGet() const noexcept
+uint32_t Plugin::tailGet() const noexcept
 {
     // CLAP will interpret anything >= INT32_MAX as infinite.
     return _tail;
@@ -1037,7 +1037,7 @@ uint32_t Clap_plugin::tailGet() const noexcept
 
 // MARK: - private
 
-auto Clap_plugin::_handle_host_flushed() -> void
+auto Plugin::_handle_host_flushed() -> void
 {
     auto kernel_event = Render_event{};
     while (_from_flush.pop(kernel_event)) {
@@ -1045,7 +1045,7 @@ auto Clap_plugin::_handle_host_flushed() -> void
     }
 }
 
-auto Clap_plugin::_handle_user_actions(const clap_output_events_t* out_events) -> void
+auto Plugin::_handle_user_actions(const clap_output_events_t* out_events) -> void
 {
     // The host only needs to know about changes where there might be automation or a control in the host UI.
     auto wants_host_notify = [](Host_policy policy) {
@@ -1115,7 +1115,7 @@ auto Clap_plugin::_handle_user_actions(const clap_output_events_t* out_events) -
     }
 }
 
-auto Clap_plugin::_handle_user_action(const User_action& action) -> void
+auto Plugin::_handle_user_action(const User_action& action) -> void
 {
     // Maintain host values immediately.
     if (const auto* a = std::get_if<Set_param>(&action)) {
@@ -1127,4 +1127,4 @@ auto Clap_plugin::_handle_user_action(const User_action& action) -> void
     assert(success && "UI to processor queue full, increase queue size!");
 }
 
-} // namespace tiny
+} // namespace tiny::clap

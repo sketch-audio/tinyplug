@@ -9,18 +9,18 @@
 #include "models/meters.hpp"
 #include "models/params.hpp"
 
-#include "vst3_adapters.hpp"
-#include "vst3_controller.hpp"
-#include "vst3_messaging.hpp"
+#include "adapters.hpp"
+#include "controller.hpp"
+#include "messaging.hpp"
 
-namespace tiny {
+namespace tiny::vst3 {
 
 #if TINY_HAS_WORKER
 
 constexpr auto k_worker_from_processor_id = "tiny/worker/from_processor";
 constexpr auto k_worker_to_processor_id   = "tiny/worker/to_processor";
 
-auto Vst3_controller::_setup_worker() -> void
+auto Controller::_setup_worker() -> void
 {
     // Processor → worker: decode incoming IMessages (sent by the
     // processor-side shuttle thread) and push into the from-processor
@@ -48,7 +48,7 @@ auto Vst3_controller::_setup_worker() -> void
     });
 }
 
-Steinberg::tresult PLUGIN_API Vst3_controller::notify(Steinberg::Vst::IMessage* message)
+Steinberg::tresult PLUGIN_API Controller::notify(Steinberg::Vst::IMessage* message)
 {
     if (_router.dispatch(message)) return Steinberg::kResultOk;
     return Super::notify(message);
@@ -56,7 +56,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::notify(Steinberg::Vst::IMessage* 
 
 #endif // TINY_HAS_WORKER
 
-auto Vst3_controller::_drain_worker_to_editor() -> void
+auto Controller::_drain_worker_to_editor() -> void
 {
 #if TINY_HAS_WORKER
     try_drain_worker_to_editor(*_editor, _worker_to_edit);
@@ -64,7 +64,7 @@ auto Vst3_controller::_drain_worker_to_editor() -> void
 }
 
 
-Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* context)
+Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* context)
 {
     // Here the plug-in will be instantiated.
 
@@ -207,7 +207,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::initialize(Steinberg::FUnknown* c
     return result;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_controller::terminate()
+Steinberg::tresult PLUGIN_API Controller::terminate()
 {
     // Here the Plug-in will be de-instantiated, last possibility to remove some memory!
 
@@ -217,7 +217,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::terminate()
 
 // MARK: - processor state
 
-Steinberg::tresult PLUGIN_API Vst3_controller::setComponentState(Steinberg::IBStream* state)
+Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream* state)
 {
     // Here you get the state of the component (processor part).
     if (!state) {
@@ -300,7 +300,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setComponentState(Steinberg::IBSt
 
 // MARK: - editor state
 
-Steinberg::tresult PLUGIN_API Vst3_controller::setState(Steinberg::IBStream* state)
+Steinberg::tresult PLUGIN_API Controller::setState(Steinberg::IBStream* state)
 {
     // Here you get the state of the controller.
     if (!state) {
@@ -403,7 +403,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setState(Steinberg::IBStream* sta
 }
 
 //------------------------------------------------------------------------
-Steinberg::tresult PLUGIN_API Vst3_controller::getState(Steinberg::IBStream* state)
+Steinberg::tresult PLUGIN_API Controller::getState(Steinberg::IBStream* state)
 {
     // Here you are asked to deliver the state of the controller (if needed).
     // Note: the real state of your plug-in is saved in the processor.
@@ -496,7 +496,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getState(Steinberg::IBStream* sta
 }
 
 //------------------------------------------------------------------------
-Steinberg::tresult PLUGIN_API Vst3_controller::getParamStringByValue(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue valueNormalized, Steinberg::Vst::String128 string)
+Steinberg::tresult PLUGIN_API Controller::getParamStringByValue(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue valueNormalized, Steinberg::Vst::String128 string)
 {
     if (tag == bypass_param_id) {
         const auto str = valueNormalized >= 0.5f ? "On" : "Off"; // Bypass
@@ -518,7 +518,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamStringByValue(Steinberg::
 }
 
 //------------------------------------------------------------------------
-Steinberg::tresult PLUGIN_API Vst3_controller::getParamValueByString(Steinberg::Vst::ParamID tag, Steinberg::Vst::TChar* string, Steinberg::Vst::ParamValue& valueNormalized)
+Steinberg::tresult PLUGIN_API Controller::getParamValueByString(Steinberg::Vst::ParamID tag, Steinberg::Vst::TChar* string, Steinberg::Vst::ParamValue& valueNormalized)
 {
     // Called by host to get a normalized value from a string representation of a specific parameter.
     // (without having to set the value!)
@@ -534,7 +534,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::getParamValueByString(Steinberg::
     return Steinberg::kResultFalse;
 }
 
-Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::normalizedParamToPlain(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue valueNormalized)
+Steinberg::Vst::ParamValue PLUGIN_API Controller::normalizedParamToPlain(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue valueNormalized)
 {
     if (tag == bypass_param_id) {
         return valueNormalized >= 0.5f ? 1.f : 0.f; // Bypass
@@ -546,7 +546,7 @@ Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::normalizedParamToPlain(St
     return Value_conv::knob_to_plain(valueNormalized, param.semantics);
 }
 
-Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::plainParamToNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue plainValue)
+Steinberg::Vst::ParamValue PLUGIN_API Controller::plainParamToNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue plainValue)
 {
     if (tag == bypass_param_id) {
         return plainValue >= 0.5f ? 1.f : 0.f; // Bypass
@@ -558,12 +558,12 @@ Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::plainParamToNormalized(St
     return Value_conv::plain_to_knob(plainValue, param.semantics);
 }
 
-Steinberg::Vst::ParamValue PLUGIN_API Vst3_controller::getParamNormalized(Steinberg::Vst::ParamID tag)
+Steinberg::Vst::ParamValue PLUGIN_API Controller::getParamNormalized(Steinberg::Vst::ParamID tag)
 {
     return Super::getParamNormalized(tag);
 }
 
-Steinberg::tresult PLUGIN_API Vst3_controller::setParamNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue value)
+Steinberg::tresult PLUGIN_API Controller::setParamNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue value)
 {
     const auto result = Super::setParamNormalized(tag, value);
 
@@ -595,14 +595,14 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setParamNormalized(Steinberg::Vst
     return result;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_controller::setComponentHandler(Steinberg::Vst::IComponentHandler* handler)
+Steinberg::tresult PLUGIN_API Controller::setComponentHandler(Steinberg::Vst::IComponentHandler* handler)
 {
     const auto result = Super::setComponentHandler(handler);
     return result;
 }
 
 //------------------------------------------------------------------------
-Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDString name)
+Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString name)
 {
     // Here the Host wants to open your editor (if you have one).
     if (Steinberg::FIDStringsEqual(name, Steinberg::Vst::ViewType::kEditor))
@@ -641,7 +641,7 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
             _meter_queue.push(Set_meter{.address = i, .value = e});
         });
 
-        return new Vst3_view{{
+        return new View{{
             .controller = this,
             .editor = &(*_editor),
             .receiver = std::move(receiver),
@@ -655,4 +655,4 @@ Steinberg::IPlugView* PLUGIN_API Vst3_controller::createView(Steinberg::FIDStrin
     return nullptr;
 }
 
-} // namespace tiny
+} // namespace tiny::vst3

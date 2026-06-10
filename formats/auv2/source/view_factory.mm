@@ -8,7 +8,7 @@
 #include "plug_info.hpp"
 #include "platform/platform_view.hpp"
 
-#include "auv2_effect.hpp"
+#include "effect.hpp"
 
 #ifndef TINY_AUV2_VIEW_CLASS
 #error "AUv2 view class not defined."
@@ -27,7 +27,7 @@
 
     AudioUnitGetProperty(audioUnit, kAudioUnitProperty_UserPlugin, kAudioUnitScope_Global, 0, user_plugin, &size);
 
-    if (auto* effect = static_cast<tiny::Auv2_effect*>(user_plugin[0]); effect != nullptr) {
+    if (auto* effect = static_cast<tiny::auv2::Effect*>(user_plugin[0]); effect != nullptr) {
         NSView* view = (NSView*)effect->create_view();
         return [view autorelease];
     }

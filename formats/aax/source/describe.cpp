@@ -12,9 +12,9 @@
 #include "plug_info.hpp"
 #include "models/params.hpp"
 
-#include "aax_categories.hpp"
-#include "aax_gui.hpp"
-#include "aax_parameters.hpp"
+#include "categories.hpp"
+#include "gui.hpp"
+#include "parameters.hpp"
 
 //
 AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
@@ -26,8 +26,8 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
         descriptor->AddName(Plug_info::plugin_name);
         descriptor->AddName(Plug_info::plugin_short_name);
         descriptor->AddCategory(TINY_AAX_CATEGORIES);
-        descriptor->AddProcPtr((void*)Aax_parameters::Create, kAAX_ProcPtrID_Create_EffectParameters);
-        descriptor->AddProcPtr((void*)Aax_gui::Create, kAAX_ProcPtrID_Create_EffectGUI);
+        descriptor->AddProcPtr((void*)aax::Parameters::Create, kAAX_ProcPtrID_Create_EffectParameters);
+        descriptor->AddProcPtr((void*)aax::Gui::Create, kAAX_ProcPtrID_Create_EffectGUI);
 
 #if TINY_AAX_PAGE_TABLE
         const auto table_name = std::string{Plug_info::base_file_name} + "Pages.xml";
@@ -47,10 +47,10 @@ AAX_Result GetEffectDescriptions(AAX_ICollection* collection)
             return info;
         };
         
-        Aax_parameters::StaticDescribe(descriptor, make_setup(true));
+        aax::Parameters::StaticDescribe(descriptor, make_setup(true));
 
         if constexpr (Plug_info::can_process_mono) {
-            Aax_parameters::StaticDescribe(descriptor, make_setup(false));
+            aax::Parameters::StaticDescribe(descriptor, make_setup(false));
         }
 
         //

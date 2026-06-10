@@ -121,11 +121,11 @@ function(make_auv3_plugin USER_TARGET)
 
     set(AUV3_EXTENSION_SOURCES
         ${SOURCE_DIR}/source/extension/AUProcessHelper.hpp
-        ${SOURCE_DIR}/source/extension/auv3_AUAudioUnit.h
-        ${SOURCE_DIR}/source/extension/auv3_AUAudioUnit.mm
-        ${SOURCE_DIR}/source/extension/auv3_AUViewController.mm
-        ${SOURCE_DIR}/source/extension/auv3_view.cpp
-        ${SOURCE_DIR}/source/extension/auv3_view.hpp
+        ${SOURCE_DIR}/source/extension/audio_unit.h
+        ${SOURCE_DIR}/source/extension/audio_unit.mm
+        ${SOURCE_DIR}/source/extension/view_controller.mm
+        ${SOURCE_DIR}/source/extension/view.cpp
+        ${SOURCE_DIR}/source/extension/view.hpp
         ${SOURCE_DIR}/source/extension/BufferedAudioBus.hpp
         ${SOURCE_DIR}/source/extension/DSPKernel.hpp
         ${SOURCE_DIR}/source/shared/TargetPlatforms.h
@@ -302,14 +302,14 @@ function(make_auv3_plugin USER_TARGET)
 
     # Extension
     # ---
-    configure_preset_list(${USER_TARGET} ${CMAKE_CURRENT_BINARY_DIR}/auv3_preset_list.hpp)
+    configure_preset_list(${USER_TARGET} ${CMAKE_CURRENT_BINARY_DIR}/preset_list.hpp)
 
     set(EXT_TARGET ${TINY_BASE_FILENAME}_extension) # AUv3 extension
     add_executable(${EXT_TARGET})
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         # Extension is a thin stub — all AU/VC code lives in the shared core framework.
         target_sources(${EXT_TARGET} PRIVATE
-            ${SOURCE_DIR}/source/extension/auv3_stub.m
+            ${SOURCE_DIR}/source/extension/stub.m
             ${SOURCE_DIR}/source/shared/TargetPlatforms.h
         )
         target_link_libraries(${EXT_TARGET} PRIVATE ${CORE_TARGET})

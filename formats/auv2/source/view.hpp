@@ -1,32 +1,34 @@
 #pragma once
 
-#include <array>
 #include <memory>
 
-#include "AAX_CEffectGUI.h"
-#include "AAX_VController.h"
-
+#include "tinyplug/tinyplug.hpp"
 #include "platform/platform_view.hpp"
+
+#include "models/meters.hpp"
+#include "models/params.hpp"
 #include "editor.hpp"
 
-#include "aax_adapters.hpp"
-#include "aax_parameters.hpp"
+#include "adapters.hpp"
 
-namespace tiny {
+namespace tiny::auv2 {
 
-class Aax_gui : public AAX_CEffectGUI {
+class View {
 public:
 
-    static AAX_IEffectGUI* AAX_CALLBACK Create() { return new Aax_gui; }
+    struct Deps {
+        plugin::Editor* editor{};
+        Main_executor executor{};
+        Ui_receiver receiver{};
+        Task_manager* tasks{};
+#if TINY_HAS_WORKER
+        std::function<void()> drain_worker_to_editor{};
+#endif
+    };
 
-protected:
+    View(Deps deps) : _deps{deps} {}
 
-    void CreateViewContents() override;
-    void CreateViewContainer() override;
-    void DeleteViewContainer() override;
-
-    AAX_Result GetViewSize(AAX_Point* view_size) const override;
-    AAX_Result ParameterUpdated(AAX_CParamID inParamID) override;
+    auto create_view() -> void*;
 
 private:
 
@@ -42,10 +44,7 @@ private:
     Action_queue _actions{};
     Undo_history _undo_history{};
 
-    plugin::Editor* _editor{};
-    Ui_receiver _receiver{};
-    Task_manager* _tasks{};
-    Aax_parameters* _params{};
+    Deps _deps{};
 
     State_adapter _state_adapter{{
         .load_model = []() {
@@ -59,18 +58,16 @@ private:
                 .version = 1,
                 .param_tree = &User_params::param_tree(),
                 .param_values = std::vector<double>(_ui_params.begin(), _ui_params.end()),
-                .editor_state = _editor ? _editor->save_state() : State_map{}
+                .editor_state = _deps.editor ? _deps.editor->save_state() : State_map{}
             };
         },
     }};
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
 
-    std::array<double, num_params> _ui_params{User_params::make_defaults<double>(Value_space::Knob)};
     std::array<view::Meter_state, num_meters> _ui_meters{};
-
-    std::unordered_set<uint32_t> _gestured{};
+    std::array<double, num_params> _ui_params{User_params::make_defaults<double>(Value_space::Knob)};
 
 };
 
-} // namespace tiny
+} // namespace tiny::auv2

@@ -1,8 +1,8 @@
-#include "auv2_view.hpp"
+#include "view.hpp"
 
-namespace tiny {
+namespace tiny::auv2 {
 
-auto Auv2_view::create_view() -> void*
+auto View::create_view() -> void*
 {
     auto delegate = std::make_shared<View_delegate>(
         plugin::Editor::preferred_size(),
@@ -33,7 +33,7 @@ auto Auv2_view::create_view() -> void*
     return _platform_view->native_handle();
 }
 
-auto Auv2_view::on_draw(View_context& view_context) -> void
+auto View::on_draw(View_context& view_context) -> void
 {
     _deps.executor.on_main();
 
@@ -60,9 +60,9 @@ auto Auv2_view::on_draw(View_context& view_context) -> void
     );
 }
 
-auto Auv2_view::on_notify(const Ui_notification& notification) -> void
+auto View::on_notify(const Ui_notification& notification) -> void
 {
     _deps.editor->on_gui_notify(notification);
 }
 
-} // namespace tiny
+} // namespace tiny::auv2

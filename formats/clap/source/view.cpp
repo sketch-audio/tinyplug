@@ -1,4 +1,4 @@
-#include "clap_view.hpp"
+#include "view.hpp"
 
 #include <algorithm>
 #include <ranges>
@@ -6,9 +6,9 @@
 #include <utility>
 #include <variant>
 
-namespace tiny {
+namespace tiny::clap {
 
-auto Clap_view::on_create() noexcept -> void
+auto View::on_create() noexcept -> void
 {
     // Set up the delegate callbacks.
     auto delegate = std::make_shared<View_delegate>(
@@ -24,7 +24,7 @@ auto Clap_view::on_create() noexcept -> void
     _deps.editor->on_gui_create();
 }
 
-auto Clap_view::on_show() noexcept -> void
+auto View::on_show() noexcept -> void
 {
     _deps.tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
     _platform_view->on_show();
@@ -36,34 +36,34 @@ auto Clap_view::on_show() noexcept -> void
     });
 }
 
-auto Clap_view::on_hide() noexcept -> void
+auto View::on_hide() noexcept -> void
 {
     _deps.editor->on_gui_hide();
     _platform_view->on_hide();
 }
 
-auto Clap_view::on_destroy() noexcept -> void
+auto View::on_destroy() noexcept -> void
 {
     _deps.editor->on_gui_destroy();
     _platform_view->on_destroy();
     _platform_view = nullptr;
 }
 
-auto Clap_view::get_size(uint32_t* w, uint32_t* h) noexcept -> void
+auto View::get_size(uint32_t* w, uint32_t* h) noexcept -> void
 {
     const auto platform_size = _platform_view ? _platform_view->get_size() : plugin::Editor::preferred_size();
     *w = static_cast<uint32_t>(platform_size.w);
     *h = static_cast<uint32_t>(platform_size.h);
 }
 
-auto Clap_view::set_size(uint32_t w, uint32_t h) noexcept -> bool
+auto View::set_size(uint32_t w, uint32_t h) noexcept -> bool
 {
     if (!_platform_view) return false;
     _platform_view->resize(static_cast<int32_t>(w), static_cast<int32_t>(h));
     return true;
 }
 
-auto Clap_view::set_parent(const clap_window* window) noexcept -> bool
+auto View::set_parent(const clap_window* window) noexcept -> bool
 {
     if (!window || !_platform_view) return false;
 
@@ -77,7 +77,7 @@ auto Clap_view::set_parent(const clap_window* window) noexcept -> bool
 
 // MARK: - private
 
-auto Clap_view::on_draw(View_context& view_context) -> void
+auto View::on_draw(View_context& view_context) -> void
 {
 #if TINY_HAS_WORKER
     if (_deps.drain_worker_to_editor) _deps.drain_worker_to_editor();
@@ -100,9 +100,9 @@ auto Clap_view::on_draw(View_context& view_context) -> void
     );
 }
 
-auto Clap_view::on_notify(const Ui_notification& notification) -> void
+auto View::on_notify(const Ui_notification& notification) -> void
 {
     _deps.editor->on_gui_notify(notification);
 }
 
-} // namespace tiny
+} // namespace tiny::clap

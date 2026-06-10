@@ -2,9 +2,9 @@
 
 #include "plug_info.hpp"
 
-#include "vst3_adapters.hpp"
-#include "vst3_controller.hpp"
-#include "vst3_processor.hpp"
+#include "adapters.hpp"
+#include "controller.hpp"
+#include "audio_effect.hpp"
 
 //------------------------------------------------------------------------
 //  VST Plug-in Entry
@@ -29,7 +29,7 @@ BEGIN_FACTORY_DEF(
         tiny::Plug_info::Vst3::subcategories,           // Subcategory for this Plug-in (to be changed)
         tiny::Plug_info::version_string,        	    // Plug-in version (to be changed)
         kVstVersionString,		                            // VST3 SDK version (do not change this, use always this define)
-        tiny::Vst3_processor::createInstance                      // Function pointer called when this component should be instantiated
+        tiny::vst3::Audio_effect::createInstance                      // Function pointer called when this component should be instantiated
     )	
 
     // its kVstComponentControllerClass component
@@ -42,7 +42,7 @@ BEGIN_FACTORY_DEF(
         "",						                        // Subcategories, not used here
         tiny::Plug_info::version_string,        	// Plug-in version (to be changed)
         kVstVersionString,		                        // VST3 SDK version (do not change this, use always this define)
-        tiny::Vst3_controller::createInstance                 // Function pointer called when this component should be instantiated
+        tiny::vst3::Controller::createInstance                 // Function pointer called when this component should be instantiated
     )
 
 END_FACTORY

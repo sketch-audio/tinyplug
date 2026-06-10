@@ -12,21 +12,21 @@
 
 #include "dsp/host_bypass.hpp"
 
-#include "vst3_messaging.hpp"
+#include "messaging.hpp"
 
-namespace tiny {
+namespace tiny::vst3 {
 
-class Vst3_processor : public Steinberg::Vst::AudioEffect {
+class Audio_effect : public Steinberg::Vst::AudioEffect {
 public:
 
     using Super = Steinberg::Vst::AudioEffect;
-    Vst3_processor() : Super{} {
+    Audio_effect() : Super{} {
         setControllerClass(tiny::map_to_fuid(tiny::Plug_info::Vst3::controller_uid));
 #if TINY_HAS_WORKER
         _setup_worker();
 #endif
     }
-    ~Vst3_processor() SMTG_OVERRIDE = default;
+    ~Audio_effect() SMTG_OVERRIDE = default;
 
 #if TINY_HAS_WORKER
     Steinberg::tresult PLUGIN_API notify(Steinberg::Vst::IMessage* message) SMTG_OVERRIDE;
@@ -35,7 +35,7 @@ public:
     // Create function
     static Steinberg::FUnknown* createInstance(void* /*context*/)
     {
-        return (Steinberg::Vst::IAudioProcessor*)new Vst3_processor;
+        return (Steinberg::Vst::IAudioProcessor*)new Audio_effect;
     }
 
     //--- ---------------------------------------------------------------------
@@ -155,4 +155,4 @@ private:
 
 };
 
-} // namespace tiny
+} // namespace tiny::vst3

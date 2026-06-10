@@ -1,10 +1,10 @@
-#include "vst3_view.hpp"
+#include "view.hpp"
 
-#include "vst3_controller.hpp"
+#include "controller.hpp"
 
-namespace tiny {
+namespace tiny::vst3 {
 
-Steinberg::tresult PLUGIN_API Vst3_view::isPlatformTypeSupported(Steinberg::FIDString type)
+Steinberg::tresult PLUGIN_API View::isPlatformTypeSupported(Steinberg::FIDString type)
 {
     const auto platform_type = []() {
         switch (Platform::resolved) {
@@ -25,7 +25,7 @@ Steinberg::tresult PLUGIN_API Vst3_view::isPlatformTypeSupported(Steinberg::FIDS
     return Steinberg::kResultFalse;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_view::attached(void* parent, Steinberg::FIDString /*type*/)
+Steinberg::tresult PLUGIN_API View::attached(void* parent, Steinberg::FIDString /*type*/)
 {
     if (!parent) return Steinberg::kResultFalse;
 
@@ -64,7 +64,7 @@ Steinberg::tresult PLUGIN_API Vst3_view::attached(void* parent, Steinberg::FIDSt
     return Steinberg::kResultTrue;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_view::removed()
+Steinberg::tresult PLUGIN_API View::removed()
 {
     _deps.editor->on_gui_hide();
     _platform_view->on_hide();
@@ -76,7 +76,7 @@ Steinberg::tresult PLUGIN_API Vst3_view::removed()
     return Steinberg::kResultTrue;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_view::getSize(Steinberg::ViewRect* size)
+Steinberg::tresult PLUGIN_API View::getSize(Steinberg::ViewRect* size)
 {
     const auto initial_size = _deps.controller->get_last_size()
         .value_or(plugin::Editor::preferred_size());
@@ -89,7 +89,7 @@ Steinberg::tresult PLUGIN_API Vst3_view::getSize(Steinberg::ViewRect* size)
     return Steinberg::kResultTrue;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_view::onSize(Steinberg::ViewRect* newSize)
+Steinberg::tresult PLUGIN_API View::onSize(Steinberg::ViewRect* newSize)
 {
     if (!newSize) return Steinberg::kResultFalse;
 
@@ -103,31 +103,31 @@ Steinberg::tresult PLUGIN_API Vst3_view::onSize(Steinberg::ViewRect* newSize)
     return Steinberg::kResultTrue;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_view::onFocus(Steinberg::TBool /*state*/)
+Steinberg::tresult PLUGIN_API View::onFocus(Steinberg::TBool /*state*/)
 {
     return Steinberg::kResultFalse;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_view::setFrame(Steinberg::IPlugFrame* frame)
+Steinberg::tresult PLUGIN_API View::setFrame(Steinberg::IPlugFrame* frame)
 {
     if (!frame) return Steinberg::kResultFalse;
     Super::setFrame(frame);
     return Steinberg::kResultTrue;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_view::canResize()
+Steinberg::tresult PLUGIN_API View::canResize()
 {
     return Steinberg::kResultTrue;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_view::checkSizeConstraint(Steinberg::ViewRect* /*rect*/)
+Steinberg::tresult PLUGIN_API View::checkSizeConstraint(Steinberg::ViewRect* /*rect*/)
 {
     return Steinberg::kResultTrue;
 }
 
 // MARK: - private
 
-void Vst3_view::on_draw(View_context& view_context)
+void View::on_draw(View_context& view_context)
 {
 #if TINY_HAS_WORKER
     if (_deps.drain_worker_to_editor) _deps.drain_worker_to_editor();
@@ -152,9 +152,9 @@ void Vst3_view::on_draw(View_context& view_context)
     );
 }
 
-auto Vst3_view::on_notify(const Ui_notification& notification) -> void
+auto View::on_notify(const Ui_notification& notification) -> void
 {
     _deps.editor->on_gui_notify(notification);
 }
 
-} // namespace tiny
+} // namespace tiny::vst3

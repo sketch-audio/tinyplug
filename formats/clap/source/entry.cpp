@@ -1,7 +1,7 @@
 #include "clap/clap.h"
 
-#include "clap_plugin.hpp"
-#include "clap_preset_discovery.hpp"
+#include "plugin.hpp"
+#include "preset_discovery.hpp"
 
 namespace tiny {
 
@@ -10,14 +10,14 @@ static const auto pluginFactory = clap_plugin_factory_t{
         return 1;
     },
     .get_plugin_descriptor = [](const clap_plugin_factory*, uint32_t index) -> const clap_plugin_descriptor_t* {
-        return index == 0 ? &Clap_plugin::descriptor : nullptr;
+        return index == 0 ? &clap::Plugin::descriptor : nullptr;
     },
     .create_plugin = [](const clap_plugin_factory*, const clap_host_t* host, const char* pluginID) -> const clap_plugin_t* {
-        if (!clap_version_is_compatible(host->clap_version) || strcmp(pluginID, Clap_plugin::descriptor.id)) {
+        if (!clap_version_is_compatible(host->clap_version) || strcmp(pluginID, clap::Plugin::descriptor.id)) {
             return nullptr;
         }
         //
-        auto plugin = new Clap_plugin(host);
+        auto plugin = new clap::Plugin(host);
         return plugin->clapPlugin();
     },
 };
@@ -28,23 +28,23 @@ static const auto presetDiscoveryFactory = clap_preset_discovery_factory_t{
     },
     .get_descriptor = [](const clap_preset_discovery_factory*, uint32_t index) -> const clap_preset_discovery_provider_descriptor_t* {
         if (index == 0) {
-            return &Clap_factory_presets::descriptor;
+            return &clap::Factory_presets::descriptor;
         }
 
         if (index == 1) {
-            return &Clap_user_presets::descriptor;
+            return &clap::User_presets::descriptor;
         }
 
         return nullptr;
     },
     .create = [](const clap_preset_discovery_factory*, const clap_preset_discovery_indexer_t* indexer, const char* provider_id) -> const clap_preset_discovery_provider_t* {
-        if (strcmp(provider_id, Clap_factory_presets::descriptor.id) == 0) {
-            auto provider = new Clap_factory_presets{indexer};
+        if (strcmp(provider_id, clap::Factory_presets::descriptor.id) == 0) {
+            auto provider = new clap::Factory_presets{indexer};
             return provider->provider();
         }
 
-        if (strcmp(provider_id, Clap_user_presets::descriptor.id) == 0) {
-            auto provider = new Clap_user_presets{indexer};
+        if (strcmp(provider_id, clap::User_presets::descriptor.id) == 0) {
+            auto provider = new clap::User_presets{indexer};
             return provider->provider();
         }
 

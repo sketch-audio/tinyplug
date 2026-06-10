@@ -4,8 +4,8 @@
 #include <charconv>
 #include <optional>
 
-#include "aax_adapters.hpp"
-#include "aax_monolith.hpp"
+#include "adapters.hpp"
+#include "monolith.hpp"
 
 #include "plug_info.hpp"
 
@@ -16,13 +16,13 @@
 
 #include "dsp/host_bypass.hpp"
 
-namespace tiny {
+namespace tiny::aax {
 
-class Aax_parameters : public AAX_CMonolithicParameters {
+class Parameters : public AAX_CMonolithicParameters {
 public:
 
     using Super = AAX_CMonolithicParameters;
-    Aax_parameters() : Super{}
+    Parameters() : Super{}
     {
         _editor = std::make_unique<plugin::Editor>(_tasks.actor());
 
@@ -35,11 +35,11 @@ public:
         });
 #endif
     }
-    ~Aax_parameters() override = default;
+    ~Parameters() override = default;
 
     static AAX_CEffectParameters* AAX_CALLBACK Create()
     {
-        return new Aax_parameters;
+        return new Parameters;
     }
 
     AAX_Result EffectInit() override;
@@ -170,4 +170,4 @@ private:
 
 };
 
-} // namespace tiny
+} // namespace tiny::aax

@@ -1,11 +1,11 @@
-#include "auv2_effect.hpp"
+#include "effect.hpp"
 
 #include <AudioUnitSDK/ComponentBase.h>
 #include <AudioUnitSDK/AUUtility.h> // Serialize
 
-namespace tiny {
+namespace tiny::auv2 {
 
-Auv2_effect::Auv2_effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
+Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
 {
     _editor.emplace(_tasks.actor());
 
@@ -44,12 +44,12 @@ Auv2_effect::Auv2_effect(AudioUnit component) : Super{component, num_inputs, num
     Outputs().GetElement(0)->SetName(str);
 }
 
-Auv2_effect::~Auv2_effect()
+Effect::~Effect()
 {
     this->_release_presets();
 }
 
-OSStatus Auv2_effect::Initialize()
+OSStatus Effect::Initialize()
 {
     Super::Initialize();
 
@@ -73,7 +73,7 @@ OSStatus Auv2_effect::Initialize()
 
 // MARK: - GetPropertyInfo
 
-OSStatus Auv2_effect::GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, UInt32& outDataSize, bool& outWritable)
+OSStatus Effect::GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, UInt32& outDataSize, bool& outWritable)
 {
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
 
@@ -111,7 +111,7 @@ OSStatus Auv2_effect::GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope i
 
 // MARK: - GetProperty
 
-OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, void* outData)
+OSStatus Effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, void* outData)
 {
     using namespace ausdk; // Serialize
 
@@ -173,7 +173,7 @@ OSStatus Auv2_effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
     return Super::GetProperty(inID, inScope, inElement, outData);
 }
 
-OSStatus Auv2_effect::SetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, const void* inData, UInt32 inDataSize)
+OSStatus Effect::SetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, const void* inData, UInt32 inDataSize)
 {
     using namespace ausdk; // Serialize
 
@@ -193,7 +193,7 @@ OSStatus Auv2_effect::SetProperty(AudioUnitPropertyID inID, AudioUnitScope inSco
 
 // MARK: - GetParameterList
 
-OSStatus Auv2_effect::GetParameterList(AudioUnitScope inScope, AudioUnitParameterID* outParameterList, UInt32& outNumParameters)
+OSStatus Effect::GetParameterList(AudioUnitScope inScope, AudioUnitParameterID* outParameterList, UInt32& outNumParameters)
 {
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
 
@@ -209,7 +209,7 @@ OSStatus Auv2_effect::GetParameterList(AudioUnitScope inScope, AudioUnitParamete
 
 // MARK: - GetParameterInfo
 
-OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID inParameterID, AudioUnitParameterInfo& outParameterInfo)
+OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID inParameterID, AudioUnitParameterInfo& outParameterInfo)
 {
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
 
@@ -326,7 +326,7 @@ OSStatus Auv2_effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParamete
 
 // MARK: - GetParameterValueByString
 
-OSStatus Auv2_effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnitParameterID inParameterID, CFArrayRef* outStrings)
+OSStatus Effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnitParameterID inParameterID, CFArrayRef* outStrings)
 {
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
     if (!outStrings) return noErr;
@@ -354,7 +354,7 @@ OSStatus Auv2_effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnit
 
 // MARK: - CopyClumpName
 
-OSStatus Auv2_effect::CopyClumpName(AudioUnitScope inScope, UInt32 inClumpID, UInt32 /*inDesiredNameLength*/, CFStringRef* outClumpName)
+OSStatus Effect::CopyClumpName(AudioUnitScope inScope, UInt32 inClumpID, UInt32 /*inDesiredNameLength*/, CFStringRef* outClumpName)
 {
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
 
@@ -369,14 +369,14 @@ OSStatus Auv2_effect::CopyClumpName(AudioUnitScope inScope, UInt32 inClumpID, UI
 
 // MARK: - GetParameter
 
-OSStatus Auv2_effect::GetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue& outValue)
+OSStatus Effect::GetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue& outValue)
 {
     return Super::GetParameter(inID, inScope, inElement, outValue);
 }
 
 // MARK: - SetParameter
 
-OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames)
+OSStatus Effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames)
 {
     if (inID >= num_params) return kAudioUnitErr_InvalidParameter;
 
@@ -394,7 +394,7 @@ OSStatus Auv2_effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inS
     return Super::SetParameter(inID, inScope, inElement, inValue, inBufferOffsetInFrames);
 }
 
-OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEvent, UInt32 inNumEvents)
+OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEvent, UInt32 inNumEvents)
 {
     if (!inParameterEvent) return kAudioUnitErr_InvalidParameter;
 
@@ -463,7 +463,7 @@ OSStatus Auv2_effect::ScheduleParameter(const AudioUnitParameterEvent* inParamet
     return noErr;
 }
 
-auto Auv2_effect::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void
+auto Effect::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void
 {
     // Notify kernel and view (if not an interface parameter).
     auto change_list = std::vector<Set_param>{};
@@ -510,7 +510,7 @@ auto Auv2_effect::_update_state(const Maybe_values<double>& knob_values, const S
 
 // MARK: - save state
 
-OSStatus Auv2_effect::SaveState(CFPropertyListRef* outData)
+OSStatus Effect::SaveState(CFPropertyListRef* outData)
 {
     const auto result = Super::SaveState(outData);
     if (result != noErr) return result;
@@ -590,7 +590,7 @@ OSStatus Auv2_effect::SaveState(CFPropertyListRef* outData)
 
 // MARK: - restore state
 
-OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
+OSStatus Effect::RestoreState(CFPropertyListRef plist)
 {
     const auto result = Super::RestoreState(plist); // Base class maintains Globals().
     if (result != noErr) return result;
@@ -736,7 +736,7 @@ OSStatus Auv2_effect::RestoreState(CFPropertyListRef plist)
 
 // MARK: - Presets
 
-OSStatus Auv2_effect::GetPresets(CFArrayRef* outData) const
+OSStatus Effect::GetPresets(CFArrayRef* outData) const
 {
     if (!outData) return noErr;
 
@@ -749,7 +749,7 @@ OSStatus Auv2_effect::GetPresets(CFArrayRef* outData) const
     return noErr;
 }
 
-OSStatus Auv2_effect::NewFactoryPresetSet(const AUPreset& inNewFactoryPreset)
+OSStatus Effect::NewFactoryPresetSet(const AUPreset& inNewFactoryPreset)
 {
     const auto preset_number = static_cast<size_t>(inNewFactoryPreset.presetNumber);
     if (preset_number >= Preset_list::num_presets) return kAudioUnitErr_InvalidPropertyValue;
@@ -816,7 +816,7 @@ OSStatus Auv2_effect::NewFactoryPresetSet(const AUPreset& inNewFactoryPreset)
 
 // MARK: - Render
 
-OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTimeStamp& inTimeStamp, UInt32 nFrames)
+OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTimeStamp& inTimeStamp, UInt32 nFrames)
 {
     this->_drain_worker_to_processor();
 
@@ -1066,12 +1066,12 @@ OSStatus Auv2_effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const Au
 
 // MARK: - create_view 
 
-auto Auv2_effect::create_view() -> void*
+auto Effect::create_view() -> void*
 {
     return _view->create_view();
 }
 
-auto Auv2_effect::_retain_presets() const -> void
+auto Effect::_retain_presets() const -> void
 {
     for (auto i = size_t{0}; i < Preset_list::num_presets; ++i) {
         const auto name = Preset_list::names[i];
@@ -1083,7 +1083,7 @@ auto Auv2_effect::_retain_presets() const -> void
     }
 }
 
-auto Auv2_effect::_release_presets() const -> void
+auto Effect::_release_presets() const -> void
 {
     for (auto& preset : _au_presets) {
         if (preset.presetName) {
@@ -1095,6 +1095,6 @@ auto Auv2_effect::_release_presets() const -> void
 
 // MARK: - entry
 
-AUSDK_COMPONENT_ENTRY(ausdk::AUBaseFactory, Auv2_effect);
+AUSDK_COMPONENT_ENTRY(ausdk::AUBaseFactory, Effect);
 
-} // namespace tiny
+} // namespace tiny::auv2

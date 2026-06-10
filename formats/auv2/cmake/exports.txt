@@ -1,1 +1,1 @@
-_Auv2_effectFactory
+_EffectFactory

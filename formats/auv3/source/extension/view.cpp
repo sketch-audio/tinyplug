@@ -1,8 +1,8 @@
-#include "auv3_view.hpp"
+#include "view.hpp"
 
-namespace tiny {
+namespace tiny::auv3 {
 
-auto Auv3_view::create_view() -> void*
+auto View::create_view() -> void*
 {
     auto delegate = std::make_shared<View_delegate>(
         plugin::Editor::preferred_size(),
@@ -19,7 +19,7 @@ auto Auv3_view::create_view() -> void*
 
 // MARK: - private
 
-auto Auv3_view::on_draw(View_context& view_context) -> void
+auto View::on_draw(View_context& view_context) -> void
 {
 #if TINY_HAS_WORKER
     if (_deps.drain_worker_to_editor) _deps.drain_worker_to_editor();
@@ -42,9 +42,9 @@ auto Auv3_view::on_draw(View_context& view_context) -> void
     );
 }
 
-auto Auv3_view::on_notify(const Ui_notification& notification) -> void
+auto View::on_notify(const Ui_notification& notification) -> void
 {
     _deps.editor->on_gui_notify(notification);
 }
 
-} // namespace tiny
+} // namespace tiny::auv3

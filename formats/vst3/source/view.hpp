@@ -12,15 +12,15 @@
 #include "models/params.hpp"
 #include "editor.hpp"
 
-namespace tiny {
+namespace tiny::vst3 {
 
-class Vst3_controller;
+class Controller;
 
-class Vst3_view : public Steinberg::CPluginView {
+class View : public Steinberg::CPluginView {
 public:
 
     struct Deps {
-        Vst3_controller* controller{}; // So we can cache the resized size.
+        Controller* controller{}; // So we can cache the resized size.
         plugin::Editor* editor{};
         Ui_receiver receiver{};
         Task_manager* tasks{};
@@ -30,8 +30,8 @@ public:
     };
 
     using Super = Steinberg::CPluginView;
-    Vst3_view(const Deps& deps) : Super{}, _deps{deps} {}
-    ~Vst3_view() = default;
+    View(const Deps& deps) : Super{}, _deps{deps} {}
+    ~View() = default;
 
     Steinberg::tresult PLUGIN_API isPlatformTypeSupported(Steinberg::FIDString type) override;
     Steinberg::tresult PLUGIN_API attached(void* parent, Steinberg::FIDString type) override;
@@ -86,4 +86,4 @@ protected:
 
 };
 
-} // namespace tiny
+} // namespace tiny::vst3

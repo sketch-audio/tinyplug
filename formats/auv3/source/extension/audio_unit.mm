@@ -1,4 +1,4 @@
-#import "auv3_AUAudioUnit.h"
+#import "audio_unit.h"
 
 #include <filesystem>
 #include <fstream>
@@ -12,7 +12,7 @@
 
 #include "platform/platform_paths.hpp"
 #include "plug_info.hpp"
-#include "auv3_preset_list.hpp"
+#include "preset_list.hpp"
 
 #if !__has_feature(objc_arc)
 static_assert(false, "ARC must be enabled for this file");

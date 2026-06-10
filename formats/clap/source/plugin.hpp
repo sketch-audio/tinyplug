@@ -14,27 +14,27 @@
 #include "models/params.hpp"
 #include "plug_info.hpp"
 
-#include "clap_adapters.hpp"
-#include "clap_view.hpp"
+#include "adapters.hpp"
+#include "view.hpp"
 
 #include "dsp/host_bypass.hpp"
 
-using MisbehaviourHandler = clap::helpers::MisbehaviourHandler; // Studio One appears to be misbehaving.
-using CheckingLevel = clap::helpers::CheckingLevel;
+using MisbehaviourHandler = ::clap::helpers::MisbehaviourHandler; // Studio One appears to be misbehaving.
+using CheckingLevel = ::clap::helpers::CheckingLevel;
 
 // Only terminate in debug mode
 #if defined(NDEBUG)
-using PluginBase = clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal>;
+using PluginBase = ::clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal>;
 #else
-using PluginBase = clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::None>;
+using PluginBase = ::clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::None>;
 #endif
 
-namespace tiny {
+namespace tiny::clap {
 
-class Clap_plugin : public PluginBase {
+class Plugin : public PluginBase {
 public:
 
-    Clap_plugin(const clap_host* host) : PluginBase{&descriptor, host}, _host{host}
+    Plugin(const clap_host* host) : PluginBase{&descriptor, host}, _host{host}
     {
         _editor.emplace(_tasks.actor());
 
@@ -47,7 +47,7 @@ public:
         });
 #endif
     }
-    ~Clap_plugin() override = default;
+    ~Plugin() override = default;
 
     static const inline clap_plugin_descriptor_t descriptor{
         .clap_version = CLAP_VERSION,
@@ -162,7 +162,7 @@ private:
     Task_manager _tasks{};
 
     // GUI
-    std::unique_ptr<Clap_view> _view{nullptr};
+    std::unique_ptr<View> _view{nullptr};
 
     // Latency 
     uint32_t _latency{_processor->latency_samps()};
@@ -314,4 +314,4 @@ private:
 
 };
 
-} // namespace tiny
+} // namespace tiny::clap

@@ -1,4 +1,4 @@
-#include "aax_parameters.hpp"
+#include "parameters.hpp"
 
 #include <cassert>
 #include <cstring>
@@ -11,14 +11,14 @@
 #include "AAX_CUnitDisplayDelegateDecorator.h"
 #include "AAX_TransportTypes.h"
 
-#include "aax_adapters.hpp"
-#include "aax_taper_delegate.hpp"
+#include "adapters.hpp"
+#include "taper_delegate.hpp"
 
-namespace tiny {
+namespace tiny::aax {
 
 // MARK: - EffectInit
 
-AAX_Result Aax_parameters::EffectInit()
+AAX_Result Parameters::EffectInit()
 {
     const auto& params = User_params::param_specs(Param_order::Presentation);
     const auto aax_ids = tree_to_aax_ids(User_params::param_tree());
@@ -185,7 +185,7 @@ AAX_Result Aax_parameters::EffectInit()
 
 // MARK: - NotificationReceived
 
-AAX_Result Aax_parameters::NotificationReceived(AAX_CTypeID inNotificationType, const void* inNotificationData, uint32_t /*inNotificationDataSize*/)
+AAX_Result Parameters::NotificationReceived(AAX_CTypeID inNotificationType, const void* inNotificationData, uint32_t /*inNotificationDataSize*/)
 {
     switch (inNotificationType) {
         case AAX_eNotificationEvent_SignalLatencyChanged: {
@@ -221,13 +221,13 @@ AAX_Result Aax_parameters::NotificationReceived(AAX_CTypeID inNotificationType, 
 // MARK: - Chunk
 // A lot of this was copied from AAX_CEffectParameters initially.
 
-AAX_Result Aax_parameters::GetNumberOfChunks(int32_t* oNumChunks) const
+AAX_Result Parameters::GetNumberOfChunks(int32_t* oNumChunks) const
 {
     *oNumChunks = 1;
     return AAX_SUCCESS;
 }
 
-AAX_Result Aax_parameters::GetChunkIDFromIndex(int32_t iIndex, AAX_CTypeID* oChunkID) const
+AAX_Result Parameters::GetChunkIDFromIndex(int32_t iIndex, AAX_CTypeID* oChunkID) const
 {
     if (iIndex != 0) {
 		*oChunkID = AAX_CTypeID(0);
@@ -238,7 +238,7 @@ AAX_Result Aax_parameters::GetChunkIDFromIndex(int32_t iIndex, AAX_CTypeID* oChu
     return AAX_SUCCESS;
 }
 
-AAX_Result Aax_parameters::GetChunkSize(AAX_CTypeID iChunkID, uint32_t* oSize) const
+AAX_Result Parameters::GetChunkSize(AAX_CTypeID iChunkID, uint32_t* oSize) const
 {
     if (iChunkID != State_rules::Aax::chunk_id) {
 		*oSize = 0;
@@ -256,7 +256,7 @@ AAX_Result Aax_parameters::GetChunkSize(AAX_CTypeID iChunkID, uint32_t* oSize) c
 	return AAX_SUCCESS;
 }
 
-AAX_Result Aax_parameters::GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChunk) const
+AAX_Result Parameters::GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChunk) const
 {
     //Check the chunkID
     if (iChunkID != State_rules::Aax::chunk_id) {
@@ -281,7 +281,7 @@ AAX_Result Aax_parameters::GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChu
 
 // MARK: - Set Chunk
 
-AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iChunk)
+AAX_Result Parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iChunk)
 {
     if (iChunkID != State_rules::Aax::chunk_id) {
         return AAX_ERROR_INVALID_CHUNK_ID;
@@ -428,7 +428,7 @@ AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk
 
 // MARK: - Compare Chunk
 
-AAX_Result Aax_parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_CBoolean* oIsEqual) const
+AAX_Result Parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_CBoolean* oIsEqual) const
 {
     if (iChunkP->fChunkID != State_rules::Aax::chunk_id) {
 		// If we don't know what the chunk is then we don't want to be turning on the compare light unnecessarily.
@@ -495,7 +495,7 @@ AAX_Result Aax_parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, A
 
 // MARK: - RenderAudio
 
-void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_t channelCount, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues)
+void Parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_t channelCount, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues)
 {
     this->_drain_worker_to_processor();
 
@@ -668,7 +668,7 @@ void Aax_parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_
 
 // MARK: - private
 
-void Aax_parameters::_build_chunk() const
+void Parameters::_build_chunk() const
 {
     mChunkParser.Clear();
 
@@ -752,4 +752,4 @@ void Aax_parameters::_build_chunk() const
 
 }
 
-} // namespace tiny
+} // namespace tiny::aax

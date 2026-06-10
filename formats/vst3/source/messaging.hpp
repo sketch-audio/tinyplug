@@ -30,7 +30,7 @@ namespace tiny::vst3 {
 // MARK: - router
 
 // Dispatches incoming VST3 messages to registered handlers based on the
-// message ID. The receiving wrapper (Vst3_processor or Vst3_controller) holds
+// message ID. The receiving wrapper (Audio_effect or Controller) holds
 // one and calls `dispatch` from its `notify()` override.
 class Message_router {
 public:

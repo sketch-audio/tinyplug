@@ -14,16 +14,16 @@ function(make_vst3_plugin USER_TARGET)
     set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
 
     add_library(${VST3_TARGET} MODULE
-        ${SOURCE_DIR}/source/vst3_adapters.hpp
-        ${SOURCE_DIR}/source/vst3_controller.cpp
-        ${SOURCE_DIR}/source/vst3_controller.hpp
-        ${SOURCE_DIR}/source/vst3_entry.cpp
-        ${SOURCE_DIR}/source/vst3_messaging.cpp
-        ${SOURCE_DIR}/source/vst3_messaging.hpp
-        ${SOURCE_DIR}/source/vst3_processor.cpp
-        ${SOURCE_DIR}/source/vst3_processor.hpp
-        ${SOURCE_DIR}/source/vst3_view.cpp
-        ${SOURCE_DIR}/source/vst3_view.hpp
+        ${SOURCE_DIR}/source/adapters.hpp
+        ${SOURCE_DIR}/source/controller.cpp
+        ${SOURCE_DIR}/source/controller.hpp
+        ${SOURCE_DIR}/source/entry.cpp
+        ${SOURCE_DIR}/source/messaging.cpp
+        ${SOURCE_DIR}/source/messaging.hpp
+        ${SOURCE_DIR}/source/audio_effect.cpp
+        ${SOURCE_DIR}/source/audio_effect.hpp
+        ${SOURCE_DIR}/source/view.cpp
+        ${SOURCE_DIR}/source/view.hpp
     )
     tiny_add_vst3_main(${VST3_TARGET})
 

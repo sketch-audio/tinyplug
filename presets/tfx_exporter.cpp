@@ -12,7 +12,7 @@
 #include "AAX.h"
 #include "AAX_CChunkDataParser.h"
 #include "AAX_EndianSwap.h"
-#include "../formats/aax/source/aax_adapters.hpp"
+#include "../formats/aax/source/adapters.hpp"
 
 // User model.
 #include "models/params.hpp"

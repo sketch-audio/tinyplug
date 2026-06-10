@@ -6,26 +6,26 @@
 #include "models/params.hpp"
 #include "editor.hpp"
 
-#include "vst3_messaging.hpp"
-#include "vst3_view.hpp"
+#include "messaging.hpp"
+#include "view.hpp"
 
 #include "tinyplug/change_list.hpp"
 #include "tinyplug/task_manager.hpp"
 
-namespace tiny {
+namespace tiny::vst3 {
 
-class Vst3_controller : public Steinberg::Vst::EditControllerEx1 {
+class Controller : public Steinberg::Vst::EditControllerEx1 {
 public:
 
     using Super = Steinberg::Vst::EditControllerEx1;
-    Vst3_controller() : Super{}
+    Controller() : Super{}
     {
         _editor.emplace(_tasks.actor());
 #if TINY_HAS_WORKER
         _setup_worker();
 #endif
     }
-    ~Vst3_controller() SMTG_OVERRIDE = default;
+    ~Controller() SMTG_OVERRIDE = default;
 
 #if TINY_HAS_WORKER
     Steinberg::tresult PLUGIN_API notify(Steinberg::Vst::IMessage* message) SMTG_OVERRIDE;
@@ -34,7 +34,7 @@ public:
     // Create function
     static Steinberg::FUnknown* createInstance(void* /*context*/)
     {
-        return (Steinberg::Vst::IEditController*)new Vst3_controller;
+        return (Steinberg::Vst::IEditController*)new Controller;
     }
 
     // IPluginBase
@@ -131,4 +131,4 @@ protected:
 
 };
 
-} // namespace tiny
+} // namespace tiny::vst3

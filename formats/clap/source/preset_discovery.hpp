@@ -9,20 +9,20 @@
 #include "platform/platform_paths.hpp"
 #include "plug_info.hpp"
 
-namespace tiny {
+namespace tiny::clap {
 
-using Misbehaviour_handler = clap::helpers::MisbehaviourHandler;
-using Checking_level = clap::helpers::CheckingLevel;
+using Misbehaviour_handler = ::clap::helpers::MisbehaviourHandler;
+using Checking_level = ::clap::helpers::CheckingLevel;
 
 #if defined(NDEBUG)
-using Preset_discovery_base = clap::helpers::PresetDiscoveryProvider<Misbehaviour_handler::Ignore, Checking_level::None>;
+using Preset_discovery_base = ::clap::helpers::PresetDiscoveryProvider<Misbehaviour_handler::Ignore, Checking_level::None>;
 #else
-using Preset_discovery_base = clap::helpers::PresetDiscoveryProvider<Misbehaviour_handler::Ignore, Checking_level::Maximal>; // REAPER sensitive here.
+using Preset_discovery_base = ::clap::helpers::PresetDiscoveryProvider<Misbehaviour_handler::Ignore, Checking_level::Maximal>; // REAPER sensitive here.
 #endif
 
 // MARK: - Factory Presets
 
-class Clap_factory_presets : public Preset_discovery_base {
+class Factory_presets : public Preset_discovery_base {
 public:
 
     static constexpr auto plugin_id = clap_universal_plugin_id_t{
@@ -43,7 +43,7 @@ public:
         .file_extension = Plug_info::Presets::extension,
     };
 
-    explicit Clap_factory_presets(const clap_preset_discovery_indexer* indexer)
+    explicit Factory_presets(const clap_preset_discovery_indexer* indexer)
         : Preset_discovery_base{&descriptor, indexer}
     {}
 
@@ -83,7 +83,7 @@ public:
 
 // User Presets
 
-class Clap_user_presets : public Preset_discovery_base {
+class User_presets : public Preset_discovery_base {
 public:
 
     static constexpr auto plugin_id = clap_universal_plugin_id_t{
@@ -104,7 +104,7 @@ public:
         .file_extension = Plug_info::Presets::extension,
     };
 
-    explicit Clap_user_presets(const clap_preset_discovery_indexer* indexer)
+    explicit User_presets(const clap_preset_discovery_indexer* indexer)
         : Preset_discovery_base{&descriptor, indexer}
     {}
 
@@ -144,4 +144,4 @@ public:
     }
 };
 
-} // namespace tiny
+} // namespace tiny::clap

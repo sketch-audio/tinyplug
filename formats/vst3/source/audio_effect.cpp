@@ -14,11 +14,11 @@
 #include "models/params.hpp"
 #include "plug_info.hpp"
 
-#include "vst3_adapters.hpp"
-#include "vst3_messaging.hpp"
-#include "vst3_processor.hpp"
+#include "adapters.hpp"
+#include "messaging.hpp"
+#include "audio_effect.hpp"
 
-namespace tiny {
+namespace tiny::vst3 {
 
 // MARK: - worker
 
@@ -27,7 +27,7 @@ namespace tiny {
 constexpr auto k_worker_from_processor_id = "tiny/worker/from_processor";
 constexpr auto k_worker_to_processor_id   = "tiny/worker/to_processor";
 
-auto Vst3_processor::_setup_worker() -> void
+auto Audio_effect::_setup_worker() -> void
 {
     // Realtime-safe push from the audio thread: lock-free SPSC push,
     // no allocation. The shuttle thread forwards over IMessage.
@@ -51,7 +51,7 @@ auto Vst3_processor::_setup_worker() -> void
     });
 }
 
-Steinberg::tresult PLUGIN_API Vst3_processor::notify(Steinberg::Vst::IMessage* message)
+Steinberg::tresult PLUGIN_API Audio_effect::notify(Steinberg::Vst::IMessage* message)
 {
     if (_router.dispatch(message)) return Steinberg::kResultOk;
     return Super::notify(message);
@@ -59,7 +59,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::notify(Steinberg::Vst::IMessage* m
 
 #endif // TINY_HAS_WORKER
 
-auto Vst3_processor::_drain_worker_to_processor() -> void
+auto Audio_effect::_drain_worker_to_processor() -> void
 {
 #if TINY_HAS_WORKER
     try_drain_worker_to_processor(*_processor, _worker_to_proc_inbox);
@@ -69,7 +69,7 @@ auto Vst3_processor::_drain_worker_to_processor() -> void
 
 // MARK: - initialize
 
-Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* context)
+Steinberg::tresult PLUGIN_API Audio_effect::initialize(Steinberg::FUnknown* context)
 {
     // Here the Plug-in will be instantiated.
 
@@ -112,7 +112,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::initialize(Steinberg::FUnknown* co
     return Steinberg::kResultOk;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_processor::terminate()
+Steinberg::tresult PLUGIN_API Audio_effect::terminate()
 {
     // Here the Plug-in will be de-instantiated, last possibility to remove some memory!
 
@@ -120,7 +120,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::terminate()
     return Steinberg::Vst::AudioEffect::terminate();
 }
 
-Steinberg::tresult PLUGIN_API Vst3_processor::setActive(Steinberg::TBool state)
+Steinberg::tresult PLUGIN_API Audio_effect::setActive(Steinberg::TBool state)
 {
     // Called when the Plug-in is enable/disable (On/Off).
 
@@ -144,7 +144,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setActive(Steinberg::TBool state)
     return Steinberg::Vst::AudioEffect::setActive(state);
 }
 
-Steinberg::tresult PLUGIN_API Vst3_processor::setupProcessing(Steinberg::Vst::ProcessSetup& newSetup)
+Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::ProcessSetup& newSetup)
 {
     // Called before any processing.
     _processor->reset(newSetup.sampleRate);
@@ -162,7 +162,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setupProcessing(Steinberg::Vst::Pr
     return Steinberg::Vst::AudioEffect::setupProcessing(newSetup);
 }
 
-Steinberg::tresult PLUGIN_API Vst3_processor::setBusArrangements(Steinberg::Vst::SpeakerArrangement* inputs, Steinberg::int32 numIns, Steinberg::Vst::SpeakerArrangement* outputs, Steinberg::int32 numOuts)
+Steinberg::tresult PLUGIN_API Audio_effect::setBusArrangements(Steinberg::Vst::SpeakerArrangement* inputs, Steinberg::int32 numIns, Steinberg::Vst::SpeakerArrangement* outputs, Steinberg::int32 numOuts)
 {
     if (!inputs || !outputs) return Steinberg::kResultFalse;
 
@@ -212,7 +212,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setBusArrangements(Steinberg::Vst:
     return Steinberg::kResultFalse;
 }
 
-Steinberg::tresult PLUGIN_API Vst3_processor::canProcessSampleSize(Steinberg::int32 symbolicSampleSize)
+Steinberg::tresult PLUGIN_API Audio_effect::canProcessSampleSize(Steinberg::int32 symbolicSampleSize)
 {
     // By default kSample32 is supported.
     if (symbolicSampleSize == Steinberg::Vst::kSample32)
@@ -223,7 +223,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::canProcessSampleSize(Steinberg::in
 
 // MARK: - process
 
-Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessData& data)
+Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData& data)
 {
     this->_drain_worker_to_processor();
 
@@ -445,7 +445,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::process(Steinberg::Vst::ProcessDat
 
 // MARK: - state load
 
-Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* state)
+Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
 {
     if (!state) {
         return Steinberg::kResultFalse;
@@ -525,7 +525,7 @@ Steinberg::tresult PLUGIN_API Vst3_processor::setState(Steinberg::IBStream* stat
 
 // MARK: - state save
 
-Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* state)
+Steinberg::tresult PLUGIN_API Audio_effect::getState(Steinberg::IBStream* state)
 {
     if (!state) {
         return Steinberg::kResultFalse;
@@ -569,12 +569,12 @@ Steinberg::tresult PLUGIN_API Vst3_processor::getState(Steinberg::IBStream* stat
 
 // MARK: - latency, tail
 
-Steinberg::uint32 PLUGIN_API Vst3_processor::getLatencySamples()
+Steinberg::uint32 PLUGIN_API Audio_effect::getLatencySamples()
 {
     return _latency;
 }
 
-Steinberg::uint32 PLUGIN_API Vst3_processor::getTailSamples()
+Steinberg::uint32 PLUGIN_API Audio_effect::getTailSamples()
 {
     // Resolve to Steinberg's named constants.
     using namespace Steinberg::Vst;
@@ -583,7 +583,7 @@ Steinberg::uint32 PLUGIN_API Vst3_processor::getTailSamples()
     return tail == 0 ? kNoTail : (tail == inf_tail ? kInfiniteTail : tail);
 }
 
-Steinberg::uint32 PLUGIN_API Vst3_processor::getProcessContextRequirements()
+Steinberg::uint32 PLUGIN_API Audio_effect::getProcessContextRequirements()
 {
     auto requirements = Steinberg::Vst::ProcessContextRequirements{};
     requirements.needProjectTimeMusic();
@@ -596,7 +596,7 @@ Steinberg::uint32 PLUGIN_API Vst3_processor::getProcessContextRequirements()
 
 // MARK: - private
 
-auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -> void
+auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data) -> void
 {
     if (!data.inputParameterChanges) return;
     auto& param_changes = *data.inputParameterChanges;
@@ -672,4 +672,4 @@ auto Vst3_processor::normalize_input_events(Steinberg::Vst::ProcessData& data) -
     std::ranges::sort(_events, [](const auto& a, const auto& b) { return a.offset < b.offset; });
 }
 
-} // namespace tiny
+} // namespace tiny::vst3

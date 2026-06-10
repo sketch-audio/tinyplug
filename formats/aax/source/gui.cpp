@@ -2,13 +2,13 @@
 
 #include "AAX_IViewContainer.h"
 
-#include "aax_gui.hpp"
+#include "gui.hpp"
 
-namespace tiny {
+namespace tiny::aax {
 
-auto Aax_gui::CreateViewContents() -> void
+auto Gui::CreateViewContents() -> void
 {
-    auto* params = dynamic_cast<Aax_parameters*>(GetEffectParameters());
+    auto* params = dynamic_cast<Parameters*>(GetEffectParameters());
     _editor = params->get_editor();
     _tasks = params->get_tasks();
     _params = params;
@@ -24,7 +24,7 @@ auto Aax_gui::CreateViewContents() -> void
     _editor->on_gui_create();
 }
 
-auto Aax_gui::CreateViewContainer() -> void
+auto Gui::CreateViewContainer() -> void
 {
     auto* parent = GetViewContainerPtr();
     if (!parent) return;
@@ -32,7 +32,7 @@ auto Aax_gui::CreateViewContainer() -> void
     _platform_view->receive_parent(parent);
 
     auto* view = GetViewContainer();
-    auto* params = dynamic_cast<Aax_parameters*>(GetEffectParameters());
+    auto* params = dynamic_cast<Parameters*>(GetEffectParameters());
 
     // Workaround for now, dump the latest exports into the queue so we get correct values on display.
     if (params) {
@@ -111,7 +111,7 @@ auto Aax_gui::CreateViewContainer() -> void
     });
 }
 
-void Aax_gui::DeleteViewContainer()
+void Gui::DeleteViewContainer()
 {
     _editor->on_gui_hide();
     _platform_view->on_hide();
@@ -121,7 +121,7 @@ void Aax_gui::DeleteViewContainer()
     _platform_view = nullptr;
 }
 
-AAX_Result Aax_gui::GetViewSize(AAX_Point* view_size) const
+AAX_Result Gui::GetViewSize(AAX_Point* view_size) const
 {
     const auto size = _platform_view ? _platform_view->get_size() : plugin::Editor::preferred_size();
     view_size->horz = static_cast<float>(size.w);
@@ -129,7 +129,7 @@ AAX_Result Aax_gui::GetViewSize(AAX_Point* view_size) const
     return AAX_SUCCESS;
 }
 
-AAX_Result Aax_gui::ParameterUpdated(AAX_CParamID inParamID)
+AAX_Result Gui::ParameterUpdated(AAX_CParamID inParamID)
 {
     if (const auto tiny_id = aax_id_to_tiny(inParamID)) {
         // Ignore updates for gestured params.
@@ -147,7 +147,7 @@ AAX_Result Aax_gui::ParameterUpdated(AAX_CParamID inParamID)
 
 // MARK: - private
 
-auto Aax_gui::on_draw(View_context& view_context) -> void
+auto Gui::on_draw(View_context& view_context) -> void
 {
 #if TINY_HAS_WORKER
     if (_params) _params->drain_worker_to_editor();
@@ -174,9 +174,9 @@ auto Aax_gui::on_draw(View_context& view_context) -> void
     );
 }
 
-auto Aax_gui::on_notify(const Ui_notification& notification) -> void
+auto Gui::on_notify(const Ui_notification& notification) -> void
 {
     _editor->on_gui_notify(notification);
 }
 
-} // namespace tiny
+} // namespace tiny::aax

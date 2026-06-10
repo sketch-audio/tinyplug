@@ -16,24 +16,24 @@
 #include "editor.hpp"
 #include "plug_info.hpp"
 
-#include "auv2_adapters.hpp"
-#include "auv2_view.hpp"
+#include "adapters.hpp"
+#include "view.hpp"
 
-#include "auv2_preset_list.hpp" // Generated.
+#include "preset_list.hpp" // Generated.
 
 #include "dsp/host_bypass.hpp"
 
-namespace tiny {
+namespace tiny::auv2 {
 
-class Auv2_effect : public ausdk::AUBase {
+class Effect : public ausdk::AUBase {
 public:
 
     static constexpr auto num_inputs = uint32_t{Plug_info::wants_sidechain ? 2 : 1};
     static constexpr auto num_outputs = uint32_t{1};
 
     using Super = ausdk::AUBase;
-    Auv2_effect(AudioUnit component);
-    ~Auv2_effect();
+    Effect(AudioUnit component);
+    ~Effect();
 
     OSStatus Initialize() override;
 
@@ -224,7 +224,7 @@ private:
     }
 
     // AUv2 view adapter.
-    std::unique_ptr<Auv2_view> _view = std::make_unique<Auv2_view>(Auv2_view::Deps{
+    std::unique_ptr<View> _view = std::make_unique<View>(View::Deps{
         .editor = &(*_editor),
         .executor = {[this]() {
             auto message = Private_message{};
@@ -301,4 +301,4 @@ private:
 #endif
 };
 
-} // namespace tiny
+} // namespace tiny::auv2

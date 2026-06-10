@@ -2,9 +2,9 @@
 
 #import "TargetPlatforms.h"
 
-#import "auv3_AUAudioUnit.h"
+#import "audio_unit.h"
 
-#include "auv3_view.hpp"
+#include "view.hpp"
 #include "editor.hpp"
 
 #if !__has_feature(objc_arc)
@@ -21,7 +21,7 @@ static_assert(false, "ARC must be enabled for this file");
 @end
 
 @implementation Auv3_AUViewController {
-    std::unique_ptr<tiny::Auv3_view> _view_adapter;
+    std::unique_ptr<tiny::auv3::View> _view_adapter;
     std::shared_ptr<tiny::plugin::Editor> _editor;
     tiny::Task_manager _tasks;
 }
@@ -66,14 +66,14 @@ static_assert(false, "ARC must be enabled for this file");
         auto receiver = [auv3 makeReceiver];
 #if TINY_HAS_WORKER
         Auv3_AUAudioUnit* __weak weak_auv3 = auv3;
-        _view_adapter = std::make_unique<tiny::Auv3_view>(tiny::Auv3_view::Deps{
+        _view_adapter = std::make_unique<tiny::auv3::View>(tiny::auv3::View::Deps{
             _editor.get(),
             receiver,
             &_tasks,
             [weak_auv3]() { [weak_auv3 drainWorkerToEditor]; }
         });
 #else
-        _view_adapter = std::make_unique<tiny::Auv3_view>(tiny::Auv3_view::Deps{
+        _view_adapter = std::make_unique<tiny::auv3::View>(tiny::auv3::View::Deps{
             _editor.get(),
             receiver,
             &_tasks,

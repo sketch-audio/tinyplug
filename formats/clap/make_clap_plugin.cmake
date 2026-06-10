@@ -14,12 +14,12 @@ function(make_clap_plugin USER_TARGET)
     set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
 
     add_library(${CLAP_TARGET} MODULE
-        ${SOURCE_DIR}/source/clap_adapters.hpp
-        ${SOURCE_DIR}/source/clap_entry.cpp
-        ${SOURCE_DIR}/source/clap_plugin.cpp
-        ${SOURCE_DIR}/source/clap_plugin.hpp
-        ${SOURCE_DIR}/source/clap_view.cpp
-        ${SOURCE_DIR}/source/clap_view.hpp
+        ${SOURCE_DIR}/source/adapters.hpp
+        ${SOURCE_DIR}/source/entry.cpp
+        ${SOURCE_DIR}/source/plugin.cpp
+        ${SOURCE_DIR}/source/plugin.hpp
+        ${SOURCE_DIR}/source/view.cpp
+        ${SOURCE_DIR}/source/view.hpp
     )
 
     target_link_libraries(${CLAP_TARGET} PRIVATE tiny::clap tiny::clap-helpers)

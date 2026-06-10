@@ -2,21 +2,18 @@
 
 #include <memory>
 
-#include "clap/clap.h"
-
 #include "tinyplug/tinyplug.hpp"
 #include "platform/platform_view.hpp"
 
-#include "editor.hpp"
 #include "models/meters.hpp"
 #include "models/params.hpp"
+#include "editor.hpp"
 
-namespace tiny {
+namespace tiny::auv3 {
 
-// The CLAP view adapts the view lifecycle to the user's `plugin::Editor`.
-class Clap_view {
+class View {
 public:
-
+    
     struct Deps {
         plugin::Editor* editor{};
         Ui_receiver receiver{};
@@ -26,22 +23,37 @@ public:
 #endif
     };
 
-    Clap_view(Deps deps) : _deps{deps} {}
-    ~Clap_view() = default;
+    View(const Deps& deps) : _deps{deps} {}
 
-    auto on_create() noexcept -> void;
-    auto on_show() noexcept -> void;
-    auto on_hide() noexcept -> void;
-    auto on_destroy() noexcept -> void;
+    auto create_view() -> void*; // UIView*
 
-    auto get_size(uint32_t* w, uint32_t* h) noexcept -> void;
-    auto set_size(uint32_t w, uint32_t h) noexcept -> bool;
-    auto set_parent(const clap_window* window) noexcept -> bool;
-
-    // When we pull the CLAP kernel back into the plug-in, we should be able to get rid of this.
-    auto set_param(uint32_t id, double knob_value) -> void
+    auto on_show() -> void
     {
-        _ui_params[id] = knob_value;
+        _deps.tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
+        _platform_view->on_show();
+        _deps.editor->on_gui_show({
+            .actions = _actions.actor(),
+            .format = Format::Auv3,
+            .state_adapter = _state_adapter.actor(),
+            .undo_redo = _undo_history.actor(),
+        });
+    }
+
+    auto on_hide() -> void
+    {
+        _deps.editor->on_gui_hide();
+        _platform_view->on_hide();
+    }
+
+    auto on_destroy() -> void
+    {
+        _deps.editor->on_gui_destroy();
+        _platform_view->on_destroy();
+    }
+
+    auto on_resize(int32_t w, int32_t h) -> void
+    {
+        _platform_view->resize(w, h);
     }
 
 private:
@@ -57,11 +69,11 @@ private:
 
     Action_queue _actions{};
     Undo_history _undo_history{};
-
+    
     Deps _deps{};
 
     State_adapter _state_adapter{{
-        .load_model = []() {
+        .load_model = [this]() {
             return State_adapter::Load_model{
                 .param_tree = &User_params::param_tree(),
                 .num_params = User_params::num_params
@@ -84,4 +96,4 @@ private:
 
 };
 
-} // namespace tiny
+} // namespace tiny::auv3
