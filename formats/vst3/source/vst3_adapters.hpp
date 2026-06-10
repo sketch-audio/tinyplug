@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+
 #include "pluginterfaces/base/funknown.h"
 
 #include "tinyplug/tinyplug.hpp"
@@ -9,6 +11,20 @@
 #include "plug_info.hpp"
 
 namespace tiny {
+
+// Meter value <-> normalized conversion. VST3 transports meters as normalized
+// read-only output parameters, so it is the only format that needs these.
+inline auto plain_to_norm(double value, const meters::Range& range) -> double
+{
+    const auto norm = (value - range.min_val) / (range.max_val - range.min_val);
+    return std::clamp(norm, 0., 1.);
+}
+
+inline auto norm_to_plain(double value, const meters::Range& range) -> double
+{
+    const auto norm = std::clamp(value, 0., 1.);
+    return norm * (range.max_val - range.min_val) + range.min_val;
+}
 
 // In VST3, exports are implemented as read-only parameters.
 static constexpr auto export_param_offset = int32_t{0x40000000};

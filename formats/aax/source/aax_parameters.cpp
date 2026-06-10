@@ -405,6 +405,8 @@ AAX_Result Aax_parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk
                 }
                 return AAX_ERROR_MALFORMED_CHUNK;
             }
+            default:
+                break;
         }
 
         state_map.emplace(std::move(key), std::move(value));

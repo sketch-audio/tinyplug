@@ -6,14 +6,14 @@ namespace tiny::models {
 
 struct Meters {
     enum class Address : uint32_t {
-        num_meters
+        Num_meters
     };
 
-    static auto make_specs() -> std::vector<Meter_spec>
+    static auto make_spec(Address) -> meters::Spec
     {
         return {};
     }
 };
-static_assert(Some_meter_model<Meters>);
+static_assert(meters::Model<Meters>);
 
 } // namespace tiny::models

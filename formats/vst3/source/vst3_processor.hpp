@@ -78,7 +78,7 @@ private:
     };
 
     using User_params = Param_infos<models::Params>;
-    using User_meters = Meter_infos<models::Meters>;
+    using User_meters = meters::Infos<models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;

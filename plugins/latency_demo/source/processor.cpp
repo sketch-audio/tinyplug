@@ -56,7 +56,7 @@ auto Processor::process(Dsp_context& context) -> void
     }
 
     // Export `latency_actual` so we can see if there are discrepancies in the UI.
-    context.meters[enum_raw(models::Meters::Address::latency_actual)] = (_curr == &_low) ? float{} : float{1};
+    context.meters[enum_raw(models::Meters::Address::Latency_actual)] = (_curr == &_low) ? float{} : float{1};
 }
 
 } // namespace tiny::plugin

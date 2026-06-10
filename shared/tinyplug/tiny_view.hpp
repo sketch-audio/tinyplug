@@ -20,6 +20,19 @@
 
 class SkCanvas; // Skia canvas
 
+namespace tiny::view {
+
+// Per-meter UI accumulation state. run_frame uses this to turn a stream of
+// Set_meter events into a drawable value according to the meter's Policy.
+struct Meter_state {
+    double value{};       // Current value.
+    bool updated{};       // Updated the peak/stream value this frame?
+    bool trigged{};       // Received a trig this frame?
+    bool last_is_zero{};  // Was the last value (in a peak stream) zero?
+};
+
+} // namespace tiny::view
+
 namespace tiny {
 
 // MARK: - helpers
@@ -324,9 +337,9 @@ inline auto run_frame(
         auto& ui_meter = _ui_meters[addr];
         const auto type = _meter_specs[addr].policy;
         
-        using enum Meter_policy;
+        using enum meters::Policy;
         switch (type) {
-            case peak: {
+            case Peak: {
                 if (!ui_meter.updated) {
                     ui_meter.value = 0; // Reset on first update in frame where we receive an event.
                 }
@@ -335,12 +348,12 @@ inline auto run_frame(
                 ui_meter.updated = true;
                 break;
             }
-            case stream: {
+            case Stream: {
                 ui_meter.value = value;
                 ui_meter.updated = true;
                 break;
             }
-            case trig: {
+            case Trig: {
                 ui_meter.value = 1;
                 ui_meter.trigged = true;
                 break;
@@ -353,7 +366,7 @@ inline auto run_frame(
     // Adapt tagged meters to values.
     auto meter_arr = std::vector<double>{};
     meter_arr.resize(_meter_specs.size());
-    const auto value_tx = _ui_meters | std::views::transform(&Tagged_meter::value);
+    const auto value_tx = _ui_meters | std::views::transform(&view::Meter_state::value);
     std::ranges::copy(value_tx, meter_arr.begin());
 
     // Create view context.

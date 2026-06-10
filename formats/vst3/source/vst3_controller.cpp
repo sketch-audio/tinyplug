@@ -579,7 +579,7 @@ Steinberg::tresult PLUGIN_API Vst3_controller::setParamNormalized(Steinberg::Vst
         const auto id = tag - export_param_offset;
 
         // Convert back to plain for UI.
-        const auto& spec = User_meters::meter_spec(id);
+        const auto& spec = User_meters::spec(id);
         const auto plain = norm_to_plain(value, spec.range);
         _meter_queue.push(Set_meter{.address = id, .value = plain});
 

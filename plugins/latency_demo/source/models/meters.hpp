@@ -7,22 +7,26 @@ namespace tiny::models {
 struct Meters {
     // Enumerate meter addresses.
     enum class Address : uint32_t {
-        latency_actual = 0,
-        num_meters
+        Latency_actual = 0,
+        Num_meters
     };
 
-    // Return a list of your meter specs.
-    static auto make_specs() -> std::vector<Meter_spec>
+    // Return the spec for a meter address.
+    static auto make_spec(Address address) -> meters::Spec
     {
-        return {
-            Meter_spec{
-                .address = enum_raw(Address::latency_actual),
-                .range = Lin_range{0, 1},
-                .policy = Meter_policy::stream
-            }
-        };
+        using namespace meters;
+        switch (address) {
+            case Address::Latency_actual:
+                return {
+                    .range = Range{0, 1},
+                    .policy = Policy::Stream
+                };
+            case Address::Num_meters:
+            default:
+                return {};
+        }
     }
 };
-static_assert(Some_meter_model<Meters>);
+static_assert(meters::Model<Meters>);
 
 } // namespace tiny::models

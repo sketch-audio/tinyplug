@@ -34,7 +34,7 @@ private:
     auto on_notify(const Ui_notification& notification) -> void;
 
     using User_params = Param_infos<models::Params>;
-    using User_meters = Meter_infos<models::Meters>;
+    using User_meters = meters::Infos<models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
@@ -67,7 +67,7 @@ private:
     std::unique_ptr<Platform_view> _platform_view{nullptr};
 
     std::array<double, num_params> _ui_params{User_params::make_defaults<double>(Value_space::Knob)};
-    std::array<Tagged_meter, num_meters> _ui_meters{};
+    std::array<view::Meter_state, num_meters> _ui_meters{};
 
     std::unordered_set<uint32_t> _gestured{};
 

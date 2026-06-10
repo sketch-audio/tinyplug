@@ -154,7 +154,7 @@ auto Aax_gui::on_draw(View_context& view_context) -> void
 #endif
 
     view_impl::run_frame(
-        User_meters::meter_specs(),
+        User_meters::specs(),
         _receiver,
         _ui_params,
         _ui_meters,

@@ -60,7 +60,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     paint.setColor(_value == 0 ? SK_ColorGREEN : SK_ColorYELLOW);
 
     const auto& meter_values = state.processor_state.meters;
-    if (_value != meter_values[enum_raw(models::Meters::Address::latency_actual)]) {
+    if (_value != meter_values[enum_raw(models::Meters::Address::Latency_actual)]) {
         paint.setColor(SK_ColorRED);
     }
 

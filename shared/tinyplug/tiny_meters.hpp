@@ -1,25 +1,17 @@
 #pragma once
 
-#include <algorithm>
+#include <array>
 #include <cassert>
+#include <concepts>
+#include <cstdint>
+#include <type_traits>
 
 #include "tiny_utils.hpp"
 
-namespace tiny {
+namespace tiny::meters {
 
-enum class Meter_policy : uint32_t {
-    // Editor receives the max unconsumed value.
-    peak = 0,
-
-    // Editor receives the latest value.
-    stream,
-
-    // Editor receives a value for one frame.
-    trig
-};
-
-// Linear range adapter. Some formats require us to normalize the meter values.
-struct Lin_range {
+// Linear range adapter. VST3 implementation requires normalization.
+struct Range {
     // Minimum plain value.
     double min_val{};
 
@@ -27,85 +19,67 @@ struct Lin_range {
     double max_val{1};
 
     // Regular.
-    bool operator==(const Lin_range&) const = default;
+    auto operator==(const Range&) const -> bool = default;
 };
 
-// Linear map to normalized.
-inline auto plain_to_norm(double value, const Lin_range& range) -> double
-{
-    const auto norm = (value - range.min_val) / (range.max_val - range.min_val);
-    return std::clamp(norm, 0., 1.);
-}
-
-// Linear map to plain.
-inline auto norm_to_plain(double value, const Lin_range& range) -> double
-{
-    const auto norm = std::clamp(value, 0., 1.);
-    return norm * (range.max_val - range.min_val) + range.min_val;
-}
+// How the framework should treat your meter values.
+enum class Policy : uint32_t {
+    Peak = 0,   // Editor receives the maximum unconsumed value.
+    Stream,     // Editor receives the latest value.
+    Trig        // Editor receives a value for one frame.
+};
 
 // A specification for a meter.
-struct Meter_spec {
-    // Meter address.
-    uint32_t address{};
-
+struct Spec {
     // Range of plain values.
-    Lin_range range{};
+    Range range{};
 
     // How the framework should treat the meter values.
-    Meter_policy policy{};
+    Policy policy{};
+
+    // Regular.
+    auto operator==(const Spec&) const -> bool = default;
 };
 
 // Model
 template<typename T>
-concept Some_meter_model = requires {
+concept Model = requires(typename T::Address a) {
     typename T::Address;
     requires Enum<typename T::Address>;
     requires std::same_as<std::underlying_type_t<typename T::Address>, uint32_t>;
-    { T::make_specs() } -> std::same_as<std::vector<Meter_spec>>;
+    { T::Address::Num_meters } -> std::same_as<typename T::Address>;
+    { T::make_spec(a) } -> std::same_as<Spec>;
 };
 
-// So framework can keep track of things properly.
-struct Tagged_meter {
-    double value{};
-    bool updated{}; // Have we updated the peak/stream value this frame?
-    bool trigged{}; // Have we received a trig for this frame?
-    bool last_is_zero{}; // Was the last value (in a peak stream) zero?
-};
-
-template<Some_meter_model User_model>
-class Meter_infos {
+template<Model User_model>
+class Infos {
 public:
     // Number of meters.
-    static constexpr auto num_meters = enum_raw(User_model::Address::num_meters);
+    static constexpr auto num_meters = enum_raw(User_model::Address::Num_meters);
 
-    static auto meter_specs() -> const std::vector<Meter_spec>&
+    static auto specs() -> const std::array<Spec, num_meters>&
     {
-        [[maybe_unused]] static const auto validated = [] {
-            assert(specs.size() == num_meters && "Unexpected number of meter specs.");
-            if (!specs.empty()) {
-                [[maybe_unused]] const auto contains_all = (specs.front().address == 0) && (specs.back().address == num_meters - 1);
-                [[maybe_unused]] const auto order_ascending = std::ranges::is_sorted(specs, [](const auto& a, const auto& b) {
-                    return a.address < b.address;
-                });
-                assert(contains_all && order_ascending && "Meter specs must contain all meter addresses and be indexable by address.");
-            }
-            return true;
-        }();
-
-        return specs;
+        return _specs;
     }
 
-    static auto meter_spec(uint32_t address) -> const Meter_spec&
+    static auto spec(uint32_t address) -> const Spec&
     {
         assert(address < num_meters && "Meter address out of range.");
-        return specs[address];
+        return _specs[address];
     }
 
 private:
-    
-    inline static const std::vector<Meter_spec> specs = User_model::make_specs();
+
+    // Built by querying the model for each address; indexable by address by construction.
+    inline static const std::array<Spec, num_meters> _specs = []() {
+        auto arr = std::array<Spec, num_meters>{};
+        for (auto i = uint32_t{}; i < num_meters; ++i) {
+            const auto addr = static_cast<typename User_model::Address>(i);
+            arr[i] = User_model::make_spec(addr);
+        }
+        return arr;
+    }();
 
 };
 
-} // namespace tiny
+} // namespace tiny::meters
