@@ -705,12 +705,12 @@ inline auto param_is_discrete(const Value_semantics& semantics) -> bool
 
 template<typename T>
 concept Some_param_model = requires {
-    // An enum class `Param_address` with a case `num_params`
-    typename T::Param_address;
-    requires Enum<typename T::Param_address>;
-    requires std::same_as<std::underlying_type_t<typename T::Param_address>, uint32_t>;
+    // An enum class `Address` with a case `num_params`
+    typename T::Address;
+    requires Enum<typename T::Address>;
+    requires std::same_as<std::underlying_type_t<typename T::Address>, uint32_t>;
 
-    // A static function `build_tree` that returns a `Param_node<Param_address>`
+    // A static function `build_tree` that returns a `Param_node<Address>`
     { T::build_tree() } -> std::same_as<Param_node>;
 };
 
@@ -824,7 +824,7 @@ template<Some_param_model User_model>
 class Param_infos {
 public:
 
-    static constexpr auto num_params = enum_raw(User_model::Param_address::num_params);
+    static constexpr auto num_params = enum_raw(User_model::Address::num_params);
 
     static auto param_tree() -> const Param_node&
     {

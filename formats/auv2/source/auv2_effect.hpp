@@ -10,10 +10,10 @@
 #include "tinyplug/tinyplug.hpp"
 #include "tinyplug/change_list.hpp"
 
-#include "plug_processor.hpp"
-#include "models/meter_model.hpp"
-#include "models/param_model.hpp"
-#include "plug_editor.hpp"
+#include "processor.hpp"
+#include "models/meters.hpp"
+#include "models/params.hpp"
+#include "editor.hpp"
 #include "plug_info.hpp"
 
 #include "auv2_adapters.hpp"
@@ -128,11 +128,11 @@ private:
 
     std::vector<AUChannelInfo> cinfo{};
 
-    std::optional<Plug_editor> _editor{};
+    std::optional<plugin::Editor> _editor{};
     Task_manager _tasks{};
 
-    using User_params = Param_infos<Param_model>;
-    using User_meters = Meter_infos<Meter_model>;
+    using User_params = Param_infos<models::Params>;
+    using User_meters = Meter_infos<models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
@@ -174,7 +174,7 @@ private:
     // Render
     std::vector<Tagged_event> _events{}; // Some fixed size thing.
 
-    std::unique_ptr<Plug_processor> _processor = std::make_unique<Plug_processor>();
+    std::unique_ptr<plugin::Processor> _processor = std::make_unique<plugin::Processor>();
     uint32_t _latency{_processor->latency_samps()};
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;

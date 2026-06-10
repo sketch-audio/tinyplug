@@ -12,7 +12,7 @@ auto Clap_view::on_create() noexcept -> void
 {
     // Set up the delegate callbacks.
     auto delegate = std::make_shared<View_delegate>(
-        Plug_editor::preferred_size(),
+        plugin::Editor::preferred_size(),
         [this](auto& context) { this->on_draw(context); },
         [this](const auto& notification) { this->on_notify(notification); }
     );
@@ -51,7 +51,7 @@ auto Clap_view::on_destroy() noexcept -> void
 
 auto Clap_view::get_size(uint32_t* w, uint32_t* h) noexcept -> void
 {
-    const auto platform_size = _platform_view ? _platform_view->get_size() : Plug_editor::preferred_size();
+    const auto platform_size = _platform_view ? _platform_view->get_size() : plugin::Editor::preferred_size();
     *w = static_cast<uint32_t>(platform_size.w);
     *h = static_cast<uint32_t>(platform_size.h);
 }

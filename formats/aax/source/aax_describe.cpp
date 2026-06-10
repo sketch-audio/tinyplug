@@ -10,7 +10,7 @@
 #include "AAX_Assert.h"
 
 #include "plug_info.hpp"
-#include "models/param_model.hpp"
+#include "models/params.hpp"
 
 #include "aax_categories.hpp"
 #include "aax_gui.hpp"

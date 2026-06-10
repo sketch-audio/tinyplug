@@ -14,7 +14,7 @@ auto Aax_gui::CreateViewContents() -> void
     _params = params;
 
     auto delegate = std::make_shared<View_delegate>(
-        Plug_editor::preferred_size(), // Initial size
+        plugin::Editor::preferred_size(), // Initial size
         [this](auto& context) { this->on_draw(context); },
         [this](const auto& notification) { this->on_notify(notification); }
     );
@@ -123,7 +123,7 @@ void Aax_gui::DeleteViewContainer()
 
 AAX_Result Aax_gui::GetViewSize(AAX_Point* view_size) const
 {
-    const auto size = _platform_view ? _platform_view->get_size() : Plug_editor::preferred_size();
+    const auto size = _platform_view ? _platform_view->get_size() : plugin::Editor::preferred_size();
     view_size->horz = static_cast<float>(size.w);
     view_size->vert = static_cast<float>(size.h);
     return AAX_SUCCESS;

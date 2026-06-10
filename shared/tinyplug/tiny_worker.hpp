@@ -106,7 +106,7 @@ struct No_worker {
 // MARK: - user worker discovery
 
 // If the plug-in defines a `plug_worker.h` in its source directory, pull it
-// in and use its `Plug_worker` as the framework's `User_worker`. Otherwise
+// in and use its `plugin::Worker` as the framework's `User_worker`. Otherwise
 // `User_worker` aliases the stub above and `has_worker` is false.
 //
 // `TINY_HAS_WORKER` is the preprocessor counterpart — used in wrappers to
@@ -114,10 +114,10 @@ struct No_worker {
 // `plug_worker.h` carry zero worker-related queues, threads, or storage.
 // (The constexpr `has_worker` further down gates code inside templated
 // helpers, where `if constexpr` properly discards.)
-#if __has_include("plug_worker.hpp")
-    #include "plug_worker.hpp"
+#if __has_include("worker.hpp")
+    #include "worker.hpp"
     #define TINY_HAS_WORKER 1
-    namespace tiny { using User_worker = Plug_worker; }
+    namespace tiny { using User_worker = plugin::Worker; }
 #else
     #define TINY_HAS_WORKER 0
     namespace tiny { using User_worker = No_worker; }
@@ -135,14 +135,14 @@ using Worker_replies         = Worker_reply_actor<User_worker>;
 
 // MARK: - concepts
 
-// Plug_processor opts in to worker-reply handling by defining
+// plugin::Processor opts in to worker-reply handling by defining
 // `handle_worker_reply(const User_worker::To_processor&)`.
 template <typename P>
 concept Receives_worker_reply_to_processor = requires (P p, const typename User_worker::To_processor& r) {
     { p.handle_worker_reply(r) } -> std::same_as<void>;
 };
 
-// Plug_editor opts in by defining
+// plugin::Editor opts in by defining
 // `on_worker_reply(const User_worker::To_editor&)`.
 template <typename E>
 concept Receives_worker_reply_to_editor = requires (E e, const typename User_worker::To_editor& r) {

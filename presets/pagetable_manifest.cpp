@@ -4,13 +4,13 @@
 #include <nlohmann/json.hpp>
 
 // User model.
-#include "models/param_model.hpp"
+#include "models/params.hpp"
 #include "plug_info.hpp"
 
 auto main() -> int
 {
     using namespace tiny;
-    using User_params = Param_infos<Param_model>;
+    using User_params = Param_infos<models::Params>;
     const auto& specs = User_params::param_specs(Param_order::Presentation);
 
     auto params = nlohmann::json::array();

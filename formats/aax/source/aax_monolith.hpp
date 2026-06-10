@@ -54,7 +54,7 @@
 #include <list>
 #include <utility>
 
-#include "models/param_model.hpp"
+#include "models/params.hpp"
 
 
 // Max number of additional midi nodes is 15, for a grand total of 16 input midi nodes.  We're not aware of any plug-in that uses more.  
@@ -315,7 +315,7 @@ public: ////////////////////////////////////////////////////////////////////////
 private:
 
     // Replaces kSynchronizedParameterQueueSize.
-    static constexpr auto min_queue_size = Param_infos<Param_model>::num_params;
+    static constexpr auto min_queue_size = Param_infos<models::Params>::num_params;
 
     // This structure is used on the render thread to set up the contiguous array of TParamValPair* values
     // which is passed to RenderAudio(). The values are drawn from lists of parameter value updates which

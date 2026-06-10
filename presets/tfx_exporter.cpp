@@ -15,7 +15,7 @@
 #include "../formats/aax/source/aax_adapters.hpp"
 
 // User model.
-#include "models/param_model.hpp"
+#include "models/params.hpp"
 #include "plug_info.hpp"
 
 #ifndef PRESET_DIR
@@ -34,7 +34,7 @@ auto main() -> int
         return 1;
     }
 
-    using User_params = Param_infos<Param_model>;
+    using User_params = Param_infos<models::Params>;
     const auto defaults = User_params::make_defaults<double>(Value_space::Knob);
 
     // State adapter to convert between JSON and parameter values.

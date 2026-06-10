@@ -59,9 +59,9 @@ struct Meter_spec {
 // Model
 template<typename T>
 concept Some_meter_model = requires {
-    typename T::Meter_address;
-    requires Enum<typename T::Meter_address>;
-    requires std::same_as<std::underlying_type_t<typename T::Meter_address>, uint32_t>;
+    typename T::Address;
+    requires Enum<typename T::Address>;
+    requires std::same_as<std::underlying_type_t<typename T::Address>, uint32_t>;
     { T::make_specs() } -> std::same_as<std::vector<Meter_spec>>;
 };
 
@@ -77,7 +77,7 @@ template<Some_meter_model User_model>
 class Meter_infos {
 public:
     // Number of meters.
-    static constexpr auto num_meters = enum_raw(User_model::Meter_address::num_meters);
+    static constexpr auto num_meters = enum_raw(User_model::Address::num_meters);
 
     static auto meter_specs() -> const std::vector<Meter_spec>&
     {

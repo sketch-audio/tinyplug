@@ -10,8 +10,8 @@
 #include "public.sdk/source/vst/vstaudioeffect.h"
 #include "base/source/fstreamer.h"
 
-#include "models/meter_model.hpp"
-#include "models/param_model.hpp"
+#include "models/meters.hpp"
+#include "models/params.hpp"
 #include "plug_info.hpp"
 
 #include "vst3_adapters.hpp"

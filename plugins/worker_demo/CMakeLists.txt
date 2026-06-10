@@ -36,13 +36,13 @@ add_property(${PLUGIN_TARGET} TINY_VST3_SUBCATEGORIES "Fx")
 # ---
 
 target_sources(${PLUGIN_TARGET} PRIVATE
-    source/models/meter_model.hpp
-    source/models/param_model.hpp
-    source/plug_editor.cpp
-    source/plug_editor.hpp
-    source/plug_processor.cpp
-    source/plug_processor.hpp
-    source/plug_worker.hpp
+    source/models/meters.hpp
+    source/models/params.hpp
+    source/editor.cpp
+    source/editor.hpp
+    source/processor.cpp
+    source/processor.hpp
+    source/worker.hpp
 )
 
 configure_plug_info(

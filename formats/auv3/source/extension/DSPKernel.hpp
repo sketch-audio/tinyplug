@@ -8,9 +8,9 @@
 #import <vector>
 #import <span>
 
-#include "plug_processor.hpp"
-#include "models/meter_model.hpp"
-#include "models/param_model.hpp"
+#include "processor.hpp"
+#include "models/meters.hpp"
+#include "models/params.hpp"
 #include "plug_info.hpp"
 
 #include "dsp/host_bypass.hpp"
@@ -242,8 +242,8 @@ private:
 //    bool mBypassed = false;
     AUAudioFrameCount mMaxFramesToRender = 1024;
     
-    using User_params = tiny::Param_infos<tiny::Param_model>;
-    using User_meters = tiny::Meter_infos<tiny::Meter_model>;
+    using User_params = tiny::Param_infos<tiny::models::Params>;
+    using User_meters = tiny::Meter_infos<tiny::models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
@@ -279,7 +279,7 @@ private:
     
     std::array<float, num_meters> _last_meters{};
     
-    std::unique_ptr<tiny::Plug_processor> _processor = std::make_unique<tiny::Plug_processor>();
+    std::unique_ptr<tiny::plugin::Processor> _processor = std::make_unique<tiny::plugin::Processor>();
     uint32_t _latency{_processor->latency_samps()};
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;

@@ -6,8 +6,8 @@
 
 #include "tinyplug/tinyplug.hpp"
 
-#include "models/meter_model.hpp"
-#include "models/param_model.hpp"
+#include "models/meters.hpp"
+#include "models/params.hpp"
 
 #include "vst3_adapters.hpp"
 #include "vst3_controller.hpp"

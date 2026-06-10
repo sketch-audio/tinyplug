@@ -9,9 +9,9 @@
 #include "clap/helpers/host-proxy.hh"
 #include "clap/helpers/host-proxy.hxx"
 
-#include "plug_processor.hpp"
-#include "models/meter_model.hpp"
-#include "models/param_model.hpp"
+#include "processor.hpp"
+#include "models/meters.hpp"
+#include "models/params.hpp"
 #include "plug_info.hpp"
 
 #include "clap_adapters.hpp"
@@ -135,8 +135,8 @@ private:
     bool _once{false}; // Have we been reset?
     double _sr{48000};
 
-    using User_params = Param_infos<Param_model>;
-    using User_meters = Meter_infos<Meter_model>;
+    using User_params = Param_infos<models::Params>;
+    using User_meters = Meter_infos<models::Meters>;
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 
@@ -157,8 +157,8 @@ private:
     std::array<float, num_meters> _meters{};
 
     // USER
-    std::unique_ptr<Plug_processor> _processor = std::make_unique<Plug_processor>();
-    std::optional<Plug_editor> _editor{};
+    std::unique_ptr<plugin::Processor> _processor = std::make_unique<plugin::Processor>();
+    std::optional<plugin::Editor> _editor{};
     Task_manager _tasks{};
 
     // GUI

@@ -2,9 +2,9 @@
 
 #include "public.sdk/source/vst/vsteditcontroller.h"
 
-#include "models/meter_model.hpp"
-#include "models/param_model.hpp"
-#include "plug_editor.hpp"
+#include "models/meters.hpp"
+#include "models/params.hpp"
+#include "editor.hpp"
 
 #include "vst3_messaging.hpp"
 #include "vst3_view.hpp"
@@ -79,11 +79,11 @@ public:
 
 protected:
 
-    std::optional<Plug_editor> _editor{};
+    std::optional<plugin::Editor> _editor{};
     Task_manager _tasks{};
 
-    using User_params = Param_infos<Param_model>;
-    using User_meters = Meter_infos<Meter_model>;
+    using User_params = Param_infos<models::Params>;
+    using User_meters = Meter_infos<models::Meters>;
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 

@@ -11,7 +11,7 @@
 
 #include "tinyplug/tinyplug.hpp"
 
-#include "models/param_model.hpp"
+#include "models/params.hpp"
 
 namespace tiny {
 

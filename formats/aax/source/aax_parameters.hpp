@@ -9,10 +9,10 @@
 
 #include "plug_info.hpp"
 
-#include "plug_processor.hpp"
-#include "models/meter_model.hpp"
-#include "models/param_model.hpp"
-#include "plug_editor.hpp"
+#include "processor.hpp"
+#include "models/meters.hpp"
+#include "models/params.hpp"
+#include "editor.hpp"
 
 #include "dsp/host_bypass.hpp"
 
@@ -24,7 +24,7 @@ public:
     using Super = AAX_CMonolithicParameters;
     Aax_parameters() : Super{}
     {
-        _editor = std::make_unique<Plug_editor>(_tasks.actor());
+        _editor = std::make_unique<plugin::Editor>(_tasks.actor());
 
 #if TINY_HAS_WORKER
         try_bind_worker(*_processor, Worker_processor_actor{
@@ -72,7 +72,7 @@ public:
         assert(success && "Push to processor queue failed! Increase queue size.");
     }
 
-    auto get_editor() -> Plug_editor* 
+    auto get_editor() -> plugin::Editor* 
     {
         return _editor.get();
     }
@@ -101,12 +101,12 @@ private:
 
     auto _build_chunk() const -> void;
 
-    std::unique_ptr<Plug_processor> _processor = std::make_unique<Plug_processor>();
-    std::unique_ptr<Plug_editor> _editor{};
+    std::unique_ptr<plugin::Processor> _processor = std::make_unique<plugin::Processor>();
+    std::unique_ptr<plugin::Editor> _editor{};
     Task_manager _tasks{};
 
-    using User_params = Param_infos<Param_model>;
-    using User_meters = Meter_infos<Meter_model>;
+    using User_params = Param_infos<models::Params>;
+    using User_meters = Meter_infos<models::Meters>;
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 

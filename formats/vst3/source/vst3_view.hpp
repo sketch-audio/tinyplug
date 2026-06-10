@@ -8,9 +8,9 @@
 #include "tinyplug/tinyplug.hpp"
 #include "platform/platform_view.hpp"
 
-#include "models/meter_model.hpp"
-#include "models/param_model.hpp"
-#include "plug_editor.hpp"
+#include "models/meters.hpp"
+#include "models/params.hpp"
+#include "editor.hpp"
 
 namespace tiny {
 
@@ -21,7 +21,7 @@ public:
 
     struct Deps {
         Vst3_controller* controller{}; // So we can cache the resized size.
-        Plug_editor* editor{};
+        plugin::Editor* editor{};
         Ui_receiver receiver{};
         Task_manager* tasks{};
 #if TINY_HAS_WORKER
@@ -51,8 +51,8 @@ protected:
     auto on_draw(View_context& view_context) -> void;
     auto on_notify(const Ui_notification& notification) -> void;
 
-    using User_params = Param_infos<Param_model>;
-    using User_meters = Meter_infos<Meter_model>;
+    using User_params = Param_infos<models::Params>;
+    using User_meters = Meter_infos<models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;

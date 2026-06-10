@@ -7,7 +7,7 @@
 #include "AAX_VController.h"
 
 #include "platform/platform_view.hpp"
-#include "plug_editor.hpp"
+#include "editor.hpp"
 
 #include "aax_adapters.hpp"
 #include "aax_parameters.hpp"
@@ -33,8 +33,8 @@ private:
     auto on_draw(View_context& view_context) -> void;
     auto on_notify(const Ui_notification& notification) -> void;
 
-    using User_params = Param_infos<Param_model>;
-    using User_meters = Meter_infos<Meter_model>;
+    using User_params = Param_infos<models::Params>;
+    using User_meters = Meter_infos<models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
@@ -42,7 +42,7 @@ private:
     Action_queue _actions{};
     Undo_history _undo_history{};
 
-    Plug_editor* _editor{};
+    plugin::Editor* _editor{};
     Ui_receiver _receiver{};
     Task_manager* _tasks{};
     Aax_parameters* _params{};
