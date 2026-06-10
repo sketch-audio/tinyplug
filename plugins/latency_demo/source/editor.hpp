@@ -26,7 +26,7 @@ public:
 
 private:
 
-    using User_params = Param_infos<models::Params>;
+    using User_params = params::Infos<models::Params>;
     using Address = models::Params::Address;
 
     Frame _frame{};

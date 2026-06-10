@@ -58,39 +58,39 @@ struct Flattened_units {
     std::vector<Param_unit> param_to_unit;
 };
 
-inline auto tree_to_units(const Param_node& root) -> Flattened_units
+inline auto tree_to_units(const params::Node& root) -> Flattened_units
 {
     auto result = Flattened_units{};
     auto next_unit_id = int32_t{1};
 
-    const auto visit = [&](const Param_node& node, int32_t parent_id, const auto& self) -> std::optional<int32_t> {
+    const auto visit = [&](const params::Node& node, int32_t parent_id, const auto& self) -> std::optional<int32_t> {
         return std::visit(Inline_visitor{
-            [&](const Param_spec&) -> std::optional<int32_t> {
+            [&](const params::Spec&) -> std::optional<int32_t> {
                 // Specs are assigned to their enclosing group’s unit
                 return std::nullopt;
             },
-            [&](const Param_group& group) -> std::optional<int32_t> {
+            [&](const params::Group& group) -> std::optional<int32_t> {
                 // Groups without a name are transparent wrappers — don't create a unit,
                 // just pass the current parent down to children.
-                const int32_t this_unit_id = !*group.name ? parent_id : next_unit_id++;
+                const int32_t this_unit_id = group.name.empty() ? parent_id : next_unit_id++;
 
-                if (!!*group.name) {
+                if (!group.name.empty()) {
                     result.units.push_back(Unit_info{
                         .unit_id = this_unit_id,
                         .parent_id = parent_id,
-                        .name = group.name
+                        .name = std::string{group.name}
                     });
                 }
 
                 for (const auto& child : group.nodes) {
                     std::visit(Inline_visitor{
-                        [&](const Param_spec& spec) {
+                        [&](const params::Spec& spec) {
                             result.param_to_unit.push_back(Param_unit{
                                 .param_id = spec.address,
                                 .unit_id = this_unit_id
                             });
                         },
-                        [&](const Param_group&) {
+                        [&](const params::Group&) {
                             self(child, this_unit_id, self);
                         }
                     }, child);

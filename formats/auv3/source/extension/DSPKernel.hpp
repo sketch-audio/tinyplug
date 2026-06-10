@@ -242,7 +242,7 @@ private:
 //    bool mBypassed = false;
     AUAudioFrameCount mMaxFramesToRender = 1024;
     
-    using User_params = tiny::Param_infos<tiny::models::Params>;
+    using User_params = tiny::params::Infos<tiny::models::Params>;
     using User_meters = tiny::meters::Infos<tiny::models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;

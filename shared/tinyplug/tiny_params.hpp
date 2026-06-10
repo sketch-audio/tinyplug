@@ -10,6 +10,8 @@
 #include <optional>
 #include <ranges>
 #include <sstream>
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_set>
 #include <variant>
@@ -17,40 +19,18 @@
 
 #include "tiny_utils.hpp"
 
-namespace tiny {
+namespace tiny::params {
 
-// MARK: - Semantics
-
-// Specifies a parameter whose value is to be interpreted as "true" or "false" by the host.
-struct Bool_semantics {
-    // Default value.
-    bool def_val{true};
-
-    // Regular.
-    bool operator==(const Bool_semantics&) const = default;
-};
-
-// Specifies a parameter whose value is to be interpreted as an item in a list by the host.
-// Requires `def_val` < `items.size()`.
-struct List_semantics {
-    // The list items.
-    std::vector<const char*> items{"One", "Two", "Three"};
-
-    // Default list item (index). 
-    size_t def_val{};
-
-    // Regular.
-    bool operator==(const List_semantics&) const = default;
-};
+// MARK: - Semantics (types defined together near the adapters below)
 
 // Unit display hints for integer, real semantics.
 enum class Units : uint32_t {
-    generic = 0,
-    percent,
-    decibels,
-    hertz,
-    milliseconds,
-    degrees
+    Generic = 0,
+    Percent,
+    Decibels,
+    Hertz,
+    Milliseconds,
+    Degrees
 };
 
 // Get the units string for `units`.
@@ -58,200 +38,224 @@ inline auto units_string(Units units) -> std::string
 {
     using enum Units;
     switch (units) {
-        case generic:
+        case Generic:
             return "";
-        case percent:
+        case Percent:
             return "%";
-        case decibels:
+        case Decibels:
             return "dB";
-        case hertz:
+        case Hertz:
             return "Hz";
-        case milliseconds:
+        case Milliseconds:
             return "ms";
-        case degrees:
+        case Degrees:
             return "°";
         default:
             return "";
     }
 }
 
-// Specifies a parameter whose value is to be interpreted as an integral value by the host.
-struct Int_semantics {
-    // Minimum plain value.
-    int32_t min_val{};
-
-    // Default plain value.
-    int32_t def_val{};
-
-    // Maximum plain value.
-    int32_t max_val{1};
-
-    // Units (display hint).
-    Units units{};
-
-    // Regular.
-    bool operator==(const Int_semantics&) const = default;
-};
-
-// Specifies a parameter whose value is to be interpreted as a fixed-point value by the host.
-struct Fixed_semantics {
-    // Minimum plain value (finite).
-    double min_val{};
-
-    // Default plain value.
-    double def_val{};
-
-    // Maximum plain value (finite).
-    double max_val{};
-
-    // Step size.
-    double step_size{0.1};
-
-    // Units (display hint).
-    Units units{};
-
-    // Regular.
-    bool operator==(const Fixed_semantics&) const = default;
-};
-
 // MARK: - Knob adapters
 
-// Specifies a linear map between plain and normalized value.
-struct Adapt_lin {
-    // Regular.
-    bool operator==(const Adapt_lin&) const = default;
-};
-
-// Specifies a logarithmic map between plain and normalized value.
-// Requires param `min_val` > 0.
-struct Adapt_log {
-    // Regular.
-    bool operator==(const Adapt_log&) const = default;
-};
-
-// Specifies a power-law map between plain and normalized value.
-// Requires `exp` > 0.
-struct Adapt_pow {
-    // The exponent used for the "norm to plain" transform.
-    double exp{2};
-
-    // Regular.
-    bool operator==(const Adapt_pow&) const = default;
-};
-
-// Specifies a tapered map between plain and normalized value.
-// Requires 0 < `taper` < 1.
-struct Adapt_taper {
-    // Taper pins the knob midpoint to the `taper` factor relative to the output range.
-    // E.g. for a param with range 0...100 and taper = 0.25 (and bipolar not set), the param value will be 25 when the knob is at noon.
-    double taper{0.5f};
-
-    // When set, the taper factor is applied symmetrically around the knob midpoint.
-    bool bipolar{};
-
-    // Regular.
-    bool operator==(const Adapt_taper&) const = default;
-};
-
-// Specifies a piecewise linear map between plain and normalized value.
-// Guarantees `Break_point` corresponding member fields strictly increasing.
-// Requires `Break_point` plain values in param range, norm values in 0...1.
-class Adapt_piece {
-public:
-    // Specifies that the piecewise adapter should perform its mapping with a pair of line segments that share (plain, norm).
-    struct Break_point {
-        // Plain value associated with the break point.
-        double plain{};
-
-        // Norm value associated with the break point.
-        double norm{};
-
+// Specifies the map between plain and normalized value.
+struct Adapter {
+    // Linear map.
+    struct Lin {
         // Regular.
-        bool operator==(const Break_point&) const = default;
+        auto operator==(const Lin&) const -> bool = default;
     };
 
-    // An empty piecewise adapter.
-    Adapt_piece() = default;
+    // Logarithmic map. Requires param `min_val` > 0.
+    struct Log {
+        // Regular.
+        auto operator==(const Log&) const -> bool = default;
+    };
 
-    // A piecewise adapter from an (increasing) set of interior break points.
-    constexpr Adapt_piece(std::vector<Break_point> interior) noexcept : _interior{std::move(interior)} {
-        const auto non_increasing = std::ranges::adjacent_find(_interior, [](const auto& a, const auto& b) {
-            return !(a.plain < b.plain && a.norm < b.norm);
-        });
-        const auto increasing = (non_increasing == _interior.end());
-        assert(increasing && "Break point corresponding member fields must be strictly increasing.");
-        if (!increasing) _interior.clear();
-    }
+    // Power-law map. Requires `exp` > 0.
+    struct Pow {
+        // The exponent used for the "norm to plain" transform.
+        double exp{2};
 
-    // Get the interior break points.
-    auto interior() const -> const std::vector<Break_point>&
-    {
-        return _interior;
-    }
+        // Regular.
+        auto operator==(const Pow&) const -> bool = default;
+    };
 
-    // Regular.
-    bool operator==(const Adapt_piece&) const = default;
+    // Tapered map. Requires 0 < `taper` < 1.
+    struct Taper {
+        // Taper pins the knob midpoint to the `taper` factor relative to the output range.
+        // E.g. for a param with range 0...100 and taper = 0.25 (and bipolar not set), the param value will be 25 when the knob is at noon.
+        double taper{0.5f};
 
-private:
-    
-    std::vector<Break_point> _interior{};
+        // When set, the taper factor is applied symmetrically around the knob midpoint.
+        bool bipolar{};
 
+        // Regular.
+        auto operator==(const Taper&) const -> bool = default;
+    };
+
+    // Piecewise linear map.
+    // Guarantees `Break_point` corresponding member fields strictly increasing.
+    // Requires `Break_point` plain values in param range, norm values in 0...1.
+    class Piece {
+    public:
+        // A pair of line segments that share (plain, norm).
+        struct Break_point {
+            // Plain value associated with the break point.
+            double plain{};
+
+            // Norm value associated with the break point.
+            double norm{};
+
+            // Regular.
+            auto operator==(const Break_point&) const -> bool = default;
+        };
+
+        // An empty piecewise adapter.
+        Piece() = default;
+
+        // A piecewise adapter from an (increasing) set of interior break points.
+        constexpr Piece(std::vector<Break_point> interior) noexcept : _interior{std::move(interior)} {
+            const auto non_increasing = std::ranges::adjacent_find(_interior, [](const auto& a, const auto& b) {
+                return !(a.plain < b.plain && a.norm < b.norm);
+            });
+            const auto increasing = (non_increasing == _interior.end());
+            assert(increasing && "Break point corresponding member fields must be strictly increasing.");
+            if (!increasing) _interior.clear();
+        }
+
+        // Get the interior break points.
+        auto interior() const -> const std::vector<Break_point>&
+        {
+            return _interior;
+        }
+
+        // Regular.
+        auto operator==(const Piece&) const -> bool = default;
+
+    private:
+
+        std::vector<Break_point> _interior{};
+
+    };
+
+    // The set of all knob adapters.
+    using Any = std::variant<Lin, Log, Pow, Taper, Piece>;
 };
 
-// Specifies the map between plain and normalized value.
-using Knob_adapter = std::variant<Adapt_lin, Adapt_log, Adapt_pow, Adapt_taper, Adapt_piece>;
+// MARK: - Semantics
 
-// MARK: - Real semantics
+// How the parameter value is to be interpreted by the host.
+struct Semantics {
+    // Interpreted as "true" or "false".
+    struct Bool {
+        // Default value.
+        bool def_val{true};
 
-// Specifies a parameter whose value is to be interpreted as a real value by the host.
-struct Real_semantics {
-    // Minimum plain value (finite).
-    double min_val{};
+        // Regular.
+        auto operator==(const Bool&) const -> bool = default;
+    };
 
-    // Default plain value.
-    double def_val{0.5f};
+    // Interpreted as an item in a list. Requires `def_val` < `items.size()`.
+    struct List {
+        // The list items.
+        std::vector<std::string_view> items{"One", "Two", "Three"};
 
-    // Maximum plain value (finite).
-    double max_val{1};
+        // Default list item (index).
+        size_t def_val{};
 
-    // Units (display hint).
-    Units units{};
+        // Regular.
+        auto operator==(const List&) const -> bool = default;
+    };
 
-    // Knob value adapter.
-    Knob_adapter knob_adapter{};
+    // Interpreted as an integral value.
+    struct Int {
+        // Minimum plain value.
+        int32_t min_val{};
 
-    // Regular.
-    bool operator==(const Real_semantics&) const = default;
+        // Default plain value.
+        int32_t def_val{};
+
+        // Maximum plain value.
+        int32_t max_val{1};
+
+        // Units (display hint).
+        Units units{};
+
+        // Regular.
+        auto operator==(const Int&) const -> bool = default;
+    };
+
+    // Interpreted as a fixed-point value.
+    struct Fixed {
+        // Minimum plain value (finite).
+        double min_val{};
+
+        // Default plain value.
+        double def_val{};
+
+        // Maximum plain value (finite).
+        double max_val{};
+
+        // Step size.
+        double step_size{0.1};
+
+        // Units (display hint).
+        Units units{};
+
+        // Regular.
+        auto operator==(const Fixed&) const -> bool = default;
+    };
+
+    // Interpreted as a real value.
+    struct Real {
+        // Minimum plain value (finite).
+        double min_val{};
+
+        // Default plain value.
+        double def_val{0.5f};
+
+        // Maximum plain value (finite).
+        double max_val{1};
+
+        // Units (display hint).
+        Units units{};
+
+        // Knob value adapter.
+        Adapter::Any knob_adapter{};
+
+        // Regular.
+        auto operator==(const Real&) const -> bool = default;
+    };
+
+    // The set of all parameter semantics.
+    using Any = std::variant<Bool, List, Int, Fixed, Real>;
 };
-
-// Specifies how the parameter value is to be interpreted by the host..
-using Value_semantics = std::variant<Bool_semantics, List_semantics, Int_semantics, Fixed_semantics, Real_semantics>;
 
 // MARK: - plain to norm
 
 // Normalize a value with real semantics.
-constexpr auto plain_to_norm(double x, const Real_semantics& r) -> double
+constexpr auto plain_to_norm(double x, const Semantics::Real& r) -> double
 {
     return std::visit(Inline_visitor{
-        [&](const Adapt_lin&) {
+        [&](const Adapter::Lin&) {
             return (x - r.min_val) / (r.max_val - r.min_val);
         },
-        [&](const Adapt_log&) {
-            assert(r.min_val > 0 && "Adapt_log requires range min_val > 0.");
+        [&](const Adapter::Log&) {
+            assert(r.min_val > 0 && "Adapter::Log requires range min_val > 0.");
             const auto log_min = std::log2(r.min_val);
             const auto k = std::log2(r.max_val) - log_min;
             return (std::log2(x) - log_min) / k;
         },
-        [&](const Adapt_pow& p) {
-            assert(p.exp > 0 && "Adapt_pow requires exp > 0.");
+        [&](const Adapter::Pow& p) {
+            assert(p.exp > 0 && "Adapter::Pow requires exp > 0.");
             const auto lin = (x - r.min_val) / (r.max_val - r.min_val);
             return std::pow(lin, 1 / p.exp);
         },
-        [&](const Adapt_taper& t) {
+        [&](const Adapter::Taper& t) {
             assert(0 < t.taper && t.taper < 1 && "Adapt taper requires 0 < taper < 1.");
             return normalized(x, r.min_val, r.max_val, t.taper, t.bipolar);
         },
-        [&](const Adapt_piece& p) {
+        [&](const Adapter::Piece& p) {
             const auto& interior = p.interior();
 
             for ([[maybe_unused]] const auto& bp : interior) {
@@ -292,25 +296,25 @@ constexpr auto plain_to_norm(double x, const Real_semantics& r) -> double
 }
 
 // Normalize a plain value.
-constexpr auto plain_to_norm(double x, const Value_semantics& semantics) -> double
+constexpr auto plain_to_norm(double x, const Semantics::Any& semantics) -> double
 {
     return std::visit(Inline_visitor{
-        [&](const Bool_semantics&) {
+        [&](const Semantics::Bool&) {
             return x;
         },
-        [&](const List_semantics& l) {
+        [&](const Semantics::List& l) {
             const auto step_count = static_cast<double>(l.items.size() - 1);
             return x / step_count;
         },
-        [&](const Int_semantics& i) {
+        [&](const Semantics::Int& i) {
             const auto step_count = static_cast<double>(i.max_val - i.min_val);
             return (x - i.min_val) / step_count;
         },
-        [&](const Fixed_semantics& f) {
+        [&](const Semantics::Fixed& f) {
             const auto step_count = (f.max_val - f.min_val) / f.step_size;
             return (x - f.min_val) / (step_count * f.step_size);
         },
-        [&](const Real_semantics& r) {
+        [&](const Semantics::Real& r) {
             return plain_to_norm(x, r);
         },
     }, semantics);
@@ -319,28 +323,28 @@ constexpr auto plain_to_norm(double x, const Value_semantics& semantics) -> doub
 // MARK: - norm to plain
 
 // Denormalize a value with real semantics.
-constexpr auto norm_to_plain(double x, const Real_semantics& r) -> double
+constexpr auto norm_to_plain(double x, const Semantics::Real& r) -> double
 {
     return std::visit(Inline_visitor{
-        [&](const Adapt_lin&) {
+        [&](const Adapter::Lin&) {
             return (r.max_val - r.min_val) * x + r.min_val;
         },
-        [&](const Adapt_log&) {
-            assert(r.min_val > 0 && "Adapt_log requires range min_val > 0.");
+        [&](const Adapter::Log&) {
+            assert(r.min_val > 0 && "Adapter::Log requires range min_val > 0.");
             const auto log_min = std::log2(r.min_val);
             const auto k = std::log2(r.max_val) - log_min;
             return std::exp2(k * x + log_min);
         },
-        [&](const Adapt_pow& p) {
-            assert(p.exp > 0 && "Adapt_pow requires exp > 0.");
+        [&](const Adapter::Pow& p) {
+            assert(p.exp > 0 && "Adapter::Pow requires exp > 0.");
             const auto lin = std::pow(x, p.exp);
             return (r.max_val - r.min_val) * lin + r.min_val;
         },
-        [&](const Adapt_taper& t) {
+        [&](const Adapter::Taper& t) {
             assert(0 < t.taper && t.taper < 1 && "Adapt taper requires 0 < taper < 1.");
             return denormalized(x, r.min_val, r.max_val, t.taper, t.bipolar);
         },
-        [&](const Adapt_piece& p) {
+        [&](const Adapter::Piece& p) {
             const auto& interior = p.interior();
 
             for ([[maybe_unused]] const auto& bp : interior) {
@@ -381,25 +385,25 @@ constexpr auto norm_to_plain(double x, const Real_semantics& r) -> double
 }
 
 // Denormalize a normalized value.
-constexpr auto norm_to_plain(double x, const Value_semantics& semantics) -> double
+constexpr auto norm_to_plain(double x, const Semantics::Any& semantics) -> double
 {
     return std::visit(Inline_visitor{
-        [&](const Bool_semantics&) {
+        [&](const Semantics::Bool&) {
             return std::floor(std::min(double{1}, 2 * x));
         },
-        [&](const List_semantics& l) {
+        [&](const Semantics::List& l) {
             const auto step_count = static_cast<double>(l.items.size() - 1);
             return std::floor(std::min(step_count, x * (step_count + 1)));
         },
-        [&](const Int_semantics& i) {
+        [&](const Semantics::Int& i) {
             const auto step_count = static_cast<double>(i.max_val - i.min_val);
             return std::floor(std::min(step_count, x * (step_count + 1))) + i.min_val;
         },
-        [&](const Fixed_semantics& f) {
+        [&](const Semantics::Fixed& f) {
             const auto step_count = (f.max_val - f.min_val) / f.step_size;
             return std::floor(std::min(step_count, x * (step_count + 1))) * f.step_size + f.min_val;
         },
-        [&](const Real_semantics& r) {
+        [&](const Semantics::Real& r) {
             return norm_to_plain(x, r);
         },
     }, semantics);
@@ -407,66 +411,66 @@ constexpr auto norm_to_plain(double x, const Value_semantics& semantics) -> doub
 
 // MARK: - Host policy
 
-enum class Host_policy : uint32_t {
+enum class Policy : uint32_t {
     // The host should provide a control and an automation lane for this parameter.
     // E.g. Any standard parameter.
-    automation = 0,
+    Automation = 0,
 
     // The host may provide a control for this parameter, but no automation lane.
     // E.g. Latency mode.
-    control,
+    Control,
 
     // Hidden from host UI. Saves with state.
     // E.g. Any private parameter.
-    hidden,
+    Hidden,
 
     // Hidden from host UI. Does not save with state.
     // E.g. GUI-only paremters like "mute" or "solo".
-    interface,
+    Interface,
 };
 
 // MARK: - Param group, spec
 
 // Forward.
-struct Param_group; struct Param_spec;
+struct Group; struct Spec;
 
 // A parameter node is either a group or a spec.
-using Param_node = std::variant<Param_group, Param_spec>;
+using Node = std::variant<Group, Spec>;
 
 // A named group of parameter nodes.
-struct Param_group {
+struct Group {
     // The group name.
-    const char* name{""};
+    std::string_view name{""};
 
     // Used by AUv3 and presets. Must be unique among siblings.
-    const char* string_id{nullptr};
+    std::string_view string_id{};
 
     // The group nodes.
-    std::vector<Param_node> nodes{};
+    std::vector<Node> nodes{};
 };
 
 // A specification for a parameter.
-struct Param_spec {
+struct Spec {
     // The parameter's unique address.
     uint32_t address{};
 
     // Used by AUv3 and presets. Must be unique among siblings.
-    const char* string_id{nullptr};
+    std::string_view string_id{};
 
     // Name.
-    const char* name{""};
+    std::string_view name{""};
 
     // Short name. (Optional)
-    const char* short_name{""};
+    std::string_view short_name{""};
 
     // Parameter semantics.
-    Value_semantics semantics{Real_semantics{}};
+    Semantics::Any semantics{Semantics::Real{}};
 
     // Host policy.
-    Host_policy policy{Host_policy::automation};
+    Policy policy{Policy::Automation};
 
     // Regular.
-    bool operator==(const Param_spec&) const = default;
+    auto operator==(const Spec&) const -> bool = default;
 };
 
 // MARK: - Value spaces
@@ -483,105 +487,105 @@ struct Value_conv {
     */
     
     // Convert a plain value to host space.
-    static auto plain_to_host(double plain_value, const Value_semantics& semantics) -> double
+    static auto plain_to_host(double plain_value, const Semantics::Any& semantics) -> double
     {
         // Normalize real params.
-        if (const auto* r = std::get_if<Real_semantics>(&semantics)) {
+        if (const auto* r = std::get_if<Semantics::Real>(&semantics)) {
             return plain_to_norm(plain_value, *r);
         }
-        if (const auto* f = std::get_if<Fixed_semantics>(&semantics)) {
+        if (const auto* f = std::get_if<Semantics::Fixed>(&semantics)) {
             return norm_to_plain(plain_to_norm(plain_value, *f), *f); // Force quantize.
         }
         return plain_value;
     }
 
     // Convert a host value to plain space.
-    static auto host_to_plain(double host_value, const Value_semantics& semantics) -> double
+    static auto host_to_plain(double host_value, const Semantics::Any& semantics) -> double
     {
         // Denormalize real params.
-        if (const auto* r = std::get_if<Real_semantics>(&semantics)) {
+        if (const auto* r = std::get_if<Semantics::Real>(&semantics)) {
             return norm_to_plain(host_value, *r);
         }
-        if (const auto* f = std::get_if<Fixed_semantics>(&semantics)) {
+        if (const auto* f = std::get_if<Semantics::Fixed>(&semantics)) {
             return norm_to_plain(plain_to_norm(host_value, *f), *f); // Force quantize.
         }
         return host_value;
     }
 
     // Convert a host value to knob space. 
-    static auto host_to_knob(double host_value, const Value_semantics& semantics) -> double
+    static auto host_to_knob(double host_value, const Semantics::Any& semantics) -> double
     {
         // Normalize list, integer params.
         return std::visit(Inline_visitor{
-            [&](const List_semantics&) { return plain_to_norm(host_value, semantics); },
-            [&](const Int_semantics&) { return plain_to_norm(host_value, semantics); },
-            [&](const Fixed_semantics&) { return plain_to_norm(host_value, semantics); },
+            [&](const Semantics::List&) { return plain_to_norm(host_value, semantics); },
+            [&](const Semantics::Int&) { return plain_to_norm(host_value, semantics); },
+            [&](const Semantics::Fixed&) { return plain_to_norm(host_value, semantics); },
             [=](const auto&) { return host_value; },
         }, semantics);
     }
 
     // Convert a knob value to host space.
-    static auto knob_to_host(double knob_value, const Value_semantics& semantics) -> double
+    static auto knob_to_host(double knob_value, const Semantics::Any& semantics) -> double
     {
         // Denormalize list, integer params.
         return std::visit(Inline_visitor{
-            [&](const List_semantics&) { return norm_to_plain(knob_value, semantics); },
-            [&](const Int_semantics&) { return norm_to_plain(knob_value, semantics); },
-            [&](const Fixed_semantics&) { return norm_to_plain(knob_value, semantics); },
+            [&](const Semantics::List&) { return norm_to_plain(knob_value, semantics); },
+            [&](const Semantics::Int&) { return norm_to_plain(knob_value, semantics); },
+            [&](const Semantics::Fixed&) { return norm_to_plain(knob_value, semantics); },
             [=](const auto&) { return knob_value; },
         }, semantics);
     }
 
     // Convert knob value to plain space. 
-    static auto knob_to_plain(double knob_value, const Value_semantics& semantics) -> double
+    static auto knob_to_plain(double knob_value, const Semantics::Any& semantics) -> double
     {
         return norm_to_plain(knob_value, semantics);
     }
 
     // Convert a plain value to knob space.
-    static auto plain_to_knob(double plain_value, const Value_semantics& semantics) -> double
+    static auto plain_to_knob(double plain_value, const Semantics::Any& semantics) -> double
     {
         return plain_to_norm(plain_value, semantics);
     }
 };
 
-inline auto get_plain_min(const Param_spec& spec) -> double
+inline auto get_plain_min(const Spec& spec) -> double
 {
     return std::visit(Inline_visitor{
-        [](const Bool_semantics&) {
+        [](const Semantics::Bool&) {
             return 0.0;
         },
-        [](const List_semantics&) {
+        [](const Semantics::List&) {
             return 0.0;
         },
-        [](const Int_semantics& i) {
+        [](const Semantics::Int& i) {
             return static_cast<double>(i.min_val);
         },
-        [](const Fixed_semantics& f) {
+        [](const Semantics::Fixed& f) {
             return f.min_val;
         },
-        [](const Real_semantics& r) {
+        [](const Semantics::Real& r) {
             return r.min_val;
         },
     }, spec.semantics);
 }
 
-inline auto get_plain_max(const Param_spec& spec) -> double
+inline auto get_plain_max(const Spec& spec) -> double
 {
     return std::visit(Inline_visitor{
-        [](const Bool_semantics&) {
+        [](const Semantics::Bool&) {
             return 1.0;
         },
-        [](const List_semantics& l) {
+        [](const Semantics::List& l) {
             return static_cast<double>(l.items.size() - 1);
         },
-        [](const Int_semantics& i) {
+        [](const Semantics::Int& i) {
             return static_cast<double>(i.max_val);
         },
-        [](const Fixed_semantics& f) {
+        [](const Semantics::Fixed& f) {
             return f.max_val;
         },
-        [](const Real_semantics& r) {
+        [](const Semantics::Real& r) {
             return r.max_val;
         },
     }, spec.semantics);
@@ -589,85 +593,85 @@ inline auto get_plain_max(const Param_spec& spec) -> double
 
 // MARK: - defaults
 
-inline auto get_plain_default(const Param_spec& spec) -> double
+inline auto get_plain_default(const Spec& spec) -> double
 {
     return std::visit(Inline_visitor{
-        [](const Bool_semantics& b) { return static_cast<double>(b.def_val ? 1 : 0); },
-        [](const List_semantics& l) { return static_cast<double>(l.def_val); },
-        [](const Int_semantics& i) { return static_cast<double>(i.def_val); },
-        [](const Fixed_semantics& f) { return f.def_val; },
-        [](const Real_semantics& r) { return r.def_val; },
+        [](const Semantics::Bool& b) { return static_cast<double>(b.def_val ? 1 : 0); },
+        [](const Semantics::List& l) { return static_cast<double>(l.def_val); },
+        [](const Semantics::Int& i) { return static_cast<double>(i.def_val); },
+        [](const Semantics::Fixed& f) { return f.def_val; },
+        [](const Semantics::Real& r) { return r.def_val; },
     }, spec.semantics);
 }
 
-inline auto get_host_default(const Param_spec& spec) -> double
+inline auto get_host_default(const Spec& spec) -> double
 {
     return std::visit(Inline_visitor{
-        [](const Bool_semantics& b) { return static_cast<double>(b.def_val ? 1 : 0); },
-        [](const List_semantics& l) { return static_cast<double>(l.def_val); },
-        [](const Int_semantics& i) { return static_cast<double>(i.def_val); },
-        [](const Fixed_semantics& f) { return f.def_val; },
-        [](const Real_semantics& r) { return plain_to_norm(r.def_val, r); },
+        [](const Semantics::Bool& b) { return static_cast<double>(b.def_val ? 1 : 0); },
+        [](const Semantics::List& l) { return static_cast<double>(l.def_val); },
+        [](const Semantics::Int& i) { return static_cast<double>(i.def_val); },
+        [](const Semantics::Fixed& f) { return f.def_val; },
+        [](const Semantics::Real& r) { return plain_to_norm(r.def_val, r); },
     }, spec.semantics);
 }
 
-inline auto get_knob_default(const Param_spec& spec) -> double
+inline auto get_knob_default(const Spec& spec) -> double
 {
     return std::visit(Inline_visitor{
-        [](const Bool_semantics& b) { return static_cast<double>(b.def_val ? 1 : 0); },
-        [](const List_semantics& l) { return plain_to_norm(static_cast<double>(l.def_val), l); },
-        [](const Int_semantics& i) { return plain_to_norm(static_cast<double>(i.def_val), i); },
-        [](const Fixed_semantics& f) { return plain_to_norm(f.def_val, f); },
-        [](const Real_semantics& r) { return plain_to_norm(r.def_val, r); },
+        [](const Semantics::Bool& b) { return static_cast<double>(b.def_val ? 1 : 0); },
+        [](const Semantics::List& l) { return plain_to_norm(static_cast<double>(l.def_val), l); },
+        [](const Semantics::Int& i) { return plain_to_norm(static_cast<double>(i.def_val), i); },
+        [](const Semantics::Fixed& f) { return plain_to_norm(f.def_val, f); },
+        [](const Semantics::Real& r) { return plain_to_norm(r.def_val, r); },
     }, spec.semantics);
 }
 
 // MARK: - other helpers
 
 template<typename X>
-inline auto clamp(X x, const Value_semantics& semantics) -> X
+inline auto clamp(X x, const Semantics::Any& semantics) -> X
 {
     return std::visit(Inline_visitor{
-        [x](const Bool_semantics&) {
+        [x](const Semantics::Bool&) {
             return std::clamp(x, X(0), X(1));
         },
-        [x](const List_semantics& s) {
+        [x](const Semantics::List& s) {
             const auto max_val = static_cast<X>(s.items.size() - 1);
             return std::clamp(x, X(0), X(max_val));
         },
-        [x](const Int_semantics& s) {
+        [x](const Semantics::Int& s) {
             return std::clamp(x, static_cast<X>(s.min_val), static_cast<X>(s.max_val));
         },
-        [x](const Fixed_semantics& s) {
+        [x](const Semantics::Fixed& s) {
             return std::clamp(x, static_cast<X>(s.min_val), static_cast<X>(s.max_val));
         },
-        [x](const Real_semantics& s) {
+        [x](const Semantics::Real& s) {
             return std::clamp(x, static_cast<X>(s.min_val), static_cast<X>(s.max_val));
         }
     }, semantics);
 }
 
 template<typename X>
-inline auto knob_next(X x, const Value_semantics& semantics) -> X
+inline auto knob_next(X x, const Semantics::Any& semantics) -> X
 {
     return std::visit(Inline_visitor{
-        [x](const Bool_semantics&) {
+        [x](const Semantics::Bool&) {
             return x > 0.5f ? X(0) : X(1);
         },
-        [x](const List_semantics& s) {
+        [x](const Semantics::List& s) {
             const auto plain = Value_conv::knob_to_plain(x, s);
             const auto idx = static_cast<size_t>(plain);
             const auto next = (idx + 1) % s.items.size();
             return Value_conv::plain_to_knob(static_cast<X>(next), s);
         },
-        [x](const Int_semantics& s) {
+        [x](const Semantics::Int& s) {
             const auto plain = Value_conv::knob_to_plain(x, s);
             const auto val = static_cast<int32_t>(plain);
             const auto range = s.max_val - s.min_val + 1;
             const auto next = ((val - s.min_val + 1) % range) + s.min_val;
             return Value_conv::plain_to_knob(static_cast<X>(next), s);
         },
-        [x](const Fixed_semantics& s) {
+        [x](const Semantics::Fixed& s) {
             const auto plain = Value_conv::knob_to_plain(x, s);
             const auto next = plain + s.step_size;
             if (next > s.max_val) {
@@ -675,57 +679,56 @@ inline auto knob_next(X x, const Value_semantics& semantics) -> X
             }
             return Value_conv::plain_to_knob(static_cast<X>(next), s);
         },
-        [x](const Real_semantics&) {
+        [x](const Semantics::Real&) {
             return std::nextafter(x, X(1));
         }
     }, semantics);
 }
 
-inline auto is_param_units(Units units, const Value_semantics& semantics) -> bool
+inline auto is_param_units(Units units, const Semantics::Any& semantics) -> bool
 {
     return std::visit(Inline_visitor{
-        [units](const Fixed_semantics& s) { return s.units == units; },
-        [units](const Real_semantics& s) { return s.units == units; },
+        [units](const Semantics::Fixed& s) { return s.units == units; },
+        [units](const Semantics::Real& s) { return s.units == units; },
         [](const auto&) { return false; }
     }, semantics);
 }
 
-inline auto param_is_discrete(const Value_semantics& semantics) -> bool
+inline auto param_is_discrete(const Semantics::Any& semantics) -> bool
 {
     return std::visit(Inline_visitor{
-        [](const Bool_semantics&) { return true; },
-        [](const List_semantics&) { return true; },
-        [](const Int_semantics&) { return true; },
-        [](const Fixed_semantics&) { return true; },
-        [](const Real_semantics&) { return false; },
+        [](const Semantics::Bool&) { return true; },
+        [](const Semantics::List&) { return true; },
+        [](const Semantics::Int&) { return true; },
+        [](const Semantics::Fixed&) { return true; },
+        [](const Semantics::Real&) { return false; },
     }, semantics);
 }
 
 // MARK: - parameter model
 
 template<typename T>
-concept Some_param_model = requires {
+concept Model = requires {
     // An enum class `Address` with a case `num_params`
     typename T::Address;
     requires Enum<typename T::Address>;
     requires std::same_as<std::underlying_type_t<typename T::Address>, uint32_t>;
-
-    // A static function `build_tree` that returns a `Param_node<Address>`
-    { T::build_tree() } -> std::same_as<Param_node>;
+    { T::Address::Num_params } -> std::same_as<typename T::Address>;
+    { T::build_tree() } -> std::same_as<Node>;
 };
 
 // MARK: - params impl
 
 namespace params_impl {
 
-inline auto flatten_tree(const Param_node& root) -> std::vector<Param_spec>
+inline auto flatten_tree(const Node& root) -> std::vector<Spec>
 {
-    auto result = std::vector<Param_spec>{};
+    auto result = std::vector<Spec>{};
 
     const auto visit = [&](const auto& node, const auto& self) -> void {
         std::visit(Inline_visitor{
-            [&](const Param_spec& spec) { result.push_back(spec); },
-            [&](const Param_group& group) { for (const auto& n : group.nodes) self(n, self); }
+            [&](const Spec& spec) { result.push_back(spec); },
+            [&](const Group& group) { for (const auto& n : group.nodes) self(n, self); }
         }, node);
     };
 
@@ -733,31 +736,31 @@ inline auto flatten_tree(const Param_node& root) -> std::vector<Param_spec>
     return result;
 }
 
-inline auto validate_spec(const Param_spec& spec) -> bool
+inline auto validate_spec(const Spec& spec) -> bool
 {
     auto in_range = [](auto x, auto a, auto b) -> bool { return a <= x && x <= b; };
     auto ok_range = std::visit(Inline_visitor{
-        [](const Bool_semantics&) { return true; },
-        [](const List_semantics& l) { return l.def_val < l.items.size(); },
-        [&](const Int_semantics& i) { return in_range(i.def_val, i.min_val, i.max_val); },
-        [&](const Fixed_semantics& f) { return in_range(f.def_val, f.min_val, f.max_val); },
-        [&](const Real_semantics& r) { return in_range(r.def_val, r.min_val, r.max_val); },
+        [](const Semantics::Bool&) { return true; },
+        [](const Semantics::List& l) { return l.def_val < l.items.size(); },
+        [&](const Semantics::Int& i) { return in_range(i.def_val, i.min_val, i.max_val); },
+        [&](const Semantics::Fixed& f) { return in_range(f.def_val, f.min_val, f.max_val); },
+        [&](const Semantics::Real& r) { return in_range(r.def_val, r.min_val, r.max_val); },
     }, spec.semantics);
     assert(ok_range && "Param default must satisfy min_val <= def_val <= max_val.");
     return ok_range;
 }
 
-inline auto validate_tree(const Param_node& root, [[maybe_unused]] size_t num_expected) -> bool
+inline auto validate_tree(const Node& root, [[maybe_unused]] size_t num_expected) -> bool
 {
     auto ids = std::unordered_set<uint32_t>{};
 
     const auto visit = [&](const auto& node, const auto& self) -> void {
         std::visit(Inline_visitor{
-            [&](const Param_spec& spec) {
+            [&](const Spec& spec) {
                 validate_spec(spec);
                 ids.insert(spec.address);
             },
-            [&](const Param_group& group) {
+            [&](const Group& group) {
                 for (const auto& child : group.nodes) {
                     self(child, self);
                 }
@@ -820,13 +823,13 @@ enum class Value_space : uint32_t { Plain, Host, Knob };
 
 // MARK: - params
 
-template<Some_param_model User_model>
-class Param_infos {
+template<Model User_model>
+class Infos {
 public:
 
-    static constexpr auto num_params = enum_raw(User_model::Address::num_params);
+    static constexpr auto num_params = enum_raw(User_model::Address::Num_params);
 
-    static auto param_tree() -> const Param_node&
+    static auto param_tree() -> const Node&
     {
         // Validate once at startup.
         [[maybe_unused]] static const auto validated = [] {
@@ -838,12 +841,12 @@ public:
         return user_tree;
     }
 
-    static auto param_specs(Param_order ordering) -> const std::vector<Param_spec>&
+    static auto param_specs(Param_order ordering) -> const std::vector<Spec>&
     {
         return ordering == Param_order::Indexable ? indexed_specs : display_specs;
     }
 
-    static auto param_spec(uint32_t address) -> const Param_spec&
+    static auto param_spec(uint32_t address) -> const Spec&
     {
         assert(address < num_params && "Param address out of range.");
         return indexed_specs[address];
@@ -873,9 +876,9 @@ private:
 
     static constexpr auto id_less = [](const auto& a, const auto& b) { return a.address < b.address; };
 
-    inline static const Param_node user_tree = User_model::build_tree();
-    inline static const std::vector<Param_spec> display_specs = params_impl::flatten_tree(user_tree);
-    inline static const std::vector<Param_spec> indexed_specs = params_impl::sorted_copy(display_specs, id_less);
+    inline static const Node user_tree = User_model::build_tree();
+    inline static const std::vector<Spec> display_specs = params_impl::flatten_tree(user_tree);
+    inline static const std::vector<Spec> indexed_specs = params_impl::sorted_copy(display_specs, id_less);
 
 };
 
@@ -883,7 +886,7 @@ private:
 
 struct Host_formatter {
     // 
-    static auto format_string(double host_value, const Value_semantics& semantics, bool include_units = true) -> std::string
+    static auto format_string(double host_value, const Semantics::Any& semantics, bool include_units = true) -> std::string
     {
         const auto plain_value = Value_conv::host_to_plain(host_value, semantics);
 
@@ -896,31 +899,31 @@ struct Host_formatter {
         };
 
         return std::visit(Inline_visitor{
-            [&](const Bool_semantics&) {
+            [&](const Semantics::Bool&) {
                 return plain_value > 0.5f ? std::string{"True"} : std::string{"False"};
             },
-            [&](const List_semantics& l) {
+            [&](const Semantics::List& l) {
                 const auto idx = static_cast<size_t>(plain_value);
                 return std::string{l.items[idx]};
             },
-            [&](const Int_semantics&) {
+            [&](const Semantics::Int&) {
                 return format_float(plain_value, 0); // TODO: - Units
             },
             [&](const auto& fr) {
                 using enum Units;
                 switch (fr.units) {
-                    case generic:
+                    case Generic:
                         return format_float(plain_value, 2);
-                    case percent: {
+                    case Percent: {
                         const auto suffix = include_units ? " %" : "";
                         return format_float(plain_value, 0) + suffix;
                     }
-                    case decibels: {
+                    case Decibels: {
                         const auto prefix = (plain_value >= 0 ? "+" : "");
                         const auto suffix = include_units ? " dB" : "";
                         return prefix + format_float(plain_value, 1) + suffix;
                     }
-                    case hertz: {
+                    case Hertz: {
                         if (plain_value >= 1000 && include_units) {
                             const auto suffix = " kHz";
                             return format_float(plain_value / 1000, 1) + suffix;
@@ -929,12 +932,12 @@ struct Host_formatter {
                             return format_float(plain_value, 0) + suffix;
                         }
                     }
-                    case milliseconds: {
+                    case Milliseconds: {
                         const auto suffix = include_units ? " ms" : "";
                         const auto prec = plain_value >= 10 ? 0 : 1;
                         return format_float(plain_value, prec) + suffix;
                     }
-                    case degrees: {
+                    case Degrees: {
                         const auto prefix = (plain_value >= 0 ? "+" : "");
                         const auto suffix = include_units ? " °" : "";
                         return prefix + format_float(plain_value, 0) + suffix;
@@ -946,7 +949,7 @@ struct Host_formatter {
         }, semantics);
     }
 
-    static auto format_value(const std::string& string, const Value_semantics& semantics) -> std::optional<double>
+    static auto format_value(const std::string& string, const Semantics::Any& semantics) -> std::optional<double>
     {
         // Strip a suffix from a string, also consuming any whitespace between
         // the numeric part and the suffix.
@@ -973,41 +976,41 @@ struct Host_formatter {
         };
 
         return std::visit(Inline_visitor{
-            [&](const Bool_semantics&) -> std::optional<double> {
+            [&](const Semantics::Bool&) -> std::optional<double> {
                 if (string == "True")  return 1.0;
                 if (string == "False") return 0.0;
                 return std::nullopt;
             },
-            [&](const List_semantics& l) -> std::optional<double> {
+            [&](const Semantics::List& l) -> std::optional<double> {
                 for (size_t i = 0; i < l.items.size(); ++i) {
-                    if (std::strcmp(string.c_str(), l.items[i]) == 0) return static_cast<double>(i);
+                    if (string.compare(l.items[i]) == 0) return static_cast<double>(i);
                 }
                 return std::nullopt;
             },
-            [&](const Int_semantics&) -> std::optional<double> {
+            [&](const Semantics::Int&) -> std::optional<double> {
                 return parse_double(string);
             },
             [&](const auto& fr) -> std::optional<double> {
                 using enum Units;
                 switch (fr.units) {
-                    case generic:
+                    case Generic:
                         return parse_double(string);
-                    case percent:
+                    case Percent:
                         if (const auto s = strip_suffix(string, "%"))  return parse_double(*s);
                         return parse_double(string);
-                    case decibels:
+                    case Decibels:
                         if (const auto s = strip_suffix(string, "dB")) return parse_double(*s);
                         return parse_double(string);
-                    case hertz:
+                    case Hertz:
                         if (const auto s = strip_suffix(string, "kHz")) {
                             if (const auto v = parse_double(*s)) return *v * 1000.0;
                         }
                         if (const auto s = strip_suffix(string, "Hz"))  return parse_double(*s);
                         return parse_double(string);
-                    case milliseconds:
+                    case Milliseconds:
                         if (const auto s = strip_suffix(string, "ms"))  return parse_double(*s);
                         return parse_double(string);
-                    case degrees:
+                    case Degrees:
                         if (const auto s = strip_suffix(string, "°"))   return parse_double(*s);
                         return parse_double(string);
                     default:
@@ -1017,5 +1020,31 @@ struct Host_formatter {
         }, semantics);
     }
 };
+
+} // namespace tiny::params
+
+// MARK: - Transitional aliases
+// Names not yet migrated out of tiny:: keep resolving while the params refactor
+// proceeds. Each is removed as its type group moves into tiny::params.
+namespace tiny {
+
+using params::Units;
+using params::units_string;
+using params::Value_conv;
+using params::Host_formatter;
+using params::Param_order;
+using params::Value_space;
+using params::get_plain_min;
+using params::get_plain_max;
+using params::get_plain_default;
+using params::get_host_default;
+using params::get_knob_default;
+using params::clamp;
+using params::knob_next;
+using params::is_param_units;
+using params::param_is_discrete;
+using params::plain_to_norm;
+using params::norm_to_plain;
+using params::make_array_by_indices;
 
 } // namespace tiny

@@ -98,7 +98,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
         const auto& unit_id = param_unit_ids[i];
 
         auto param_info = std::visit(Inline_visitor{
-            [&](const Bool_semantics&) {
+            [&](const params::Semantics::Bool&) {
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.address),
                     .stepCount = 1,
@@ -107,7 +107,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
                     .flags = {}
                 };
             },
-            [&](const List_semantics& l) {
+            [&](const params::Semantics::List& l) {
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.address),
                     .stepCount = static_cast<int32_t>(l.items.size() - 1),
@@ -116,7 +116,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
                     .flags = Steinberg::Vst::ParameterInfo::kIsList
                 };
             },
-            [&](const Int_semantics& i) {
+            [&](const params::Semantics::Int& i) {
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.address),
                     .stepCount = i.max_val - i.min_val,
@@ -125,7 +125,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
                     .flags = {}
                 };
             },
-            [&](const Fixed_semantics&) {
+            [&](const params::Semantics::Fixed&) {
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.address),
                     .stepCount = 0,
@@ -134,7 +134,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
                     .flags = {}
                 };
             },
-            [&](const Real_semantics&) {
+            [&](const params::Semantics::Real&) {
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.address),
                     .stepCount = 0,
@@ -147,21 +147,21 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
 
         // Resolve flags for policy. 
         param_info.flags |= [policy = param.policy]() {
-            using enum Host_policy;
+            using enum params::Policy;
             using Vst3_flags = Steinberg::Vst::ParameterInfo::ParameterFlags;
             switch (policy) {
-                case automation: return Vst3_flags::kCanAutomate;
-                case control: return Vst3_flags::kNoFlags; // Will any hosts display a control?
-                // case hidden: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly}; // Studio Pro doesn't send editor changes to the processor for hidden/read-only combo.
-                // case interface: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly};
+                case Automation: return Vst3_flags::kCanAutomate;
+                case Control: return Vst3_flags::kNoFlags; // Will any hosts display a control?
+                // case Hidden: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly}; // Studio Pro doesn't send editor changes to the processor for hidden/read-only combo.
+                // case Interface: return Vst3_flags{Vst3_flags::kIsHidden | Vst3_flags::kIsReadOnly};
                 default: return Vst3_flags::kNoFlags;
             }
         }();
 
         // Shenanigans to get the name.
-        Steinberg::Vst::StringConvert::convert(param.name, param_info.title);
-        if (std::strlen(param.short_name) > 0) {
-            Steinberg::Vst::StringConvert::convert(param.short_name, param_info.shortTitle);
+        Steinberg::Vst::StringConvert::convert(std::string{param.name}, param_info.title);
+        if (!param.short_name.empty()) {
+            Steinberg::Vst::StringConvert::convert(std::string{param.short_name}, param_info.shortTitle);
         }
 
         parameters.addParameter(param_info);

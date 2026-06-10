@@ -24,7 +24,7 @@ public:
 
     auto process(Dsp_context& context) -> void
     {
-        const auto g = _values[enum_raw(Address::gain)];
+        const auto g = _values[enum_raw(Address::Gain)];
         for (size_t channel = 0; channel < context.ibuffers.size(); ++channel) {
             for (size_t frame = 0; frame < context.num_frames; ++frame) {
                 context.obuffers[channel][frame] = g * context.ibuffers[channel][frame];
@@ -52,7 +52,7 @@ public:
 
 private:
 
-    using User_params = Param_infos<models::Params>;
+    using User_params = params::Infos<models::Params>;
     using Address = models::Params::Address;
     static constexpr auto num_params = User_params::num_params;
 

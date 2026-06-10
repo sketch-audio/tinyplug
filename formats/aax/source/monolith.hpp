@@ -315,7 +315,7 @@ public: ////////////////////////////////////////////////////////////////////////
 private:
 
     // Replaces kSynchronizedParameterQueueSize.
-    static constexpr auto min_queue_size = Param_infos<models::Params>::num_params;
+    static constexpr auto min_queue_size = params::Infos<models::Params>::num_params;
 
     // This structure is used on the render thread to set up the contiguous array of TParamValPair* values
     // which is passed to RenderAudio(). The values are drawn from lists of parameter value updates which

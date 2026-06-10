@@ -13,12 +13,12 @@ auto Processor::handle_event(const Render_event& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Set_param& e) {
-            if (e.address == enum_raw(Address::gain)) {
+            if (e.address == enum_raw(Address::Gain)) {
                 _ramper.set_immediate(static_cast<float>(e.value));
             }
         },
         [this](const Ramp_param& e) {
-            if (e.address == enum_raw(Address::gain)) {
+            if (e.address == enum_raw(Address::Gain)) {
                 _ramper.set_ramp(static_cast<float>(e.target), e.dur_samples);
             }
         },
@@ -28,7 +28,7 @@ auto Processor::handle_event(const Render_event& event) -> void
 
 auto Processor::process(Dsp_context& context) -> void
 {
-    const auto id = enum_raw(Address::gain);
+    const auto id = enum_raw(Address::Gain);
     
     for (size_t frame = 0; frame < context.num_frames; ++frame) {
         _values[id] = _ramper.process();

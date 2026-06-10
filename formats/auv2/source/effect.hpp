@@ -131,7 +131,7 @@ private:
     std::optional<plugin::Editor> _editor{};
     Task_manager _tasks{};
 
-    using User_params = Param_infos<models::Params>;
+    using User_params = params::Infos<models::Params>;
     using User_meters = meters::Infos<models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;

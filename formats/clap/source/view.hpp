@@ -49,7 +49,7 @@ private:
     auto on_draw(View_context& view_context) -> void;
     auto on_notify(const Ui_notification& notification) -> void;
 
-    using User_params = Param_infos<models::Params>;
+    using User_params = params::Infos<models::Params>;
     using User_meters = meters::Infos<models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;

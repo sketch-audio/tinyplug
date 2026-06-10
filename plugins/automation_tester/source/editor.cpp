@@ -31,7 +31,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     // Get param values.
     auto& params = processor_state.params;
 
-    const auto id = enum_raw(Address::gain);
+    const auto id = enum_raw(Address::Gain);
     const auto g = static_cast<float>(params[id]);
 
     // Draw background.

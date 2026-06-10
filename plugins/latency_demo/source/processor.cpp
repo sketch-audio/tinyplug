@@ -15,7 +15,7 @@ auto Processor::handle_event(const Render_event& event) -> void
     std::visit(Inline_visitor{
         [this](const Set_param& e) {
             // Identify that we want a latency change.
-            if (e.address == enum_raw(Address::latency_mode) && e.value != _values[e.address]) {
+            if (e.address == enum_raw(Address::Latency_mode) && e.value != _values[e.address]) {
                 _wants_latency_change = true;
             }
             _values[e.address] = static_cast<float>(e.value);

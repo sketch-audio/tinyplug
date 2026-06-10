@@ -18,7 +18,7 @@ auto Editor::on_gui_show(const Edit_context& edit) -> void
         .on_started = [this](const Click_info& info) {
             // Providing an execution context makes sure the dialog result is handled on the main thread.
             Platform_dialogs::text_input("Gain", "Enter a value between 0 and 1. This prompt is deliberately long so that the dialog must word-wrap rather than stretch to fit the entire message on a single line — useful for verifying the Windows auto-wrap behavior matches macOS and iOS.", [this](std::string text) {
-                const auto addr = enum_raw(Address::gain);
+                const auto addr = enum_raw(Address::Gain);
                 const auto& param_spec = User_params::param_spec(addr);
                 if (const auto value = Host_formatter::format_value(text, param_spec.semantics)) {
                     const auto knob = Value_conv::plain_to_knob(*value, param_spec.semantics);
@@ -47,7 +47,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     }
 
     const auto& param_values = state.processor_state.params;
-    const auto addr = enum_raw(Address::gain);
+    const auto addr = enum_raw(Address::Gain);
     _value = param_values[addr];
     if (_click)
         _click->process_events(view_context.interaction.events);

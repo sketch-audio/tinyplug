@@ -43,7 +43,7 @@ auto Editor::on_gui_show(const Edit_context& edit) -> void
             const auto translation = make_translation(info.fpos, info.tpos);
             const auto deltas = resolve_deltas(translation, _frame);
             const auto value = resolve_incremented(_value, deltas);
-            const auto addr = enum_raw(Address::gain);
+            const auto addr = enum_raw(Address::Gain);
             _edit.actions.push(Action_start{addr});
             _edit.actions.push(Set_param{addr, value});
         },
@@ -51,14 +51,14 @@ auto Editor::on_gui_show(const Edit_context& edit) -> void
             const auto translation = make_translation(info.fpos, info.tpos);
             const auto deltas = resolve_deltas(translation, _frame);
             const auto value = resolve_incremented(_value, deltas);
-            const auto addr = enum_raw(Address::gain);
+            const auto addr = enum_raw(Address::Gain);
             _edit.actions.push(Set_param{addr, value});
         },
         .on_ended = [=, this](const Drag_info& info) {
             const auto translation = make_translation(info.fpos, info.tpos);
             const auto deltas = resolve_deltas(translation, _frame);
             const auto value = resolve_incremented(_value, deltas);
-            const auto addr = enum_raw(Address::gain);
+            const auto addr = enum_raw(Address::Gain);
             _edit.actions.push(Set_param{addr, value});
             _edit.actions.push(Action_end{addr});
         },
@@ -79,7 +79,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     }
 
     const auto& param_values = state.processor_state.params;
-    const auto addr = enum_raw(Address::gain);
+    const auto addr = enum_raw(Address::Gain);
     _value = param_values[addr];
     if (_drag)
         _drag->process_events(view_context.interaction.events);

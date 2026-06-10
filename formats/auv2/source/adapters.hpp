@@ -76,16 +76,16 @@ struct Clump {
 
 using Clump_map = std::unordered_map<uint32_t, Clump>; // Param id : Clump
 
-inline auto tree_to_clump_map(const Param_node& root) -> Clump_map
+inline auto tree_to_clump_map(const params::Node& root) -> Clump_map
 {
     auto result = Clump_map{};
     auto clump_ids = std::unordered_map<std::string, int32_t>{};
     auto next_id = int32_t{1}; // 0 reserved for system per AU docs.
 
-    const auto visit = [&](const Param_node& node, const std::string& path, const auto& self) -> void {
+    const auto visit = [&](const params::Node& node, const std::string& path, const auto& self) -> void {
         std::visit(
             Inline_visitor{
-                [&](const Param_spec& spec) {
+                [&](const params::Spec& spec) {
                     const auto clump_id = [&]() {
                         const auto [it, inserted] = clump_ids.try_emplace(path, next_id);
                         if (inserted) ++next_id;
@@ -93,8 +93,8 @@ inline auto tree_to_clump_map(const Param_node& root) -> Clump_map
                     }();
                     result[spec.address] = {clump_id, path};
                 },
-                [&](const Param_group& group) {
-                    const auto new_path = path.empty() ? std::string{group.name} : path + "/" + group.name;
+                [&](const params::Group& group) {
+                    const auto new_path = path.empty() ? std::string{group.name} : path + "/" + std::string{group.name};
 
                     for (const auto& child : group.nodes) {
                         self(child, new_path, self);

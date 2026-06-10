@@ -16,9 +16,9 @@ struct State_rules {
     // 
     static constexpr auto no_value = std::numeric_limits<float>::lowest();
 
-    static auto is_persistent(const Param_spec& spec) -> bool
+    static auto is_persistent(const params::Spec& spec) -> bool
     {
-        return spec.policy != Host_policy::interface;
+        return spec.policy != params::Policy::Interface;
     }
 
     /**

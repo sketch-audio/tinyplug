@@ -29,17 +29,17 @@ AAX_Result Parameters::EffectInit()
         const auto& aax_id = aax_ids[i];
 
         std::visit(Inline_visitor{
-            [&](const Bool_semantics& b) {
+            [&](const params::Semantics::Bool& b) {
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<bool>(
                     aax_id.c_str(),
-                    AAX_CString(param.name),
+                    AAX_CString(std::string{param.name}.c_str()),
                     b.def_val,
                     AAX_CBinaryTaperDelegate<bool>(),
                     AAX_CBinaryDisplayDelegate<bool>("False", "True"),
-                    param.policy == Host_policy::automation
+                    param.policy == params::Policy::Automation
                 ));
-                if (std::strlen(param.short_name) > 0) {
-                    aax_param->AddShortenedName(param.short_name);
+                if (!param.short_name.empty()) {
+                    aax_param->AddShortenedName(std::string{param.short_name}.c_str());
                 }
                 aax_param->SetNumberOfSteps(2);
                 aax_param->SetType(AAX_eParameterType_Discrete);
@@ -48,18 +48,27 @@ AAX_Result Parameters::EffectInit()
                 }
                 mParameterManager.AddParameter(aax_param.release());
             },
-            [&](const List_semantics& l) {
+            [&](const params::Semantics::List& l) {
                 const auto num_items = static_cast<int32_t>(l.items.size());
+                // The delegate copies each NULL-terminated C string during construction,
+                // but string_view::data() isn't guaranteed NULL-terminated — so materialize
+                // owning std::strings (these outlive the constructor call) and pass their c_str().
+                auto item_storage = std::vector<std::string>{};
+                item_storage.reserve(l.items.size());
+                for (const auto& it : l.items) item_storage.emplace_back(it);
+                auto item_cstrs = std::vector<const char*>{};
+                item_cstrs.reserve(item_storage.size());
+                for (const auto& s : item_storage) item_cstrs.push_back(s.c_str());
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<int32_t>(
                     aax_id.c_str(),
-                    AAX_CString(param.name),
+                    AAX_CString(std::string{param.name}.c_str()),
                     static_cast<int32_t>(l.def_val),
                     AAX_CStateTaperDelegate<int32_t>(0, num_items - 1),
-                    AAX_CStateDisplayDelegate<int32_t>(num_items, const_cast<const char**>(l.items.data()), 0), // Yee haw.
-                    param.policy == Host_policy::automation
+                    AAX_CStateDisplayDelegate<int32_t>(num_items, item_cstrs.data(), 0), // Yee haw.
+                    param.policy == params::Policy::Automation
                 ));
-                if (std::strlen(param.short_name) > 0) {
-                    aax_param->AddShortenedName(param.short_name);
+                if (!param.short_name.empty()) {
+                    aax_param->AddShortenedName(std::string{param.short_name}.c_str());
                 }
                 // AAX validator reports errors for parameters with more than 2048 steps. 
                 // See: https://dev.avid.com/MP_DeveloperForumSupport?filterId=a9T310000004FCnEAM#!/feedtype=SINGLE_QUESTION_DETAIL&dc=Developer_Community_Q_A&criteria=ALLQUESTIONS&id=9065A000000oScuQAE
@@ -71,25 +80,25 @@ AAX_Result Parameters::EffectInit()
                 }
                 mParameterManager.AddParameter(aax_param.release());
             },
-            [&](const Int_semantics& i) {
+            [&](const params::Semantics::Int& i) {
                 using DisplayDelegate = AAX_CNumberDisplayDelegate<int32_t, 0, 1>; // precision: 0, space after: 1
                 const auto units_str = units_string(i.units);
 
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<int32_t>(
                     aax_id.c_str(),
-                    AAX_CString(param.name),
+                    AAX_CString(std::string{param.name}.c_str()),
                     i.def_val,
                     AAX_CStateTaperDelegate<int32_t>(i.min_val, i.max_val),
                     AAX_CUnitDisplayDelegateDecorator<int32_t>(DisplayDelegate(), units_str.c_str()),
-                    param.policy == Host_policy::automation
+                    param.policy == params::Policy::Automation
                 ));
-                if (std::strlen(param.short_name) > 0) {
-                    aax_param->AddShortenedName(param.short_name);
+                if (!param.short_name.empty()) {
+                    aax_param->AddShortenedName(std::string{param.short_name}.c_str());
                 }
                 // AAX validator reports errors for parameters with more than 2048 steps. 
                 // See: https://dev.avid.com/MP_DeveloperForumSupport?filterId=a9T310000004FCnEAM#!/feedtype=SINGLE_QUESTION_DETAIL&dc=Developer_Community_Q_A&criteria=ALLQUESTIONS&id=9065A000000oScuQAE
                 const auto steps = std::min(i.max_val - i.min_val + 1, 2048);
-                assert(steps >= 0 && "Int_semantics must have max_val >= min_val."); // Otherwise we're gonna have an issue with the cast.
+                assert(steps >= 0 && "params::Semantics::Int must have max_val >= min_val."); // Otherwise we're gonna have an issue with the cast.
                 aax_param->SetNumberOfSteps(static_cast<uint32_t>(steps));
                 aax_param->SetType(AAX_eParameterType_Discrete);
                 if (aax_param->Automatable()) {
@@ -97,27 +106,27 @@ AAX_Result Parameters::EffectInit()
                 }
                 mParameterManager.AddParameter(aax_param.release());
             },
-            [&](const Fixed_semantics& f) {
+            [&](const params::Semantics::Fixed& f) {
                 using TaperDelegate = Fixed_semanticsTaperDelegate<double>;
                 using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 2, space after: 1
                 const auto units_str = units_string(f.units);
 
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
                     aax_id.c_str(),
-                    AAX_CString(param.name),
+                    AAX_CString(std::string{param.name}.c_str()),
                     f.def_val,
                     TaperDelegate(f),
                     AAX_CUnitDisplayDelegateDecorator<double>(DisplayDelegate(), units_str.c_str()),
-                    param.policy == Host_policy::automation
+                    param.policy == params::Policy::Automation
                 ));
-                if (std::strlen(param.short_name) > 0) {
-                    aax_param->AddShortenedName(param.short_name);
+                if (!param.short_name.empty()) {
+                    aax_param->AddShortenedName(std::string{param.short_name}.c_str());
                 }
                 // AAX validator reports errors for parameters with more than 2048 steps. 
                 // See: https://dev.avid.com/MP_DeveloperForumSupport?filterId=a9T310000004FCnEAM#!/feedtype=SINGLE_QUESTION_DETAIL&dc=Developer_Community_Q_A&criteria=ALLQUESTIONS&id=9065A000000oScuQAE
                 const auto steps_raw = (f.max_val - f.min_val) / f.step_size + 1;
                 const auto steps = std::min(steps_raw, 2048.);
-                assert(steps >= 0 && "Fixed_semantics must have max_val >= min_val."); // Otherwise we're gonna have an issue with the cast.
+                assert(steps >= 0 && "params::Semantics::Fixed must have max_val >= min_val."); // Otherwise we're gonna have an issue with the cast.
                 aax_param->SetNumberOfSteps(static_cast<uint32_t>(steps)); // Step count here is number of values.
                 aax_param->SetType(AAX_eParameterType_Continuous);
                 if (aax_param->Automatable()) {
@@ -125,21 +134,21 @@ AAX_Result Parameters::EffectInit()
                 }
                 mParameterManager.AddParameter(aax_param.release());
             },
-            [&](const Real_semantics& r) {
+            [&](const params::Semantics::Real& r) {
                 using TaperDelegate = Real_semanticsTaperDelegate<double>;
                 using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 1, space after: 1
                 const auto units_str = units_string(r.units);
 
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
                     aax_id.c_str(),
-                    AAX_CString(param.name),
+                    AAX_CString(std::string{param.name}.c_str()),
                     r.def_val,
                     TaperDelegate(r), // So we can use our own control adapter.
                     AAX_CUnitDisplayDelegateDecorator<double>(DisplayDelegate(), units_str.c_str()),
-                    param.policy == Host_policy::automation
+                    param.policy == params::Policy::Automation
                 ));
-                if (std::strlen(param.short_name) > 0) {
-                    aax_param->AddShortenedName(param.short_name);
+                if (!param.short_name.empty()) {
+                    aax_param->AddShortenedName(std::string{param.short_name}.c_str());
                 }
                 aax_param->SetNumberOfSteps(2048); // Most steps that will pass validation.
                 aax_param->SetType(AAX_eParameterType_Continuous);

@@ -10,7 +10,7 @@
 auto main() -> int
 {
     using namespace tiny;
-    using User_params = Param_infos<models::Params>;
+    using User_params = params::Infos<models::Params>;
     const auto& specs = User_params::param_specs(Param_order::Presentation);
 
     auto params = nlohmann::json::array();
@@ -18,10 +18,10 @@ auto main() -> int
         const auto& s = specs[i];
         const char* policy = [&]() -> const char* {
             switch (s.policy) {
-                case Host_policy::automation: return "automation";
-                case Host_policy::control:    return "control";
-                case Host_policy::hidden:     return "hidden";
-                case Host_policy::interface:  return "interface";
+                case params::Policy::Automation: return "automation";
+                case params::Policy::Control:    return "control";
+                case params::Policy::Hidden:     return "hidden";
+                case params::Policy::Interface:  return "interface";
             }
             return "unknown";
         }();

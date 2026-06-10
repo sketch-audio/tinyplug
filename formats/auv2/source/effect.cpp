@@ -213,7 +213,7 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
 {
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
 
-    auto resolve_flags = [](const Param_spec& param, bool found_clump) {
+    auto resolve_flags = [](const params::Spec& param, bool found_clump) {
         auto flags = AudioUnitParameterOptions{};
 
         flags |= (kAudioUnitParameterFlag_HasCFNameString | kAudioUnitParameterFlag_CFNameRelease);
@@ -223,21 +223,21 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
             flags |= kAudioUnitParameterFlag_HasClump;
         }
 
-        using enum Host_policy;
+        using enum params::Policy;
         switch (param.policy) {
-            case automation: {
+            case Automation: {
                 flags |= (kAudioUnitParameterFlag_IsReadable | kAudioUnitParameterFlag_IsWritable);
                 break;
             }
-            case control: {
+            case Control: {
                 //flags |= kAudioUnitParameterFlag_IsReadable; // Logic shows a uneditable control.
                 break;
             }
-            case hidden: {
+            case Hidden: {
                 // Hidden but part of state.
                 break;
             }
-            case interface: {
+            case Interface: {
                 flags |= kAudioUnitParameterFlag_OmitFromPresets;
                 break;
             }
@@ -254,12 +254,12 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
     const auto found_clump = clump != nullptr;
 
     std::visit(Inline_visitor{
-        [&](const Bool_semantics& b) {
+        [&](const params::Semantics::Bool& b) {
             outParameterInfo = {
                 .name = {},
                 .unitName = {},
                 .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
-                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
+                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, std::string{param.name}.c_str(), kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Boolean,
                 .minValue = 0,
                 .maxValue = 1,
@@ -267,12 +267,12 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
                 .flags = resolve_flags(param, found_clump)
             };
         },
-        [&](const List_semantics& l) {
+        [&](const params::Semantics::List& l) {
             outParameterInfo = {
                 .name = {},
                 .unitName = {},
                 .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
-                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
+                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, std::string{param.name}.c_str(), kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Indexed,
                 .minValue = 0,
                 .maxValue = static_cast<float>(l.items.size() - 1),
@@ -280,12 +280,12 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
                 .flags = resolve_flags(param, found_clump)
             };
         },
-        [&](const Int_semantics& i) {
+        [&](const params::Semantics::Int& i) {
             outParameterInfo = {
                 .name = {},
                 .unitName = {},
                 .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
-                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
+                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, std::string{param.name}.c_str(), kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Indexed,
                 .minValue = static_cast<float>(i.min_val),
                 .maxValue = static_cast<float>(i.max_val),
@@ -293,12 +293,12 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
                 .flags = resolve_flags(param, found_clump)
             };
         },
-        [&](const Fixed_semantics& f) {
+        [&](const params::Semantics::Fixed& f) {
             outParameterInfo = {
                 .name = {},
                 .unitName = {},
                 .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
-                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
+                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, std::string{param.name}.c_str(), kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Generic,
                 .minValue = static_cast<float>(f.min_val),
                 .maxValue = static_cast<float>(f.max_val),
@@ -306,12 +306,12 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
                 .flags = resolve_flags(param, found_clump)
             };
         },
-        [&](const Real_semantics&) {
+        [&](const params::Semantics::Real&) {
             outParameterInfo = {
                 .name = {},
                 .unitName = {},
                 .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
-                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name, kCFStringEncodingUTF8),
+                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, std::string{param.name}.c_str(), kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Generic,
                 .minValue = 0,
                 .maxValue = 1,
@@ -335,12 +335,12 @@ OSStatus Effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnitParam
     const auto& param = params[inParameterID];
 
 
-    if (const auto* l = std::get_if<List_semantics>(&param.semantics)) {
+    if (const auto* l = std::get_if<params::Semantics::List>(&param.semantics)) {
         auto array = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
 
-        for (const auto* label : (*l).items) {
-            if (!label) continue;
-            const auto str = CFStringCreateWithCString(kCFAllocatorDefault, label, kCFStringEncodingUTF8);
+        for (const auto& label : (*l).items) {
+            if (label.empty()) continue;
+            const auto str = CFStringCreateWithCString(kCFAllocatorDefault, std::string{label}.c_str(), kCFStringEncodingUTF8);
             CFArrayAppendValue(array, str);
             CFRelease(str);
         }

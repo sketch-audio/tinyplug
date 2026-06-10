@@ -12,21 +12,21 @@ auto State_adapter::preset_state(const State_map& extras) const -> nlohmann::ord
 
     preset_state[Keys::version] = model.version;
 
-    auto add_value = [](Json& json, const Param_spec& spec, double value) {
-        const auto persistent = (spec.policy != Host_policy::interface);
+    auto add_value = [](Json& json, const params::Spec& spec, double value) {
+        const auto persistent = (spec.policy != params::Policy::Interface);
         if (!persistent) return;
         const auto plain = Value_conv::knob_to_plain(value, spec.semantics);
         json[spec.string_id] = static_cast<float>(plain);
     };
 
-    auto visit_group = [&add_value](const Param_group& group, const std::vector<double>& values, auto&& self) -> Json {
+    auto visit_group = [&add_value](const params::Group& group, const std::vector<double>& values, auto&& self) -> Json {
         auto group_json = Json{};
         for (const auto& node : group.nodes) {
-            if (const auto* spec = std::get_if<Param_spec>(&node); spec) {
+            if (const auto* spec = std::get_if<params::Spec>(&node); spec) {
                 const auto value = values[spec->address];
                 add_value(group_json, *spec, value);
             }
-            else if (const auto* subgroup = std::get_if<Param_group>(&node); subgroup) {
+            else if (const auto* subgroup = std::get_if<params::Group>(&node); subgroup) {
                 auto subjson = self(*subgroup, values, self);
                 if (!subjson.empty()) {
                     group_json[subgroup->string_id] = subjson;
@@ -36,7 +36,7 @@ auto State_adapter::preset_state(const State_map& extras) const -> nlohmann::ord
         return group_json;
     };
 
-    if (const auto* tree = std::get_if<Param_group>(model.param_tree); tree) {
+    if (const auto* tree = std::get_if<params::Group>(model.param_tree); tree) {
         auto params_state = visit_group(*tree, model.param_values, visit_group);
         preset_state[Keys::params] = params_state;
     }
@@ -86,9 +86,9 @@ auto State_adapter::param_values(const nlohmann::ordered_json& preset_state) con
     auto values = Maybe_values<double>(model.num_params, std::nullopt);
     if (!model.param_tree) return values;
 
-    auto visit_group = [](const Param_group& group, const Json& json, Maybe_values<double>& values, auto&& self) -> void {
+    auto visit_group = [](const params::Group& group, const Json& json, Maybe_values<double>& values, auto&& self) -> void {
         for (const auto& node : group.nodes) {
-            if (const auto* spec = std::get_if<Param_spec>(&node); spec) {
+            if (const auto* spec = std::get_if<params::Spec>(&node); spec) {
                 // Do we have a json number for this param?
                 const auto has_value = json.contains(spec->string_id) && json[spec->string_id].is_number();
                 if (has_value) {
@@ -101,7 +101,7 @@ auto State_adapter::param_values(const nlohmann::ordered_json& preset_state) con
                     values[spec->address] = def_val;
                 }
             }
-            else if (const auto* subgroup = std::get_if<Param_group>(&node); subgroup) {
+            else if (const auto* subgroup = std::get_if<params::Group>(&node); subgroup) {
                 // Do we have a json object for this param group?
                 const auto has_subjson = json.contains(subgroup->string_id) && json[subgroup->string_id].is_object();
                 if (has_subjson) {
@@ -112,7 +112,7 @@ auto State_adapter::param_values(const nlohmann::ordered_json& preset_state) con
         }
     };
 
-    if (const auto* tree = std::get_if<Param_group>(model.param_tree); tree) {
+    if (const auto* tree = std::get_if<params::Group>(model.param_tree); tree) {
         const auto params_json = preset_state.value(Keys::params, Json{}); // Value or default.
         visit_group(*tree, params_json, values, visit_group);
     }

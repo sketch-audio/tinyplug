@@ -24,7 +24,7 @@ auto Processor::handle_event(const Render_event& event) -> void
 
 auto Processor::process(Dsp_context& context) -> void
 {
-    const auto g = _values[enum_raw(Address::gain)];
+    const auto g = _values[enum_raw(Address::Gain)];
     
     for (size_t channel = 0; channel < context.ibuffers.size(); ++channel) {
         for (size_t frame = 0; frame < context.num_frames; ++frame) {

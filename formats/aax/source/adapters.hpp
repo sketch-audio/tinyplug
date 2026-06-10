@@ -118,18 +118,18 @@ inline auto get_aax_param(ParameterManager* params, uint32_t id) -> decltype(aut
 
 // MARK: - tree_to_aax_ids
 
-inline auto tree_to_aax_ids(const Param_node& root) -> std::vector<std::string>
+inline auto tree_to_aax_ids(const params::Node& root) -> std::vector<std::string>
 {
     auto result = std::vector<std::string>{};
 
-    const auto visit = [&](const Param_node& node, const auto& self) -> void {
+    const auto visit = [&](const params::Node& node, const auto& self) -> void {
         std::visit(Inline_visitor{
-            [&](const Param_spec& spec) {
+            [&](const params::Spec& spec) {
                 if (const auto aax_id = tiny_id_to_aax(spec.address)) {
                     result.push_back(*aax_id);
                 }
             },
-            [&](const Param_group& group) {
+            [&](const params::Group& group) {
                 for (const auto& child : group.nodes) self(child, self);
             }
         }, node);

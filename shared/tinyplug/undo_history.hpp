@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "tiny_events.hpp" // User_action
-#include "tiny_params.hpp" // Param_spec
+#include "tiny_params.hpp" // params::Spec
 #include "tiny_utils.hpp" // Inline_visitor, Processor_state
 
 #include "action_queue.hpp"

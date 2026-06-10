@@ -12,7 +12,7 @@ template<typename T>
 class Fixed_semanticsTaperDelegate final : public AAX_ITaperDelegate<T> {
 public:
 
-    Fixed_semanticsTaperDelegate(Fixed_semantics semantics) : _semantics{semantics} {}
+    Fixed_semanticsTaperDelegate(params::Semantics::Fixed semantics) : _semantics{semantics} {}
     ~Fixed_semanticsTaperDelegate() override = default;
     
     AAX_ITaperDelegate<T>* Clone() const override
@@ -49,7 +49,7 @@ public:
 
 private:
     
-    Fixed_semantics _semantics;
+    params::Semantics::Fixed _semantics;
     
 };
 
@@ -59,7 +59,7 @@ template<typename T>
 class Real_semanticsTaperDelegate final : public AAX_ITaperDelegate<T> {
 public:
 
-    Real_semanticsTaperDelegate(Real_semantics semantics) : _semantics{semantics} {}
+    Real_semanticsTaperDelegate(params::Semantics::Real semantics) : _semantics{semantics} {}
     ~Real_semanticsTaperDelegate() override = default;
 
     AAX_ITaperDelegate<T>* Clone() const override
@@ -96,7 +96,7 @@ public:
 
 private:
 
-    Real_semantics _semantics;
+    params::Semantics::Real _semantics;
     
 };
 

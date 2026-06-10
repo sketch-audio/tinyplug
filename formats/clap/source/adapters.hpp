@@ -13,14 +13,14 @@ struct Reserved {
 };
 
 // Build module paths for the user's parameter tree. (Presentation order.)
-inline auto tree_to_clap_modules(const Param_node& root) -> std::vector<std::string> {
+inline auto tree_to_clap_modules(const params::Node& root) -> std::vector<std::string> {
     auto result = std::vector<std::string>{};
 
-    const auto visit = [&](const Param_node& node, const std::string& path, const auto& self) -> void {
+    const auto visit = [&](const params::Node& node, const std::string& path, const auto& self) -> void {
         std::visit(Inline_visitor{
-            [&](const Param_spec&) { result.push_back(path); },
-            [&](const Param_group& group) {
-                const auto group_path = path.empty() ? std::string{group.name} : path + "/" + group.name;
+            [&](const params::Spec&) { result.push_back(path); },
+            [&](const params::Group& group) {
+                const auto group_path = path.empty() ? std::string{group.name} : path + "/" + std::string{group.name};
                 for (const auto& child : group.nodes) {
                     self(child, group_path, self);
                 }

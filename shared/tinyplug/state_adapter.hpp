@@ -35,13 +35,13 @@ class State_adapter {
 public:
 
     struct Load_model {
-        const Param_node* param_tree{nullptr};
+        const params::Node* param_tree{nullptr};
         size_t num_params{};
     };
 
     struct Save_model {
         size_t version{};
-        const Param_node* param_tree{nullptr};
+        const params::Node* param_tree{nullptr};
         std::vector<double> param_values{};
         State_map editor_state{};
     };

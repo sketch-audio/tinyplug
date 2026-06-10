@@ -76,7 +76,7 @@ static auto presets_path() -> std::filesystem::path
     }
     _factory_presets = [temp copy];
     
-    using User_params = Param_infos<models::Params>;
+    using User_params = params::Infos<models::Params>;
     //const auto num_params = User_params::num_params;
     
     using Provider = State_adapter::Provider;
@@ -156,28 +156,28 @@ static auto presets_path() -> std::filesystem::path
     
     if (_parameterTreeSetup == false) {
         // Build the tree
-        const auto tree = Param_infos<models::Params>::param_tree();
+        const auto tree = params::Infos<models::Params>::param_tree();
         
         // Traverse the tree, creating parameters and groups along the way.
-        auto make_node = [&](auto&& self_, const Param_node& node) -> AUParameterNode* {
+        auto make_node = [&](auto&& self_, const params::Node& node) -> AUParameterNode* {
             return std::visit(Inline_visitor{
-                [&](const Param_spec& spec) -> AUParameterNode* {
+                [&](const params::Spec& spec) -> AUParameterNode* {
                     return [self makeParameterFor:spec];
                 },
-                [&](const Param_group& group) -> AUParameterNode* {
+                [&](const params::Group& group) -> AUParameterNode* {
                     NSMutableArray<AUParameterNode*>* children = [NSMutableArray array];
                     for (const auto& child : group.nodes) {
                         [children addObject:self_(self_, child)];
                     }
-                    NSString* identifier = [NSString stringWithUTF8String:group.string_id];
-                    NSString* name = [NSString stringWithUTF8String:group.name];
+                    NSString* identifier = [NSString stringWithUTF8String:std::string{group.string_id}.c_str()];
+                    NSString* name = [NSString stringWithUTF8String:std::string{group.name}.c_str()];
                     return [AUParameterTree createGroupWithIdentifier:identifier name:name children:children];
                 }
             }, node);
         };
         
         // Most likely the root is a group, don't create a named group for it.
-        if (const auto* g = std::get_if<Param_group>(&tree)) {
+        if (const auto* g = std::get_if<params::Group>(&tree)) {
             NSMutableArray<AUParameterNode*>* rootChildren = [NSMutableArray array];
             for (auto const& child : g->nodes) {
                 [rootChildren addObject:make_node(make_node, child)];
@@ -185,7 +185,7 @@ static auto presets_path() -> std::filesystem::path
             AUParameterTree* parameter_tree = [AUParameterTree createTreeWithChildren:rootChildren];
             _parameterTree = parameter_tree;
         }
-        else if (const auto* s = std::get_if<Param_spec>(&tree)) {
+        else if (const auto* s = std::get_if<params::Spec>(&tree)) {
             AUParameter *parameter = [self makeParameterFor:*s];
             AUParameterTree *parameter_tree = [AUParameterTree createTreeWithChildren:@[parameter]];
             _parameterTree = parameter_tree;
@@ -211,7 +211,7 @@ static auto presets_path() -> std::filesystem::path
         .get_param = [self_](uint32_t addr) {
             auto s = self_;
             if (!s) return double{};
-            const auto& spec = Param_infos<models::Params>::param_spec(addr);
+            const auto& spec = params::Infos<models::Params>::param_spec(addr);
             const auto host = s->_kernel.getParameter(addr);
             const auto knob = Value_conv::host_to_knob(host, spec.semantics);
             return knob;
@@ -233,7 +233,7 @@ static auto presets_path() -> std::filesystem::path
                     [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeTouch];
                 },
                 [&](const Set_param& a) {
-                    const auto& param = Param_infos<models::Params>::param_spec(a.address);
+                    const auto& param = params::Infos<models::Params>::param_spec(a.address);
                     const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
                     auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
                     auto it = s->_observerTokens.find(auparam.address);
@@ -274,24 +274,24 @@ static auto presets_path() -> std::filesystem::path
 
 // MARK: - makeParameterFor
 
-- (AUParameter*)makeParameterFor:(tiny::Param_spec)spec {
+- (AUParameter*)makeParameterFor:(tiny::params::Spec)spec {
     using namespace tiny;
 
-    NSString* identifier = [NSString stringWithUTF8String:spec.string_id];
-    NSString* name = [NSString stringWithUTF8String:spec.name];
+    NSString* identifier = [NSString stringWithUTF8String:std::string{spec.string_id}.c_str()];
+    NSString* name = [NSString stringWithUTF8String:std::string{spec.name}.c_str()];
 
-    auto flags_for = [](Host_policy policy) -> AudioUnitParameterOptions {
+    auto flags_for = [](params::Policy policy) -> AudioUnitParameterOptions {
         switch (policy) {
-            case Host_policy::automation: return kAudioUnitParameterFlag_IsWritable | kAudioUnitParameterFlag_IsReadable;
-            case Host_policy::control: return kAudioUnitParameterFlag_IsReadable;
-            case Host_policy::hidden: return {};
-            case Host_policy::interface: return kAudioUnitParameterFlag_OmitFromPresets;
+            case params::Policy::Automation: return kAudioUnitParameterFlag_IsWritable | kAudioUnitParameterFlag_IsReadable;
+            case params::Policy::Control: return kAudioUnitParameterFlag_IsReadable;
+            case params::Policy::Hidden: return {};
+            case params::Policy::Interface: return kAudioUnitParameterFlag_OmitFromPresets;
             default: return kAudioUnitParameterFlag_IsWritable | kAudioUnitParameterFlag_IsReadable;
         }
     };
 
     AUParameter* parameter = std::visit(Inline_visitor{
-        [&](const Bool_semantics& b) {
+        [&](const params::Semantics::Bool& b) {
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
                                                                         address:spec.address
@@ -305,10 +305,10 @@ static auto presets_path() -> std::filesystem::path
             param.value = b.def_val ? 1.f : 0.f;
             return param;
         },
-        [&](const List_semantics& l) {
+        [&](const params::Semantics::List& l) {
             NSMutableArray<NSString*>* valueStrings = [NSMutableArray array];
             for (const auto& item : l.items) {
-                [valueStrings addObject:[NSString stringWithUTF8String:item]];
+                [valueStrings addObject:[NSString stringWithUTF8String:std::string{item}.c_str()]];
             }
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
@@ -323,7 +323,7 @@ static auto presets_path() -> std::filesystem::path
             param.value = static_cast<float>(l.def_val);
             return param;
         },
-        [&](const Int_semantics& i) {
+        [&](const params::Semantics::Int& i) {
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
                                                                         address:spec.address
@@ -337,7 +337,7 @@ static auto presets_path() -> std::filesystem::path
             param.value = static_cast<float>(i.def_val);
             return param;
         },
-        [&](const Real_semantics& r) {
+        [&](const params::Semantics::Real& r) {
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
                                                                         address:spec.address
@@ -351,7 +351,7 @@ static auto presets_path() -> std::filesystem::path
             param.value = static_cast<float>(Value_conv::plain_to_host(r.def_val, r));
             return param;
         },
-        [&](const Fixed_semantics& f) {
+        [&](const params::Semantics::Fixed& f) {
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
                                                                         address:spec.address
@@ -389,14 +389,14 @@ static auto presets_path() -> std::filesystem::path
     // A function to provide string representations of parameter values.
     _parameterTree.implementorStringFromValueCallback = ^(AUParameter *param, const AUValue *__nullable valuePtr) {
         AUValue value = valuePtr == nil ? param.value : *valuePtr;
-        const auto& spec = Param_infos<models::Params>::param_spec(static_cast<uint32_t>(param.address));
+        const auto& spec = params::Infos<models::Params>::param_spec(static_cast<uint32_t>(param.address));
         const auto str_value = Host_formatter::format_string(value, spec.semantics);
         return [NSString stringWithUTF8String:str_value.c_str()];
     };
     
     _parameterTree.implementorValueFromStringCallback = ^(AUParameter *param, NSString *string) {
         const auto addr = static_cast<uint32_t>(param.address);
-        const auto& spec = Param_infos<models::Params>::param_spec(addr);
+        const auto& spec = params::Infos<models::Params>::param_spec(addr);
         const auto str = std::string{[string UTF8String]};
         
         if (const auto plain = Host_formatter::format_value(str, spec.semantics)) {
@@ -621,7 +621,7 @@ static auto presets_path() -> std::filesystem::path
         [data appendBytes:&value length: sizeof(value)];
     };
     
-    using User_params = Param_infos<models::Params>;
+    using User_params = params::Infos<models::Params>;
     
     for (auto i = 0; i < num_params; ++i) {
         const auto value = maybe_values[i];
@@ -709,7 +709,7 @@ static auto presets_path() -> std::filesystem::path
     NSMutableDictionary<NSString *,id> *state = [[super fullState] mutableCopy]; // auto would deduce as `id`
     
     // Store number of parameters (the parameter values are in the base implementation).
-    using User_params = Param_infos<tiny::models::Params>;
+    using User_params = params::Infos<tiny::models::Params>;
     auto numParamsEntry = [NSNumber numberWithInt:static_cast<int32_t>(User_params::num_params)];
     [state setObject:numParamsEntry forKey:@(State_rules::Auv3::num_params)];
     
@@ -729,7 +729,7 @@ static auto presets_path() -> std::filesystem::path
     
     [super setFullState:fullState]; // Call base.
     
-    using User_params = tiny::Param_infos<tiny::models::Params>;
+    using User_params = tiny::params::Infos<tiny::models::Params>;
     const auto num_params = static_cast<int32_t>(User_params::num_params);
     
     const auto num_stored_params = [&]() {
@@ -782,7 +782,7 @@ static auto presets_path() -> std::filesystem::path
     // Set interface parameters to their default values.
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
         const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
-        if (param.policy == Host_policy::interface) {
+        if (param.policy == params::Policy::Interface) {
             const auto def_val = tiny::get_host_default(param);
             [[_parameterTree parameterWithAddress:i] setValue:def_val];
         }

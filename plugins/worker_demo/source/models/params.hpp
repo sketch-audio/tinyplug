@@ -6,29 +6,30 @@ namespace tiny::models {
 
 struct Params {
     enum class Address : uint32_t {
-        gain = 0,
-        num_params
+        Gain = 0,
+        Num_params
     };
 
-    static auto build_tree() -> Param_node
+    static auto build_tree() -> params::Node
     {
+        using namespace params;
         using enum Address;
-        return Param_group{.nodes = {
-            Param_spec{
-                .address = enum_raw(gain),
+        return Group{.nodes = {
+            Spec{
+                .address = enum_raw(Gain),
                 .string_id = "gain",
                 .name = "Gain",
-                .semantics = Real_semantics{
+                .semantics = Semantics::Real{
                     .min_val = 0,
                     .def_val = 1,
                     .max_val = 1,
-                    .units = Units::generic,
-                    .knob_adapter = Adapt_lin{}
+                    .units = Units::Generic,
+                    .knob_adapter = Adapter::Lin{}
                 }
             }
         }};
     }
 };
-static_assert(Some_param_model<Params>);
+static_assert(params::Model<Params>);
 
 } // namespace tiny::models

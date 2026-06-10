@@ -35,7 +35,7 @@ public:
 
 private:
 
-    using User_params = Param_infos<models::Params>;
+    using User_params = params::Infos<models::Params>;
     using Address = models::Params::Address;
     static constexpr auto num_params = User_params::num_params;
 

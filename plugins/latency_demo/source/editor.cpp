@@ -14,7 +14,7 @@ auto Editor::on_gui_show(const Edit_context& edit) -> void
 
     _click = std::make_unique<Click_recognizer>(Gesture_callbacks<Click_info>{
         .on_started = [=, this](const Click_info& info) {
-            const auto addr = enum_raw(Address::latency_mode);
+            const auto addr = enum_raw(Address::Latency_mode);
             const auto next = (_value == 0) ? 1. : 0.;
             _edit.actions.push(Action_start{addr});
             _edit.actions.push(Set_param{addr, next});
@@ -39,7 +39,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     }
 
     const auto& param_values = state.processor_state.params;
-    const auto addr = enum_raw(Address::latency_mode);
+    const auto addr = enum_raw(Address::Latency_mode);
     _value = param_values[addr];
 
     if (_click)

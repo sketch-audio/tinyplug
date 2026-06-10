@@ -339,7 +339,7 @@ bool Plugin::stateSave(const clap_ostream* stream) noexcept
         const auto& spec = User_params::param_spec(i);
         auto raw = _hostvalues[i].load(std::memory_order_relaxed);
 
-        if (std::get_if<Fixed_semantics>(&spec.semantics)) {
+        if (std::get_if<params::Semantics::Fixed>(&spec.semantics)) {
             raw = norm_to_plain(plain_to_norm(raw, spec.semantics), spec.semantics); // Clamp fixed to step values.
         }
 
@@ -775,46 +775,46 @@ bool Plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexce
     *info = {}; // Clear.
     info->id = param.address;
     info->flags = [policy = param.policy]() {
-        using enum Host_policy;
+        using enum params::Policy;
         switch (policy) {
-            case automation: return uint32_t{CLAP_PARAM_IS_AUTOMATABLE};
-            case control: return uint32_t{}; // Do any hosts actually show a control here?
-            case hidden: return uint32_t{CLAP_PARAM_IS_HIDDEN | CLAP_PARAM_IS_READONLY};
-            case interface: return uint32_t{CLAP_PARAM_IS_HIDDEN | CLAP_PARAM_IS_READONLY};
+            case Automation: return uint32_t{CLAP_PARAM_IS_AUTOMATABLE};
+            case Control: return uint32_t{}; // Do any hosts actually show a control here?
+            case Hidden: return uint32_t{CLAP_PARAM_IS_HIDDEN | CLAP_PARAM_IS_READONLY};
+            case Interface: return uint32_t{CLAP_PARAM_IS_HIDDEN | CLAP_PARAM_IS_READONLY};
             default: return uint32_t{};
         }
     }();
     info->cookie = nullptr;
-    std::strncpy(info->name, param.name, CLAP_NAME_SIZE);
+    std::strncpy(info->name, std::string{param.name}.c_str(), CLAP_NAME_SIZE);
     std::strncpy(info->module, path.c_str(), CLAP_NAME_SIZE);
 
     // CLAP uses host values.
     // Set min, max, default based on semantics.
     std::visit(Inline_visitor{
-        [&](const Bool_semantics& b) {
+        [&](const params::Semantics::Bool& b) {
             info->flags |= CLAP_PARAM_IS_STEPPED;
             info->min_value = 0;
             info->max_value = 1;
             info->default_value = b.def_val ? 1 : 0;
         },
-        [&](const List_semantics& l) {
+        [&](const params::Semantics::List& l) {
             info->flags |= (CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_ENUM);
             info->min_value = 0;
             info->max_value = static_cast<double>(l.items.size() - 1);
             info->default_value = static_cast<double>(l.def_val);
         },
-        [&](const Int_semantics& i) {
+        [&](const params::Semantics::Int& i) {
             info->flags |= CLAP_PARAM_IS_STEPPED;
             info->min_value = i.min_val;
             info->max_value = i.max_val;
             info->default_value = i.def_val;
         },
-        [&](const Fixed_semantics& f) {
+        [&](const params::Semantics::Fixed& f) {
             info->min_value = f.min_val;
             info->max_value = f.max_val;
             info->default_value = f.def_val;
         },
-        [&](const Real_semantics& r) {
+        [&](const params::Semantics::Real& r) {
             info->min_value = 0;
             info->max_value = 1;
             info->default_value = plain_to_norm(r.def_val, r);
@@ -838,7 +838,7 @@ bool Plugin::paramsValue(clap_id paramId, double* value) noexcept
     const auto raw = _hostvalues[paramId].load(std::memory_order_relaxed);
     auto result = raw;
 
-    if (std::get_if<Fixed_semantics>(&spec.semantics)) {
+    if (std::get_if<params::Semantics::Fixed>(&spec.semantics)) {
         // Snap to nearest step so paramsValue() round-trips through state save/load.
         result = norm_to_plain(plain_to_norm(raw, spec.semantics), spec.semantics);
     }
@@ -1048,9 +1048,9 @@ auto Plugin::_handle_host_flushed() -> void
 auto Plugin::_handle_user_actions(const clap_output_events_t* out_events) -> void
 {
     // The host only needs to know about changes where there might be automation or a control in the host UI.
-    auto wants_host_notify = [](Host_policy policy) {
-        using enum Host_policy;
-        return policy == automation || policy == control;
+    auto wants_host_notify = [](params::Policy policy) {
+        using enum params::Policy;
+        return policy == Automation || policy == Control;
     };
     
     auto user_action = User_action{};
