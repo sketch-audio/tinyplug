@@ -21,6 +21,7 @@ continues — sections are roughly in the order the changes landed.
 | `Spec`/`Group`/`List` strings → `std::string_view` | ✅ done |
 | Format wrapper files/classes → per-format namespaces | ✅ done (internal) |
 | **Value helpers → `params::Value_helper`** (was `Value_conv` + free fns), `Value_space`→`Space`, own `value_helper.{hpp,cpp}` | ✅ done |
+| **Platform → its own `tiny_platform` lib**; `PLATFORM_*`→`TINY_PLATFORM_*`, `Platform` struct removed; Skia PRIVATE | ✅ done (iOS/Win pending verify) |
 | Params leftovers: `Host_formatter`→`Formatter`, `Param_order`→`Order`, `Units` | ⏳ still transitional `tiny::` aliases |
 | Worker nested `Model` restructure | ⏳ not yet migrated |
 | `tiny::events` / `tiny::view` / … namespace passes | ⏳ not yet migrated |
@@ -249,6 +250,44 @@ plug-ins / saved projects are unaffected.)
 
 - Update your plug-in `CMakeLists.txt` `target_sources` to the new file names (§2).
 - `configure_plug_info` / generated `plug_info.hpp` (note `.hpp`) unchanged in role.
+
+## 11. Platform library split (new — affects your plug-in `CMakeLists.txt`)
+
+The platform layer (native view, dialogs, paths, window/Skia surface) is now a
+separate static library, **`tiny_platform`**, sitting on top of the core
+**`tiny_shared_lib`**. Dependency is strictly one-way (`tiny_platform → tiny_shared_lib`).
+
+**Plug-in link line changed.** Where you previously had:
+
+```cmake
+target_link_libraries(${PLUGIN_TARGET} PUBLIC ${TINY_SHARED_LIB})
+```
+
+use:
+
+```cmake
+target_link_libraries(${PLUGIN_TARGET} PUBLIC  ${TINY_SHARED_LIB})   # core (your public headers expose core types)
+target_link_libraries(${PLUGIN_TARGET} PRIVATE ${TINY_PLATFORM_LIB}) # editor may use dialogs/paths
+target_link_libraries(${PLUGIN_TARGET} PRIVATE tiny::skia)           # editor draws with Skia
+```
+
+`${TINY_PLATFORM_LIB}` (= `tiny_platform`) is forwarded to parent scope alongside
+`${TINY_SHARED_LIB}`. Skia is now **PRIVATE** (an implementation detail) — link it
+explicitly wherever you compile against it (any editor that draws). The per-format
+`make_<format>_plugin` wrappers link `tiny_platform` themselves; you don't.
+
+**Platform macros renamed + `Platform` struct removed.** If your code does
+compile-time OS selection:
+
+| Old | New |
+|---|---|
+| `PLATFORM_MACOS` / `PLATFORM_IOS` / `PLATFORM_APPLE` / `PLATFORM_WINDOWS` | `TINY_PLATFORM_MACOS` / `…IOS` / `…APPLE` / `…WINDOWS` |
+| `Platform::resolved == Platform::Type::macos` (struct, **removed**) | `#if TINY_PLATFORM_MACOS` … `#endif` |
+
+The macros now live in core at `tinyplug/tiny_platform.hpp` (OS detection is a core
+concern). Include that header where you use the macros — don't rely on getting them
+transitively. A new umbrella `platform/platform.hpp` re-exports the platform surface
+(view, dialogs, paths, defs) for wrapper-level code.
 
 ---
 

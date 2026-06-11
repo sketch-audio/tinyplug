@@ -144,15 +144,35 @@ Still reachable only via transitional `tiny::` aliases — migrate each into
 Nested `user::Worker::Model` holding the four message aliases + constants;
 `reply_capacity→outbound_capacity`, `poll_interval→update_period`.
 
-### Phase 1 structural (not started)
-Pitchfork layout (`include/`/`src/`/`wrappers/`/`examples/`/`libs/platform/`),
-`tiny_platform` spin-out, Skia `PRIVATE`, PCH, unity builds, CMakePresets, CI.
+### Platform library split — DONE this session
+`shared/platform` is now its own static lib **`tiny_platform`** (was folded into
+`tiny_shared_lib`). Dependency is strictly one-way `tiny_platform → tiny_shared_lib`.
+- **Core is Skia-free** (verified: 0 skia in core's compile). Skia is **PRIVATE** on
+  `tiny_platform` and explicit-`PRIVATE` on each plug-in lib (editor draws); frameworks
+  stay PUBLIC (final-module symbol resolution). Redundant per-format `-framework Cocoa`
+  removed (platform provides it).
+- **OS macros**: `PLATFORM_*` → `TINY_PLATFORM_*`, the `Platform` struct removed (use
+  `#if`), and the defs moved into core as `tinyplug/tiny_platform.hpp`. New umbrella
+  `platform/platform.hpp`. `window_context.hpp` pimpl'd (no platform `#if`s, no Skia).
+- **`win_view.cpp` → `win_dialogs.cpp`** split (the ~800-line dialog half), bridged by
+  `win_internal.hpp` (`WM_TINY_SETCURSOR`, `view_window_class_name()`, dark-mode helpers).
+- **Plug-in + format link lines reclassified**: plug-in lib = core PUBLIC + platform/skia
+  PRIVATE; every format wrapper (incl. AUv3's 3 targets) links `tiny_platform` explicitly.
+- **C4996**: `strncpy` → `memcpy`/`snprintf` (portable, null-terminating) in aax/clap.
+- **Verified macOS Makefile build green.** iOS (Xcode) + Windows are user-verifying now;
+  Windows `win_dialogs` already fixed a missing-`<sstream>` + dark-mode-helper round.
+
+### Phase 1 structural (remaining)
+Pitchfork layout (`include/`/`src/`/`wrappers/`/`examples/`/`libs/platform/`), PCH, unity
+builds, CMakePresets, CI. (`tiny_platform` spin-out + Skia PRIVATE: done above.)
 
 ### Loose ends
-- **Validate AUv3** via an Xcode build (overdue).
+- **Verify iOS (Xcode) + Windows** builds end-to-end (in progress).
 - **Commit** the working tree on `next` (consider per-logical-step commits).
-- Migrate downstream `~/Developer/hii` in lock-step.
+- Migrate downstream `~/Developer/hii` in lock-step (see MIGRATION.md §11 for the new
+  link line + macro rename).
 - Rebuild `template/` + `new_plugin.py` (deleted).
+- Consider a `Value_helper` unit test (only untested logic-dense code; one behavior tweak).
 
 ## Established conventions (apply going forward)
 - Headers `.hpp`; ObjC `.h`.

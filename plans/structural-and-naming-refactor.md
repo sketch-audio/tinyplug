@@ -14,54 +14,143 @@ Tinyplug has reached the point where two parallel improvements are due:
 
 This is a single multi-week effort on the `next` branch.
 
+## Current status & revised priorities (updated 2026-06-11)
+
+Reality diverged from the original two-phase sequencing below. Most of the
+Phase 2 *naming* landed first (earlier sessions), and Phase 1's platform spin-out
++ Skia decoupling landed **in place** under `shared/`, without the layout move.
+**This section is the source of truth**; the detailed sections below are reference
+for the parts not yet done, and are superseded where they conflict.
+
+### Done
+- **Platform spun out** as its own static lib `tiny_platform` (currently under
+  `shared/platform/`), one-way dependency on the core lib. (§1.2)
+- **Skia decoupled**: core compiles Skia-free; Skia is `PRIVATE` on platform and
+  explicit-`PRIVATE` on each plug-in/editor; frameworks stay `PUBLIC`; redundant
+  per-format `-framework Cocoa` removed. (§1.3)
+- **OS detection moved into core** as `tinyplug/tiny_platform.hpp`; macros renamed
+  `PLATFORM_*` → `TINY_PLATFORM_*`; the `Platform` struct removed (use `#if`).
+  `window_context.hpp` pimpl'd (no platform `#if`s, no Skia); `platform/platform.hpp`
+  umbrella added; `win_view.cpp` split into `win_dialogs.cpp`.
+- **Naming already landed**: `.h`→`.hpp`; `params::`/`meters::`; `Semantics::*`/
+  `Adapter::*`/`Spec`/`Group`/`Node`/`Policy`; `models::Params/Meters`; value helpers
+  consolidated into `params::Value_helper`; `Value_space`→`Space`.
+- **Builds green on macOS, iOS, and Windows.**
+
+### Decisions (these win over the tables below)
+- **User classes use `tiny::plugin::`** (Processor/Editor/Worker) — **not `tiny::user::`**.
+- **Params naming is done** as-is: `Infos` stays (not `Registry`), `Value_helper`
+  stays (not `Conv`), core lib stays `tiny_shared_lib` (not `tiny_core`).
+  `Param_order`→`Order` / `Host_formatter`→`Formatter` are optional polish, not required.
+- **Defer but keep** CMakePresets / `.clang-format` / `.editorconfig` (§1.4) and CI (§1.5).
+- **Directory restructure → the layout in §1.1 (rewritten below)**. Optional libs live in
+  `libs/` with the `tiny_` prefix and their own `CMakeLists.txt`: **`tiny_platform`** and a
+  newly-spun-out **`tiny_dsp`** (was `shared/dsp/`). Include surface:
+  `<tinyplug/tinyplug.hpp>`, `<tiny_platform/tiny_platform.hpp>`, `<tiny_dsp/tiny_dsp.hpp>`.
+  Rename core `tinyplug/tiny_platform.hpp` → `tinyplug/os.hpp` (clash with the lib).
+  Dependency invariant + coupling tradeoffs in §1.1a.
+- **Other namespace passes** (`events`/`view`/`edit`/`state`/`process`/`task`/`util`) are
+  **low priority** — pursue one only if it earns its keep as a *strong framework
+  organizational concept* (the bar set by `params`/`meters`), not for tidiness.
+- **Worker `Model` restructure: preserved below, low priority.**
+
+### Next priorities (in order)
+1. **Directory restructure** to §1.1 (the main structural item left).
+2. Build infra when ready: CMakePresets, clang-format/editorconfig, CI (§1.4–1.5).
+3. Opportunistic/low-priority: Worker `Model` restructure; any namespace that rises
+   to a strong organizational concept.
+
 ## Phase 1 — Structural refactor
 
-### 1.1 Repo layout (Pitchfork-style)
+### 1.1 Repo layout
 
-Move from the current `shared/`, `formats/`, `plugins/` split to a more conventional layout:
+**Firm requirement:** client code includes the framework as `<tinyplug/tinyplug.hpp>`,
+the platform layer as `<tiny_platform/tiny_platform.hpp>`, and DSP helpers as
+`<tiny_dsp/tiny_dsp.hpp>`. Optional libraries live under `libs/<lib>/` with the `tiny_`
+prefix, each with **its own `CMakeLists.txt`**, and each exposes a `<lib>/<lib>.hpp`
+umbrella (the conventional `<lib/lib.h>` pattern, à la gtest/benchmark).
 
 ```
 tinyplug/
-├── include/tinyplug/           public framework headers (was include/tinyplug/*.h, *.hpp)
-│   └── detail/                  internal-but-header-only utilities
-├── src/                         framework implementations (was include/tinyplug/*.cpp)
-├── libs/
-│   └── platform/                spun-out platform library (was shared/platform/)
-│       ├── include/tinyplug/platform/
-│       └── src/
-├── wrappers/                    format wrappers (was formats/)
-│   ├── aax/
-│   ├── auv2/
-│   ├── auv3/
-│   ├── clap/
-│   └── vst3/
-├── examples/                    example plug-ins (was plugins/)
-│   ├── gain_demo/
-│   ├── automation_tester/
-│   ├── latency_demo/
-│   ├── platform_demo/
-│   └── worker_demo/
-├── template/                    new-plug-in scaffold
-├── cmake/                       helpers, modules, configs
-├── docs/                        ARCHITECTURE.md, CONTRIBUTING.md, Doxygen output
-├── tools/                       new_plugin.py and utilities
-├── plans/                       internal design docs (this file)
-├── .github/workflows/           CI
-├── .clang-format
-├── .editorconfig
-├── CMakePresets.json
-├── CMakeLists.txt               (top level)
-├── LICENSE
-└── README.md
+├── include/
+│   └── tinyplug/            core public API          → <tinyplug/...>
+│       ├── tinyplug.hpp     umbrella
+│       ├── os.hpp           OS-detection macros (TINY_PLATFORM_*) — RENAMED from
+│       │                    tiny_platform.hpp to not clash with the tiny_platform lib
+│       └── detail/          internal-only headers
+├── src/                     core implementations (.cpp)
+├── libs/                    optional, self-contained libraries — each its own CMakeLists.txt
+│   ├── tiny_platform/       native view, dialogs, paths, window/Skia surface
+│   │   ├── include/tiny_platform/   → <tiny_platform/tiny_platform.hpp>
+│   │   ├── src/                       per-OS .mm/.cpp (mac_view.mm still per-wrapper)
+│   │   └── CMakeLists.txt             static lib; core PUBLIC, skia PRIVATE, frameworks PUBLIC
+│   └── tiny_dsp/            header-only DSP helpers (Host_bypass, Linear_ramper, Delay_line)
+│       ├── include/tiny_dsp/         → <tiny_dsp/tiny_dsp.hpp>
+│       └── CMakeLists.txt             INTERFACE lib; ideally ZERO core dependency (pure leaf)
+├── wrappers/                format wrappers (was formats/)
+├── examples/                demo plug-ins (was plugins/)
+├── template/                new-plug-in scaffold
+├── cmake/  tools/  plans/  docs/
+├── .github/workflows/       CI (deferred — §1.5)
+├── CMakeLists.txt  README.md  LICENSE
+└── CMakePresets.json  .clang-format  .editorconfig   (deferred — §1.4)
 ```
 
-**Why:**
-- `include/` vs `src/` separation makes the public-vs-internal API boundary explicit (Pitchfork convention).
-- `examples/` is the canonical OSS name for demo code (Boost, Catch2, fmt, etc.).
-- `wrappers/` is more descriptive than `formats/`.
-- `libs/platform/` as a sibling makes the spin-out concrete and movable to its own repo later with minimal repointing.
+**Naming clash to resolve first:** rename core's `tinyplug/tiny_platform.hpp` (OS macros)
+→ **`tinyplug/os.hpp`** so it doesn't collide with the `tiny_platform` *library*. They are
+different things ("which OS" vs "the rendering/platform layer").
 
-Every `#include "tinyplug/..."` line in the codebase needs to be reviewed but most already use that prefix today. Wrapper code with relative includes like `#include "plug_processor.h"` continues to work — that's per-plug-in code resolved via the plug-in's own source dir.
+- Core: PUBLIC include `include/` → `<tinyplug/...>`.
+- Each optional lib: PUBLIC include `libs/<lib>/include/` → `<lib/...>`. A consumer sees a
+  lib's headers **only if it links that lib** — include surface matches link layering.
+- Optional libs reach core via `<tinyplug/...>` (they link core). Dependency rules: §1.1a.
+- Root `CMakeLists.txt` does `add_subdirectory(libs/tiny_platform)` /
+  `add_subdirectory(libs/tiny_dsp)`; each lib `CMakeLists.txt` owns its sources, include
+  dir, and links. New optional libs (`tiny_ui`, `tiny_text`, …) drop in the same way.
+
+`include/` vs `src/` makes the public/private boundary explicit; `examples/`/`wrappers/`
+are the conventional OSS names. Per-plug-in code keeps relative includes
+(`#include "processor.hpp"`), resolved via each plug-in's own source dir — unaffected.
+
+### 1.1a Optional libraries — dependency rules & coupling
+
+`libs/` will grow (`tiny_dsp` now; `tiny_ui`, `tiny_text`, … later). One invariant keeps
+it clean as it scales:
+
+> **The dependency graph is a DAG; every edge points _down_ — toward core (or a lower
+> optional lib). Core never depends on an optional lib; optional libs never form a cycle.**
+
+- **Core** = the shared foundation: std + minimal externals only (nlohmann). Holds the
+  cross-cutting primitives — `Task_manager` (threading lifecycle), lock-free queues,
+  events, view primitives (`Rect_size`), params/state. No Skia, no frameworks, no platform.
+- **Optional libs** depend down on core and/or lower libs, never up, never into a cycle.
+  Leaning on core for *genuinely foundational* types is healthy, not a smell:
+  `tiny_platform → Task_manager` (dispatch lifecycle) is correct. The smell is the reverse
+  (core → a lib), which we've eliminated. `tiny_dsp` should aim for **zero** core dep.
+
+**Pros of optional-lib → core coupling**
+- No duplication of foundational primitives (one `Task_manager`, one event system).
+- Simple mental model: everything → core → (nearly) nothing.
+- Libs interoperate through shared core types without knowing each other (a platform
+  `View` and a future `tiny_ui` both speak `Rect_size`/events).
+
+**Cons / risks to manage**
+- **Core-bloat pressure** — the temptation to dump "shared-ish" things into core until it's
+  a kitchen sink, eroding the point of optional libs. Rule: a type enters core only if it
+  is *foundational AND used by ≥2 consumers*; lib-specific types stay in the lib.
+- **Wide coupling surface** — every core type a lib uses is a coupling point; core API
+  changes ripple to all libs. Keep that surface small and stable.
+- **Transitive coupling** — two libs sharing a core type are coupled through it. Usually
+  fine; be deliberate about what core exposes.
+
+**Escape valve (only if needed):** if core grows heavy or "what's foundational" blurs,
+extract a thin `tiny_base`/kernel (`Task_manager`, lock-free queue, util, view primitives)
+*below* core and have optional libs depend on `base` instead of full core. Don't do this
+preemptively — it adds a layer; reach for it only if the dependency story demands it.
+
+The single rule that makes "some crossover" safe is the **direction: down only**. As long
+as nothing points back into core and there are no cycles, crossover is the system working
+as intended — core *is* the shared substrate.
 
 ### 1.2 Spin out `tiny_platform` as a separate library
 
@@ -155,7 +244,7 @@ struct Params {
 };
 }
 
-namespace tiny::user {
+namespace tiny::plugin {
 class Processor {
 public:
     auto reset(double sr) -> void;
@@ -173,14 +262,18 @@ Reads cleaner, gives import grouping, and lays the groundwork for the forthcomin
 - **Case style:** Keep current `Capitalized_snake_case` for type identifiers. Multi-word top-level names stay as-is (`Set_param`, `Action_start`, `Request_resize`, `Param_node`). Single-word nested names use just the word (`Lin`, `Bool`, `Down`).
 - **Drop redundant prefixes/suffixes** when nesting absorbs the context: `Adapt_lin` → `Adapter::Lin`, `Bool_semantics` → `Semantics::Bool`, `Param_spec` → `params::Spec`, `Render_event` → `events::Render`. But preserve disambiguating words when needed: `events::Set_param` and `events::Set_meter` both stay full-named because they coexist as alternatives.
 - **Variant alias name:** `Any`. E.g. `Semantics::Any`, `Adapter::Any`, `notify::Any`. The sketch convention.
-- **Worker `Model` nesting:** Yes. `user::Worker` holds behavior; `user::Worker::Model` holds the four message-type aliases plus capacity and period constants. Framework reads `User::Model::*` to wire the channel.
-- **User classes location:** `tiny::user::Processor`, `tiny::user::Editor`, `tiny::user::Worker`. Distinguishes "things you write" from framework types.
+- **Worker `Model` nesting:** Yes. `plugin::Worker` holds behavior; `plugin::Worker::Model` holds the four message-type aliases plus capacity and period constants. Framework reads `User::Model::*` to wire the channel.
+- **User classes location:** `tiny::plugin::Processor`, `tiny::plugin::Editor`, `tiny::plugin::Worker`. Distinguishes "things you write" from framework types.
 - **Models location:** `tiny::models::Params`, `tiny::models::Meters` for the renamed existing models, plus **empty placeholder structs** for `tiny::models::Blocks`, `tiny::models::Tables`, `tiny::models::State` so the forthcoming feature PRs (per `plans/block-table-io.md` and `plans/state-model.md`) have reserved homes.
 - **Migration strategy:** Big-bang single PR (within Phase 2) with a clean break — no `[[deprecated]]` aliases. All five demo plug-ins migrate in the same PR. The downstream `~/Developer/hii/` plug-in migrates in lock-step (separate commit, same window).
 - **File reorganization:** Public headers (now under `include/tinyplug/` from Phase 1) get renamed to `tinyplug/<group>.h` (no `tiny_` prefix). Implementation headers move to `include/tinyplug/detail/`. The umbrella `tinyplug/tinyplug.h` stays as the public entry point.
 - **Pending: singular vs plural namespaces.** `tiny::params` vs `tiny::param`, etc. Postponed by user; resolve before starting Phase 2 implementation.
 
 ### Phase 2 namespace tree
+
+> **Low priority (2026-06-11):** pursue a namespace only if it is a *strong
+> framework organizational concept* (bar: `params`/`meters`). `plugin::` for user
+> classes is committed; the rest below is reference, not a committed work list.
 
 ```
 tiny::
@@ -195,7 +288,7 @@ tiny::
 ├── task::        manager, launcher, serial, notifications — was task_manager.hpp + friends
 ├── platform::    native view, dialogs, paths, window — was shared/platform/*.h
 ├── util::        Inline_visitor, Deferred, enum_raw, enumerate — was tiny_utils.h
-├── user::        Processor, Editor, Worker (per-plug-in classes)
+├── plugin::        Processor, Editor, Worker (per-plug-in classes)
 └── models::      Params, Meters, Blocks (planned), Tables (planned), State (planned)
 ```
 
@@ -398,9 +491,9 @@ tiny::
 
 | Old | New |
 |---|---|
-| `tiny::Plug_processor` (in `namespace tiny`) | `tiny::user::Processor` |
-| `tiny::Plug_editor` | `tiny::user::Editor` |
-| `tiny::Plug_worker` | `tiny::user::Worker` (with nested `Model` struct) |
+| `tiny::Plug_processor` (in `namespace tiny`) | `tiny::plugin::Processor` |
+| `tiny::Plug_editor` | `tiny::plugin::Editor` |
+| `tiny::Plug_worker` | `tiny::plugin::Worker` (with nested `Model` struct) |
 | `tiny::Param_model` | `tiny::models::Params` |
 | `tiny::Meter_model` | `tiny::models::Meters` |
 | `Param_address` (nested enum in user's model) | `Address` (nested in `tiny::models::Params`) |
@@ -409,11 +502,11 @@ tiny::
 | (new placeholder) | `tiny::models::Tables { enum class Address { num_tables }; };` |
 | (new placeholder) | `tiny::models::State { enum class Address { num_states }; };` |
 
-### `user::Worker::Model` shape
+### `plugin::Worker::Model` shape
 
 The four message types and tuning constants move from the worker class body into a nested `Model` struct:
 
-| Today (on `Plug_worker`) | New (on `user::Worker::Model`) |
+| Today (on `Plug_worker`) | New (on `plugin::Worker::Model`) |
 |---|---|
 | `using From_processor = ...;` | `using From_processor = ...;` |
 | `using From_editor = ...;` | `using From_editor = ...;` |
@@ -506,9 +599,9 @@ Every wrapper file references framework types. Bulk find-and-replace per the ren
 For each of `gain_demo`, `automation_tester`, `latency_demo`, `platform_demo`, `worker_demo`:
 - `models/param_model.h` → `models/params.h` (or keep filename, just rewrite contents)
 - `models/meter_model.h` → `models/meters.h`
-- `plug_processor.{h,cpp}` — change `class Plug_processor` to `namespace tiny::user { class Processor`, update all framework refs.
+- `plug_processor.{h,cpp}` — change `class Plug_processor` to `namespace tiny::plugin { class Processor`, update all framework refs.
 - `plug_editor.{h,cpp}` — same shape.
-- For `worker_demo`: `plug_worker.h` — `class Plug_worker` → `namespace tiny::user { class Worker`, move members into nested `struct Model`, rename `reply_capacity` → `outbound_capacity`, `poll_interval` → `update_period`.
+- For `worker_demo`: `plug_worker.h` — `class Plug_worker` → `namespace tiny::plugin { class Worker`, move members into nested `struct Model`, rename `reply_capacity` → `outbound_capacity`, `poll_interval` → `update_period`.
 
 CMakeLists.txt files per plug-in stay as-is (source paths unchanged unless we rename `param_model.h` → `params.h`).
 
@@ -527,8 +620,8 @@ To minimize "everything broken at once":
 2. **Add new namespaces around existing content** — wrap each header's body in `namespace tiny::<group> { ... }` but leave type names unchanged. At the bottom of each header, add `using` aliases at the old `tiny::` location so wrapper code still compiles. Validate: full build green.
 3. **Rename types inside each namespace**, one group at a time (`params`, then `meters`, then `events`, etc.). Update aliases. Validate: full build green between each group.
 4. **Remove the `tiny::` `using` aliases** and update all wrapper / demo references to the new qualified names. This is the bulk find-and-replace step. Validate: full build green.
-5. **Move `Plug_processor`/`Plug_editor`/`Plug_worker` into `tiny::user::`** and `Param_model`/`Meter_model` into `tiny::models::`. Update wrapper discovery and demo plug-ins. Add empty `Blocks`, `Tables`, `State` placeholders in `tiny::models::`. Validate: full build green.
-6. **Restructure `user::Worker`** — move messages and constants into nested `Model` struct; rename `reply_capacity` → `outbound_capacity`, `poll_interval` → `update_period`. Update framework worker runner and concepts. Update `worker_demo::plug_worker.h`. Validate: WorkerDemo VST3 builds and the demo plug-in's transport-events round-trip works in a host.
+5. **Move `Plug_processor`/`Plug_editor`/`Plug_worker` into `tiny::plugin::`** and `Param_model`/`Meter_model` into `tiny::models::`. Update wrapper discovery and demo plug-ins. Add empty `Blocks`, `Tables`, `State` placeholders in `tiny::models::`. Validate: full build green.
+6. **Restructure `plugin::Worker`** — move messages and constants into nested `Model` struct; rename `reply_capacity` → `outbound_capacity`, `poll_interval` → `update_period`. Update framework worker runner and concepts. Update `worker_demo::plug_worker.h`. Validate: WorkerDemo VST3 builds and the demo plug-in's transport-events round-trip works in a host.
 7. **Move impl headers to `detail/`** and update `#include` paths in `.cpp` files. Validate: full build green.
 8. **Smoke test in a host** — load worker_demo VST3, confirm transport events still flow to the JSON log.
 
