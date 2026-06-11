@@ -3,6 +3,8 @@
 #include <chrono>
 #include <variant>
 
+#include "tiny_platform.hpp" // TINY_PLATFORM_* (used below)
+
 namespace tiny {
 
 // MARK: - Over
@@ -49,7 +51,7 @@ auto Over_recognizer::process_events(Event_list& events) -> void
                 if (has_touches && !touch_is_ours(event.pointer_tag)) return;
                 resolve_events(exit.pos, _over, false);
             },
-#if PLATFORM_IOS
+#if TINY_PLATFORM_IOS
             [&](const Pointer_up& up) {
                 if (has_touches && !touch_is_ours(event.pointer_tag)) return;
                 resolve_events(up.pos, _over, false);
@@ -225,7 +227,7 @@ auto Click_recognizer::process_events(Event_list& events) -> void
     for (auto& event : events.events) {
         if (event.consumed) continue;
         std::visit(Inline_visitor{
-#if PLATFORM_APPLE
+#if TINY_PLATFORM_APPLE
             [&](const Pointer_down& down) {
                 // Right click executes on pointer down on macOS.
                 if (_frame.contains(down.pos) && down.button == Pointer_button::right) {

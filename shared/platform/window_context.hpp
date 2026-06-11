@@ -4,21 +4,14 @@
 
 #include "../tinyplug/tinyplug.hpp"
 
-#include "platform.hpp"
-
-#include "include/core/SkRefCnt.h"
-#include "include/core/SkSurface.h"
-#include "include/core/SkCanvas.h"
-
-#if PLATFORM_APPLE
-#include "include/gpu/ganesh/GrDirectContext.h"
-#include "include/gpu/ganesh/mtl/GrMtlTypes.h"
-#elif PLATFORM_WINDOWS
-// Impl now
-#endif
+class SkCanvas; // Skia canvas; the platform Impl owns the surface it comes from.
 
 namespace tiny {
 
+// Owns the native rendering surface (Metal-backed Skia on Apple, D3D12 or a
+// CPU bitmap on Windows). All platform- and Skia-specific state lives in the
+// per-platform Impl (see mac_context.mm / ios_context.mm / win_context.cpp),
+// so this header carries no platform conditionals and no Skia includes.
 class Window_context {
 public:
 
@@ -49,25 +42,8 @@ private:
 
     Rect_size _size; // Real
 
-#if PLATFORM_APPLE
-    sk_sp<GrDirectContext> _context;
-    sk_sp<SkSurface> _surface;
-    void* _view; // NSView* or UIView*
-    void* _device; // id<MTLDevice>
-    void* _queue; // id<MTLCommandQueue>
-    void* _layer; // CAMetalLayer*
-    GrMTLHandle _drawable; // id<CAMetalDrawable>
-#endif
-    
-#if PLATFORM_IOS
-    void* _metal_view; // MetalView* (see implementation)
-#endif
-
-#if PLATFORM_WINDOWS
     struct Impl;
     std::unique_ptr<Impl> _impl;
-    auto setupSurfaces(int width, int height) -> void;
-#endif
 };
 
 }

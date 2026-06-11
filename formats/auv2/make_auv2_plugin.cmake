@@ -35,8 +35,8 @@ function(make_auv2_plugin USER_TARGET)
 
     target_link_libraries(${AUV2_TARGET} PRIVATE tiny::ausdk)
     target_link_libraries(${AUV2_TARGET} PRIVATE ${USER_TARGET})
+    target_link_libraries(${AUV2_TARGET} PRIVATE ${TINY_PLATFORM_LIB})
 
-    target_link_libraries(${AUV2_TARGET} PRIVATE "-framework Cocoa")
     target_compile_options(${AUV2_TARGET} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
     target_link_options(${AUV2_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
 

@@ -140,6 +140,7 @@ function(make_auv3_plugin USER_TARGET)
         add_library(${CORE_TARGET} SHARED)
         target_sources(${CORE_TARGET} PRIVATE ${AUV3_EXTENSION_SOURCES})
         target_link_libraries(${CORE_TARGET} PRIVATE ${USER_TARGET})
+    target_link_libraries(${CORE_TARGET} PRIVATE ${TINY_PLATFORM_LIB})
         target_link_libraries(${CORE_TARGET} PRIVATE
             "-framework AudioToolbox"
             "-framework AVFoundation"
@@ -224,6 +225,7 @@ function(make_auv3_plugin USER_TARGET)
             target_link_libraries(${APP_TARGET} PRIVATE "-framework StoreKit")
             # Maybe we need to call some code from the user target. (This is sort of a hack right now so we can get device_identifier.mm in the standalone)
             target_link_libraries(${APP_TARGET} PRIVATE ${USER_TARGET})
+    target_link_libraries(${APP_TARGET} PRIVATE ${TINY_PLATFORM_LIB})
         endif()
         configure_file(
             ${SOURCE_DIR}/cmake/Entitlements-iOS.plist.in
@@ -370,6 +372,7 @@ function(make_auv3_plugin USER_TARGET)
         target_link_options(${EXT_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
     endif()
     target_link_libraries(${EXT_TARGET} PRIVATE ${USER_TARGET})
+    target_link_libraries(${EXT_TARGET} PRIVATE ${TINY_PLATFORM_LIB})
     target_include_directories(${EXT_TARGET} PRIVATE ${SOURCE_DIR}/source/shared)
 
     # Per-plugin mac view classes (macOS only — iOS extension runs out-of-process so no collision risk,

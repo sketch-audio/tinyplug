@@ -918,13 +918,26 @@ void Plugin::paramsFlush(const clap_input_events* in, const clap_output_events* 
 
 bool Plugin::guiIsApiSupported(const char* api, bool isFloating) noexcept
 {
+#if TINY_PLATFORM_MACOS
+    constexpr auto gui_preferred_api = CLAP_WINDOW_API_COCOA;
+#elif TINY_PLATFORM_WINDOWS
+    constexpr auto gui_preferred_api = CLAP_WINDOW_API_WIN32;
+#endif
+
     return !isFloating && strcmp(api, gui_preferred_api) == 0;
 }
 
 bool Plugin::guiGetPreferredApi(const char** api, bool* isFloating) noexcept
 {
+#if TINY_PLATFORM_MACOS
+    constexpr auto gui_preferred_api = CLAP_WINDOW_API_COCOA;
+#elif TINY_PLATFORM_WINDOWS
+    constexpr auto gui_preferred_api = CLAP_WINDOW_API_WIN32;
+#endif
+
     *api = gui_preferred_api;
     *isFloating = false;
+
     return true;
 }
 

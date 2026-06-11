@@ -68,8 +68,12 @@ auto View::set_parent(const clap_window* window) noexcept -> bool
     if (!window || !_platform_view) return false;
 
     // Resolve the platform window type.
-    const auto is_mac = Platform::resolved == Platform::Type::macos;
-    auto* platform_window = is_mac ? window->cocoa : window->win32;
+#if TINY_PLATFORM_MACOS
+    auto* platform_window = window->cocoa;
+#elif TINY_PLATFORM_WINDOWS
+    auto* platform_window = window->win32;
+#endif
+
     _platform_view->receive_parent(platform_window);
     
     return true;

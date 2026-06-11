@@ -24,9 +24,9 @@ function(make_clap_plugin USER_TARGET)
 
     target_link_libraries(${CLAP_TARGET} PRIVATE tiny::clap tiny::clap-helpers)
     target_link_libraries(${CLAP_TARGET} PRIVATE ${USER_TARGET})
+    target_link_libraries(${CLAP_TARGET} PRIVATE ${TINY_PLATFORM_LIB})
 
     if(APPLE)
-        target_link_libraries(${CLAP_TARGET} PRIVATE "-framework Cocoa")
         target_compile_options(${CLAP_TARGET} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
         target_link_options(${CLAP_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
 

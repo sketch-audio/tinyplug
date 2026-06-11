@@ -29,9 +29,9 @@ function(make_vst3_plugin USER_TARGET)
 
     target_link_libraries(${VST3_TARGET} PRIVATE tiny::vst3sdk)
     target_link_libraries(${VST3_TARGET} PRIVATE ${USER_TARGET})
+    target_link_libraries(${VST3_TARGET} PRIVATE ${TINY_PLATFORM_LIB})
 
     if(APPLE)
-        target_link_libraries(${VST3_TARGET} PRIVATE "-framework Cocoa")
         target_compile_options(${VST3_TARGET} PRIVATE -Wall -Wextra -pedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
         target_link_options(${VST3_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
 

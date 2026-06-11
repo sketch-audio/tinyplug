@@ -38,13 +38,13 @@ function(make_aax_plugin USER_TARGET)
 
     target_link_libraries(${AAX_TARGET} PRIVATE tiny::aaxsdk)
     target_link_libraries(${AAX_TARGET} PRIVATE ${USER_TARGET})
+    target_link_libraries(${AAX_TARGET} PRIVATE ${TINY_PLATFORM_LIB})
 
     if(TINY_AAX_PAGE_TABLE_PATH)
         target_compile_definitions(${AAX_TARGET} PRIVATE TINY_AAX_PAGE_TABLE=1) # Make sure to copy to bundle resources below.
     endif()
 
     if(APPLE)
-        target_link_libraries(${AAX_TARGET} PRIVATE "-framework Cocoa")
         target_compile_options(${AAX_TARGET} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
         target_link_options(${AAX_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
         target_link_options(${AAX_TARGET} PRIVATE "-Wl,-headerpad,578")

@@ -54,7 +54,9 @@ target_include_directories(${PLUGIN_TARGET} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/source
     ${CMAKE_CURRENT_BINARY_DIR}
 )
-target_link_libraries(${PLUGIN_TARGET} PUBLIC ${TINY_SHARED_LIB})
+target_link_libraries(${PLUGIN_TARGET} PUBLIC ${TINY_SHARED_LIB}) # plugin headers expose core types
+target_link_libraries(${PLUGIN_TARGET} PRIVATE ${TINY_PLATFORM_LIB}) # editor may use platform services (dialogs/paths)
+target_link_libraries(${PLUGIN_TARGET} PRIVATE tiny::skia) # editor draws with Skia
 
 make_aax_plugin(${PLUGIN_TARGET})
 make_auv2_plugin(${PLUGIN_TARGET})

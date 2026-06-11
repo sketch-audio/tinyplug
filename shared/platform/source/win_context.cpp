@@ -40,6 +40,8 @@ struct Window_context::Impl {
     int fWidth = 0;
     int fHeight = 0;
 #endif
+
+    auto setupSurfaces(int width, int height) -> void;
 };
 
 Window_context::Window_context() : _impl(std::make_unique<Impl>()) {}
@@ -194,7 +196,7 @@ auto Window_context::setup(const Setup& setup) -> void
 
     //fSampleCount = fDisplayParams->msaaSampleCount(); // 1
 
-    this->setupSurfaces(width, height);
+    _impl->setupSurfaces(width, height);
 
     for (int i = 0; i < _impl->kNumFrames; ++i) {
         _impl->fFenceValues[i] = 10000;   // use a high value to make it easier to track these in PIX
@@ -325,7 +327,7 @@ auto Window_context::on_resized() -> void
     GR_D3D_CALL_ERRCHECK(_impl->fSwapChain->ResizeBuffers(0, width, height,
                                                           DXGI_FORMAT_R8G8B8A8_UNORM, 0));
 
-    this->setupSurfaces(width, height);
+    _impl->setupSurfaces(width, height);
 
     // fWidth = width;
     // fHeight = height;
@@ -334,7 +336,7 @@ auto Window_context::on_resized() -> void
 
 // MARK: - private
 
-auto Window_context::setupSurfaces(int width, int height) -> void
+auto Window_context::Impl::setupSurfaces(int width, int height) -> void
 {
     // set up base resource info
     GrD3DTextureResourceInfo info(nullptr,
@@ -344,13 +346,13 @@ auto Window_context::setupSurfaces(int width, int height) -> void
                                   1,
                                   1,
                                   0);
-    for (int i = 0; i < _impl->kNumFrames; ++i) {
-        GR_D3D_CALL_ERRCHECK(_impl->fSwapChain->GetBuffer(i, IID_PPV_ARGS(&_impl->fBuffers[i])));
+    for (int i = 0; i < kNumFrames; ++i) {
+        GR_D3D_CALL_ERRCHECK(fSwapChain->GetBuffer(i, IID_PPV_ARGS(&fBuffers[i])));
 
-        SkASSERT(_impl->fBuffers[i]->GetDesc().Width == (UINT64)width &&
-                 _impl->fBuffers[i]->GetDesc().Height == (UINT64)height);
+        SkASSERT(fBuffers[i]->GetDesc().Width == (UINT64)width &&
+                 fBuffers[i]->GetDesc().Height == (UINT64)height);
 
-        info.fResource = _impl->fBuffers[i];
+        info.fResource = fBuffers[i];
 
         // Display params defaults.
         const auto fSampleCount = 1;
@@ -358,7 +360,7 @@ auto Window_context::setupSurfaces(int width, int height) -> void
         
         if (fSampleCount > 1) {
             GrBackendTexture backendTexture(width, height, info);
-            _impl->fSurfaces[i] = SkSurfaces::WrapBackendTexture(_impl->fContext.get(),
+            fSurfaces[i] = SkSurfaces::WrapBackendTexture(fContext.get(),
                                                           backendTexture,
                                                           kTopLeft_GrSurfaceOrigin,
                                                           fSampleCount,
@@ -367,7 +369,7 @@ auto Window_context::setupSurfaces(int width, int height) -> void
                                                           &surfaceProps);
         } else {
             GrBackendRenderTarget backendRT(width, height, info);
-            _impl->fSurfaces[i] = SkSurfaces::WrapBackendRenderTarget(_impl->fContext.get(),
+            fSurfaces[i] = SkSurfaces::WrapBackendRenderTarget(fContext.get(),
                                                                backendRT,
                                                                kTopLeft_GrSurfaceOrigin,
                                                                kRGBA_8888_SkColorType,
@@ -393,7 +395,7 @@ auto Window_context::setup(const Setup& setup) -> void
     _impl->fWidth  = rect.right - rect.left;
     _impl->fHeight = rect.bottom - rect.top;
 
-    this->setupSurfaces(_impl->fWidth, _impl->fHeight);
+    _impl->setupSurfaces(_impl->fWidth, _impl->fHeight);
 
     _size = Rect_size{static_cast<int32_t>(_impl->fWidth), static_cast<int32_t>(_impl->fHeight)};
 }
@@ -452,17 +454,17 @@ auto Window_context::on_resized() -> void
     _impl->fWidth  = rect.right - rect.left;
     _impl->fHeight = rect.bottom - rect.top;
 
-    this->setupSurfaces(_impl->fWidth, _impl->fHeight);
+    _impl->setupSurfaces(_impl->fWidth, _impl->fHeight);
 
     _size = Rect_size{static_cast<int32_t>(_impl->fWidth), static_cast<int32_t>(_impl->fHeight)};
 }
 
 // MARK: - private
 
-auto Window_context::setupSurfaces(int width, int height) -> void
+auto Window_context::Impl::setupSurfaces(int width, int height) -> void
 {
-    _impl->fWidth  = width;
-    _impl->fHeight = height;
+    fWidth  = width;
+    fHeight = height;
 
     SkImageInfo info = SkImageInfo::Make(
         width,
@@ -471,22 +473,22 @@ auto Window_context::setupSurfaces(int width, int height) -> void
         kPremul_SkAlphaType
     );
 
-    _impl->fBitmap.allocPixels(info);
+    fBitmap.allocPixels(info);
 
-    _impl->fSurface = SkSurfaces::WrapPixels(
+    fSurface = SkSurfaces::WrapPixels(
         info,
-        _impl->fBitmap.getPixels(),
-        _impl->fBitmap.rowBytes()
+        fBitmap.getPixels(),
+        fBitmap.rowBytes()
     );
 
     // Configure BITMAPINFO for StretchDIBits
-    ZeroMemory(&_impl->fBitmapInfo, sizeof(_impl->fBitmapInfo));
-    _impl->fBitmapInfo.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-    _impl->fBitmapInfo.bmiHeader.biWidth       = width;
-    _impl->fBitmapInfo.bmiHeader.biHeight      = -height; // top-down DIB
-    _impl->fBitmapInfo.bmiHeader.biPlanes      = 1;
-    _impl->fBitmapInfo.bmiHeader.biBitCount    = 32;
-    _impl->fBitmapInfo.bmiHeader.biCompression = BI_RGB;
+    ZeroMemory(&fBitmapInfo, sizeof(fBitmapInfo));
+    fBitmapInfo.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    fBitmapInfo.bmiHeader.biWidth       = width;
+    fBitmapInfo.bmiHeader.biHeight      = -height; // top-down DIB
+    fBitmapInfo.bmiHeader.biPlanes      = 1;
+    fBitmapInfo.bmiHeader.biBitCount    = 32;
+    fBitmapInfo.bmiHeader.biCompression = BI_RGB;
 }
 
 } // namespace tiny

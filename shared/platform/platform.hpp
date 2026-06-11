@@ -1,45 +1,15 @@
 #pragma once
 
-#if defined(__APPLE__)
-    #include <TargetConditionals.h>
-    #if TARGET_OS_OSX
-        #ifndef PLATFORM_MACOS
-        #define PLATFORM_MACOS 1
-        #endif
-    #elif TARGET_OS_IOS
-        #ifndef PLATFORM_IOS
-        #define PLATFORM_IOS 1
-        #endif
-    #endif
-    #if PLATFORM_MACOS || PLATFORM_IOS
-        #ifndef PLATFORM_APPLE
-        #define PLATFORM_APPLE 1
-        #endif
-    #endif
-#elif defined(_WIN32)
-    #ifndef PLATFORM_WINDOWS
-    #define PLATFORM_WINDOWS 1
-    #endif
-#else
-    #error "Unsupported platform."
-#endif
+// Umbrella header for the platform library. Pulls in the format-facing platform
+// surface: compile-time platform detection, the native view + its delegate,
+// dialogs, and paths.
+//
+// `window_context.hpp` is intentionally excluded — it is an internal
+// implementation header (and the only one that pulls in Skia). Platform sources
+// include it directly; consumers outside the platform library should not need it.
 
-struct Platform {
-    enum class Type {
-        macos, ios, windows
-    };
-
-    static constexpr auto resolved = Type{
-#if PLATFORM_MACOS
-        Type::macos
-#elif PLATFORM_IOS
-        Type::ios
-#elif PLATFORM_WINDOWS
-        Type::windows
-#endif
-    };
-
-    static constexpr auto is_apple = bool{
-        Platform::resolved == Type::macos || Platform::resolved == Type::ios
-    };
-};
+#include "../tinyplug/tiny_platform.hpp"
+#include "view_delegate.hpp"
+#include "platform_view.hpp"
+#include "platform_dialogs.hpp"
+#include "platform_paths.hpp"

@@ -9,8 +9,6 @@
 #include <unordered_set>
 #include <variant>
 
-#include "../platform/platform.hpp"
-
 #include "tiny_edit.hpp"
 #include "tiny_events.hpp"
 #include "tiny_meters.hpp"

@@ -64,4 +64,5 @@ endif()
 # Forward SDK variables to parent scope only if this is NOT the top-level project.
 if(NOT CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     set(TINY_SHARED_LIB ${TINY_SHARED_LIB} PARENT_SCOPE)
+    set(TINY_PLATFORM_LIB ${TINY_PLATFORM_LIB} PARENT_SCOPE)
 endif()

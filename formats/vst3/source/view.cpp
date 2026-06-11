@@ -6,18 +6,13 @@ namespace tiny::vst3 {
 
 Steinberg::tresult PLUGIN_API View::isPlatformTypeSupported(Steinberg::FIDString type)
 {
-    const auto platform_type = []() {
-        switch (Platform::resolved) {
-            case Platform::Type::macos:
-                return Steinberg::kPlatformTypeNSView;
-            case Platform::Type::ios:
-                return Steinberg::kPlatformTypeUIView;
-            case Platform::Type::windows:
-                return Steinberg::kPlatformTypeHWND;
-            default:
-                return Steinberg::kPlatformTypeX11EmbedWindowID; // Not yet supported.
-        }
-    }();
+#if TINY_PLATFORM_MACOS
+    const auto platform_type = Steinberg::kPlatformTypeNSView;
+#elif TINY_PLATFORM_IOS
+    const auto platform_type = Steinberg::kPlatformTypeUIView;
+#elif TINY_PLATFORM_WINDOWS
+    const auto platform_type = Steinberg::kPlatformTypeHWND;
+#endif
 
     if (strcmp(type, platform_type) == 0)
         return Steinberg::kResultTrue;
@@ -44,7 +39,7 @@ Steinberg::tresult PLUGIN_API View::attached(void* parent, Steinberg::FIDString 
     _platform_view = Platform_views::make_owning(delegate);
     _platform_view->on_create();
     _deps.editor->on_gui_create();
-    
+
     _platform_view->receive_parent(parent);
 
     // Synchronize on display.
@@ -60,7 +55,7 @@ Steinberg::tresult PLUGIN_API View::attached(void* parent, Steinberg::FIDString 
         .state_adapter = _state_adapter.actor(),
         .undo_redo = _undo_history.actor(),
     });
-    
+
     return Steinberg::kResultTrue;
 }
 
@@ -80,7 +75,7 @@ Steinberg::tresult PLUGIN_API View::getSize(Steinberg::ViewRect* size)
 {
     const auto initial_size = _deps.controller->get_last_size()
         .value_or(plugin::Editor::preferred_size());
-    
+
     const auto platform_size = _platform_view ? _platform_view->get_size() : initial_size;
     *size = {0, 0, platform_size.w, platform_size.h};
 
@@ -99,7 +94,7 @@ Steinberg::tresult PLUGIN_API View::onSize(Steinberg::ViewRect* newSize)
 
     if (!_platform_view) return Steinberg::kResultTrue;
     _platform_view->resize(w, h);
-    
+
     return Steinberg::kResultTrue;
 }
 

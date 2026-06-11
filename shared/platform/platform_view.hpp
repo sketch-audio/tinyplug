@@ -4,14 +4,14 @@
 #include <memory>
 #include <optional>
 
-#include "platform.hpp"
+#include "../tinyplug/tiny_platform.hpp"
 #include "view_delegate.hpp"
 
 #include "../tinyplug/tinyplug.hpp"
 
 namespace tiny {
 
-#if PLATFORM_WINDOWS
+#if TINY_PLATFORM_WINDOWS
 // State binder for window callback.
 struct Platform_binder {
     View_delegate* delegate{};
@@ -50,7 +50,7 @@ private:
     std::shared_ptr<View_delegate> _delegate;
     void* _view{nullptr};
 
-#if PLATFORM_WINDOWS
+#if TINY_PLATFORM_WINDOWS
     Platform_binder _binder{};
     std::unique_ptr<Dark_mode_watcher> _dark_watcher{nullptr};
     std::unique_ptr<Vsync_loop> _vsync_loop{nullptr};
@@ -63,7 +63,7 @@ struct Platform_views {
         return std::make_unique<Platform_view>(delegate, true);
     }
 
-#if PLATFORM_MACOS || PLATFORM_IOS
+#if TINY_PLATFORM_MACOS || TINY_PLATFORM_IOS
     static auto make_autoreleasing(std::shared_ptr<View_delegate> delegate, std::function<void()> on_autorelease) -> std::unique_ptr<Platform_view> {
         return std::make_unique<Platform_view>(delegate, false, on_autorelease);
     }
