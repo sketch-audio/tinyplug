@@ -272,6 +272,8 @@ bool Plugin::enableDraftExtensions() const noexcept
 
 bool Plugin::stateSave(const clap_ostream* stream) noexcept
 {
+    using namespace params;
+
     if (!stream) return false;
 
     const auto edit_state = _editor->save_state();
@@ -340,7 +342,7 @@ bool Plugin::stateSave(const clap_ostream* stream) noexcept
         auto raw = _hostvalues[i].load(std::memory_order_relaxed);
 
         if (std::get_if<params::Semantics::Fixed>(&spec.semantics)) {
-            raw = norm_to_plain(plain_to_norm(raw, spec.semantics), spec.semantics); // Clamp fixed to step values.
+            raw = Value_helper::quantize(raw, spec.semantics); // Clamp fixed to step values.
         }
 
         const auto host_value = static_cast<float>(raw);
@@ -416,6 +418,8 @@ bool Plugin::stateSave(const clap_ostream* stream) noexcept
 
 auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void
 {
+    using namespace params;
+
     // Notify kernel and view (if not an interface parameter).
     auto notify = [&](const auto& param, auto knob_value) {
         const auto can_notify = knob_value.has_value() && State_rules::is_persistent(param);
@@ -446,7 +450,7 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_
         // Set remaining parameters to defaults.
         for (auto i = num_stored_values; i < num_params; ++i) {
             const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
-            const auto knob_value = get_knob_default(param);
+            const auto knob_value = Value_helper::default_value(param, Space::Knob);
             notify(param, std::optional<double>{knob_value});
         }
     }
@@ -459,6 +463,8 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_
 
 bool Plugin::stateLoad(const clap_istream* stream) noexcept
 {
+    using namespace params;
+
     if (!stream) return false;
 
     auto header = State_rules::Clap::Header{};
@@ -529,7 +535,7 @@ bool Plugin::stateLoad(const clap_istream* stream) noexcept
         // Do we have a meaningful value?
         if (host_value != State_rules::no_value) {
             const auto& spec = User_params::param_spec(i);
-            const auto knob_value = Value_conv::host_to_knob(static_cast<double>(host_value), spec.semantics);
+            const auto knob_value = Value_helper::host_to_knob(static_cast<double>(host_value), spec.semantics);
             stored_values[i] = knob_value;
         }
     }
@@ -750,6 +756,8 @@ uint32_t Plugin::paramsCount() const noexcept
 
 bool Plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexcept
 {
+    using namespace params;
+
     if (!info) return false;
 
     if (paramIndex == num_params) {
@@ -817,7 +825,7 @@ bool Plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexce
         [&](const params::Semantics::Real& r) {
             info->min_value = 0;
             info->max_value = 1;
-            info->default_value = plain_to_norm(r.def_val, r);
+            info->default_value = Value_helper::plain_to_knob(r.def_val, r);
         },
     }, param.semantics);
 
@@ -826,6 +834,8 @@ bool Plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexce
 
 bool Plugin::paramsValue(clap_id paramId, double* value) noexcept
 {
+    using namespace params;
+
     if (paramId == Reserved::bypass_id) {
         const auto bypass = _bypass.is_bypassed();
         *value = bypass ? 1. : 0.;
@@ -840,7 +850,7 @@ bool Plugin::paramsValue(clap_id paramId, double* value) noexcept
 
     if (std::get_if<params::Semantics::Fixed>(&spec.semantics)) {
         // Snap to nearest step so paramsValue() round-trips through state save/load.
-        result = norm_to_plain(plain_to_norm(raw, spec.semantics), spec.semantics);
+        result = Value_helper::quantize(raw, spec.semantics);
     }
 
     *value = static_cast<double>(static_cast<float>(result)); // We dump state as floats so the cast makes sure we round-trip through state save/load.
@@ -868,6 +878,8 @@ bool Plugin::paramsValueToText(clap_id paramId, double value, char* display, uin
 
 bool Plugin::paramsTextToValue(clap_id paramId, const char* display, double* value) noexcept
 {
+    using namespace params;
+
     if (!display) return false;
 
     if (paramId == Reserved::bypass_id) {
@@ -882,8 +894,8 @@ bool Plugin::paramsTextToValue(clap_id paramId, const char* display, double* val
     const auto str = std::string{display};
 
     if (const auto plain = Host_formatter::to_value(str, param.semantics)) {
-        const auto clamped = std::clamp(*plain, get_plain_min(param), get_plain_max(param)); // Clamp fixes some round-tripping issues flagged by the validator.
-        *value = Value_conv::plain_to_host(clamped, param.semantics);
+        const auto clamped = Value_helper::clamp(*plain, param.semantics); // Clamp fixes some round-tripping issues flagged by the validator.
+        *value = Value_helper::plain_to_host(clamped, param.semantics);
         return true;
     }
 
@@ -918,12 +930,13 @@ bool Plugin::guiGetPreferredApi(const char** api, bool* isFloating) noexcept
 
 bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
 {
+    using namespace params;
     // Make the UI connection.
     auto receiver = Ui_receiver{
         .get_param = [this](auto id) {
             const auto& param = User_params::param_spec(id);
             const auto host_value = _hostvalues[id].load(std::memory_order_relaxed);
-            const auto knob_value = Value_conv::host_to_knob(host_value, param.semantics);
+            const auto knob_value = Value_helper::host_to_knob(host_value, param.semantics);
             return knob_value;
         },
         .pop_meter = [this](auto& event) {
@@ -1073,10 +1086,12 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events) -> voi
                 }
             },
             [&](const Set_param& a) {
+                using namespace params;
+
                 const auto& param = User_params::param_spec(a.address);
 
                 if (wants_host_notify(param.policy)) {
-                    const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
+                    const auto host_value = Value_helper::knob_to_host(a.value, param.semantics);
                     const auto e = clap_event_param_value{
                         .header = {
                             .size = sizeof(clap_event_param_value),
@@ -1091,7 +1106,7 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events) -> voi
                     out_events->try_push(out_events, &e.header);
                 }
 
-                const auto plain_value = Value_conv::knob_to_plain(a.value, param.semantics);
+                const auto plain_value = Value_helper::knob_to_plain(a.value, param.semantics);
                 _processor->handle_event(Set_param{param.address, plain_value});
             },
             [&](const Action_end& a) {
@@ -1117,10 +1132,11 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events) -> voi
 
 auto Plugin::_handle_user_action(const User_action& action) -> void
 {
+    using namespace params;
     // Maintain host values immediately.
     if (const auto* a = std::get_if<Set_param>(&action)) {
         const auto& param = User_params::param_spec(a->address);
-        const auto host_value = Value_conv::knob_to_host(a->value, param.semantics);
+        const auto host_value = Value_helper::knob_to_host(a->value, param.semantics);
         _hostvalues[param.address].store(host_value, std::memory_order_relaxed);
     }
     [[maybe_unused]] const auto success = _from_ui.push(action);

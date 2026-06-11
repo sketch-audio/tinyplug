@@ -101,28 +101,40 @@ cmake --build build-debug --parallel 8
 ## What REMAINS
 
 ### Params (finish the namespace pass)
-Still reachable only via transitional `tiny::` aliases in `tiny_params.hpp`
-(bottom of file) — migrate each into `tiny::params` and delete its alias:
-- `Value_conv → Conv`, `Host_formatter → Formatter`.
-- `Param_order → Order`, `Value_space → Space`.
-- Free-fn de-prefix: `get_plain_min→plain_min`, `get_host_default→host_default`,
-  `param_is_discrete→is_discrete`, `is_param_units→has_units`, etc.
+Still reachable only via transitional `tiny::` aliases — migrate each into
+`tiny::params` and delete its alias:
+- `Host_formatter → Formatter`.
+- `Param_order → Order`.
 - `Units` (type kept; decide if it moves/renames).
 
-### `tiny_params.hpp` build-time cleanup (ideated, not done)
-The win is **evicting heavy includes** from this universally-included header:
-- **Delete `#include <format>`** — it's unused (zero `std::format`). Free win.
-- Move `Host_formatter`(`→Formatter`) impl to a new `src`/`shared` `.cpp` →
-  evicts `<sstream>` + `<iomanip>` (only `format_string` uses them, via
-  `ostringstream`/`setprecision`). Add the `.cpp` to the core lib CMake list.
-- Optionally move other non-template/non-constexpr bodies (`units_string`,
-  `get_*`, `is_param_units`, `param_is_discrete`, `flatten_tree`, `validate_*`,
-  `Value_conv`) to the same `.cpp`. Must stay in header: the `constexpr`
-  `plain_to_norm`/`norm_to_plain`, all templates (`clamp`, `knob_next`,
-  `make_array_by_indices`, `Infos`). Perf: moved fns run at control-rate, fine.
-- Organization options discussed: keep `Conv`/`Formatter` as static-method
-  structs; queries as either de-prefixed free fns (recommended), `Spec` member
-  fns (most ergonomic), or a `params::Query` struct.
+### Value helpers consolidated — DONE this session
+`Value_conv` + the conversion/query free functions were unified into one
+`params::Value_helper` struct and **moved out of `tiny_params.hpp`** into new
+[value_helper.hpp](value_helper.hpp) / [value_helper.cpp](value_helper.cpp)
+(included via `tinyplug.hpp`), keeping the params header declarative.
+- API map: `Value_conv::*` kept names; `plain_to_norm`/`norm_to_plain` →
+  `plain_to_knob`/`knob_to_plain` (knob == norm); `get_{plain,host,knob}_default`
+  → `default_value(spec, Space::*)`; `get_plain_min/max` → `plain_min/max`;
+  `param_is_discrete`/`is_param_units` → `is_discrete`/`has_units`;
+  `units_string` → `units_label`; `Value_space` → `Space`.
+- **Detempled** `clamp`/`knob_next` to plain `double` (they were dead code).
+- New: `convert(v, from, to, sem)`, `quantize(v, sem)` (the `norm(plain(…))`
+  step-snap idiom, deduped from CLAP + the old fixed-quantize paths).
+- `make_defaults` is now a free template `make_defaults<T, Infos>(space)` (was an
+  `Infos` member); `make_array_by_indices` moved into `value_helper.hpp`.
+- Includes evicted from `tiny_params.hpp`: `<format>` (was unused), `<cmath>`,
+  `<functional>`, `<optional>`. The `constexpr` on the conversions was dropped
+  (confirmed zero compile-time use) so the bodies could move to the `.cpp`.
+- One deliberate behavior tweak: `default_value(Fixed, Host)` now quantizes (was
+  raw def_val); identical for step-aligned defaults, which `validate_spec` requires.
+- **Built green** on the 4 Makefile formats + core lib + 5 demo plug-ins.
+  Unverified (same as always): AUv3 (needs Xcode gen) and the on-demand preset
+  exporters (`presets/*_exporter.cpp` — mechanical `make_defaults` rename only).
+
+### `Host_formatter` build-time cleanup (remaining)
+- `Host_formatter`(`→Formatter`) impl already lives in `host_formatter.cpp`
+  (`<sstream>`/`<iomanip>` are out of the headers). Renaming `Host_formatter →
+  params::Formatter` and moving it under `params::` is the leftover step.
 
 ### Other framework namespaces (Phase 2, not started)
 `tiny::events`, `tiny::view`, `tiny::edit`, `tiny::state`, `tiny::process`,

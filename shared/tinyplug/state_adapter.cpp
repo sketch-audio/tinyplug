@@ -1,9 +1,12 @@
 #include "state_adapter.hpp"
 
+#include "value_helper.hpp"
+
 namespace tiny {
 
 auto State_adapter::preset_state(const State_map& extras) const -> nlohmann::ordered_json
 {
+    using namespace params;
     using Json = nlohmann::ordered_json;
     auto preset_state = Json{};
 
@@ -15,7 +18,7 @@ auto State_adapter::preset_state(const State_map& extras) const -> nlohmann::ord
     auto add_value = [](Json& json, const params::Spec& spec, double value) {
         const auto persistent = (spec.policy != params::Policy::Interface);
         if (!persistent) return;
-        const auto plain = Value_conv::knob_to_plain(value, spec.semantics);
+        const auto plain = Value_helper::knob_to_plain(value, spec.semantics);
         json[spec.string_id] = static_cast<float>(plain);
     };
 
@@ -79,6 +82,7 @@ auto State_adapter::preset_state(const State_map& extras) const -> nlohmann::ord
 
 auto State_adapter::param_values(const nlohmann::ordered_json& preset_state) const -> Maybe_values<double>
 {
+    using namespace params;
     using Json = nlohmann::ordered_json;
 
     const auto model = _provider.load_model();
@@ -93,11 +97,11 @@ auto State_adapter::param_values(const nlohmann::ordered_json& preset_state) con
                 const auto has_value = json.contains(spec->string_id) && json[spec->string_id].is_number();
                 if (has_value) {
                     const auto plain = json[spec->string_id].get<double>();
-                    const auto knob = Value_conv::plain_to_knob(plain, spec->semantics);
+                    const auto knob = Value_helper::plain_to_knob(plain, spec->semantics);
                     values[spec->address] = knob;
                 }
                 else {
-                    const auto def_val = get_knob_default(*spec);
+                    const auto def_val = Value_helper::default_value(*spec, Space::Knob);
                     values[spec->address] = def_val;
                 }
             }
@@ -131,16 +135,16 @@ auto State_adapter::editor_state(const nlohmann::ordered_json& preset_state) con
         const auto& value = it.value();
 
         if (value.is_boolean()) {
-            state[key] = value.get<bool>();
+            state[key].emplace<bool>(value.get<bool>());
         }
         else if (value.is_number_integer()) {
-            state[key] = static_cast<int32_t>(value.get<int64_t>());
+            state[key].emplace<int32_t>(static_cast<int32_t>(value.get<int64_t>()));
         }
         else if (value.is_number_float()) {
-            state[key] = value.get<double>();
+            state[key].emplace<double>(value.get<double>());
         }
         else if (value.is_string()) {
-            state[key] = value.get<std::string>();
+            state[key].emplace<std::string>(value.get<std::string>());
         }
     }
 

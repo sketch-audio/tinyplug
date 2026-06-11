@@ -79,6 +79,8 @@ auto View::set_parent(const clap_window* window) noexcept -> bool
 
 auto View::on_draw(View_context& view_context) -> void
 {
+    using namespace params;
+
 #if TINY_HAS_WORKER
     if (_deps.drain_worker_to_editor) _deps.drain_worker_to_editor();
 #endif

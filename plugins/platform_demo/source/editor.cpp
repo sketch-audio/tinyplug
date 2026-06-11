@@ -12,6 +12,8 @@ auto Editor::on_gui_create() -> void
 
 auto Editor::on_gui_show(const Edit_context& edit) -> void
 {
+    using namespace params;
+
     _edit = edit;
 
     _click = std::make_unique<Click_recognizer>(Gesture_callbacks<Click_info>{
@@ -21,7 +23,7 @@ auto Editor::on_gui_show(const Edit_context& edit) -> void
                 const auto addr = enum_raw(Address::Gain);
                 const auto& param_spec = User_params::param_spec(addr);
                 if (const auto value = Host_formatter::to_value(text, param_spec.semantics)) {
-                    const auto knob = Value_conv::plain_to_knob(*value, param_spec.semantics);
+                    const auto knob = Value_helper::plain_to_knob(*value, param_spec.semantics);
                     _edit.actions.push(Action_start{addr});
                     _edit.actions.push(Set_param{addr, knob});
                     _edit.actions.push(Action_end{addr});

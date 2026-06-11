@@ -54,6 +54,7 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
     tinyplug/task_manager.cpp
     tinyplug/undo_history.cpp
     tinyplug/host_formatter.cpp
+    tinyplug/value_helper.cpp
 )
 
 target_sources(${TINY_SHARED_LIB} PRIVATE 
@@ -65,6 +66,7 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
     tinyplug/tiny_events.hpp
     tinyplug/tiny_meters.hpp
     tinyplug/tiny_params.hpp
+    tinyplug/value_helper.hpp
     tinyplug/tiny_processor.hpp
     tinyplug/lock_free_queue.hpp
     tinyplug/tiny_utils.hpp

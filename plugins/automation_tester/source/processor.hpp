@@ -41,7 +41,8 @@ private:
     using Address = models::Params::Address;
     static constexpr auto num_params = User_params::num_params;
 
-    std::array<float, num_params> _values{User_params::make_defaults<float>(Value_space::Plain)};
+    using enum tiny::params::Space;
+    std::array<float, num_params> _values{tiny::params::make_defaults<float, User_params>(Plain)};
 
     Linear_ramper _ramper{};
 

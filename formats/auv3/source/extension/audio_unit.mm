@@ -76,7 +76,8 @@ static auto presets_path() -> std::filesystem::path
     }
     _factory_presets = [temp copy];
     
-    using User_params = params::Infos<models::Params>;
+    using namespace params;
+    using User_params = Infos<models::Params>;
     //const auto num_params = User_params::num_params;
     
     using Provider = State_adapter::Provider;
@@ -92,13 +93,13 @@ static auto presets_path() -> std::filesystem::path
             auto s = self_;
             if (!s) return State_adapter::Save_model{};
             
-            const auto knob_defaults = User_params::make_defaults<double>(Value_space::Knob);
+            const auto knob_defaults = params::make_defaults<double, User_params>(params::Space::Knob);
             auto values = std::vector<double>(knob_defaults.begin(), knob_defaults.end());
             for (AUParameter *param in s->_parameterTree.allParameters) {
                 const auto addr = static_cast<uint32_t>(param.address);
                 const auto& spec = User_params::param_spec(addr);
                 const auto host = param.value;
-                const auto knob = Value_conv::host_to_knob(host, spec.semantics);
+                const auto knob = Value_helper::host_to_knob(host, spec.semantics);
                 values[param.address] = knob;
             }
             
@@ -206,6 +207,7 @@ static auto presets_path() -> std::filesystem::path
 
 - (tiny::Ui_receiver)makeReceiver {
     using namespace tiny;
+    using namespace params;
     __weak typeof(self) self_ = self;
     return Ui_receiver{
         .get_param = [self_](uint32_t addr) {
@@ -213,7 +215,7 @@ static auto presets_path() -> std::filesystem::path
             if (!s) return double{};
             const auto& spec = params::Infos<models::Params>::param_spec(addr);
             const auto host = s->_kernel.getParameter(addr);
-            const auto knob = Value_conv::host_to_knob(host, spec.semantics);
+            const auto knob = Value_helper::host_to_knob(host, spec.semantics);
             return knob;
         },
         .pop_meter = [self_](Set_meter& meter) {
@@ -234,7 +236,7 @@ static auto presets_path() -> std::filesystem::path
                 },
                 [&](const Set_param& a) {
                     const auto& param = params::Infos<models::Params>::param_spec(a.address);
-                    const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
+                    const auto host_value = Value_helper::knob_to_host(a.value, param.semantics);
                     auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
                     auto it = s->_observerTokens.find(auparam.address);
                     auto* token = it != s->_observerTokens.end() ? it->second : nil;
@@ -276,6 +278,7 @@ static auto presets_path() -> std::filesystem::path
 
 - (AUParameter*)makeParameterFor:(tiny::params::Spec)spec {
     using namespace tiny;
+    using namespace params;
 
     NSString* identifier = [NSString stringWithUTF8String:std::string{spec.string_id}.c_str()];
     NSString* name = [NSString stringWithUTF8String:std::string{spec.name}.c_str()];
@@ -348,7 +351,7 @@ static auto presets_path() -> std::filesystem::path
                                                                           flags:flags_for(spec.policy) | kAudioUnitParameterFlag_ValuesHaveStrings
                                                                    valueStrings:nil
                                                             dependentParameters:nil];
-            param.value = static_cast<float>(Value_conv::plain_to_host(r.def_val, r));
+            param.value = static_cast<float>(Value_helper::plain_to_host(r.def_val, r));
             return param;
         },
         [&](const params::Semantics::Fixed& f) {
@@ -372,6 +375,7 @@ static auto presets_path() -> std::filesystem::path
 
 - (void)setupParameterCallbacks {
     using namespace tiny;
+    using namespace params;
     
     // Make a local pointer to the kernel to avoid capturing self.
     __block DSPKernel *kernel = &_kernel;
@@ -400,7 +404,7 @@ static auto presets_path() -> std::filesystem::path
         const auto str = std::string{[string UTF8String]};
         
         if (const auto plain = Host_formatter::to_value(str, spec.semantics)) {
-            const auto host = Value_conv::plain_to_host(*plain, spec.semantics);
+            const auto host = Value_helper::plain_to_host(*plain, spec.semantics);
             return static_cast<float>(host);
         }
         return 0.f;
@@ -607,6 +611,7 @@ static auto presets_path() -> std::filesystem::path
 
 - (void)addParamValues:(const tiny::Maybe_values<double>&)maybe_values toDictionary:(NSMutableDictionary<NSString *, id> *)state {
     using namespace tiny;
+    using namespace params;
     
     const auto num_params = static_cast<int32_t>(maybe_values.size());
     auto numParamsEntry = [NSNumber numberWithInt:num_params];
@@ -627,7 +632,7 @@ static auto presets_path() -> std::filesystem::path
         const auto value = maybe_values[i];
         if (value.has_value()) {
             const auto& spec = User_params::param_spec(i);
-            const auto host = Value_conv::knob_to_host(*value, spec.semantics);
+            const auto host = Value_helper::knob_to_host(*value, spec.semantics);
             const auto to_write = static_cast<float>(host);
             write_value(to_write);
         }
@@ -774,7 +779,7 @@ static auto presets_path() -> std::filesystem::path
     if (num_params > num_stored_params) {
         for (auto i = num_stored_params; i < num_params; ++i) {
             const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
-            const auto def_val = tiny::get_host_default(param);
+            const auto def_val = params::Value_helper::default_value(param, params::Space::Host);
             [[_parameterTree parameterWithAddress:i] setValue:def_val];
         }
     }
@@ -783,7 +788,7 @@ static auto presets_path() -> std::filesystem::path
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
         const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
         if (param.policy == params::Policy::Interface) {
-            const auto def_val = tiny::get_host_default(param);
+            const auto def_val = params::Value_helper::default_value(param, params::Space::Host);
             [[_parameterTree parameterWithAddress:i] setValue:def_val];
         }
     }

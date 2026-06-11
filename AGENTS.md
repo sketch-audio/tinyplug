@@ -75,8 +75,10 @@ live alongside each interface — find them by searching for `concept Some_*`.
 
 ## Three spaces, one parameter
 
-Conversions are everywhere; the central type is `Value_conv` in
-[tiny_params.h](shared/tinyplug/tiny_params.h):
+Conversions are everywhere; the central type is `params::Value_helper` in
+[value_helper.hpp](shared/tinyplug/value_helper.hpp) /
+[value_helper.cpp](shared/tinyplug/value_helper.cpp) (the declarative model lives
+in [tiny_params.hpp](shared/tinyplug/tiny_params.hpp)):
 
 | Semantics | Plain space            | Host space         | Knob space |
 |-----------|------------------------|--------------------|------------|
@@ -89,7 +91,9 @@ Conversions are everywhere; the central type is `Value_conv` in
 The DSP kernel sees **plain** values. The host sees **host** values. The UI
 draws in **knob** (always 0…1) values. Wrappers shuttle between them — a
 common bug shape is converting in the wrong space, so always check
-`Value_conv::knob_to_plain` vs `host_to_plain` etc.
+`Value_helper::knob_to_plain` vs `host_to_plain` etc. (Knob space and the old
+"norm" space are the same thing; `plain_to_knob`/`knob_to_plain` replace the
+former `plain_to_norm`/`norm_to_plain`.)
 
 `Real_semantics` carries a `Knob_adapter` variant (`Adapt_lin`, `Adapt_log`,
 `Adapt_pow`, `Adapt_taper`, `Adapt_piece`) controlling the knob↔plain

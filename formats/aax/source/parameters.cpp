@@ -20,6 +20,8 @@ namespace tiny::aax {
 
 AAX_Result Parameters::EffectInit()
 {
+    using namespace params;
+    
     const auto& params = User_params::param_specs(Param_order::Presentation);
     const auto aax_ids = tree_to_aax_ids(User_params::param_tree());
     assert(params.size() == aax_ids.size() && "AAX IDs must have same size as param specs.");
@@ -82,7 +84,7 @@ AAX_Result Parameters::EffectInit()
             },
             [&](const params::Semantics::Int& i) {
                 using DisplayDelegate = AAX_CNumberDisplayDelegate<int32_t, 0, 1>; // precision: 0, space after: 1
-                const auto units_str = units_string(i.units);
+                const auto units_str = Value_helper::units_label(i.units);
 
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<int32_t>(
                     aax_id.c_str(),
@@ -109,7 +111,7 @@ AAX_Result Parameters::EffectInit()
             [&](const params::Semantics::Fixed& f) {
                 using TaperDelegate = Fixed_semanticsTaperDelegate<double>;
                 using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 2, space after: 1
-                const auto units_str = units_string(f.units);
+                const auto units_str = Value_helper::units_label(f.units);
 
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
                     aax_id.c_str(),
@@ -137,7 +139,7 @@ AAX_Result Parameters::EffectInit()
             [&](const params::Semantics::Real& r) {
                 using TaperDelegate = Real_semanticsTaperDelegate<double>;
                 using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 1, space after: 1
-                const auto units_str = units_string(r.units);
+                const auto units_str = Value_helper::units_label(r.units);
 
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
                     aax_id.c_str(),
@@ -292,6 +294,8 @@ AAX_Result Parameters::GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChunk) 
 
 AAX_Result Parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iChunk)
 {
+    using namespace params;
+
     if (iChunkID != State_rules::Aax::chunk_id) {
         return AAX_ERROR_INVALID_CHUNK_ID;
     }
@@ -368,7 +372,7 @@ AAX_Result Parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iC
             if (auto* aax_param = get_aax_param(&mParameterManager, i)) {
                 const auto& param = User_params::param_spec(i);
                 if (State_rules::is_persistent(param)) {
-                    const auto knob_value = get_knob_default(param);
+                    const auto knob_value = Value_helper::default_value(param, Space::Knob);
                     aax_param->SetNormalizedValue(knob_value);
                 }
             }
@@ -506,6 +510,8 @@ AAX_Result Parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_C
 
 void Parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_t channelCount, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues)
 {
+    using namespace params;
+
     this->_drain_worker_to_processor();
 
     // Accept latency.
@@ -557,7 +563,7 @@ void Parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_t ch
         std::visit(Inline_visitor{
             [&](const Set_param& p) {
                 const auto param = User_params::param_spec(p.address);
-                const auto plain_value = Value_conv::knob_to_plain(p.value, param.semantics);
+                const auto plain_value = Value_helper::knob_to_plain(p.value, param.semantics);
                 _processor->handle_event(Set_param{.address = p.address, .value = plain_value});
             },
             [](const auto&) {}

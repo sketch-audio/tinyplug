@@ -35,7 +35,7 @@ auto main() -> int
     }
 
     using User_params = params::Infos<models::Params>;
-    const auto defaults = User_params::make_defaults<double>(Value_space::Knob);
+    const auto defaults = params::make_defaults<double, User_params>(params::Space::Knob);
 
     // State adapter to convert between JSON and parameter values.
     auto state_adapter = State_adapter{{
@@ -118,7 +118,7 @@ auto main() -> int
                     }
                     else {
                         const auto as_double = static_cast<double>(state_values[i]);
-                        const auto plain = Value_conv::knob_to_plain(as_double, spec.semantics);
+                        const auto plain = Value_helper::knob_to_plain(as_double, spec.semantics);
                         return static_cast<float>(plain);
                     }
                 }();

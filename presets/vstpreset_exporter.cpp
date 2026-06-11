@@ -34,7 +34,7 @@ auto main() -> int
     }
 
     using User_params = params::Infos<models::Params>;
-    const auto defaults = User_params::make_defaults<double>(Value_space::Knob);
+    const auto defaults = params::make_defaults<double, User_params>(params::Space::Knob);
 
     // State adapter to convert between JSON and parameter values.
     auto state_adapter = State_adapter{{

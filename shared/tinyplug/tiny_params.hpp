@@ -2,11 +2,8 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cmath>
 #include <concepts>
-#include <format>
-#include <functional>
-#include <optional>
+#include <cstdint>
 #include <ranges>
 #include <string>
 #include <string_view>
@@ -19,9 +16,9 @@
 
 namespace tiny::params {
 
-// MARK: - Semantics (types defined together near the adapters below)
+// MARK: - Units
 
-// Unit display hints for integer, real semantics.
+// Unit display hints.
 enum class Units : uint32_t {
     Generic = 0,
     Percent,
@@ -30,28 +27,6 @@ enum class Units : uint32_t {
     Milliseconds,
     Degrees
 };
-
-// Get the units string for `units`.
-inline auto units_string(Units units) -> std::string
-{
-    using enum Units;
-    switch (units) {
-        case Generic:
-            return "";
-        case Percent:
-            return "%";
-        case Decibels:
-            return "dB";
-        case Hertz:
-            return "Hz";
-        case Milliseconds:
-            return "ms";
-        case Degrees:
-            return "°";
-        default:
-            return "";
-    }
-}
 
 // MARK: - Knob adapters
 
@@ -229,184 +204,6 @@ struct Semantics {
     using Any = std::variant<Bool, List, Int, Fixed, Real>;
 };
 
-// MARK: - plain to norm
-
-// Normalize a value with real semantics.
-constexpr auto plain_to_norm(double x, const Semantics::Real& r) -> double
-{
-    return std::visit(Inline_visitor{
-        [&](const Adapter::Lin&) {
-            return (x - r.min_val) / (r.max_val - r.min_val);
-        },
-        [&](const Adapter::Log&) {
-            assert(r.min_val > 0 && "Adapter::Log requires range min_val > 0.");
-            const auto log_min = std::log2(r.min_val);
-            const auto k = std::log2(r.max_val) - log_min;
-            return (std::log2(x) - log_min) / k;
-        },
-        [&](const Adapter::Pow& p) {
-            assert(p.exp > 0 && "Adapter::Pow requires exp > 0.");
-            const auto lin = (x - r.min_val) / (r.max_val - r.min_val);
-            return std::pow(lin, 1 / p.exp);
-        },
-        [&](const Adapter::Taper& t) {
-            assert(0 < t.taper && t.taper < 1 && "Adapt taper requires 0 < taper < 1.");
-            return normalized(x, r.min_val, r.max_val, t.taper, t.bipolar);
-        },
-        [&](const Adapter::Piece& p) {
-            const auto& interior = p.interior();
-
-            for ([[maybe_unused]] const auto& bp : interior) {
-                assert(r.min_val < bp.plain && bp.plain < r.max_val && "Break point plain values must be in param range.");
-                assert(0 < bp.norm && bp.norm < 1 && "Break point norm values must be in 0...1.");
-            }
-
-            if (x <= r.min_val) return double{};
-
-            if (interior.empty()) {
-                return (x - r.min_val) / (r.max_val - r.min_val);
-            }
-
-            const auto& first = interior.front();
-            if (x <= first.plain) {
-                const auto t = (x - r.min_val) / (first.plain - r.min_val);
-                return t * first.norm;
-            }
-
-            for (size_t i = 1; i < interior.size(); ++i) {
-                const auto& a = interior[i - 1];
-                const auto& b = interior[i];
-                if (x <= b.plain) {
-                    const auto t = (x - a.plain) / (b.plain - a.plain);
-                    return a.norm + t * (b.norm - a.norm);
-                }
-            }
-
-            const auto& last = interior.back();
-            if (x <= r.max_val) {
-                const auto t = (x - last.plain) / (r.max_val - last.plain);
-                return last.norm + t * (1 - last.norm);
-            }
-
-            return double{1};
-        },
-    }, r.knob_adapter);
-}
-
-// Normalize a plain value.
-constexpr auto plain_to_norm(double x, const Semantics::Any& semantics) -> double
-{
-    return std::visit(Inline_visitor{
-        [&](const Semantics::Bool&) {
-            return x;
-        },
-        [&](const Semantics::List& l) {
-            const auto step_count = static_cast<double>(l.items.size() - 1);
-            return x / step_count;
-        },
-        [&](const Semantics::Int& i) {
-            const auto step_count = static_cast<double>(i.max_val - i.min_val);
-            return (x - i.min_val) / step_count;
-        },
-        [&](const Semantics::Fixed& f) {
-            const auto step_count = (f.max_val - f.min_val) / f.step_size;
-            return (x - f.min_val) / (step_count * f.step_size);
-        },
-        [&](const Semantics::Real& r) {
-            return plain_to_norm(x, r);
-        },
-    }, semantics);
-}
-
-// MARK: - norm to plain
-
-// Denormalize a value with real semantics.
-constexpr auto norm_to_plain(double x, const Semantics::Real& r) -> double
-{
-    return std::visit(Inline_visitor{
-        [&](const Adapter::Lin&) {
-            return (r.max_val - r.min_val) * x + r.min_val;
-        },
-        [&](const Adapter::Log&) {
-            assert(r.min_val > 0 && "Adapter::Log requires range min_val > 0.");
-            const auto log_min = std::log2(r.min_val);
-            const auto k = std::log2(r.max_val) - log_min;
-            return std::exp2(k * x + log_min);
-        },
-        [&](const Adapter::Pow& p) {
-            assert(p.exp > 0 && "Adapter::Pow requires exp > 0.");
-            const auto lin = std::pow(x, p.exp);
-            return (r.max_val - r.min_val) * lin + r.min_val;
-        },
-        [&](const Adapter::Taper& t) {
-            assert(0 < t.taper && t.taper < 1 && "Adapt taper requires 0 < taper < 1.");
-            return denormalized(x, r.min_val, r.max_val, t.taper, t.bipolar);
-        },
-        [&](const Adapter::Piece& p) {
-            const auto& interior = p.interior();
-
-            for ([[maybe_unused]] const auto& bp : interior) {
-                assert(r.min_val < bp.plain && bp.plain < r.max_val && "Break point plain values must be in param range.");
-                assert(0 < bp.norm && bp.norm < 1 && "Break point norm values must be in 0...1.");
-            }
-
-            if (x <= 0) return r.min_val;
-
-            if (interior.empty()) {
-                return (r.max_val - r.min_val) * x + r.min_val;
-            }
-
-            const auto& first = interior.front();
-            if (x <= first.norm) {
-                const auto t = x / first.norm;
-                return r.min_val + t * (first.plain - r.min_val);
-            }
-
-            for (size_t i = 1; i < interior.size(); ++i) {
-                const auto& a = interior[i - 1];
-                const auto& b = interior[i];
-                if (x <= b.norm) {
-                    const auto t = (x - a.norm) / (b.norm - a.norm);
-                    return a.plain + t * (b.plain - a.plain);
-                }
-            }
-
-            const auto& last = interior.back();
-            if (x <= 1) {
-                const auto t = (x - last.norm) / (1 - last.norm);
-                return last.plain + t * (r.max_val - last.plain);
-            }
-
-            return r.max_val;
-        },
-    }, r.knob_adapter);
-}
-
-// Denormalize a normalized value.
-constexpr auto norm_to_plain(double x, const Semantics::Any& semantics) -> double
-{
-    return std::visit(Inline_visitor{
-        [&](const Semantics::Bool&) {
-            return std::floor(std::min(double{1}, 2 * x));
-        },
-        [&](const Semantics::List& l) {
-            const auto step_count = static_cast<double>(l.items.size() - 1);
-            return std::floor(std::min(step_count, x * (step_count + 1)));
-        },
-        [&](const Semantics::Int& i) {
-            const auto step_count = static_cast<double>(i.max_val - i.min_val);
-            return std::floor(std::min(step_count, x * (step_count + 1))) + i.min_val;
-        },
-        [&](const Semantics::Fixed& f) {
-            const auto step_count = (f.max_val - f.min_val) / f.step_size;
-            return std::floor(std::min(step_count, x * (step_count + 1))) * f.step_size + f.min_val;
-        },
-        [&](const Semantics::Real& r) {
-            return norm_to_plain(x, r);
-        },
-    }, semantics);
-}
-
 // MARK: - Host policy
 
 enum class Policy : uint32_t {
@@ -432,10 +229,10 @@ enum class Policy : uint32_t {
 // Forward.
 struct Group; struct Spec;
 
-// A parameter node is either a group or a spec.
+// A node in a parameter tree.
 using Node = std::variant<Group, Spec>;
 
-// A named group of parameter nodes.
+// A named group of nodes.
 struct Group {
     // The group name.
     std::string_view name{""};
@@ -471,238 +268,6 @@ struct Spec {
     auto operator==(const Spec&) const -> bool = default;
 };
 
-// MARK: - Value spaces
-
-struct Value_conv {
-    /*
-        Semantics    Implies Linear?    Plain Space         Host Space         Knob Space
-        ------------------------------------------------------------------------------
-        Bool         Yes                0...1               0...1              0...1
-        List         Yes                0...(size - 1)      0...(size - 1)     0...1
-        Int          Yes                min...max           min...max          0...1
-        Fixed        Yes                min...max           min...max          0...1
-        Real         No                 min...max           0...1              0...1
-    */
-    
-    // Convert a plain value to host space.
-    static auto plain_to_host(double plain_value, const Semantics::Any& semantics) -> double
-    {
-        // Normalize real params.
-        if (const auto* r = std::get_if<Semantics::Real>(&semantics)) {
-            return plain_to_norm(plain_value, *r);
-        }
-        if (const auto* f = std::get_if<Semantics::Fixed>(&semantics)) {
-            return norm_to_plain(plain_to_norm(plain_value, *f), *f); // Force quantize.
-        }
-        return plain_value;
-    }
-
-    // Convert a host value to plain space.
-    static auto host_to_plain(double host_value, const Semantics::Any& semantics) -> double
-    {
-        // Denormalize real params.
-        if (const auto* r = std::get_if<Semantics::Real>(&semantics)) {
-            return norm_to_plain(host_value, *r);
-        }
-        if (const auto* f = std::get_if<Semantics::Fixed>(&semantics)) {
-            return norm_to_plain(plain_to_norm(host_value, *f), *f); // Force quantize.
-        }
-        return host_value;
-    }
-
-    // Convert a host value to knob space. 
-    static auto host_to_knob(double host_value, const Semantics::Any& semantics) -> double
-    {
-        // Normalize list, integer params.
-        return std::visit(Inline_visitor{
-            [&](const Semantics::List&) { return plain_to_norm(host_value, semantics); },
-            [&](const Semantics::Int&) { return plain_to_norm(host_value, semantics); },
-            [&](const Semantics::Fixed&) { return plain_to_norm(host_value, semantics); },
-            [=](const auto&) { return host_value; },
-        }, semantics);
-    }
-
-    // Convert a knob value to host space.
-    static auto knob_to_host(double knob_value, const Semantics::Any& semantics) -> double
-    {
-        // Denormalize list, integer params.
-        return std::visit(Inline_visitor{
-            [&](const Semantics::List&) { return norm_to_plain(knob_value, semantics); },
-            [&](const Semantics::Int&) { return norm_to_plain(knob_value, semantics); },
-            [&](const Semantics::Fixed&) { return norm_to_plain(knob_value, semantics); },
-            [=](const auto&) { return knob_value; },
-        }, semantics);
-    }
-
-    // Convert knob value to plain space. 
-    static auto knob_to_plain(double knob_value, const Semantics::Any& semantics) -> double
-    {
-        return norm_to_plain(knob_value, semantics);
-    }
-
-    // Convert a plain value to knob space.
-    static auto plain_to_knob(double plain_value, const Semantics::Any& semantics) -> double
-    {
-        return plain_to_norm(plain_value, semantics);
-    }
-};
-
-inline auto get_plain_min(const Spec& spec) -> double
-{
-    return std::visit(Inline_visitor{
-        [](const Semantics::Bool&) {
-            return 0.0;
-        },
-        [](const Semantics::List&) {
-            return 0.0;
-        },
-        [](const Semantics::Int& i) {
-            return static_cast<double>(i.min_val);
-        },
-        [](const Semantics::Fixed& f) {
-            return f.min_val;
-        },
-        [](const Semantics::Real& r) {
-            return r.min_val;
-        },
-    }, spec.semantics);
-}
-
-inline auto get_plain_max(const Spec& spec) -> double
-{
-    return std::visit(Inline_visitor{
-        [](const Semantics::Bool&) {
-            return 1.0;
-        },
-        [](const Semantics::List& l) {
-            return static_cast<double>(l.items.size() - 1);
-        },
-        [](const Semantics::Int& i) {
-            return static_cast<double>(i.max_val);
-        },
-        [](const Semantics::Fixed& f) {
-            return f.max_val;
-        },
-        [](const Semantics::Real& r) {
-            return r.max_val;
-        },
-    }, spec.semantics);
-}
-
-// MARK: - defaults
-
-inline auto get_plain_default(const Spec& spec) -> double
-{
-    return std::visit(Inline_visitor{
-        [](const Semantics::Bool& b) { return static_cast<double>(b.def_val ? 1 : 0); },
-        [](const Semantics::List& l) { return static_cast<double>(l.def_val); },
-        [](const Semantics::Int& i) { return static_cast<double>(i.def_val); },
-        [](const Semantics::Fixed& f) { return f.def_val; },
-        [](const Semantics::Real& r) { return r.def_val; },
-    }, spec.semantics);
-}
-
-inline auto get_host_default(const Spec& spec) -> double
-{
-    return std::visit(Inline_visitor{
-        [](const Semantics::Bool& b) { return static_cast<double>(b.def_val ? 1 : 0); },
-        [](const Semantics::List& l) { return static_cast<double>(l.def_val); },
-        [](const Semantics::Int& i) { return static_cast<double>(i.def_val); },
-        [](const Semantics::Fixed& f) { return f.def_val; },
-        [](const Semantics::Real& r) { return plain_to_norm(r.def_val, r); },
-    }, spec.semantics);
-}
-
-inline auto get_knob_default(const Spec& spec) -> double
-{
-    return std::visit(Inline_visitor{
-        [](const Semantics::Bool& b) { return static_cast<double>(b.def_val ? 1 : 0); },
-        [](const Semantics::List& l) { return plain_to_norm(static_cast<double>(l.def_val), l); },
-        [](const Semantics::Int& i) { return plain_to_norm(static_cast<double>(i.def_val), i); },
-        [](const Semantics::Fixed& f) { return plain_to_norm(f.def_val, f); },
-        [](const Semantics::Real& r) { return plain_to_norm(r.def_val, r); },
-    }, spec.semantics);
-}
-
-// MARK: - other helpers
-
-template<typename X>
-inline auto clamp(X x, const Semantics::Any& semantics) -> X
-{
-    return std::visit(Inline_visitor{
-        [x](const Semantics::Bool&) {
-            return std::clamp(x, X(0), X(1));
-        },
-        [x](const Semantics::List& s) {
-            const auto max_val = static_cast<X>(s.items.size() - 1);
-            return std::clamp(x, X(0), X(max_val));
-        },
-        [x](const Semantics::Int& s) {
-            return std::clamp(x, static_cast<X>(s.min_val), static_cast<X>(s.max_val));
-        },
-        [x](const Semantics::Fixed& s) {
-            return std::clamp(x, static_cast<X>(s.min_val), static_cast<X>(s.max_val));
-        },
-        [x](const Semantics::Real& s) {
-            return std::clamp(x, static_cast<X>(s.min_val), static_cast<X>(s.max_val));
-        }
-    }, semantics);
-}
-
-template<typename X>
-inline auto knob_next(X x, const Semantics::Any& semantics) -> X
-{
-    return std::visit(Inline_visitor{
-        [x](const Semantics::Bool&) {
-            return x > 0.5f ? X(0) : X(1);
-        },
-        [x](const Semantics::List& s) {
-            const auto plain = Value_conv::knob_to_plain(x, s);
-            const auto idx = static_cast<size_t>(plain);
-            const auto next = (idx + 1) % s.items.size();
-            return Value_conv::plain_to_knob(static_cast<X>(next), s);
-        },
-        [x](const Semantics::Int& s) {
-            const auto plain = Value_conv::knob_to_plain(x, s);
-            const auto val = static_cast<int32_t>(plain);
-            const auto range = s.max_val - s.min_val + 1;
-            const auto next = ((val - s.min_val + 1) % range) + s.min_val;
-            return Value_conv::plain_to_knob(static_cast<X>(next), s);
-        },
-        [x](const Semantics::Fixed& s) {
-            const auto plain = Value_conv::knob_to_plain(x, s);
-            const auto next = plain + s.step_size;
-            if (next > s.max_val) {
-                return Value_conv::plain_to_knob(static_cast<X>(s.min_val), s);
-            }
-            return Value_conv::plain_to_knob(static_cast<X>(next), s);
-        },
-        [x](const Semantics::Real&) {
-            return std::nextafter(x, X(1));
-        }
-    }, semantics);
-}
-
-inline auto is_param_units(Units units, const Semantics::Any& semantics) -> bool
-{
-    return std::visit(Inline_visitor{
-        [units](const Semantics::Fixed& s) { return s.units == units; },
-        [units](const Semantics::Real& s) { return s.units == units; },
-        [](const auto&) { return false; }
-    }, semantics);
-}
-
-inline auto param_is_discrete(const Semantics::Any& semantics) -> bool
-{
-    return std::visit(Inline_visitor{
-        [](const Semantics::Bool&) { return true; },
-        [](const Semantics::List&) { return true; },
-        [](const Semantics::Int&) { return true; },
-        [](const Semantics::Fixed&) { return true; },
-        [](const Semantics::Real&) { return false; },
-    }, semantics);
-}
-
 // MARK: - parameter model
 
 template<typename T>
@@ -717,7 +282,7 @@ concept Model = requires {
 
 // MARK: - params impl
 
-namespace params_impl {
+namespace impl {
 
 inline auto flatten_tree(const Node& root) -> std::vector<Spec>
 {
@@ -789,37 +354,11 @@ inline auto sorted_copy(const R& range, Comp comp)
     return out;
 }
 
-//  MARK: - array builders
-
-template<typename T>
-struct identity_or_atomic_underlying { using type = T; };
-
-template<typename T>
-struct identity_or_atomic_underlying<std::atomic<T>> { using type = T; };
-
-template<typename T>
-using identity_or_atomic_underlying_t = typename identity_or_atomic_underlying<T>::type;
-
-// This allows us to brace-initialize arrays of atomics as well as plain double/float.
-template<typename T, typename F, size_t... I>
-constexpr auto make_array_by_indices_impl(F f, std::index_sequence<I...>)
-{
-    using U = identity_or_atomic_underlying_t<T>;
-    return std::array<T, sizeof...(I)>{T{static_cast<U>(f(I))}...};
-}
-
-} // namespace params_impl
-
-template<typename T, size_t N, typename F>
-constexpr auto make_array_by_indices(F f) -> std::array<T, N>
-{
-    return params_impl::make_array_by_indices_impl<T>(f, std::make_index_sequence<N>{});
-}
+} // namespace impl
 
 enum class Param_order : uint32_t { Indexable, Presentation };
-enum class Value_space : uint32_t { Plain, Host, Knob };
 
-// MARK: - params
+// MARK: - params registry
 
 template<Model User_model>
 class Infos {
@@ -831,11 +370,11 @@ public:
     {
         // Validate once at startup.
         [[maybe_unused]] static const auto validated = [] {
-            [[maybe_unused]] const auto is_valid = params_impl::validate_tree(user_tree, num_params);
+            [[maybe_unused]] const auto is_valid = impl::validate_tree(user_tree, num_params);
             assert(is_valid && "Param tree validation failed.");
             return true;
         }();
-        
+
         return user_tree;
     }
 
@@ -850,59 +389,14 @@ public:
         return indexed_specs[address];
     }
 
-    template<typename T>
-    static auto make_defaults(Value_space space) -> const std::array<T, num_params>
-    {
-        return make_array_by_indices<T, num_params>(
-            [space](auto i) {
-                using enum Value_space;
-                switch (space) {
-                    case Plain:
-                        return get_plain_default(indexed_specs[i]);
-                    case Host:
-                        return get_host_default(indexed_specs[i]);
-                    case Knob:
-                        return get_knob_default(indexed_specs[i]);
-                    default:
-                        return get_plain_default(indexed_specs[i]);
-                }
-            }
-        );
-    }
-
 private:
 
     static constexpr auto id_less = [](const auto& a, const auto& b) { return a.address < b.address; };
 
     inline static const Node user_tree = User_model::build_tree();
-    inline static const std::vector<Spec> display_specs = params_impl::flatten_tree(user_tree);
-    inline static const std::vector<Spec> indexed_specs = params_impl::sorted_copy(display_specs, id_less);
+    inline static const std::vector<Spec> display_specs = impl::flatten_tree(user_tree);
+    inline static const std::vector<Spec> indexed_specs = impl::sorted_copy(display_specs, id_less);
 
 };
 
 } // namespace tiny::params
-
-// MARK: - Transitional aliases
-// Names not yet migrated out of tiny:: keep resolving while the params refactor
-// proceeds. Each is removed as its type group moves into tiny::params.
-namespace tiny {
-
-using params::Units;
-using params::units_string;
-using params::Value_conv;
-using params::Param_order;
-using params::Value_space;
-using params::get_plain_min;
-using params::get_plain_max;
-using params::get_plain_default;
-using params::get_host_default;
-using params::get_knob_default;
-using params::clamp;
-using params::knob_next;
-using params::is_param_units;
-using params::param_is_discrete;
-using params::plain_to_norm;
-using params::norm_to_plain;
-using params::make_array_by_indices;
-
-} // namespace tiny

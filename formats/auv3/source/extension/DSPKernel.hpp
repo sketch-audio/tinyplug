@@ -59,7 +59,7 @@ public:
         if (address >= num_params) return;
         const auto addr = static_cast<uint32_t>(address);
         const auto& spec = User_params::param_spec(addr);
-        const auto plain = tiny::Value_conv::host_to_plain(value, spec.semantics);
+        const auto plain = tiny::params::Value_helper::host_to_plain(value, spec.semantics);
         [[maybe_unused]] const auto success = _param_queue.push(tiny::Set_param{
             .address = addr,
             .value = plain
@@ -174,7 +174,7 @@ public:
                 const auto address = static_cast<uint32_t>(event->parameter.parameterAddress);
                 if (address >= num_params) return;
                 const auto& spec = User_params::param_spec(address);
-                const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
+                const auto plain = tiny::params::Value_helper::host_to_plain(event->parameter.value, spec.semantics);
                 _processor->handle_event(tiny::Set_param{.address = address, .value = plain});
                 _hostvalues[address].store(event->parameter.value, std::memory_order_relaxed); // Maintain host values.
                 break;
@@ -184,7 +184,7 @@ public:
                 if (address >= num_params) return;
                 const auto dur_samples = static_cast<int32_t>(event->parameter.rampDurationSampleFrames);
                 const auto& spec = User_params::param_spec(address);
-                const auto plain = tiny::Value_conv::host_to_plain(event->parameter.value, spec.semantics);
+                const auto plain = tiny::params::Value_helper::host_to_plain(event->parameter.value, spec.semantics);
                 _processor->handle_event(tiny::Ramp_param{.address = address, .target = plain, .dur_samples = dur_samples});
                 _hostvalues[address].store(event->parameter.value, std::memory_order_relaxed); // Maintain host values.
                 break;
@@ -275,7 +275,7 @@ private:
     // Values in host space.
     using Host_value = std::atomic<float>;
     using Host_values = std::array<Host_value, num_params>;
-    Host_values _hostvalues{User_params::make_defaults<Host_value>(tiny::Value_space::Host)};
+    Host_values _hostvalues{tiny::params::make_defaults<Host_value, User_params>(tiny::params::Space::Host)};
     
     std::array<float, num_meters> _last_meters{};
     

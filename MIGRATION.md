@@ -20,7 +20,8 @@ continues — sections are roughly in the order the changes landed.
 | Enum-case capitalization convention | ✅ in progress (params/meters done) |
 | `Spec`/`Group`/`List` strings → `std::string_view` | ✅ done |
 | Format wrapper files/classes → per-format namespaces | ✅ done (internal) |
-| Params leftovers: `Value_conv`→`Conv`, `Host_formatter`→`Formatter`, `Param_order`/`Value_space`, free-fn de-prefix | ⏳ still transitional `tiny::` aliases |
+| **Value helpers → `params::Value_helper`** (was `Value_conv` + free fns), `Value_space`→`Space`, own `value_helper.{hpp,cpp}` | ✅ done |
+| Params leftovers: `Host_formatter`→`Formatter`, `Param_order`→`Order`, `Units` | ⏳ still transitional `tiny::` aliases |
 | Worker nested `Model` restructure | ⏳ not yet migrated |
 | `tiny::events` / `tiny::view` / … namespace passes | ⏳ not yet migrated |
 
@@ -174,12 +175,38 @@ static_assert(params::Model<Params>);
 In `processor.hpp`/`editor.hpp`: `using User_params = params::Infos<models::Params>;`.
 
 **Still transitional** (kept as `using` aliases in `tiny::`, so old spellings
-still compile for now — will migrate later): `Units`/`units_string`,
-`Value_conv`, `Host_formatter`, `Param_order`, `Value_space`, and the free
-functions (`get_plain_*`, `get_host_default`, `get_knob_default`, `clamp`,
-`knob_next`, `is_param_units`, `param_is_discrete`, `plain_to_norm`,
-`norm_to_plain`, `make_array_by_indices`). You may qualify them with `params::`
-now if you like; not required yet.
+still compile for now — will migrate later): `Units`, `Host_formatter`,
+`Param_order`. You may qualify them with `params::` now if you like; not
+required yet. (The value-conversion helpers were consolidated — see §6a.)
+
+## 6a. Value helpers → `params::Value_helper` (new `value_helper.{hpp,cpp}`)
+
+The conversion/query free functions and the old `Value_conv` struct were
+consolidated into a single `params::Value_helper` struct and moved out of
+`tiny_params.hpp` into **`value_helper.hpp` / `value_helper.cpp`**, so the params
+header stays declarative. `tinyplug.hpp` includes the new header, so anything
+that already includes the umbrella sees it automatically.
+
+| Old | New |
+|---|---|
+| `Value_conv::plain_to_host` (etc., all 6 directions) | `Value_helper::plain_to_host` (etc., unchanged names) |
+| `plain_to_norm` / `norm_to_plain` | `Value_helper::plain_to_knob` / `Value_helper::knob_to_plain` (knob == norm) |
+| `get_plain_default` / `get_host_default` / `get_knob_default` | `Value_helper::default_value(spec, Space::{Plain,Host,Knob})` |
+| `get_plain_min` / `get_plain_max` | `Value_helper::plain_min` / `Value_helper::plain_max` (or just `Value_helper::clamp`) |
+| `param_is_discrete` / `is_param_units` | `Value_helper::is_discrete` / `Value_helper::has_units` |
+| `units_string` | `Value_helper::units_label` |
+| `clamp` / `knob_next` (templates) | `Value_helper::clamp` / `Value_helper::knob_next` (now plain `double`) |
+| `Value_space` | `Space` |
+| `Model::make_defaults<T>(space)` (Infos member) | `make_defaults<T, Infos>(space)` (free template) |
+| `make_array_by_indices` | unchanged name, now in `value_helper.hpp` |
+
+New helpers filling out the set: `Value_helper::convert(v, from, to, semantics)`
+and `Value_helper::quantize(v, semantics)` (the `norm_to_plain(plain_to_norm(…))`
+step-snap idiom). `default_value` for `Fixed` host space now quantizes (was raw);
+no effect for step-aligned defaults, which `validate_spec` already requires.
+
+Transitional `tiny::` aliases exist for `Value_helper`, `Space`, `make_defaults`,
+`make_array_by_indices`, so unqualified `tiny::` spellings keep compiling.
 
 ## 7. Enum-case capitalization convention
 
@@ -227,11 +254,10 @@ plug-ins / saved projects are unaffected.)
 
 ## Not yet migrated (don't change these yet)
 
-- **Params leftovers:** `Value_conv` (→ `Conv`), `Host_formatter` (→ `Formatter`),
-  `Param_order` (→ `Order`), `Value_space` (→ `Space`), `Units` (type kept), and
-  the free functions are still reachable via transitional `tiny::` aliases. They
-  move into `tiny::params` (and the free fns get de-prefixed, e.g.
-  `get_plain_min`→`plain_min`, `param_is_discrete`→`is_discrete`) in later steps.
+- **Params leftovers:** `Host_formatter` (→ `Formatter`), `Param_order`
+  (→ `Order`), and `Units` (type kept) are still reachable via transitional
+  `tiny::` aliases and move into `tiny::params` in later steps. (The value
+  helpers and `Value_space`→`Space` are done — see §6a.)
 - **Worker internals:** `worker.hpp` / `tiny::plugin::Worker` is the only worker
   change so far. The message-type aliases and tuning constants
   (`From_processor`, `reply_capacity`, `poll_interval`, …) keep their current

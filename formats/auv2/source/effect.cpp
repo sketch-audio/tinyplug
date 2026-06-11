@@ -7,6 +7,8 @@ namespace tiny::auv2 {
 
 Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
 {
+    using namespace params;
+
     _editor.emplace(_tasks.actor());
 
 #if TINY_HAS_WORKER
@@ -28,7 +30,7 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
 
     Globals()->UseIndexedParameters(User_params::num_params);
     for (const auto& param : params) {
-        const auto def_val = get_host_default(param);
+        const auto def_val = Value_helper::default_value(param, Space::Host);
         Globals()->SetParameter(param.address, static_cast<float>(def_val));
     }
 
@@ -114,6 +116,7 @@ OSStatus Effect::GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScop
 OSStatus Effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, void* outData)
 {
     using namespace ausdk; // Serialize
+    using namespace params;
 
     if (inScope != kAudioUnitScope_Global || !outData) return kAudioUnitErr_InvalidScope;
 
@@ -156,7 +159,7 @@ OSStatus Effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
             const auto str = cf_to_std(data->inString);
 
             if (const auto plain = Host_formatter::to_value(str, param.semantics)) {
-                const auto host_value = Value_conv::plain_to_host(*plain, param.semantics);
+                const auto host_value = Value_helper::plain_to_host(*plain, param.semantics);
                 data->outValue = static_cast<float>(host_value);
                 return noErr;
             }
@@ -195,6 +198,8 @@ OSStatus Effect::SetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
 
 OSStatus Effect::GetParameterList(AudioUnitScope inScope, AudioUnitParameterID* outParameterList, UInt32& outNumParameters)
 {
+    using namespace params;
+
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
 
     // This is so we can determine the presentation order of the parameters by the host.
@@ -211,6 +216,7 @@ OSStatus Effect::GetParameterList(AudioUnitScope inScope, AudioUnitParameterID* 
 
 OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID inParameterID, AudioUnitParameterInfo& outParameterInfo)
 {
+    using namespace params;
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
 
     auto resolve_flags = [](const params::Spec& param, bool found_clump) {
@@ -307,6 +313,7 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
             };
         },
         [&](const params::Semantics::Real&) {
+            using namespace params;
             outParameterInfo = {
                 .name = {},
                 .unitName = {},
@@ -315,7 +322,7 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
                 .unit = kAudioUnitParameterUnit_Generic,
                 .minValue = 0,
                 .maxValue = 1,
-                .defaultValue = static_cast<float>(get_host_default(param)),
+                .defaultValue = static_cast<float>(Value_helper::default_value(param, Space::Host)),
                 .flags = resolve_flags(param, found_clump) | (kAudioUnitParameterFlag_CanRamp | kAudioUnitParameterFlag_IsHighResolution)
             };
         },
@@ -328,6 +335,8 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
 
 OSStatus Effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnitParameterID inParameterID, CFArrayRef* outStrings)
 {
+    using namespace params;
+
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
     if (!outStrings) return noErr;
 
@@ -378,12 +387,14 @@ OSStatus Effect::GetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
 
 OSStatus Effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames)
 {
+    using namespace params;
+
     if (inID >= num_params) return kAudioUnitErr_InvalidParameter;
 
     const auto& params = User_params::param_specs(Param_order::Indexable);
     const auto& param = params[inID];
 
-    const auto plain_value = Value_conv::host_to_plain(inValue, param.semantics);
+    const auto plain_value = Value_helper::host_to_plain(inValue, param.semantics);
 
     [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
         .event = Set_param{.address = inID, .value = plain_value},
@@ -396,6 +407,8 @@ OSStatus Effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
 
 OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEvent, UInt32 inNumEvents)
 {
+    using namespace params;
+
     if (!inParameterEvent) return kAudioUnitErr_InvalidParameter;
 
     const auto& params = User_params::param_specs(Param_order::Indexable);
@@ -412,7 +425,7 @@ OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEve
             case kParameterEvent_Immediate: {
                 const auto offset = event.eventValues.immediate.bufferOffset;
                 const auto value = event.eventValues.immediate.value;
-                const auto plain_value = Value_conv::host_to_plain(value, param.semantics);
+                const auto plain_value = Value_helper::host_to_plain(value, param.semantics);
 
                 [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
                     .event = Set_param{.address = event.parameter, .value = plain_value},
@@ -431,8 +444,8 @@ OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEve
                 const auto initial = event.eventValues.ramp.startValue;
                 const auto target = event.eventValues.ramp.endValue;
 
-                const auto plain_initial = Value_conv::host_to_plain(initial, param.semantics);
-                const auto plain_target = Value_conv::host_to_plain(target, param.semantics);
+                const auto plain_initial = Value_helper::host_to_plain(initial, param.semantics);
+                const auto plain_target = Value_helper::host_to_plain(target, param.semantics);
 
                 // Do we need to be sending set initial?
                 [[maybe_unused]] const auto set_success = _to_processor.push(Tagged_event{
@@ -465,14 +478,16 @@ OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEve
 
 auto Effect::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void
 {
+    using namespace params;
+
     // Notify kernel and view (if not an interface parameter).
     auto change_list = std::vector<Set_param>{};
 
     auto notify = [&](const auto& param, auto knob_value) {
         const auto can_notify = knob_value.has_value() && State_rules::is_persistent(param);
         if (can_notify) {
-            const auto host = Value_conv::knob_to_host(*knob_value, param.semantics);
-            const auto plain = Value_conv::knob_to_plain(*knob_value, param.semantics);
+            const auto host = Value_helper::knob_to_host(*knob_value, param.semantics);
+            const auto plain = Value_helper::knob_to_plain(*knob_value, param.semantics);
             Globals()->SetParameter(param.address, static_cast<float>(host));
             change_list.push_back(Set_param{param.address, plain}); // We'll publish as a batch.
         }
@@ -497,7 +512,7 @@ auto Effect::_update_state(const Maybe_values<double>& knob_values, const State_
         // Set remaining parameters to defaults.
         for (auto i = num_stored_values; i < num_params; ++i) {
             const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
-            const auto knob_value = get_knob_default(param);
+            const auto knob_value = Value_helper::default_value(param, Space::Knob);
             notify(param, std::optional<double>{knob_value});
         }
     }
@@ -592,6 +607,8 @@ OSStatus Effect::SaveState(CFPropertyListRef* outData)
 
 OSStatus Effect::RestoreState(CFPropertyListRef plist)
 {
+    using namespace params;
+
     const auto result = Super::RestoreState(plist); // Base class maintains Globals().
     if (result != noErr) return result;
 
@@ -623,7 +640,7 @@ OSStatus Effect::RestoreState(CFPropertyListRef plist)
             // Set remaining Globals() to defaults.
             for (auto i = num_stored_params; i < num_params; ++i) {
                 const auto& param = User_params::param_spec(i);
-                const auto host_value = get_host_default(param);
+                const auto host_value = Value_helper::default_value(param, Space::Host);
                 Globals()->SetParameter(i, static_cast<float>(host_value));
             }
         }
@@ -635,7 +652,7 @@ OSStatus Effect::RestoreState(CFPropertyListRef plist)
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
             const auto& param = User_params::param_spec(i);
             const auto host_value = Globals()->GetParameter(i);
-            const auto plain_value = Value_conv::host_to_plain(host_value, param.semantics);
+            const auto plain_value = Value_helper::host_to_plain(host_value, param.semantics);
 
             change_list.push_back(Set_param{param.address, plain_value});
         }

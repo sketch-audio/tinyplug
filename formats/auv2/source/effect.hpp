@@ -241,9 +241,10 @@ private:
         }},
         .receiver = {
             .get_param = [this](auto id) {
+                using namespace params;
                 const auto& param = User_params::param_spec(id);
                 const auto host = Globals()->GetParameter(id);
-                const auto knob = Value_conv::host_to_knob(host, param.semantics);
+                const auto knob = Value_helper::host_to_knob(host, param.semantics);
                 return knob;
             },
             .pop_meter = [this](auto& event) {
@@ -261,10 +262,12 @@ private:
                         AUEventListenerNotify(NULL, NULL, &event);
                     },
                     [&](const Set_param& a) {
+                        using namespace params;
+
                         // Notify host
                         const auto& param = User_params::param_spec(a.address);
-                        const auto plain_value = Value_conv::knob_to_plain(a.value, param.semantics);
-                        const auto host_value = Value_conv::knob_to_host(a.value, param.semantics);
+                        const auto plain_value = Value_helper::knob_to_plain(a.value, param.semantics);
+                        const auto host_value = Value_helper::knob_to_host(a.value, param.semantics);
 
                         Globals()->SetParameter(a.address, static_cast<float>(host_value));
                         auto event = AudioUnitEvent{};

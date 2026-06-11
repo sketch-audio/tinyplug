@@ -92,7 +92,9 @@ private:
     std::unique_ptr<Platform_view> _platform_view{nullptr};
 
     std::array<view::Meter_state, num_meters> _ui_meters{};
-    std::array<double, num_params> _ui_params{User_params::make_defaults<double>(Value_space::Knob)};
+
+    using enum params::Space;
+    std::array<double, num_params> _ui_params{tiny::params::make_defaults<double, User_params>(Knob)};
 
 };
 

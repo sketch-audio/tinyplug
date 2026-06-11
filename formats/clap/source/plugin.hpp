@@ -182,7 +182,9 @@ private:
     // Values in host space.
     using Host_value = std::atomic<double>;
     using Host_values = std::array<Host_value, num_params>;
-    Host_values _hostvalues{User_params::make_defaults<Host_value>(Value_space::Host)};
+
+    using enum params::Space;
+    Host_values _hostvalues{tiny::params::make_defaults<Host_value, User_params>(Host)};
 
     std::array<double, num_meters> _last_meters{};
 
@@ -259,6 +261,8 @@ private:
     template<bool on_audio_thread>
     auto _handle_host_event(const clap_event_header* event) -> void
     {
+        using namespace params;
+
         if (event->space_id != CLAP_CORE_EVENT_SPACE_ID) return;
 
         switch (event->type) {
@@ -276,7 +280,7 @@ private:
                 const auto& param = User_params::param_spec(id);
 
                 // Send plain value to kernel.
-                const auto plain_value = Value_conv::host_to_plain(value_event->value, param.semantics);
+                const auto plain_value = Value_helper::host_to_plain(value_event->value, param.semantics);
                 if constexpr (on_audio_thread) {
                     // On the audio thread we can handle the event now.
                     _processor->handle_event(Set_param{.address = id, .value = plain_value});

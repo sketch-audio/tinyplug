@@ -4,13 +4,15 @@
 #include <iomanip>
 #include <sstream>
 
+#include "value_helper.hpp"
+
 namespace tiny {
 
 auto Host_formatter::to_string(double host_value, const Semantics::Any& semantics) -> std::string
 {
     using namespace params;
 
-    const auto plain_value = Value_conv::host_to_plain(host_value, semantics);
+    const auto plain_value = Value_helper::host_to_plain(host_value, semantics);
 
     auto format_double = [](double value, int precision) {
         auto oss = std::ostringstream{};
@@ -27,7 +29,7 @@ auto Host_formatter::to_string(double host_value, const Semantics::Any& semantic
             return std::string{l.items[idx]};
         },
         [&](const Semantics::Int& i) {
-            const auto suffix = units_string(i.units);
+            const auto suffix = Value_helper::units_label(i.units);
             return format_double(plain_value, 0) + " " + suffix;
         },
         [&](const auto& fr) {

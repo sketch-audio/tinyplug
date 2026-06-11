@@ -48,7 +48,7 @@ Steinberg::tresult PLUGIN_API View::attached(void* parent, Steinberg::FIDString 
     _platform_view->receive_parent(parent);
 
     // Synchronize on display.
-    _ui_params = make_array_by_indices<double, num_params>(
+    _ui_params = params::make_array_by_indices<double, num_params>(
         [this](auto i) { return _deps.receiver.get_param(static_cast<uint32_t>(i)); }
     );
 

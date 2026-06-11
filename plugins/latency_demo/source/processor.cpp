@@ -12,6 +12,7 @@ auto Processor::reset(double sample_rate) -> void
 
 auto Processor::handle_event(const Render_event& event) -> void
 {
+    using namespace params;
     std::visit(Inline_visitor{
         [this](const Set_param& e) {
             // Identify that we want a latency change.

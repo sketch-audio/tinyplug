@@ -71,6 +71,8 @@ auto Audio_effect::_drain_worker_to_processor() -> void
 
 Steinberg::tresult PLUGIN_API Audio_effect::initialize(Steinberg::FUnknown* context)
 {
+    using namespace params;
+
     // Here the Plug-in will be instantiated.
 
     // Initialize the parent.
@@ -106,7 +108,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::initialize(Steinberg::FUnknown* cont
 
     // Get knob defaults for automation points.
     for (const auto& param : User_params::param_specs(Param_order::Indexable)) {
-        _last_points[param.address] = {.offset = -1, .value = get_knob_default(param)};
+        _last_points[param.address] = {.offset = -1, .value = Value_helper::default_value(param, Space::Knob)};
     }
 
     return Steinberg::kResultOk;
@@ -447,6 +449,8 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
 
 Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
 {
+    using namespace params;
+
     if (!state) {
         return Steinberg::kResultFalse;
     }
@@ -478,7 +482,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
         // Do we have a real value?
         if (const auto knob_value = knob_values[index]; knob_value != State_rules::no_value) {
             const auto& spec = User_params::param_spec(index);
-            const auto plain_value = Value_conv::knob_to_plain(knob_value, spec.semantics);
+            const auto plain_value = Value_helper::knob_to_plain(knob_value, spec.semantics);
             notify(spec, plain_value);
         }
     };
@@ -506,7 +510,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
         // Set remaining parameters to defaults.
         for (auto i = num_stored_values; i < num_params; ++i) {
             const auto& param = User_params::param_spec(i);
-            const auto plain_value = get_plain_default(param);
+            const auto plain_value = Value_helper::default_value(param, Space::Plain);
             notify(param, plain_value);
         }
     }
@@ -598,6 +602,8 @@ Steinberg::uint32 PLUGIN_API Audio_effect::getProcessContextRequirements()
 
 auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data) -> void
 {
+    using namespace params;
+
     if (!data.inputParameterChanges) return;
     auto& param_changes = *data.inputParameterChanges;
     const auto num_changes = param_changes.getParameterCount();
@@ -644,7 +650,7 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data) -> 
                 _events.push_back({
                     .event = Set_param{
                         .address = id,
-                        .value = Value_conv::knob_to_plain(value, param.semantics)
+                        .value = Value_helper::knob_to_plain(value, param.semantics)
                     },
                     .offset = std::max(previous.offset, {}),
                 });
@@ -654,7 +660,7 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data) -> 
                 _events.push_back({
                     .event = Ramp_param{
                         .address = id,
-                        .target = Value_conv::knob_to_plain(value, param.semantics),
+                        .target = Value_helper::knob_to_plain(value, param.semantics),
                         .dur_samples = ramp_dur
                     },
                     .offset = std::max(previous.offset, {}),

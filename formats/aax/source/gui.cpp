@@ -26,6 +26,8 @@ auto Gui::CreateViewContents() -> void
 
 auto Gui::CreateViewContainer() -> void
 {
+    using namespace params;
+
     auto* parent = GetViewContainerPtr();
     if (!parent) return;
 
