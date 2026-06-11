@@ -511,7 +511,7 @@ Steinberg::tresult PLUGIN_API Controller::getParamStringByValue(Steinberg::Vst::
     const auto& params = User_params::param_specs(Param_order::Indexable);
     const auto& param = params[tag];
     const auto host = Value_conv::knob_to_host(valueNormalized, param.semantics);
-    const auto str = Host_formatter::format_string(host, param.semantics);
+    const auto str = Host_formatter::to_string(host, param.semantics);
     Steinberg::Vst::StringConvert::convert(str, string);
 
     return Steinberg::kResultTrue;
@@ -526,7 +526,7 @@ Steinberg::tresult PLUGIN_API Controller::getParamValueByString(Steinberg::Vst::
 
     const auto& param = User_params::param_spec(tag);
     const auto str = Steinberg::Vst::StringConvert::convert(string);
-    if (const auto plain = Host_formatter::format_value(str, param.semantics)) {
+    if (const auto plain = Host_formatter::to_value(str, param.semantics)) {
         valueNormalized = Value_conv::plain_to_knob(*plain, param.semantics);
         return Steinberg::kResultTrue;
     }

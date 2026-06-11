@@ -6,10 +6,8 @@
 #include <concepts>
 #include <format>
 #include <functional>
-#include <iomanip>
 #include <optional>
 #include <ranges>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -882,145 +880,6 @@ private:
 
 };
 
-// MARK: - host formatter
-
-struct Host_formatter {
-    // 
-    static auto format_string(double host_value, const Semantics::Any& semantics, bool include_units = true) -> std::string
-    {
-        const auto plain_value = Value_conv::host_to_plain(host_value, semantics);
-
-        auto format_float = [](double value, int precision, bool fixed = true) {
-            auto oss = std::ostringstream{};
-            if (fixed)
-                oss << std::fixed;
-            oss << std::setprecision(precision) << value;
-            return oss.str();
-        };
-
-        return std::visit(Inline_visitor{
-            [&](const Semantics::Bool&) {
-                return plain_value > 0.5f ? std::string{"True"} : std::string{"False"};
-            },
-            [&](const Semantics::List& l) {
-                const auto idx = static_cast<size_t>(plain_value);
-                return std::string{l.items[idx]};
-            },
-            [&](const Semantics::Int&) {
-                return format_float(plain_value, 0); // TODO: - Units
-            },
-            [&](const auto& fr) {
-                using enum Units;
-                switch (fr.units) {
-                    case Generic:
-                        return format_float(plain_value, 2);
-                    case Percent: {
-                        const auto suffix = include_units ? " %" : "";
-                        return format_float(plain_value, 0) + suffix;
-                    }
-                    case Decibels: {
-                        const auto prefix = (plain_value >= 0 ? "+" : "");
-                        const auto suffix = include_units ? " dB" : "";
-                        return prefix + format_float(plain_value, 1) + suffix;
-                    }
-                    case Hertz: {
-                        if (plain_value >= 1000 && include_units) {
-                            const auto suffix = " kHz";
-                            return format_float(plain_value / 1000, 1) + suffix;
-                        } else {
-                            const auto suffix = include_units ? " Hz" : "";
-                            return format_float(plain_value, 0) + suffix;
-                        }
-                    }
-                    case Milliseconds: {
-                        const auto suffix = include_units ? " ms" : "";
-                        const auto prec = plain_value >= 10 ? 0 : 1;
-                        return format_float(plain_value, prec) + suffix;
-                    }
-                    case Degrees: {
-                        const auto prefix = (plain_value >= 0 ? "+" : "");
-                        const auto suffix = include_units ? " °" : "";
-                        return prefix + format_float(plain_value, 0) + suffix;
-                    }
-                    default:
-                        return std::string{};
-                }
-            }
-        }, semantics);
-    }
-
-    static auto format_value(const std::string& string, const Semantics::Any& semantics) -> std::optional<double>
-    {
-        // Strip a suffix from a string, also consuming any whitespace between
-        // the numeric part and the suffix.
-        auto strip_suffix = [](const std::string& s, const char* suffix) -> std::optional<std::string> {
-            const auto suf_len = std::strlen(suffix);
-            auto i = s.size();
-            while (i > 0 && s[i - 1] == ' ') --i; // trailing whitespace
-            if (i < suf_len || s.compare(i - suf_len, suf_len, suffix) != 0) return std::nullopt;
-            i -= suf_len;
-            while (i > 0 && s[i - 1] == ' ') --i; // whitespace before suffix
-            return s.substr(0, i);
-        };
-
-        // Parse a double, accepting an optional leading '+' that strtod rejects.
-        auto parse_double = [](const std::string& s) -> std::optional<double> {
-            if (s.empty()) return std::nullopt;
-            char* end = nullptr;
-            errno = 0;
-            const char* start = s.c_str();
-            if (*start == '+') ++start;
-            const auto result = std::strtod(start, &end);
-            if (end != start && *end == '\0' && errno == 0) return result;
-            return std::nullopt;
-        };
-
-        return std::visit(Inline_visitor{
-            [&](const Semantics::Bool&) -> std::optional<double> {
-                if (string == "True")  return 1.0;
-                if (string == "False") return 0.0;
-                return std::nullopt;
-            },
-            [&](const Semantics::List& l) -> std::optional<double> {
-                for (size_t i = 0; i < l.items.size(); ++i) {
-                    if (string.compare(l.items[i]) == 0) return static_cast<double>(i);
-                }
-                return std::nullopt;
-            },
-            [&](const Semantics::Int&) -> std::optional<double> {
-                return parse_double(string);
-            },
-            [&](const auto& fr) -> std::optional<double> {
-                using enum Units;
-                switch (fr.units) {
-                    case Generic:
-                        return parse_double(string);
-                    case Percent:
-                        if (const auto s = strip_suffix(string, "%"))  return parse_double(*s);
-                        return parse_double(string);
-                    case Decibels:
-                        if (const auto s = strip_suffix(string, "dB")) return parse_double(*s);
-                        return parse_double(string);
-                    case Hertz:
-                        if (const auto s = strip_suffix(string, "kHz")) {
-                            if (const auto v = parse_double(*s)) return *v * 1000.0;
-                        }
-                        if (const auto s = strip_suffix(string, "Hz"))  return parse_double(*s);
-                        return parse_double(string);
-                    case Milliseconds:
-                        if (const auto s = strip_suffix(string, "ms"))  return parse_double(*s);
-                        return parse_double(string);
-                    case Degrees:
-                        if (const auto s = strip_suffix(string, "°"))   return parse_double(*s);
-                        return parse_double(string);
-                    default:
-                        return std::nullopt;
-                }
-            }
-        }, semantics);
-    }
-};
-
 } // namespace tiny::params
 
 // MARK: - Transitional aliases
@@ -1031,7 +890,6 @@ namespace tiny {
 using params::Units;
 using params::units_string;
 using params::Value_conv;
-using params::Host_formatter;
 using params::Param_order;
 using params::Value_space;
 using params::get_plain_min;

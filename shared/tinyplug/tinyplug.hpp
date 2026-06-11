@@ -10,6 +10,7 @@
 #include "tiny_view.hpp"
 
 #include "gesture_recognizers.hpp"
+#include "host_formatter.hpp"
 #include "task_manager.hpp"
 
 // Must come last: User_worker discovery via __has_include("worker.hpp").

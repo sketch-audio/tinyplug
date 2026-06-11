@@ -438,7 +438,7 @@ private:
 
 `Formatter_pack` is the env-registered bundle of formatters that
 controls reach for globally today
-(`Value_conv::knob_to_string`, `Host_formatter::format_string`,
+(`Value_conv::knob_to_string`, `Host_formatter::to_string`,
 `param_tooltip_for`). Controls receive it via `env::Formatters` and
 cache a reference in `on_environment`. Plug-ins can swap the pack to
 customize formatting; the default pack delegates to the framework's

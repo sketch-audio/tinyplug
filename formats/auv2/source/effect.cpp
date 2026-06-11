@@ -141,7 +141,7 @@ OSStatus Effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
             const auto id = data->inParamID;
             const auto& params = User_params::param_specs(Param_order::Indexable);
             const auto& param = params[id];
-            const auto str = Host_formatter::format_string(*data->inValue, param.semantics);
+            const auto str = Host_formatter::to_string(*data->inValue, param.semantics);
             data->outString = CFStringCreateWithCString(kCFAllocatorDefault, str.c_str(), kCFStringEncodingUTF8);
 
             return noErr;
@@ -155,7 +155,7 @@ OSStatus Effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
 
             const auto str = cf_to_std(data->inString);
 
-            if (const auto plain = Host_formatter::format_value(str, param.semantics)) {
+            if (const auto plain = Host_formatter::to_value(str, param.semantics)) {
                 const auto host_value = Value_conv::plain_to_host(*plain, param.semantics);
                 data->outValue = static_cast<float>(host_value);
                 return noErr;

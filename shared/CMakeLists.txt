@@ -53,6 +53,7 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
     tinyplug/task_launcher.cpp
     tinyplug/task_manager.cpp
     tinyplug/undo_history.cpp
+    tinyplug/host_formatter.cpp
 )
 
 target_sources(${TINY_SHARED_LIB} PRIVATE 

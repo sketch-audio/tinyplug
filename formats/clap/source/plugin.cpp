@@ -859,7 +859,7 @@ bool Plugin::paramsValueToText(clap_id paramId, double value, char* display, uin
     if (paramId >= num_params || !display) return false;
 
     const auto& param = User_params::param_spec(paramId);
-    const auto str = Host_formatter::format_string(value, param.semantics);
+    const auto str = Host_formatter::to_string(value, param.semantics);
     std::strncpy(display, str.c_str(), size);
     display[size - 1] = '\0'; // In case str is longer than display.
 
@@ -881,7 +881,7 @@ bool Plugin::paramsTextToValue(clap_id paramId, const char* display, double* val
     const auto& param = User_params::param_spec(paramId);
     const auto str = std::string{display};
 
-    if (const auto plain = Host_formatter::format_value(str, param.semantics)) {
+    if (const auto plain = Host_formatter::to_value(str, param.semantics)) {
         const auto clamped = std::clamp(*plain, get_plain_min(param), get_plain_max(param)); // Clamp fixes some round-tripping issues flagged by the validator.
         *value = Value_conv::plain_to_host(clamped, param.semantics);
         return true;

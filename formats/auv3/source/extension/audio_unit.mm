@@ -390,7 +390,7 @@ static auto presets_path() -> std::filesystem::path
     _parameterTree.implementorStringFromValueCallback = ^(AUParameter *param, const AUValue *__nullable valuePtr) {
         AUValue value = valuePtr == nil ? param.value : *valuePtr;
         const auto& spec = params::Infos<models::Params>::param_spec(static_cast<uint32_t>(param.address));
-        const auto str_value = Host_formatter::format_string(value, spec.semantics);
+        const auto str_value = Host_formatter::to_string(value, spec.semantics);
         return [NSString stringWithUTF8String:str_value.c_str()];
     };
     
@@ -399,7 +399,7 @@ static auto presets_path() -> std::filesystem::path
         const auto& spec = params::Infos<models::Params>::param_spec(addr);
         const auto str = std::string{[string UTF8String]};
         
-        if (const auto plain = Host_formatter::format_value(str, spec.semantics)) {
+        if (const auto plain = Host_formatter::to_value(str, spec.semantics)) {
             const auto host = Value_conv::plain_to_host(*plain, spec.semantics);
             return static_cast<float>(host);
         }
