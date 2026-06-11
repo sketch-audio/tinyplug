@@ -21,4 +21,8 @@ namespace tiny {
 // editor window so they can parent modal dialogs to it. Defined in win_view.cpp.
 auto view_window_class_name() -> const std::wstring&;
 
+// Dark-mode helpers, shared by the view and the dialogs. Defined in win_view.cpp.
+auto is_dark_mode() -> bool;
+auto enable_dark_title_bar(HWND hwnd, bool dark) -> void;
+
 } // namespace tiny

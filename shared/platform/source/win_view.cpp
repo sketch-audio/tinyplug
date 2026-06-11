@@ -33,7 +33,7 @@ namespace tiny {
 
 // MARK: - dark mode
 
-inline auto is_dark_mode() -> bool
+auto is_dark_mode() -> bool
 {
     auto value = DWORD{1};
     auto size = DWORD{sizeof(value)};
@@ -48,7 +48,7 @@ inline auto is_dark_mode() -> bool
     return false;
 }
 
-inline auto enable_dark_title_bar(HWND hwnd, bool dark) -> void
+auto enable_dark_title_bar(HWND hwnd, bool dark) -> void
 {
     auto useDark = dark ? TRUE : FALSE;
     DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDark, sizeof(useDark));
