@@ -286,7 +286,9 @@ AAX_Result Parameters::GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChunk) 
     // Set the version on the chunk data structure. The other manID, prodID, PlugID, and fSize are populated already, coming from AAXCollection.
 	oChunk->fVersion = mChunkParser.GetChunkVersion();
 	memset(oChunk->fName, 0, 32); // Just in case, lets make sure unused chars are null.
-	std::strncpy(reinterpret_cast<char *>(oChunk->fName), "AAX Plug-in State", 31);
+	static constexpr char name[] = "AAX Plug-in State";
+	static_assert(sizeof(name) <= 32, "Chunk name must fit fName[32].");
+	std::memcpy(oChunk->fName, name, sizeof(name)); // fName was zeroed above; copy incl. terminator.
 	return mChunkParser.GetChunkData(oChunk);
 }
 

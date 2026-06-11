@@ -667,7 +667,7 @@ bool Plugin::audioPortsInfo(uint32_t index, bool isInput, clap_audio_port_info* 
 
     *info = {};
     info->id = index;
-    std::strncpy(info->name, port_name, CLAP_NAME_SIZE);
+    std::snprintf(info->name, CLAP_NAME_SIZE, "%s", port_name);
     info->flags = is_main ? CLAP_AUDIO_PORT_IS_MAIN : uint32_t{};
     info->channel_count = static_cast<uint32_t>(channel_count); // 
     info->port_type = port_type;
@@ -765,7 +765,7 @@ bool Plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexce
         info->id = Reserved::bypass_id;
         info->flags = CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_BYPASS | CLAP_PARAM_IS_AUTOMATABLE;
         info->cookie = nullptr;
-        std::strncpy(info->name, "Bypass", CLAP_NAME_SIZE);
+        std::snprintf(info->name, CLAP_NAME_SIZE, "%s", "Bypass");
         info->min_value = 0;
         info->max_value = 1;
         info->default_value = 0;
@@ -793,8 +793,8 @@ bool Plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexce
         }
     }();
     info->cookie = nullptr;
-    std::strncpy(info->name, std::string{param.name}.c_str(), CLAP_NAME_SIZE);
-    std::strncpy(info->module, path.c_str(), CLAP_NAME_SIZE);
+    std::snprintf(info->name, CLAP_NAME_SIZE, "%s", std::string{param.name}.c_str());
+    std::snprintf(info->module, CLAP_NAME_SIZE, "%s", path.c_str());
 
     // CLAP uses host values.
     // Set min, max, default based on semantics.
@@ -861,7 +861,7 @@ bool Plugin::paramsValueToText(clap_id paramId, double value, char* display, uin
 {
     if (paramId == Reserved::bypass_id) {
         const auto str = value >= 0.5 ? "On" : "Off";
-        std::strncpy(display, str, size);
+        std::snprintf(display, size, "%s", str);
         display[size - 1] = '\0'; // In case str is longer than display.
         return true;
     }
@@ -870,7 +870,7 @@ bool Plugin::paramsValueToText(clap_id paramId, double value, char* display, uin
 
     const auto& param = User_params::param_spec(paramId);
     const auto str = Host_formatter::to_string(value, param.semantics);
-    std::strncpy(display, str.c_str(), size);
+    std::snprintf(display, size, "%s", str.c_str());
     display[size - 1] = '\0'; // In case str is longer than display.
 
     return true;
