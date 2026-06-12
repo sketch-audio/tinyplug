@@ -49,13 +49,12 @@ User-stated goals:
 
 ### Library shape
 
-New CMake target `tiny_ui` (static library), public headers under
-`include/tinyplug/ui/`, implementations under `src/ui/`. Lands in the
-Pitchfork-style layout from
-[plans/structural-and-naming-refactor.md](/Users/ryan/Developer/tinyplug/plans/structural-and-naming-refactor.md)
-from day one, regardless of where the rest of the refactor stands when
-this work begins. If `libs/` doesn't exist yet at PR-1 time, create it
-for `tiny_ui` and let other libs join later.
+New CMake target `tiny_ui` (static library) as a new optional lib under
+`libs/tiny_ui/` — public headers `include/tiny_ui/`, implementations `source/`,
+its own `CMakeLists.txt` — mirroring the existing `tiny_platform` / `tiny_dsp`
+shape (see the optional-lib dependency rules in
+[plans/refactor-ideas.md](refactor-ideas.md)). The `libs/` layout already exists,
+so `tiny_ui` drops in as another peer.
 
 ```
 libs/ui/

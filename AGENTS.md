@@ -11,8 +11,7 @@ processor/editor pair into AAX, AUv2, AUv3, CLAP, and VST3 binaries. The
 user writes format-agnostic code; per-format wrappers under [formats/](formats/)
 translate the host's API into framework events and back.
 
-- Repo layout (see [plans/structural-and-naming-refactor.md](plans/structural-and-naming-refactor.md)).
-  All three libraries are peers under [libs/](libs/), each with its own `CMakeLists.txt`
+- Repo layout. All three libraries are peers under [libs/](libs/), each with its own `CMakeLists.txt`
   and an isolated `include/<name>/` PUBLIC root (you only see a lib's headers if you link it):
   - [libs/tinyplug/](libs/tinyplug/) — core framework. Public headers in
     `include/tinyplug/` (`<tinyplug/...>`, umbrella `<tinyplug/tinyplug.hpp>`), impls
@@ -423,16 +422,13 @@ From the README, enforced informally:
 Read [plans/](plans/) before non-trivial changes — these are not
 speculation, they're scheduled work.
 
-- **[structural-and-naming-refactor.md](plans/structural-and-naming-refactor.md)**
-  (active, `next` branch). Phase 1 moves to a Pitchfork layout
-  (`include/`, `src/`, `wrappers/`, `examples/`, `libs/platform/`),
-  spins `tiny_platform` out of `tiny_shared_lib` (renaming the latter
-  to `tiny_core`), demotes Skia from `PUBLIC` to `PRIVATE` on the core
-  library, and adds CMakePresets / clang-format / PCH / unity builds /
-  CI. Phase 2 is a flat-`tiny::` → sub-namespace refactor
-  (`tiny::params::Spec`, `tiny::events::Render`, `tiny::user::Processor`,
-  etc.) with empty placeholder namespaces for the upcoming model PRs.
-  No backwards-compatible aliases — single big-bang PR.
+- **The structural + naming refactor has landed** (`next` branch): the `libs/`
+  layout (`tinyplug` core + `tiny_platform` + `tiny_dsp`, each with an isolated
+  `include/<name>/` root), Skia `PRIVATE`, the `params`/`meters`/`models`/`plugin`
+  namespaces, `CMakePresets`, the worker `Model` restructure, and the `tools/`
+  consolidation. What remains is an optional backlog —
+  **[refactor-ideas.md](plans/refactor-ideas.md)** (CI, clang-format, PCH/unity,
+  further namespace passes, `detail/` split, downstream migration).
 
 - **[midi-support.md](plans/midi-support.md)** — adds note/MIDI types
   to the `Render_event` variant (`Note_on`, `Note_off`, `Note_choke`,

@@ -1,1 +1,0 @@
-Run `python3 new_plugin.py "My Cool Plug-in" --manu=Xxxx --id=xxxx` from project root to add a new plug-in.
