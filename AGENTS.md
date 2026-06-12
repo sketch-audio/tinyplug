@@ -11,18 +11,22 @@ processor/editor pair into AAX, AUv2, AUv3, CLAP, and VST3 binaries. The
 user writes format-agnostic code; per-format wrappers under [formats/](formats/)
 translate the host's API into framework events and back.
 
-- Repo layout (pre-refactor, see [plans/structural-and-naming-refactor.md](plans/structural-and-naming-refactor.md)):
-  - [shared/tinyplug/](shared/tinyplug/) — core framework headers + impls
-    (params, meters, events, view, worker, tasks, undo, state).
-  - [shared/platform/](shared/platform/) — native window/dialogs/paths/Skia
-    integration (macOS/iOS/Windows).
-  - [shared/dsp/](shared/dsp/) — small header-only DSP helpers
-    (`Host_bypass`, `Linear_ramper`, `Delay_line`).
-  - [formats/](formats/) — one wrapper per format.
-  - [plugins/](plugins/) — demo plug-ins consumed by CI.
-  - [template/](template/) — `new_plugin.py` scaffold source.
+- Repo layout (see [plans/structural-and-naming-refactor.md](plans/structural-and-naming-refactor.md)).
+  All three libraries are peers under [libs/](libs/), each with its own `CMakeLists.txt`
+  and an isolated `include/<name>/` PUBLIC root (you only see a lib's headers if you link it):
+  - [libs/tinyplug/](libs/tinyplug/) — core framework. Public headers in
+    `include/tinyplug/` (`<tinyplug/...>`, umbrella `<tinyplug/tinyplug.hpp>`), impls
+    in `source/`. OS-detection macros live in `<tinyplug/platform_defs.hpp>`.
+  - [libs/tiny_platform/](libs/tiny_platform/) — native window/dialogs/paths/Skia
+    (macOS/iOS/Windows). Headers `<tiny_platform/...>`, sources in `source/`, config
+    templates in `cmake/`. Static lib; links core PUBLIC, Skia PRIVATE.
+  - [libs/tiny_dsp/](libs/tiny_dsp/) — header-only DSP helpers (`Host_bypass`,
+    `Linear_ramper`, `Delay_line`), `<tiny_dsp/...>`. INTERFACE lib, pure leaf.
+  - [wrappers/](wrappers/) — one wrapper per format (was `formats/`).
+  - [examples/](examples/) — demo plug-ins consumed by CI (was `plugins/`).
   - [cmake/](cmake/) — `helpers.cmake`, `plug_info.h.in`, etc.
   - [plans/](plans/) — design docs for in-flight work.
+  - (`template/` + `new_plugin.py` were deleted, to be rebuilt post-refactor.)
 
 ## Build
 
@@ -34,9 +38,8 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DTINY_DEPS_PATH=../tiny_deps
 cmake --build build
 ```
 
-- **Always build serially.** Never pass `--parallel` and never launch a
-  second build while one is running — the codebase has a memory recorded
-  enforcing this.
+- `--parallel` is allowed (e.g. `cmake --build build-debug --parallel 8`), but
+  never launch a second build while one is already running.
 - macOS Xcode generator is required for AUv3:
   `cmake -S . -B build-macos -G Xcode -DTINY_DEPS_PATH=../tiny_deps`.
 - iOS AUv3: `cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS`.

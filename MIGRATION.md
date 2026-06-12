@@ -22,6 +22,7 @@ continues — sections are roughly in the order the changes landed.
 | Format wrapper files/classes → per-format namespaces | ✅ done (internal) |
 | **Value helpers → `params::Value_helper`** (was `Value_conv` + free fns), `Value_space`→`Space`, own `value_helper.{hpp,cpp}` | ✅ done |
 | **Platform → its own `tiny_platform` lib**; `PLATFORM_*`→`TINY_PLATFORM_*`, `Platform` struct removed; Skia PRIVATE | ✅ done (iOS/Win pending verify) |
+| **Directory restructure → `libs/` layout** + `tiny_dsp` lib; includes `<tiny_platform/…>` / `<tiny_dsp/…>`; `tiny_platform.hpp`→`platform_defs.hpp` | ✅ done (Win pending verify) |
 | Params leftovers: `Host_formatter`→`Formatter`, `Param_order`→`Order`, `Units` | ⏳ still transitional `tiny::` aliases |
 | Worker nested `Model` restructure | ⏳ not yet migrated |
 | `tiny::events` / `tiny::view` / … namespace passes | ⏳ not yet migrated |
@@ -284,10 +285,67 @@ compile-time OS selection:
 | `PLATFORM_MACOS` / `PLATFORM_IOS` / `PLATFORM_APPLE` / `PLATFORM_WINDOWS` | `TINY_PLATFORM_MACOS` / `…IOS` / `…APPLE` / `…WINDOWS` |
 | `Platform::resolved == Platform::Type::macos` (struct, **removed**) | `#if TINY_PLATFORM_MACOS` … `#endif` |
 
-The macros now live in core at `tinyplug/tiny_platform.hpp` (OS detection is a core
-concern). Include that header where you use the macros — don't rely on getting them
-transitively. A new umbrella `platform/platform.hpp` re-exports the platform surface
-(view, dialogs, paths, defs) for wrapper-level code.
+The macros now live in core at `<tinyplug/platform_defs.hpp>` (OS detection is a core
+concern; **renamed** from `tinyplug/tiny_platform.hpp` in §12). Include that header where
+you use the macros — don't rely on getting them transitively. The platform umbrella
+`<tiny_platform/tiny_platform.hpp>` re-exports the platform surface (view, dialogs,
+paths, defs) for wrapper-level code.
+
+> The include spellings above reflect the §12 directory restructure. If you're
+> migrating in order, the platform/dsp headers became `<tiny_platform/...>` /
+> `<tiny_dsp/...>` angle includes at that step — see §12.
+
+## 12. Directory restructure → `libs/` layout (affects your `#include`s + CMake)
+
+The framework, platform, and DSP layers are now three peer libraries under `libs/`,
+each with its own **isolated** include root. A consumer only sees a library's headers
+if it links that library — so the include spellings for the platform and DSP headers
+changed to angle-bracket form, and DSP now needs an explicit link.
+
+```
+libs/tinyplug/       → <tinyplug/...>        (core; umbrella <tinyplug/tinyplug.hpp>)
+libs/tiny_platform/  → <tiny_platform/...>   (umbrella <tiny_platform/tiny_platform.hpp>)
+libs/tiny_dsp/       → <tiny_dsp/...>        (header-only)
+```
+
+**The core umbrella include is unchanged** — `#include <tinyplug/tinyplug.hpp>` still
+works (most plug-ins only need this). The CMake target names are unchanged
+(`${TINY_SHARED_LIB}`, `${TINY_PLATFORM_LIB}`), plus a new `${TINY_DSP_LIB}`.
+
+### Include changes
+
+| Old | New |
+|---|---|
+| `#include "tinyplug/tiny_platform.hpp"` | `#include <tinyplug/platform_defs.hpp>` (OS macros; **renamed**) |
+| `#include "platform/platform.hpp"` | `#include <tiny_platform/tiny_platform.hpp>` |
+| `#include "platform/platform_view.hpp"` | `#include <tiny_platform/platform_view.hpp>` |
+| `#include "platform/platform_dialogs.hpp"` | `#include <tiny_platform/platform_dialogs.hpp>` |
+| `#include "platform/platform_paths.hpp"` | `#include <tiny_platform/platform_paths.hpp>` |
+| `#include "platform/window_context.hpp"` | `#include <tiny_platform/window_context.hpp>` |
+| `#include "dsp/host_bypass.hpp"` | `#include <tiny_dsp/host_bypass.hpp>` |
+| `#include "dsp/linear_ramper.hpp"` | `#include <tiny_dsp/linear_ramper.hpp>` |
+| `#include "dsp/delay_line.hpp"` | `#include <tiny_dsp/delay_line.hpp>` |
+
+General rule: `"platform/X.hpp"` → `<tiny_platform/X.hpp>`, `"dsp/X.hpp"` →
+`<tiny_dsp/X.hpp>`. (Your own plug-in-local `source/dsp/...` helpers are unaffected —
+those are your files, not the framework's.)
+
+### CMake: link `tiny_dsp` if you use the DSP helpers
+
+Header isolation means `<tiny_dsp/...>` won't resolve unless you link the lib. If your
+processor/editor uses `Host_bypass`, `Linear_ramper`, or `Delay_line`:
+
+```cmake
+target_link_libraries(${PLUGIN_TARGET} PRIVATE ${TINY_DSP_LIB})   # header-only, zero binary cost
+```
+
+`${TINY_DSP_LIB}` (= `tiny_dsp`) is forwarded to parent scope alongside the other two.
+The per-format `make_<format>_plugin` wrappers already link `tiny_dsp` and
+`tiny_platform` themselves; this line is only needed if *your* code (not the wrapper)
+includes a DSP header. The §11 platform/Skia link lines are unchanged.
+
+> Repo-internal note (not a source change): `formats/` → `wrappers/`,
+> `plugins/` → `examples/`. Only relevant if you reference tinyplug's tree by path.
 
 ---
 

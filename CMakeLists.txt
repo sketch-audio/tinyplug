@@ -50,19 +50,25 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(tiny_deps)
 
 include(cmake/helpers.cmake)
-include(formats/formats.cmake)
+include(wrappers/wrappers.cmake)
 include(presets/make_preset_exporter.cmake)
 
-# Add shared library.
-add_subdirectory(shared)
+# Core library.
+add_subdirectory(libs/tinyplug)
+
+# Optional, self-contained libraries (each its own CMakeLists, own include root).
+# tiny_dsp is a pure leaf; tiny_platform depends on core, so it follows core.
+add_subdirectory(libs/tiny_dsp)
+add_subdirectory(libs/tiny_platform)
 
 # Build the plug-ins.
 if(TINY_BUILD_PLUGINS)
-    add_subdirectory(plugins)
+    add_subdirectory(examples)
 endif()
 
 # Forward SDK variables to parent scope only if this is NOT the top-level project.
 if(NOT CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     set(TINY_SHARED_LIB ${TINY_SHARED_LIB} PARENT_SCOPE)
     set(TINY_PLATFORM_LIB ${TINY_PLATFORM_LIB} PARENT_SCOPE)
+    set(TINY_DSP_LIB ${TINY_DSP_LIB} PARENT_SCOPE)
 endif()

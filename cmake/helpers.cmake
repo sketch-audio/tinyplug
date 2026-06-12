@@ -230,15 +230,15 @@ function(configure_mac_view FORMAT_TARGET BASE_FILENAME VERSION_STRING BUILD_NUM
     set(TINY_MAC_VIEW "MacView_${BASE_FILENAME}_${_version_safe}_${BUILD_NUMBER}")
     set(TINY_MAC_METAL_VIEW "MacMetalView_${BASE_FILENAME}_${_version_safe}_${BUILD_NUMBER}")
     configure_file(
-        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../shared/cmake/mac_config.hpp.in
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../libs/tiny_platform/cmake/mac_config.hpp.in
         ${CMAKE_CURRENT_BINARY_DIR}/mac_config.hpp
     )
     target_sources(${FORMAT_TARGET} PRIVATE
-        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../shared/platform/source/mac_view.mm
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../libs/tiny_platform/source/mac_view.mm
     )
     # ensure no ARC for this file
     set_source_files_properties(
-        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../shared/platform/source/mac_view.mm
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../libs/tiny_platform/source/mac_view.mm
         PROPERTIES
         COMPILE_FLAGS "-fno-objc-arc"
     )

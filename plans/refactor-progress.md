@@ -162,9 +162,28 @@ Nested `user::Worker::Model` holding the four message aliases + constants;
 - **Verified macOS Makefile build green.** iOS (Xcode) + Windows are user-verifying now;
   Windows `win_dialogs` already fixed a missing-`<sstream>` + dark-mode-helper round.
 
+### Directory restructure — DONE (later session, 2026-06-11)
+Adopted a *variant* of §1.1: no source at the repo root; all three libs are peers
+under `libs/`, each with its own `CMakeLists.txt` and an **isolated** `include/<name>/`
+PUBLIC root.
+- `shared/tinyplug/` → `libs/tinyplug/` (`include/tinyplug/*.hpp` + `source/*.cpp`).
+  Core `.cpp` includes re-prefixed `"X.hpp"` → `"tinyplug/X.hpp"`.
+- `shared/platform/` → `libs/tiny_platform/` (`include/tiny_platform/*.hpp` + `source/*`);
+  config templates → `libs/tiny_platform/cmake/`; umbrella `platform.hpp` → `tiny_platform.hpp`.
+- `shared/dsp/` → `libs/tiny_dsp/include/tiny_dsp/` (INTERFACE lib, pure leaf).
+- `formats/` → `wrappers/` (`formats.cmake` → `wrappers.cmake`); `plugins/` → `examples/`.
+- Core OS header `tiny_platform.hpp` → **`platform_defs.hpp`** (clash with the lib).
+- Include rewrites: platform/dsp headers now `<tiny_platform/...>` / `<tiny_dsp/...>` /
+  `<tinyplug/...>` (no more `../` hops); 5 wrappers link `tiny_dsp`, all wrappers link
+  `tiny_platform` (isolation makes these load-bearing). `configure_mac_view` paths in
+  `cmake/helpers.cmake` repointed to `libs/tiny_platform/`.
+- 199 git-tracked renames + 2 new `CMakeLists.txt`. Verified green: 4 Makefile formats ×
+  5 demos, **plus macOS AUv3 extension compiles under Xcode** (DSPKernel/audio_unit/
+  view_controller, both arches). **Windows unverified** (mechanical symmetric rewrites only).
+
 ### Phase 1 structural (remaining)
-Pitchfork layout (`include/`/`src/`/`wrappers/`/`examples/`/`libs/platform/`), PCH, unity
-builds, CMakePresets, CI. (`tiny_platform` spin-out + Skia PRIVATE: done above.)
+PCH, unity builds, CMakePresets, CI. (`tiny_platform` spin-out + Skia PRIVATE + the
+directory restructure: done.)
 
 ### Loose ends
 - **Verify iOS (Xcode) + Windows** builds end-to-end (in progress).

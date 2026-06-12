@@ -23,8 +23,26 @@ Phase 2 *naming* landed first (earlier sessions), and Phase 1's platform spin-ou
 for the parts not yet done, and are superseded where they conflict.
 
 ### Done
-- **Platform spun out** as its own static lib `tiny_platform` (currently under
-  `shared/platform/`), one-way dependency on the core lib. (§1.2)
+- **Directory restructure (2026-06-11)** — adopted a *variant* of the §1.1 layout:
+  nothing lives at the repo root; all three libraries are peers under `libs/`:
+  ```
+  libs/tinyplug/       core: include/tinyplug/*.hpp + source/*.cpp + CMakeLists.txt
+  libs/tiny_platform/  include/tiny_platform/*.hpp + source/* + cmake/ + CMakeLists.txt
+  libs/tiny_dsp/       include/tiny_dsp/*.hpp + CMakeLists.txt (INTERFACE)
+  cmake/ wrappers/ (was formats/) examples/ (was plugins/) presets/ plans/ tools/
+  ```
+  Each lib has its own `CMakeLists.txt` and an **isolated** PUBLIC include root
+  (`include/`), so a consumer only sees `<tiny_platform/...>` / `<tiny_dsp/...>` if it
+  links that lib (true header isolation; the `tiny_dsp`/`tiny_platform` link lines on
+  the wrappers are now load-bearing, not ceremonial). Core OS-macro header renamed
+  `tinyplug/tiny_platform.hpp` → `tinyplug/platform_defs.hpp` (clash with the lib).
+  Core's umbrella stays `<tinyplug/tinyplug.hpp>`; platform umbrella is
+  `<tiny_platform/tiny_platform.hpp>` (was `platform.hpp`). Verified: all 4 Makefile
+  formats × 5 demos green, **and macOS AUv3 extension compiles under Xcode** (the
+  usually-unverified path). **Windows still user-to-verify** (symmetric `<tiny_platform/...>`
+  rewrites in `win_*.cpp`, no Windows-specific path edits).
+- **Platform spun out** as its own static lib `tiny_platform` (now under
+  `libs/tiny_platform/`), one-way dependency on the core lib. (§1.2)
 - **Skia decoupled**: core compiles Skia-free; Skia is `PRIVATE` on platform and
   explicit-`PRIVATE` on each plug-in/editor; frameworks stay `PUBLIC`; redundant
   per-format `-framework Cocoa` removed. (§1.3)
@@ -55,7 +73,12 @@ for the parts not yet done, and are superseded where they conflict.
 - **Worker `Model` restructure: preserved below, low priority.**
 
 ### Next priorities (in order)
-1. **Directory restructure** to §1.1 (the main structural item left).
+1. ~~**Directory restructure** to §1.1 (the main structural item left).~~ **DONE
+   2026-06-11** — landed as a *variant* of §1.1 (see "Directory restructure" under
+   Done above). No source lives at the repo root; all three libraries sit under
+   `libs/` (`tinyplug` core, `tiny_platform`, `tiny_dsp`), each with its own
+   `CMakeLists.txt` and an isolated `include/<name>/` root. Core OS header renamed
+   `tiny_platform.hpp` → `platform_defs.hpp`. `formats/`→`wrappers/`, `plugins/`→`examples/`.
 2. Build infra when ready: CMakePresets, clang-format/editorconfig, CI (§1.4–1.5).
 3. Opportunistic/low-priority: Worker `Model` restructure; any namespace that rises
    to a strong organizational concept.
