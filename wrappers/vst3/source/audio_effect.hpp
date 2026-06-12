@@ -136,8 +136,8 @@ private:
     // a non-realtime shuttle thread drains it and forwards each message to
     // the controller via IMessage. Replies from the worker come back via
     // IMessage and land in _worker_to_proc_inbox.
-    using Worker_outbound_q = Lock_free_queue<typename User_worker::From_processor, User_worker::inbound_capacity, Queue_concurrency::spsc>;
-    using Worker_to_proc_inbox_q = Lock_free_queue<typename User_worker::To_processor, User_worker::reply_capacity>;
+    using Worker_outbound_q = Lock_free_queue<typename User_worker::Model::From_processor, User_worker::Model::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_to_proc_inbox_q = Lock_free_queue<typename User_worker::Model::To_processor, User_worker::Model::outbound_capacity>;
 
     Worker_outbound_q _worker_outbound{};
     Worker_to_proc_inbox_q _worker_to_proc_inbox{};

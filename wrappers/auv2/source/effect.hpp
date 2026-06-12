@@ -190,10 +190,10 @@ private:
 
 #if TINY_HAS_WORKER
     // Worker channel.
-    using Worker_from_proc_q = Lock_free_queue<typename User_worker::From_processor, User_worker::inbound_capacity, Queue_concurrency::spsc>;
-    using Worker_from_edit_q = Lock_free_queue<typename User_worker::From_editor,    User_worker::inbound_capacity, Queue_concurrency::spsc>;
-    using Worker_to_proc_q   = Lock_free_queue<typename User_worker::To_processor,   User_worker::reply_capacity>;
-    using Worker_to_edit_q   = Lock_free_queue<typename User_worker::To_editor,     User_worker::reply_capacity>;
+    using Worker_from_proc_q = Lock_free_queue<typename User_worker::Model::From_processor, User_worker::Model::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_from_edit_q = Lock_free_queue<typename User_worker::Model::From_editor,    User_worker::Model::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_to_proc_q   = Lock_free_queue<typename User_worker::Model::To_processor,   User_worker::Model::outbound_capacity>;
+    using Worker_to_edit_q   = Lock_free_queue<typename User_worker::Model::To_editor,     User_worker::Model::outbound_capacity>;
 
     Worker_from_proc_q _worker_from_proc{};
     Worker_from_edit_q _worker_from_edit{};

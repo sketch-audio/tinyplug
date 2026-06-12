@@ -26,7 +26,7 @@ public:
     // Optional opt-in.
     auto bind_worker(Worker_editor_actor a) -> void { _worker = a; }
 
-    auto on_worker_reply(const Worker::To_editor& r) -> void
+    auto on_worker_reply(const Worker::Model::To_editor& r) -> void
     {
         std::visit([this](const auto& a) {
             if constexpr (std::is_same_v<std::remove_cvref_t<decltype(a)>, Session_path>) {

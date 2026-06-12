@@ -299,10 +299,10 @@ private:
 public:
 
     // Worker channel.
-    using Worker_from_proc_q = tiny::Lock_free_queue<typename tiny::User_worker::From_processor, tiny::User_worker::inbound_capacity, tiny::Queue_concurrency::spsc>;
-    using Worker_from_edit_q = tiny::Lock_free_queue<typename tiny::User_worker::From_editor,    tiny::User_worker::inbound_capacity, tiny::Queue_concurrency::spsc>;
-    using Worker_to_proc_q   = tiny::Lock_free_queue<typename tiny::User_worker::To_processor,   tiny::User_worker::reply_capacity>;
-    using Worker_to_edit_q   = tiny::Lock_free_queue<typename tiny::User_worker::To_editor,     tiny::User_worker::reply_capacity>;
+    using Worker_from_proc_q = tiny::Lock_free_queue<typename tiny::User_worker::Model::From_processor, tiny::User_worker::Model::inbound_capacity, tiny::Queue_concurrency::spsc>;
+    using Worker_from_edit_q = tiny::Lock_free_queue<typename tiny::User_worker::Model::From_editor,    tiny::User_worker::Model::inbound_capacity, tiny::Queue_concurrency::spsc>;
+    using Worker_to_proc_q   = tiny::Lock_free_queue<typename tiny::User_worker::Model::To_processor,   tiny::User_worker::Model::outbound_capacity>;
+    using Worker_to_edit_q   = tiny::Lock_free_queue<typename tiny::User_worker::Model::To_editor,     tiny::User_worker::Model::outbound_capacity>;
 
     Worker_from_proc_q _worker_from_proc{};
     Worker_from_edit_q _worker_from_edit{};

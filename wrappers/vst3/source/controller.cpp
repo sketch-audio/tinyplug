@@ -26,7 +26,7 @@ auto Controller::_setup_worker() -> void
     // processor-side shuttle thread) and push into the from-processor
     // inbound queue. The worker thread drains and dispatches.
     _router.register_handler(k_worker_from_processor_id, [this](std::span<const std::byte> bytes, uint32_t tag) {
-        using From_proc = typename User_worker::From_processor;
+        using From_proc = typename User_worker::Model::From_processor;
         _worker_from_proc.push(vst3::reconstruct_variant<From_proc>(bytes, tag));
     });
 
@@ -39,8 +39,8 @@ auto Controller::_setup_worker() -> void
     // _worker_to_proc and forwards each reply via IMessage. Runs on the
     // worker thread (non-realtime), so allocation is fine.
     _worker_runner.set_post_cycle([this]() {
-        if constexpr (!std::is_same_v<typename User_worker::To_processor, std::monostate>) {
-            auto reply = typename User_worker::To_processor{};
+        if constexpr (!std::is_same_v<typename User_worker::Model::To_processor, std::monostate>) {
+            auto reply = typename User_worker::Model::To_processor{};
             while (_worker_to_proc.pop(reply)) {
                 _to_proc.send_variant(k_worker_to_processor_id, reply);
             }

@@ -38,7 +38,7 @@ auto Audio_effect::_setup_worker() -> void
     // Shuttle drain: pop pending From_processor messages and send via
     // IMessage. Runs on the shuttle thread (non-realtime).
     _shuttle.register_drain([this]() {
-        auto m = typename User_worker::From_processor{};
+        auto m = typename User_worker::Model::From_processor{};
         while (_worker_outbound.pop(m)) {
             _to_ctrl.send_variant(k_worker_from_processor_id, m);
         }
@@ -46,7 +46,7 @@ auto Audio_effect::_setup_worker() -> void
 
     // Worker → processor replies arrive via IMessage on notify().
     _router.register_handler(k_worker_to_processor_id, [this](std::span<const std::byte> bytes, uint32_t tag) {
-        using To_proc = typename User_worker::To_processor;
+        using To_proc = typename User_worker::Model::To_processor;
         _worker_to_proc_inbox.push(vst3::reconstruct_variant<To_proc>(bytes, tag));
     });
 }
@@ -134,7 +134,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setActive(Steinberg::TBool state)
             _latency = *pending_latency;
         }
 #if TINY_HAS_WORKER
-        _shuttle.start(User_worker::poll_interval);
+        _shuttle.start(User_worker::Model::update_period);
 #endif
     }
     else {

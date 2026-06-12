@@ -46,8 +46,8 @@ template <typename Worker>
 class Worker_reply_actor {
 public:
 
-    using To_processor = typename Worker::To_processor;
-    using To_editor = typename Worker::To_editor;
+    using To_processor = typename Worker::Model::To_processor;
+    using To_editor = typename Worker::Model::To_editor;
 
     using To_processor_fn = std::function<bool(const To_processor&)>;
     using To_editor_fn = std::function<bool(const To_editor&)>;
@@ -80,14 +80,19 @@ private:
 // compiles uniformly; `if constexpr (has_worker)` gates skip the runtime work.
 struct No_worker {
 
-    using From_processor = std::monostate;
-    using From_editor    = std::monostate;
-    using To_processor   = std::monostate;
-    using To_editor      = std::monostate;
+    struct Model {
+        using From_processor = std::monostate;
+        using From_editor    = std::monostate;
+        using To_processor   = std::monostate;
+        using To_editor      = std::monostate;
 
-    static constexpr auto inbound_capacity = size_t{16};
-    static constexpr auto reply_capacity = size_t{16};
-    static constexpr auto poll_interval = std::chrono::milliseconds{16};
+        static constexpr auto inbound_capacity  = size_t{16};
+        static constexpr auto outbound_capacity = size_t{16};
+        static constexpr auto update_period = std::chrono::milliseconds{16};
+    };
+
+    using From_processor = Model::From_processor;
+    using From_editor    = Model::From_editor;
 
     explicit No_worker(Worker_reply_actor<No_worker> = {}, Task_manager::Actor a = Task_manager::Actor{nullptr})
     {
@@ -129,23 +134,23 @@ inline constexpr bool has_worker = !std::is_same_v<User_worker, No_worker>;
 
 // MARK: - convenience aliases
 
-using Worker_processor_actor = Worker_actor<typename User_worker::From_processor>;
-using Worker_editor_actor    = Worker_actor<typename User_worker::From_editor>;
+using Worker_processor_actor = Worker_actor<typename User_worker::Model::From_processor>;
+using Worker_editor_actor    = Worker_actor<typename User_worker::Model::From_editor>;
 using Worker_replies         = Worker_reply_actor<User_worker>;
 
 // MARK: - concepts
 
 // plugin::Processor opts in to worker-reply handling by defining
-// `handle_worker_reply(const User_worker::To_processor&)`.
+// `handle_worker_reply(const User_worker::Model::To_processor&)`.
 template <typename P>
-concept Receives_worker_reply_to_processor = requires (P p, const typename User_worker::To_processor& r) {
+concept Receives_worker_reply_to_processor = requires (P p, const typename User_worker::Model::To_processor& r) {
     { p.handle_worker_reply(r) } -> std::same_as<void>;
 };
 
 // plugin::Editor opts in by defining
-// `on_worker_reply(const User_worker::To_editor&)`.
+// `on_worker_reply(const User_worker::Model::To_editor&)`.
 template <typename E>
-concept Receives_worker_reply_to_editor = requires (E e, const typename User_worker::To_editor& r) {
+concept Receives_worker_reply_to_editor = requires (E e, const typename User_worker::Model::To_editor& r) {
     { e.on_worker_reply(r) } -> std::same_as<void>;
 };
 
@@ -172,8 +177,8 @@ template <typename P, typename Q>
 inline auto try_drain_worker_to_processor(P& processor, Q& queue) -> void
 {
     if constexpr (has_worker && Receives_worker_reply_to_processor<P>) {
-        if constexpr (!std::is_same_v<typename User_worker::To_processor, std::monostate>) {
-            auto reply = typename User_worker::To_processor{};
+        if constexpr (!std::is_same_v<typename User_worker::Model::To_processor, std::monostate>) {
+            auto reply = typename User_worker::Model::To_processor{};
             while (queue.pop(reply)) {
                 processor.handle_worker_reply(reply);
             }
@@ -185,8 +190,8 @@ template <typename E, typename Q>
 inline auto try_drain_worker_to_editor(E& editor, Q& queue) -> void
 {
     if constexpr (has_worker && Receives_worker_reply_to_editor<E>) {
-        if constexpr (!std::is_same_v<typename User_worker::To_editor, std::monostate>) {
-            auto reply = typename User_worker::To_editor{};
+        if constexpr (!std::is_same_v<typename User_worker::Model::To_editor, std::monostate>) {
+            auto reply = typename User_worker::Model::To_editor{};
             while (queue.pop(reply)) {
                 editor.on_worker_reply(reply);
             }
@@ -197,7 +202,7 @@ inline auto try_drain_worker_to_editor(E& editor, Q& queue) -> void
 // MARK: - runner
 
 // Owns the worker thread. Polls both inbound queues at the worker's
-// `poll_interval` and dispatches each message to its origin-specific handler.
+// `Model::update_period` and dispatches each message to its origin-specific handler.
 // An optional `Post_cycle` callback runs on the worker thread at the end of
 // each poll cycle — used (e.g. by VST3) to drain a worker → processor reply
 // queue and forward over IPC without spawning a separate thread.
@@ -205,10 +210,10 @@ template <typename Worker>
 class Worker_runner {
 public:
 
-    using From_processor = typename Worker::From_processor;
-    using From_editor    = typename Worker::From_editor;
+    using From_processor = typename Worker::Model::From_processor;
+    using From_editor    = typename Worker::Model::From_editor;
 
-    static constexpr auto inbound_capacity = Worker::inbound_capacity;
+    static constexpr auto inbound_capacity = Worker::Model::inbound_capacity;
 
     using From_proc_queue = Lock_free_queue<From_processor, inbound_capacity, Queue_concurrency::spsc>;
     using From_edit_queue = Lock_free_queue<From_editor,    inbound_capacity, Queue_concurrency::spsc>;
@@ -258,7 +263,7 @@ public:
                     if (_post_cycle) _post_cycle();
 
                     if (!drained) {
-                        std::this_thread::sleep_for(Worker::poll_interval);
+                        std::this_thread::sleep_for(Worker::Model::update_period);
                     }
                 }
                 _worker->on_stop();

@@ -34,14 +34,21 @@ struct Session_path {
 class Worker {
 public:
 
-    using From_processor = std::variant<Tick>;
-    using From_editor    = std::variant<Set_session>;
-    using To_processor   = std::variant<Set_counter>;
-    using To_editor      = std::variant<Session_path>;
+    // The channel shape: the four typed message variants plus capacity/period
+    // tuning. The framework reads these via `Worker::Model::*`.
+    struct Model {
+        using From_processor = std::variant<Tick>;
+        using From_editor    = std::variant<Set_session>;
+        using To_processor   = std::variant<Set_counter>;
+        using To_editor      = std::variant<Session_path>;
 
-    static constexpr auto inbound_capacity = size_t{64};
-    static constexpr auto reply_capacity = size_t{16};
-    static constexpr auto poll_interval = std::chrono::milliseconds{16};
+        static constexpr auto inbound_capacity  = size_t{64};
+        static constexpr auto outbound_capacity = size_t{16};
+        static constexpr auto update_period = std::chrono::milliseconds{16};
+    };
+
+    using From_processor = Model::From_processor;
+    using From_editor    = Model::From_editor;
 
     explicit Worker(Worker_reply_actor<Worker> reply, Task_manager::Actor tasks)
         : _reply{reply}, _tasks{tasks} {}
