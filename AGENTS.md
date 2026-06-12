@@ -24,9 +24,12 @@ translate the host's API into framework events and back.
     `Linear_ramper`, `Delay_line`), `<tiny_dsp/...>`. INTERFACE lib, pure leaf.
   - [wrappers/](wrappers/) — one wrapper per format (was `formats/`).
   - [examples/](examples/) — demo plug-ins consumed by CI (was `plugins/`).
-  - [cmake/](cmake/) — `helpers.cmake`, `plug_info.h.in`, etc.
+  - [cmake/](cmake/) — `helpers.cmake`, `plug_info.hpp.in`, etc.
+  - [template/](template/) + [new_plugin.py](new_plugin.py) — scaffold a new
+    plug-in (a simple gain effect, no worker): `python3 new_plugin.py "My Plug"
+    --manu Acme --id plg1`. Generates `examples/<snake_name>/` and appends it to
+    [examples/CMakeLists.txt](examples/CMakeLists.txt).
   - [plans/](plans/) — design docs for in-flight work.
-  - (`template/` + `new_plugin.py` were deleted, to be rebuilt post-refactor.)
 
 ## Build
 

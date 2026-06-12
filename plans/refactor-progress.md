@@ -21,8 +21,9 @@ cmake --build build-debug --parallel 8
   AUv3 changes this session are UNVALIDATED** — do an Xcode build before relying
   on AUv3. (AUv3 `.mm` got real edits: `string_view` Cocoa wraps, item loop,
   namespace/file renames.)
-- `template/` and `new_plugin.py` were **deleted** by the user (to be rewritten
-  after the refactor) — out of scope; ignore.
+- `template/` and `new_plugin.py` were **rebuilt** (later session) — a simple
+  gain plug-in (no worker), based on the current `gain_demo`. See "Template +
+  generator" below.
 - Downstream `~/Developer/hii` needs the same migrations — **not done**.
 
 ## What's DONE this session (all building green on the 4 Makefile formats + core lib)
@@ -190,13 +191,18 @@ PUBLIC root.
 PCH, unity builds, CI. (`tiny_platform` spin-out + Skia PRIVATE + directory restructure
 + **CMakePresets** (`debug`/`macos`/`ios`/`windows`, in `CMakePresets.json`): done.)
 
+### Template + generator — DONE (later session)
+`template/` (CMakeLists.txt.in + source/) + `new_plugin.py` rebuilt: a simple gain
+plug-in, no worker, copied from the current `gain_demo` (source needs no placeholders —
+only `CMakeLists.txt.in` substitutes `{display_name}/{file_name}/{short_name}/{manu}/{id}`).
+`python3 new_plugin.py "Name" --manu Acme --id plg1` generates `examples/<snake>/` and
+appends+sorts `examples/CMakeLists.txt`. Verified: generated VST3 target builds green.
+
 ### Loose ends
-- **Verify iOS (Xcode) + Windows** builds end-to-end (in progress).
-- **Commit** the working tree on `next` (consider per-logical-step commits).
-- Migrate downstream `~/Developer/hii` in lock-step (see MIGRATION.md §11 for the new
-  link line + macro rename).
-- Rebuild `template/` + `new_plugin.py` (deleted).
+- **Verify iOS (Xcode) + Windows** builds end-to-end (in progress; CI would cover this).
+- Migrate downstream `~/Developer/hii` in lock-step (see MIGRATION §11–13).
 - Consider a `Value_helper` unit test (only untested logic-dense code; one behavior tweak).
+- AGENTS.md deep per-format path links still stale (separate mechanical sweep).
 
 ## Established conventions (apply going forward)
 - Headers `.hpp`; ObjC `.h`.
