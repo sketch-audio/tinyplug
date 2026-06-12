@@ -1,0 +1,53 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build-${presetName}",
+      "cacheVariables": {
+        "TINY_DEPS_PATH": "${sourceDir}/../tiny_deps",
+        "TINY_INSTALL_PLUGINS": "OFF"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug — Makefiles (all formats except AUv3)",
+      "description": "Fast iteration build. Unix Makefiles can't generate AUv3; use the 'macos' preset for that.",
+      "inherits": "base",
+      "generator": "Unix Makefiles",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "macos",
+      "displayName": "macOS — Xcode (all formats incl. AUv3)",
+      "description": "Xcode generator, required for AUv3. Multi-config: pass --config Debug|Release at build time.",
+      "inherits": "base",
+      "generator": "Xcode",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+    },
+    {
+      "name": "ios",
+      "displayName": "iOS — Xcode (AUv3 on device/simulator)",
+      "description": "Cross-compiles for iOS. Signing identity / team must be set for device builds.",
+      "inherits": "macos",
+      "cacheVariables": { "CMAKE_SYSTEM_NAME": "iOS" }
+    },
+    {
+      "name": "windows",
+      "displayName": "Windows — Visual Studio",
+      "description": "Static-CRT MSVC build (runtime handled in CMakeLists). AUv3/AUv2/AAX-mac excluded by platform.",
+      "inherits": "base",
+      "generator": "Visual Studio 17 2022",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "debug",  "configurePreset": "debug", "jobs": 8 },
+    { "name": "macos",  "configurePreset": "macos", "configuration": "Debug" },
+    { "name": "ios",    "configurePreset": "ios",   "configuration": "Debug" },
+    { "name": "windows", "configurePreset": "windows", "configuration": "Debug" }
+  ]
+}
