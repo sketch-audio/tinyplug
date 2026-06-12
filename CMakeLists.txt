@@ -51,7 +51,8 @@ FetchContent_MakeAvailable(tiny_deps)
 
 include(cmake/helpers.cmake)
 include(wrappers/wrappers.cmake)
-include(presets/make_preset_exporter.cmake)
+include(tools/presets/make_preset_exporters.cmake)
+include(tools/pagetables/make_pagetable.cmake)
 
 # Core library.
 add_subdirectory(libs/tinyplug)

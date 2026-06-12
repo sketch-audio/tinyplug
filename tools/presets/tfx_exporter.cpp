@@ -12,7 +12,7 @@
 #include "AAX.h"
 #include "AAX_CChunkDataParser.h"
 #include "AAX_EndianSwap.h"
-#include "../formats/aax/source/adapters.hpp"
+#include "adapters.hpp" // AAX wrapper's param-ID adapters (on the include path via cmake)
 
 // User model.
 #include "models/params.hpp"
@@ -118,7 +118,7 @@ auto main() -> int
                     }
                     else {
                         const auto as_double = static_cast<double>(state_values[i]);
-                        const auto plain = Value_helper::knob_to_plain(as_double, spec.semantics);
+                        const auto plain = params::Value_helper::knob_to_plain(as_double, spec.semantics);
                         return static_cast<float>(plain);
                     }
                 }();

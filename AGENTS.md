@@ -25,10 +25,13 @@ translate the host's API into framework events and back.
   - [wrappers/](wrappers/) — one wrapper per format (was `formats/`).
   - [examples/](examples/) — demo plug-ins consumed by CI (was `plugins/`).
   - [cmake/](cmake/) — `helpers.cmake`, `plug_info.hpp.in`, etc.
-  - [template/](template/) + [new_plugin.py](new_plugin.py) — scaffold a new
-    plug-in (a simple gain effect, no worker): `python3 new_plugin.py "My Plug"
-    --manu Acme --id plg1`. Generates `examples/<snake_name>/` and appends it to
-    [examples/CMakeLists.txt](examples/CMakeLists.txt).
+  - [template/](template/) + [tools/new_plugin.py](tools/new_plugin.py) — scaffold
+    a new plug-in (a simple gain effect, no worker): `python3 tools/new_plugin.py
+    "My Plug" --manu Acme --id plg1`. Generates `examples/<snake_name>/` and appends
+    it to [examples/CMakeLists.txt](examples/CMakeLists.txt).
+  - [tools/](tools/) — author helper utilities: the scaffold above, preset exporters
+    ([tools/presets/](tools/presets/)), and AAX page-table generation
+    ([tools/pagetables/](tools/pagetables/)). All opt-in; demos don't use them.
   - [plans/](plans/) — design docs for in-flight work.
 
 ## Build

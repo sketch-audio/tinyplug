@@ -29,7 +29,8 @@ for the parts not yet done, and are superseded where they conflict.
   libs/tinyplug/       core: include/tinyplug/*.hpp + source/*.cpp + CMakeLists.txt
   libs/tiny_platform/  include/tiny_platform/*.hpp + source/* + cmake/ + CMakeLists.txt
   libs/tiny_dsp/       include/tiny_dsp/*.hpp + CMakeLists.txt (INTERFACE)
-  cmake/ wrappers/ (was formats/) examples/ (was plugins/) presets/ plans/ tools/
+  cmake/ wrappers/ (was formats/) examples/ (was plugins/) plans/ tools/
+  (tools/ now also holds the former presets/ — see "Tools consolidation" below)
   ```
   Each lib has its own `CMakeLists.txt` and an **isolated** PUBLIC include root
   (`include/`), so a consumer only sees `<tiny_platform/...>` / `<tiny_dsp/...>` if it

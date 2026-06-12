@@ -11,7 +11,7 @@ auto main() -> int
 {
     using namespace tiny;
     using User_params = params::Infos<models::Params>;
-    const auto& specs = User_params::param_specs(Param_order::Presentation);
+    const auto& specs = User_params::param_specs(params::Param_order::Presentation);
 
     auto params = nlohmann::json::array();
     for (auto i = uint32_t{}; i < User_params::num_params; ++i) {

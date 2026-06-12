@@ -1,58 +1,26 @@
-# AAX Page Table Generator
+# tools
 
-Generates `*Pages.xml` page table files for AAX plugins, required for control surface mapping (S6, S3, EUCON, etc.).
+Author-facing helper utilities. Each is opt-in — the demo plug-ins don't depend
+on any of them.
 
-## Overview
+- **[new_plugin.py](new_plugin.py)** — scaffold a new plug-in (a simple gain
+  effect, no worker) from [../template/](../template):
 
-Two steps:
+  ```bash
+  python3 tools/new_plugin.py "My Plug" --manu Acme --id plg1
+  ```
 
-1. **Build the manifest tool** — a small C++ executable (per plugin) that dumps the plugin's parameter list as JSON.
-2. **Run the Python generator** — reads the JSON and writes the `*Pages.xml`.
+  Generates `examples/<snake_name>/` and appends it to
+  [../examples/CMakeLists.txt](../examples/CMakeLists.txt).
 
----
+- **[presets/](presets/)** — build a per-plugin executable that writes factory
+  preset files from the plug-in's parameter defaults. `make_tfx_exporter`
+  (AAX `.tfx`) and `make_vstpreset_exporter` (VST3 `.vstpreset`) in
+  [presets/make_preset_exporters.cmake](presets/make_preset_exporters.cmake).
 
-## Step 1 — Add the manifest tool to your plugin's CMakeLists.txt
-
-```cmake
-include(${TINYPLUG_DIR}/presets/make_preset_exporter.cmake)
-make_pagetable_manifest(${PLUGIN_TARGET})
-```
-
-This creates a build target named `<BaseFilename>_pagetable_manifest`. It requires no AAX or VST3 SDK — it just links against your plugin lib.
-
-Also set the page table path so it gets copied into the AAX bundle:
-
-```cmake
-add_property(${PLUGIN_TARGET} TINY_AAX_PAGE_TABLE_PATH
-    "${CMAKE_CURRENT_SOURCE_DIR}/assets/MyPluginPages.xml")
-```
-
----
-
-## Step 2 — Generate the manifest JSON
-
-Build and run the manifest tool:
-
-```bash
-cmake --build build-release --target MyPlugin_pagetable_manifest
-./build-release/plugins/my_plugin/MyPlugin_pagetable_manifest > /tmp/MyPlugin_manifest.json
-```
-
----
-
-## Step 3 — Generate the XML
-
-```bash
-python3 tools/generate_pages.py /tmp/MyPlugin_manifest.json \
-    plugins/my_plugin/assets/MyPluginPages.xml
-```
-
-The XML is committed to source control and only needs regenerating when params change.
-
----
-
-## Notes
-
-- Only `automation` policy params appear in the page tables. `control`, `hidden`, and `interface` params are excluded.
-- Parameter IDs in the XML use hex addresses (e.g. `0x00000000`) matching the IDs registered in the AAX host.
-- The `PgTL` table (one param per page) must list all automatable params — this is what the AAX validator checks with `test.page_table.automation_list`.
+- **[pagetables/](pagetables/)** — generate AAX `*Pages.xml` page tables for
+  control-surface mapping. A C++ manifest tool (`make_pagetable_manifest` in
+  [pagetables/make_pagetable.cmake](pagetables/make_pagetable.cmake)) dumps the
+  param list as JSON, then [pagetables/generate_pages.py](pagetables/generate_pages.py)
+  turns it into XML. Full pipeline in
+  [pagetables/README.md](pagetables/README.md).

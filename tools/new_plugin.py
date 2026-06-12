@@ -51,8 +51,8 @@ def main():
     manufacturer_code = args.manu
     plugin_code = args.id
 
-    # get current directory
-    here = os.path.dirname(__file__)
+    # repo root (this script lives in tools/)
+    here = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
     # try to create a new directory
     if args.dest:

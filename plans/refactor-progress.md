@@ -129,8 +129,8 @@ Still reachable only via transitional `tiny::` aliases — migrate each into
 - One deliberate behavior tweak: `default_value(Fixed, Host)` now quantizes (was
   raw def_val); identical for step-aligned defaults, which `validate_spec` requires.
 - **Built green** on the 4 Makefile formats + core lib + 5 demo plug-ins.
-  Unverified (same as always): AUv3 (needs Xcode gen) and the on-demand preset
-  exporters (`presets/*_exporter.cpp` — mechanical `make_defaults` rename only).
+  (The on-demand exporters were later moved to `tools/` and **now verified to
+  build/run** — see "Tools consolidation" below.)
 
 ### `Host_formatter` build-time cleanup (remaining)
 - `Host_formatter`(`→Formatter`) impl already lives in `host_formatter.cpp`
@@ -195,8 +195,23 @@ PCH, unity builds, CI. (`tiny_platform` spin-out + Skia PRIVATE + directory rest
 `template/` (CMakeLists.txt.in + source/) + `new_plugin.py` rebuilt: a simple gain
 plug-in, no worker, copied from the current `gain_demo` (source needs no placeholders —
 only `CMakeLists.txt.in` substitutes `{display_name}/{file_name}/{short_name}/{manu}/{id}`).
-`python3 new_plugin.py "Name" --manu Acme --id plg1` generates `examples/<snake>/` and
-appends+sorts `examples/CMakeLists.txt`. Verified: generated VST3 target builds green.
+`python3 tools/new_plugin.py "Name" --manu Acme --id plg1` generates `examples/<snake>/`
+and appends+sorts `examples/CMakeLists.txt`. Verified: generated VST3 target builds green.
+
+### Tools consolidation — DONE (later session)
+Folded the misnamed top-level `presets/` into `tools/`, grouped by pipeline:
+- `tools/presets/` — `tfx_exporter.cpp` + `vstpreset_exporter.cpp` +
+  `make_preset_exporters.cmake` (`make_tfx_exporter`, `make_vstpreset_exporter`).
+- `tools/pagetables/` — `pagetable_manifest.cpp` + `generate_pages.py` +
+  `make_pagetable.cmake` (`make_pagetable_manifest`) + the pipeline README.
+- `tools/new_plugin.py` (moved from repo root; `here` now resolves up one level).
+- `tools/README.md` is now an umbrella index pointing into the two subdirs.
+The combined `make_preset_exporter.cmake` was **split** into the two accurately-named
+files above; root `CMakeLists.txt` includes both. **The reorg surfaced pre-existing
+staleness** in the opt-in exporters (never recompiled since the params-namespace pass):
+fixed `Param_order`→`params::Param_order` (manifest), `Value_helper`→`params::Value_helper`
++ a stale `../formats/aax/...` include (tfx; now `adapters.hpp` via a cmake include dir).
+**Verified:** all three exporters build, and the manifest runs and emits param JSON.
 
 ### Loose ends
 - **Verify iOS (Xcode) + Windows** builds end-to-end (in progress; CI would cover this).
