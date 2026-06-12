@@ -336,8 +336,9 @@ This has knock-on effects throughout the wrapper:
 
 - **Three persistence surfaces**: per-param scalar (host-managed),
   editor `State_map` (string→variant<bool,int32_t,double,string>), and
-  the optional "extra" `State_model` from
-  [plans/state-model.md](plans/state-model.md) (not yet implemented).
+  the optional buffer-source persistence from
+  [plans/buffer-system.md](plans/buffer-system.md) for large audio buffers
+  (not yet implemented).
 - `State_adapter` ([shared/tinyplug/state_adapter.hpp](shared/tinyplug/state_adapter.hpp))
   is the format-agnostic glue: a JSON document with `version`, `params`,
   and `editor` keys. The same adapter serves both bundle presets and the
@@ -438,18 +439,20 @@ speculation, they're scheduled work.
   note_id / AU+AAX channel+key. This is the gateway to instrument
   plug-ins (synths) and MIDI effects.
 
-- **[state-model.md](plans/state-model.md)** — third persistence
-  surface for large/binary state (audio loops, IRs, MIDI sequences).
-  Declarative `State_model` mirroring `Param_model`/`Meter_model`;
-  optional `save_state_item` / `load_state_item` on the processor; state
-  items delivered through the existing render-event queue. Backward-
-  compatible (empty model = no overhead).
+- **[block-output.md](plans/block-output.md)** — outbound vector transport,
+  processor→editor. `Block_model` for scopes/FFTs and the waveform overviews
+  the buffer system draws with, with `snapshot` (triple-buffer) and `stream`
+  (FIFO) policies. Same declarative shape as params/meters; value-semantics
+  across the VST3 COM boundary.
 
-- **[block-table-io.md](plans/block-table-io.md)** — vector transport
-  between editor and processor. `Block_model` (processor→editor, for
-  scopes/FFTs) and `Table_model` (editor→processor, for wavetables/IRs),
-  with `snapshot` (triple-buffer) and `stream` (FIFO) policies. Same
-  declarative shape as params/meters.
+- **[buffer-system.md](plans/buffer-system.md)** — managed large audio buffers
+  (looper / granular / sampler / drum machine). One opt-in declarative
+  `Buffer_model`: the processor owns a canonical `Buffer_source` (persisted in
+  the session), off-thread `prepare_buffer` derives an RT-ready `Prepared`,
+  installed via atomic pointer-swap + deferred retire. Every editor↔processor
+  leg is value semantics; pointer-swap is intra-processor only. Unifies and
+  supersedes the former `state-model`, `asset-store`, and the Table half of
+  `block-table-io`. Backward-compatible (empty model = no overhead).
 
 Other roadmap items from README: synth support (depends on MIDI), Linux
 (CLAP & VST3), LV2, Windows GPU graphics, multitouch on Windows, software

@@ -65,9 +65,9 @@ location, migrate refs, drop the aliases, build between each.
 
 ## Model placeholders for upcoming features
 
-Add empty `tiny::models::{Blocks, Tables, State}` structs (each
+Add empty `tiny::models::{Blocks, Buffers}` structs (each
 `enum class Address { Num_* };`) to reserve named homes for the
-[block-table-io.md](block-table-io.md) / [state-model.md](state-model.md) feature PRs,
+[block-output.md](block-output.md) / [buffer-system.md](buffer-system.md) feature PRs,
 so those land without churning the demos.
 
 ## Optional-lib architecture (as `libs/` grows)
