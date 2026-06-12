@@ -79,9 +79,11 @@ for the parts not yet done, and are superseded where they conflict.
    `libs/` (`tinyplug` core, `tiny_platform`, `tiny_dsp`), each with its own
    `CMakeLists.txt` and an isolated `include/<name>/` root. Core OS header renamed
    `tiny_platform.hpp` → `platform_defs.hpp`. `formats/`→`wrappers/`, `plugins/`→`examples/`.
-2. Build infra when ready: CMakePresets, clang-format/editorconfig, CI (§1.4–1.5).
-3. Opportunistic/low-priority: Worker `Model` restructure; any namespace that rises
-   to a strong organizational concept.
+2. Build infra when ready: ~~CMakePresets~~ (**DONE 2026-06-11** — `CMakePresets.json`,
+   presets `debug`/`macos`/`ios`/`windows`), clang-format/editorconfig, PCH, unity, CI (§1.4–1.5).
+3. Opportunistic/low-priority: ~~Worker `Model` restructure~~ (**DONE 2026-06-11** — nested
+   `plugin::Worker::Model`, `reply_capacity`→`outbound_capacity`, `poll_interval`→`update_period`;
+   see MIGRATION §13); any namespace that rises to a strong organizational concept.
 
 ## Phase 1 — Structural refactor
 

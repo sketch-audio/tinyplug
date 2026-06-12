@@ -30,8 +30,18 @@ translate the host's API into framework events and back.
 
 ## Build
 
-External SDKs live in a sibling [tiny_deps](../tiny_deps) repo. The path is
-required:
+External SDKs live in a sibling [tiny_deps](../tiny_deps) repo. The simplest path
+is the CMake presets (they default `TINY_DEPS_PATH` to `../tiny_deps` and
+`TINY_INSTALL_PLUGINS=OFF`):
+
+```
+cmake --preset debug && cmake --build --preset debug   # Makefiles, all formats except AUv3
+cmake --preset macos && cmake --build --preset macos   # Xcode, incl. AUv3
+```
+
+Presets: `debug` (Unix Makefiles → `build-debug`), `macos` / `ios` (Xcode →
+`build-macos` / `build-ios`, required for AUv3), `windows` (VS, Windows hosts only).
+The manual equivalents still work, e.g.:
 
 ```
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DTINY_DEPS_PATH=../tiny_deps
@@ -39,10 +49,10 @@ cmake --build build
 ```
 
 - `--parallel` is allowed (e.g. `cmake --build build-debug --parallel 8`), but
-  never launch a second build while one is already running.
-- macOS Xcode generator is required for AUv3:
-  `cmake -S . -B build-macos -G Xcode -DTINY_DEPS_PATH=../tiny_deps`.
-- iOS AUv3: `cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS`.
+  never launch a second build while one is already running. The `debug` build
+  preset already sets `jobs: 8`.
+- macOS Xcode generator is required for AUv3 (`--preset macos`).
+- iOS AUv3: `--preset ios`.
 - `TINY_BUILD_PLUGINS=ON` (default) builds the demos; `TINY_INSTALL_PLUGINS=ON`
   copies bundles to `~/Library/Audio/Plug-Ins/...` (or the Windows
   equivalent) after each build.

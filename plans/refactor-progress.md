@@ -140,9 +140,14 @@ Still reachable only via transitional `tiny::` aliases — migrate each into
 `tiny::events`, `tiny::view`, `tiny::edit`, `tiny::state`, `tiny::process`,
 `tiny::task`, `tiny::worker`, `tiny::util` — same wrap-then-rename pattern.
 
-### Worker `Model` restructure (not started)
-Nested `user::Worker::Model` holding the four message aliases + constants;
-`reply_capacity→outbound_capacity`, `poll_interval→update_period`.
+### Worker `Model` restructure — DONE (later session)
+Nested `plugin::Worker::Model` holds the four message aliases + the three constants;
+`reply_capacity→outbound_capacity`, `poll_interval→update_period`. `No_worker` got a
+matching nested `Model`. Framework (`Worker_reply_actor`, `Worker_runner`, concepts,
+drain helpers, convenience aliases) and all 5 wrappers now read `User_worker::Model::*`;
+reply-handler signatures are `const Worker::Model::To_{processor,editor}&`. Demo Worker
+keeps `using From_processor = Model::From_processor;` (+ editor) for its handler sigs.
+Verified green: 4 Makefile formats + WorkerDemo AUv3 extension (Xcode). See MIGRATION §13.
 
 ### Platform library split — DONE this session
 `shared/platform` is now its own static lib **`tiny_platform`** (was folded into
@@ -182,8 +187,8 @@ PUBLIC root.
   view_controller, both arches). **Windows unverified** (mechanical symmetric rewrites only).
 
 ### Phase 1 structural (remaining)
-PCH, unity builds, CMakePresets, CI. (`tiny_platform` spin-out + Skia PRIVATE + the
-directory restructure: done.)
+PCH, unity builds, CI. (`tiny_platform` spin-out + Skia PRIVATE + directory restructure
++ **CMakePresets** (`debug`/`macos`/`ios`/`windows`, in `CMakePresets.json`): done.)
 
 ### Loose ends
 - **Verify iOS (Xcode) + Windows** builds end-to-end (in progress).

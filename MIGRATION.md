@@ -24,7 +24,7 @@ continues — sections are roughly in the order the changes landed.
 | **Platform → its own `tiny_platform` lib**; `PLATFORM_*`→`TINY_PLATFORM_*`, `Platform` struct removed; Skia PRIVATE | ✅ done (iOS/Win pending verify) |
 | **Directory restructure → `libs/` layout** + `tiny_dsp` lib; includes `<tiny_platform/…>` / `<tiny_dsp/…>`; `tiny_platform.hpp`→`platform_defs.hpp` | ✅ done (Win pending verify) |
 | Params leftovers: `Host_formatter`→`Formatter`, `Param_order`→`Order`, `Units` | ⏳ still transitional `tiny::` aliases |
-| Worker nested `Model` restructure | ⏳ not yet migrated |
+| **Worker nested `Model`** restructure; `reply_capacity`→`outbound_capacity`, `poll_interval`→`update_period` | ✅ done |
 | `tiny::events` / `tiny::view` / … namespace passes | ⏳ not yet migrated |
 
 ---
@@ -347,6 +347,73 @@ includes a DSP header. The §11 platform/Skia link lines are unchanged.
 > Repo-internal note (not a source change): `formats/` → `wrappers/`,
 > `plugins/` → `examples/`. Only relevant if you reference tinyplug's tree by path.
 
+## 13. Worker channel → nested `Model` (only if your plug-in has a `worker.hpp`)
+
+The four message-type aliases and the three tuning constants move from the
+`plugin::Worker` class body into a nested `struct Model`, and two constants are
+renamed. The framework now reads everything via `Worker::Model::*`. **No worker, no
+change** — plug-ins without a `worker.hpp` are unaffected.
+
+Before:
+
+```cpp
+class Worker {
+public:
+    using From_processor = std::variant<Tick>;
+    using From_editor    = std::variant<Set_session>;
+    using To_processor   = std::variant<Set_counter>;
+    using To_editor      = std::variant<Session_path>;
+
+    static constexpr auto inbound_capacity = size_t{64};
+    static constexpr auto reply_capacity   = size_t{16};               // renamed
+    static constexpr auto poll_interval    = std::chrono::milliseconds{16}; // renamed
+    // ...
+};
+```
+
+After:
+
+```cpp
+class Worker {
+public:
+    struct Model {
+        using From_processor = std::variant<Tick>;
+        using From_editor    = std::variant<Set_session>;
+        using To_processor   = std::variant<Set_counter>;
+        using To_editor      = std::variant<Session_path>;
+
+        static constexpr auto inbound_capacity  = size_t{64};
+        static constexpr auto outbound_capacity = size_t{16};               // was reply_capacity
+        static constexpr auto update_period     = std::chrono::milliseconds{16}; // was poll_interval
+    };
+
+    // Optional convenience for your own handler signatures:
+    using From_processor = Model::From_processor;
+    using From_editor    = Model::From_editor;
+    // ...
+};
+```
+
+| Old (on `Worker`) | New (on `Worker::Model`) |
+|---|---|
+| `using From_processor / From_editor / To_processor / To_editor` | same names, moved into `Model` |
+| `static constexpr inbound_capacity` | `Model::inbound_capacity` (unchanged name) |
+| `static constexpr reply_capacity` | `Model::outbound_capacity` (**renamed**) |
+| `static constexpr poll_interval` | `Model::update_period` (**renamed**) |
+
+**Reply-handler signatures change** (the concepts now look for the `Model::` types):
+
+| Old | New |
+|---|---|
+| `handle_worker_reply(const Worker::To_processor& r)` | `handle_worker_reply(const Worker::Model::To_processor& r)` |
+| `on_worker_reply(const Worker::To_editor& r)` | `on_worker_reply(const Worker::Model::To_editor& r)` |
+
+The `Worker` constructor signature is unchanged (`Worker_reply_actor<Worker>` still
+takes the `Worker`, not the `Model`). `bind_worker` / `Worker_processor_actor` /
+`Worker_editor_actor` spellings are unchanged. If your handler methods reference the
+message types bare (`const From_processor&`), keep the two convenience `using`s shown
+above; otherwise qualify them as `Model::From_processor`.
+
 ---
 
 ## Not yet migrated (don't change these yet)
@@ -355,9 +422,5 @@ includes a DSP header. The §11 platform/Skia link lines are unchanged.
   (→ `Order`), and `Units` (type kept) are still reachable via transitional
   `tiny::` aliases and move into `tiny::params` in later steps. (The value
   helpers and `Value_space`→`Space` are done — see §6a.)
-- **Worker internals:** `worker.hpp` / `tiny::plugin::Worker` is the only worker
-  change so far. The message-type aliases and tuning constants
-  (`From_processor`, `reply_capacity`, `poll_interval`, …) keep their current
-  shape — the nested `Model` restructure hasn't landed.
 - **Other framework sub-namespaces** (`tiny::events`, `tiny::view`, `tiny::edit`,
   `tiny::state`, `tiny::process`, `tiny::task`, `tiny::worker`, `tiny::util`).
