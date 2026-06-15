@@ -105,6 +105,11 @@ OSStatus Effect::GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScop
             outWritable = false;
             return noErr;
         }
+        case kAudioUnitProperty_OfflineRender: {
+            outDataSize = sizeof(UInt32);
+            outWritable = true;
+            return noErr;
+        }
         default: break;
     }
 
@@ -170,6 +175,10 @@ OSStatus Effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
             ((void**)outData)[0] = (void*)this;
             return noErr;
         }
+        case kAudioUnitProperty_OfflineRender: {
+            Serialize<UInt32>(_offline.load(std::memory_order_relaxed) ? 1 : 0, outData);
+            return noErr;
+        }
         default: break;
     }
 
@@ -186,6 +195,10 @@ OSStatus Effect::SetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
         case kAudioUnitProperty_BypassEffect: {
             const auto bypass = Deserialize<UInt32>(inData) != 0;
             _bypass.set_bypassed(bypass);
+            return noErr;
+        }
+        case kAudioUnitProperty_OfflineRender: {
+            _offline.store(Deserialize<UInt32>(inData) != 0, std::memory_order_relaxed);
             return noErr;
         }
         default: break;
@@ -937,6 +950,9 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 
     // Create the context.
     auto context = Dsp_context{.meters = _meters};
+    context.render_mode = _offline.load(std::memory_order_relaxed)
+        ? Render_mode::Offline
+        : Render_mode::Realtime;
 
     auto do_process = [this, &context, &host_data](size_t num_frames, size_t offset) {
         const auto num_ichannels = Input(0).NumberChannels();

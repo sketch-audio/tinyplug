@@ -221,8 +221,16 @@ AAX_Result Parameters::NotificationReceived(AAX_CTypeID inNotificationType, cons
             if (const auto* data = inNotificationData) {
                 const auto* info = static_cast<const AAX_TransportStateInfo_V1*>(data);
                 _recording.store(info->mIsRecording, std::memory_order_relaxed);
-                break;
             }
+            break;
+        }
+        case AAX_eNotificationEvent_EnteringOfflineMode: {
+            _offline.store(true, std::memory_order_relaxed);
+            break;
+        }
+        case AAX_eNotificationEvent_ExitingOfflineMode: {
+            _offline.store(false, std::memory_order_relaxed);
+            break;
         }
         default: break;
     }
@@ -650,6 +658,9 @@ void Parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_t ch
         .num_frames = num_frames,
         .meters = _meters
     };
+    context.render_mode = _offline.load(std::memory_order_relaxed)
+        ? Render_mode::Offline
+        : Render_mode::Realtime;
 
     const auto can_skip = _bypass.can_skip_effect();
     if (!can_skip) {

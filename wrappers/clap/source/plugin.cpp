@@ -96,6 +96,9 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
 
     // Create the context.
     auto context = Dsp_context{.meters = _meters, .propose_latency = {}};
+    context.render_mode = _offline.load(std::memory_order_relaxed)
+        ? Render_mode::Offline
+        : Render_mode::Realtime;
 
     // So we can process with an offset.
     auto do_process = [this, &process, &context](size_t num_frames, size_t offset) {
@@ -256,6 +259,12 @@ void Plugin::reset() noexcept
 
 void Plugin::onMainThread() noexcept
 {
+}
+
+bool Plugin::renderSetMode(clap_plugin_render_mode mode) noexcept
+{
+    _offline.store(mode == CLAP_RENDER_OFFLINE, std::memory_order_relaxed);
+    return true;
 }
 
 const void* Plugin::extension(const char* /*id*/) noexcept

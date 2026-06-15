@@ -74,6 +74,11 @@ public:
     const void* extension(const char* id) noexcept override;
     bool enableDraftExtensions() const noexcept override;
 
+    // render (offline/bounce detection)
+    bool implementsRender() const noexcept override { return true; }
+    bool renderHasHardRealtimeRequirement() noexcept override { return false; }
+    bool renderSetMode(clap_plugin_render_mode mode) noexcept override;
+
     // state
     bool implementsState() const noexcept override { return true; }
     bool stateSave(const clap_ostream* stream) noexcept override;
@@ -175,6 +180,10 @@ private:
 
     // Communicates the accepted latency from `setActive` to `process`.
     Latency_flag _accepted_latency{};
+
+    // Render mode (offline/bounce). Set off the audio thread via renderSetMode,
+    // read on the audio thread in process.
+    std::atomic<bool> _offline{false};
 
     // Tail
     uint32_t _tail{_processor->tail_samps()};

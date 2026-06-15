@@ -443,6 +443,11 @@ static auto presets_path() -> std::filesystem::path
     return _kernel.isBypassed();
 }
 
+- (void)setRenderingOffline:(BOOL)renderingOffline {
+    [super setRenderingOffline:renderingOffline];
+    _kernel.setOffline(renderingOffline);
+}
+
 - (NSArray<NSNumber *> *)channelCapabilities {
     using namespace tiny;
     return Plug_info::can_process_mono ? @[@2, @2, @1, @1] : @[@2, @2];

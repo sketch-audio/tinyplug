@@ -90,6 +90,12 @@ public:
     void setTransportStateBlock(AUHostTransportStateBlock transportStateBlock) {
         mTransportStateBlock = transportStateBlock;
     }
+
+    // Render mode (offline/bounce). Pushed from the AU's setRenderingOffline:
+    // override (off the audio thread); read on the audio thread in process.
+    void setOffline(bool offline) {
+        _offline.store(offline, std::memory_order_relaxed);
+    }
     
     /**
      MARK: - Internal Process
@@ -124,6 +130,9 @@ public:
         
         auto context = tiny::Dsp_context{.meters = _meters, .propose_latency = {}};
         context.musical_context = resolve_musical_context(frameCount);
+        context.render_mode = _offline.load(std::memory_order_relaxed)
+            ? tiny::Render_mode::Offline
+            : tiny::Render_mode::Realtime;
         
         assert(inputBuffers.size() == static_cast<size_t>(mInputChannelCount));
         assert(outputBuffers.size() == static_cast<size_t>(mOutputChannelCount));
@@ -290,6 +299,9 @@ private:
 
     // Communicates the accepted latency from `setActive` to `process`.
     Latency_flag _accepted_latency{};
+
+    // Render mode (offline/bounce). Set via setOffline off the audio thread.
+    std::atomic<bool> _offline{false};
 
     tiny::Musical_context _context{};
 

@@ -186,6 +186,10 @@ private:
     // Communicates the accepted latency from `setActive` to `process`.
     Latency_flag _accepted_latency{};
 
+    // Render mode (offline/bounce). Set off the audio thread via the
+    // kAudioUnitProperty_OfflineRender property, read on the audio thread.
+    std::atomic<bool> _offline{false};
+
     Host_bypass _bypass{};
 
 #if TINY_HAS_WORKER

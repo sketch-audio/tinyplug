@@ -39,6 +39,12 @@ struct Musical_context {
     Transport_state transport_state{};
 };
 
+// Whether the host is rendering offline (bounce / freeze / export) rather than
+// in real time. Lets a kernel switch to a higher-quality / non-realtime-safe
+// path during a bounce. Best-effort: a host that never signals offline stays
+// realtime.
+enum class Render_mode { Realtime, Offline };
+
 struct Dsp_context {
     Musical_context musical_context{};
     std::span<const float*> ibuffers{};
@@ -47,6 +53,7 @@ struct Dsp_context {
     size_t num_frames{};
     std::span<float> meters{};
     std::optional<uint32_t> propose_latency{}; // samples.
+    Render_mode render_mode{Render_mode::Realtime};
 };
 
 template<typename T>

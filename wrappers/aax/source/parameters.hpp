@@ -143,6 +143,7 @@ private:
     // Notifications
     std::atomic<bool> _delay_comp{true}; // Track Pro Tools delay compensation mode.
     std::atomic<bool> _recording{false}; // Track recording state.
+    std::atomic<bool> _offline{false};   // Track offline (bounce) mode.
 
 #if TINY_HAS_WORKER
     // Worker channel.

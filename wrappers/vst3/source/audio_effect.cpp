@@ -265,6 +265,11 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     _meters.fill(0);
     auto context = Dsp_context{.meters = _meters};
 
+    // kPrefetch (sampler pre-roll / variable-rate playback) is not a bounce → realtime.
+    context.render_mode = (data.processMode == Steinberg::Vst::kOffline)
+        ? Render_mode::Offline
+        : Render_mode::Realtime;
+
     const auto has_inputs = data.numInputs > 0 && data.inputs;
     const auto has_sidechain = data.numInputs > 1 && data.inputs;
     const auto has_outputs = data.numOutputs > 0 && data.outputs;
