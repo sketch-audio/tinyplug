@@ -21,7 +21,7 @@ function(make_tfx_exporter USER_TARGET PRESET_DIR)
     )
 
     # The .tfx writer reuses the AAX wrapper's param-ID adapters.
-    target_include_directories(${PRESETS_TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/wrappers/aax/source)
+    target_include_directories(${PRESETS_TARGET} PRIVATE ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../wrappers/aax/source)
     target_link_libraries(${PRESETS_TARGET} PRIVATE ${USER_TARGET} tiny::aaxsdk)
 endfunction()
 
