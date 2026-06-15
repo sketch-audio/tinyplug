@@ -241,55 +241,257 @@ struct Edit_context {
 
 ---
 
-## Persistence wire format (per format)
+## Persistence
 
-The `source` variant is what serializes. `embed` writes bytes; `reference` writes
-path + hash; `consolidate` is embed-on-export; `transient` writes nothing.
-Backward compatible: no buffer section ⇒ slots stay empty ⇒ no `Set_buffer` events.
+This is the load-bearing section: the buffer system has to round-trip its
+canonical `source` through **two different persistence codepaths** that already
+exist in tinyplug and are kept deliberately separate. We do **not** unify them
+(that was considered and rejected — see "Why not one serializer" below); we keep
+format-specific codepaths and document each.
 
-### Binary formats (CLAP, VST3) — appended section
+### The two codepaths
 
-Written **after** existing data (after editor state in CLAP; after params in the
-VST3 **processor** stream). No header change — old state simply lacks the section.
+| Codepath | Owner | Wire format | Drives |
+|---|---|---|---|
+| **Host session chunk** | each wrapper's `getState`/`setState` (hand-rolled binary, per format) | binary | DAW project save, and host-saved user presets (the host calls `getState`) |
+| **File preset** | `State_adapter` ([state_adapter.cpp](../libs/tinyplug/source/state_adapter.cpp)) | JSON, or a container when bytes are embedded | framework `.json` presets, the offline exporters ([tools/presets/](../tools/presets/)), plug-in-driven save/load |
+
+These are different code, on purpose: the host-session path is host-driven and
+allocation-careful and must stay fast; the file-preset path is JSON and not on any
+hot path. The buffer system's `source` is the **only** new thing both must learn to
+carry. There is *one* model of "what is persistable" (params + editor `State_map` +
+buffer `source`s); there are *two encoders*.
+
+A key consequence of principle 2 (processor owns the canonical source): **host-saved
+user presets get buffers for free**, because the host produces them by calling
+`getState`, which already emits the buffer bytes. The only place that needs new
+preset work is the **JSON/file** path and the **offline exporters**.
+
+### Policy → wire mapping
+
+The `Persist_policy` on each `Buffer_spec` decides what serializes, independent of
+codepath:
+
+| Policy | Host session chunk | File preset (JSON/container) |
+|---|---|---|
+| `reference` | path + sha256 (small) | path + sha256 in plain JSON |
+| `embed` | bytes inline | bytes → container (never base64-in-JSON) |
+| `consolidate` | (= `embed` at save) | embed-on-export → container |
+| `transient` | nothing | nothing |
+
+**Embedded bytes never go into JSON as base64.** A 1-minute stereo source is ~10 MB;
+base64 inflates it ~33% and forces a multi-MB nlohmann DOM parse on every load.
+Embedded bytes go into the binary host chunk, or into the file-preset **container**
+(below) — both are raw bytes, length-prefixed, no parse cliff.
+
+### Portability has two meanings (and they pull apart)
+
+- **Legible / diffable / cross-format** — the reason JSON presets exist. Wants text.
+- **Self-contained / no-missing-media** — wants the bytes to travel with the preset.
+
+A preset that carries audio *cannot* be small readable JSON. So the developer does
+not pick "JSON vs binary" as a mode — they pick a per-buffer `Persist_policy`, and
+the **file shape follows the content**: `reference` ⇒ plain JSON (legible, portable
+in the first sense); `consolidate` ⇒ container (self-contained, portable in the
+second). `embed` is the session-only middle.
+
+### Shared buffer-entry serialization
+
+All three byte-producing surfaces (the appended host section, the AAX raw chunk, and
+the container blob directory) reuse **one** entry encoder so there is a single format
+to test:
+
+```
+per entry:
+    uint32_t  string_id_len
+    char[]    string_id           (string_id_len bytes; e.g. "sample")
+    uint32_t  collection_key      (0 for single; pad index for collections)
+    uint8_t   source_kind         (0=file_ref | 1=embedded | 2=generated)
+    uint64_t  payload_len
+    uint8_t[] payload             (file_ref: path + sha256; embedded: [enc:u8] + bytes;
+                                    generated: author params)
+```
+
+### File presets (`State_adapter`): JSON, with an optional container
+
+`State_adapter` gains a buffer surface. The JSON document keeps its `version` /
+`params` / `editor` keys unchanged and adds an optional `buffers` array:
+
+```jsonc
+"buffers": [
+  { "string_id": "sample", "key": 0, "source_kind": "file_ref",
+    "path": "samples/vinyl_kick.wav", "sha256": "9f86…a08" }
+]
+```
+
+- **`reference` (and the no-buffer case) stay plain `.json`** — byte-identical to
+  today's preset format plus an additive `buffers` key of small strings. Old presets
+  (no `buffers` key) load fine: slots stay empty. Older framework builds ignore the
+  unknown key.
+- **`consolidate`/`embed` produce a container** so the bytes travel without bloating
+  or breaking the JSON. The container is a thin binary frame around the *same*
+  manifest JSON plus an appended blob region. It uses a **separate extension** (e.g.
+  `.tpkit`) so the invariant "a `.json` preset is always text" is preserved and no
+  existing JSON reader ever meets a binary file.
+
+```
+[ 4 bytes ]  magic           "TPB1"
+[ 8 bytes ]  uint64           manifest_len   (LE)
+[ N bytes ]  manifest JSON    (version/params/editor + buffers[] with offset/len/sha256)
+[ M bytes ]  blob payload     (concatenated raw blobs; manifest offsets index into here)
+```
+
+The manifest's `buffers[]` entries carry `{ "offset", "length", "encoding",
+"sha256" }` into the payload region instead of a `path`. Reader rule: peek 4 bytes —
+`"TPB1"` ⇒ parse `manifest_len`, then JSON, then blobs; anything else ⇒ legacy plain
+JSON, parse the whole file as JSON. So old presets and zero-buffer plug-ins never see
+the container.
+
+### Host session chunks (per-format binary — hand-rolled, kept separate)
+
+On load every format reads each entry → `edit/proc.set_source(...)` → framework
+schedules `prepare_buffer` → publishes `Set_buffer`. The editor watches `status` go
+`loading → ready`. The acquire/install machinery is identical across formats; only
+*where the bytes sit in the chunk* differs.
+
+#### CLAP & VST3 — appended `'bufs'` section
+
+Written **after** the existing data (after editor state in the CLAP stream; after
+params in the VST3 **processor** stream). No header change — old state simply lacks
+the section:
 
 ```
 uint32_t  buffers_magic   ('bufs')
 uint32_t  num_entries
-for each entry:
-    uint32_t  key_length
-    char[]    string_id          (key_length bytes)
-    uint32_t  collection_key     (0 for single)
-    uint8_t   source_kind        (file_ref | embedded | generated)
-    uint64_t  payload_length
-    uint8_t[] payload            (path+hash, or [enc]+bytes, or generated params)
+<entry>…                  (shared buffer-entry serialization)
 ```
 
 Loading old state (no section): after reading current data, attempt to read
 `buffers_magic`; CLAP `read()` returning 0 (EOF) or VST3 `readInt32u()` returning
 false ⇒ no buffers. Four bytes that don't match the magic ⇒ warn + skip.
 
-### Dictionary formats (AAX, AUv2, AUv3) — keyed entries
-
-One entry per (slot, key) under `"tinyplug-buffer-<string_id>[-<key>]"`, plus a
-count key for validation. Missing key on load ⇒ that slot stays empty.
-
-For each format, on load the wrapper reads each source → `edit/proc.set_source(...)`
-→ framework schedules `prepare_buffer` → publishes `Set_buffer`. The editor watches
-`status` go `loading → ready`.
-
-### VST3 specifics (where principle 2 pays off)
+#### VST3 specifics (where principle 2 pays off)
 
 - The canonical `source` lives on the **processor** (where `getState` is), so
   **persistence never crosses COM.**
-- Only two small things cross: (a) **acquire** — the editor (controller) sends a
+- Only two small things cross: (a) **acquire** — the controller sends a
   `Buffer_source` to the processor via `IMessage` binary attribute, usually just a
   `File_ref` path; (b) **status + overview** out — processor → controller via the
   meter/`IDataExchangeHandler` path already used by Blocks/meters.
 - Large in-memory `Embedded` acquire (rare: drag-drop of bytes with no file) may
-  need `IMessage` chunking. The common file-picker path sends a path string and
-  never hits this.
+  need `IMessage` chunking. The common file-picker path sends a path string and never
+  hits this. This is strictly simpler than the asset-store doc's "store mirrored
+  across COM."
 
-This is strictly simpler than the asset-store doc's "store mirrored across COM."
+#### AAX — a **second raw chunk** (`'tbuf'`), parser bypassed
+
+AAX is the one format that **cannot** append to its existing state chunk, because the
+existing chunk is built with `AAX_CChunkDataParser`
+([AAX_CChunkDataParser.h](../../tiny_deps/third_party/aax-sdk/Interfaces/AAX_CChunkDataParser.h)),
+a typed key/value store (`float`/`double`/`int32`/`int16`/`string`). Its only
+non-numeric type is `String`, which is **null-terminated** — `GetChunkData` copies
+`strlen+1` bytes — so audio bytes (full of `0x00`) truncate at the first null. The
+parser is unusable for binary. (This was verified against the vendored SDK.)
+
+Instead AAX uses the SDK's documented multi-chunk mechanism. `AAX_CEffectParameters`
+states the default supports one all-params chunk and that you *"Override all of these
+methods to add support for additional chunks… if your plug-in contains any persistent
+state that is not encapsulated by its set of registered parameters"* — exactly our
+case. So:
+
+- **Chunk 0 = `'tiny'`** (`State_rules::Aax::chunk_id`) — params + editor map, built
+  by the parser, **unchanged**.
+- **Chunk 1 = `'tbuf'`** — buffer container, written as **raw bytes straight into
+  `AAX_SPlugInChunk::fData`** (the SDK explicitly allows writing past the `fData[1]`
+  flexible array up to the reported size), bypassing the parser entirely. Payload is
+  the shared buffer-entry serialization. Each of `GetChunkSize`/`GetChunk`/`SetChunk`
+  gains an `if (iChunkID == buffer_chunk_id)` arm
+  ([wrappers/aax/source/parameters.cpp](../wrappers/aax/source/parameters.cpp), which
+  already dispatches on `iChunkID`).
+- **`GetNumberOfChunks` stays 1 when `num_buffers == 0`** (under `if constexpr`) so
+  zero-buffer plug-ins advertise exactly the chunk they do today — no format change.
+  It returns 2 only when the model declares buffers.
+- **`CompareActiveChunk`** (Pro Tools compare light) keeps comparing params only for
+  v1; the `'tbuf'` chunk can later compare by manifest `sha256`. Documented as a
+  known limitation, not a blocker.
+- **`.tfx` factory presets:** the offline exporter
+  ([tfx_exporter.cpp](../tools/presets/tfx_exporter.cpp)) currently writes a single
+  bare chunk and has no multi-chunk framing. `reference`-policy factory presets need
+  no change (a path is null-free text and fits as a parser `String` in the `'tiny'`
+  chunk). **`consolidate`-to-`.tfx` is deferred:** it would require the exporter to
+  emit a second chunk *and* verification of the real on-disk multi-chunk `.tfx`
+  container layout (no SDK file-format API exists; the current tool hand-rolls a
+  single chunk). The runtime `'tbuf'` path above is independent of this and is not
+  blocked by it.
+
+#### AUv2 / AUv3 — keyed dictionary entries
+
+These persist into a state **dictionary**, so each buffer entry is one key:
+`"tinyplug-buffer-<string_id>[-<key>]"` carrying the entry bytes, plus a
+`"tinyplug-num-buffers"` count key for validation. Missing key on load ⇒ that slot
+stays empty. (AUv3 already conventionally adds a `preset-name` key on host-saved user
+presets — see README; buffers slot in alongside.)
+
+### Concrete example: an existing plug-in vs. one that stores one chunk
+
+**A — Gain Demo (existing, `num_buffers == 0`).** Nothing changes anywhere. Every
+buffer codepath is `if constexpr`-compiled away:
+
+- CLAP/VST3 session chunk: `[header][params][editor map]` — no `'bufs'` magic appended.
+- AAX: `GetNumberOfChunks → 1`, only chunk `'tiny'`.
+- AU dict: no `tinyplug-buffer-*` keys.
+- File preset: plain `.json` with `version`/`params`/`editor` — **byte-identical** to
+  what ships today.
+
+**B — One-shot Sampler (new), one buffer `sample`, holding one FLAC chunk.**
+
+- **DAW project (CLAP `getState`):**
+  `[header][params][editor map]` **+** `['bufs'][num=1][entry: "sample", key 0,
+  embedded, enc=flac, <flac bytes>]`. Load: read params/editor as before, then see
+  `'bufs'`, decode the entry → `prepare_buffer` off-thread → `Set_buffer` → playback.
+- **DAW project (AAX session):** chunk `'tiny'` exactly as in A (params + editor),
+  **plus** chunk `'tbuf'` = `[entry: "sample", … <flac bytes>]` as raw `fData`.
+- **User preset, `reference` policy (default for a sampler shipping local media):**
+  plain `.json`:
+  ```jsonc
+  { "version": 3,
+    "params": { "amp": { "gain_db": -6.0 } },
+    "editor": { "preset-name": "Vinyl Kick" },
+    "buffers": [ { "string_id": "sample", "key": 0, "source_kind": "file_ref",
+                   "path": "samples/vinyl_kick.wav", "sha256": "9f86…a08" } ] }
+  ```
+- **User preset, `consolidate` policy (self-contained, shareable):** a `.tpkit`
+  container — the JSON above (with the `sample` entry rewritten to
+  `{ "offset": 0, "length": 18452, "encoding": "flac", "sha256": "9f86…a08" }`)
+  followed by the 18 452 raw FLAC bytes in the payload region.
+
+### Backwards compatibility (explicit)
+
+Every path is additive; nothing reorders or rewrites existing bytes:
+
+1. **Zero-buffer plug-ins are untouched.** `num_buffers == 0` removes every buffer
+   branch at compile time, including AAX `GetNumberOfChunks` staying `1`. Existing
+   demos and shipped plug-ins are byte-identical.
+2. **Old session → new build.** No `'bufs'` magic / no `'tbuf'` chunk / no
+   `tinyplug-buffer-*` keys ⇒ slots stay empty, params + editor restore normally.
+3. **New session → old build.** The host preserves the extra `'tbuf'` chunk /
+   buffer keys it doesn't understand; params restore; buffer data is ignored, not
+   corrupted.
+4. **Old `.json` preset → new build.** No `buffers` key ⇒ slots empty. New `buffers`
+   key is purely additive; older builds ignore it.
+5. **`.json` stays text.** Embedded bytes use the `.tpkit` container behind a magic
+   check; a `.json` reader never meets binary.
+6. **Encoding round-trips, not decoded PCM.** We persist the `source` (file/encoded
+   bytes), never sample-rate-dependent `Prepared`, so a preset saved at 44.1 kHz
+   restores correctly at 96 kHz via `prepare_buffer`.
+
+### Why not one serializer
+
+Routing the host-session chunk through `State_adapter` too (so buffers ride every
+surface from one place) was considered. Rejected for now: it would refactor all five
+wrappers' state paths and risks dragging JSON/DOM cost onto the host-session hot path.
+Keeping format-specific codepaths — each documented here — is the accepted tradeoff.
+`State_adapter` owns only the file-preset encoder; wrappers keep their binary chunks.
 
 ---
 
