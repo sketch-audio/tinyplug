@@ -34,9 +34,19 @@ continues — sections are roughly in the order the changes landed.
 All C++ headers are now `.hpp`. Objective-C headers (`@interface`) stay `.h`.
 
 - Rename your headers `*.h` → `*.hpp` and update `#include`s.
+- This convention is for **framework headers only.** Your own generated/embedded
+  headers (e.g. a `generated/svg_assets.h`) can keep their extension — don't churn
+  them. (Contrast `plug_info.h` → `plug_info.hpp`, which is framework-generated and
+  is covered in §10.)
 - **Worker discovery:** the framework now does `__has_include("worker.hpp")`
-  (was `plug_worker.h`). See §2 — your worker file must be `worker.hpp` or the
-  worker silently disconnects.
+  (was `plug_worker.h`). Your worker file must be named `worker.hpp` or the worker
+  silently disconnects (see §2). This `__has_include` is load-bearing in a second,
+  less obvious way: when the file is present, the umbrella `<tinyplug/tinyplug.hpp>`
+  **auto-includes your `worker.hpp` transitively.** That's why `processor.cpp` can
+  reference your channel message types (`Audio_sample`, `Session_event`, …) while
+  only `#include`-ing `processor.hpp` — the umbrella already pulled in `worker.hpp`.
+  Don't add a redundant `#include "worker.hpp"` to "fix" it; nothing is broken. See
+  §13 for where those message structs should live.
 
 ## 2. User files renamed
 
@@ -118,6 +128,7 @@ Meter type renames:
 
 | Old (`tiny::`) | New |
 |---|---|
+| `make_specs()` (returned a `std::vector<Spec>`) | `make_spec(Address)` (one spec per address, via switch; see above) |
 | `Meter_policy` | `meters::Policy` (members `Peak`/`Stream`/`Trig`) |
 | `Lin_range` | `meters::Range` |
 | `Meter_spec` | `meters::Spec` (just `{ range, policy }`) |
@@ -210,6 +221,14 @@ no effect for step-aligned defaults, which `validate_spec` already requires.
 Transitional `tiny::` aliases exist for `Value_helper`, `Space`, `make_defaults`,
 `make_array_by_indices`, so unqualified `tiny::` spellings keep compiling.
 
+> **Hard break — the old *free functions* have no transitional alias.** Unlike §6
+> (where old type spellings still compile via aliases), the standalone functions
+> consolidated into `Value_helper` — `param_is_discrete`, `is_param_units`,
+> `units_string`, `knob_next`, `plain_to_norm` / `norm_to_plain`, the
+> `get_*_default` / `get_plain_min/max` family, etc. — are **immediate compile
+> errors** until you move them onto `Value_helper` per the table above. These are
+> the one place in §6/§6a where you'll see a real error rather than a clean rename.
+
 ## 7. Enum-case capitalization convention
 
 Scoped-enum **cases are now Capitalized** (new house style). Done for params and
@@ -277,6 +296,24 @@ target_link_libraries(${PLUGIN_TARGET} PRIVATE tiny::skia)           # editor dr
 explicitly wherever you compile against it (any editor that draws). The per-format
 `make_<format>_plugin` wrappers link `tiny_platform` themselves; you don't.
 
+> **Audit every target, not just the plug-in.** The plug-in link line is the easy
+> part. The real break is **transitive consumers** — your own intermediate static
+> libs (a text/Skia helper lib, a shared UI lib, …) that previously got Skia and
+> the platform layer *transitively* from the monolithic `tiny_shared_lib`. With
+> Skia now `PRIVATE` and the platform layer split out, those break at **compile**
+> time (missing `<tiny_platform/…>` or Skia includes), not link time. Find every
+> target that includes a `platform/`, `dsp/`, or Skia header and give it the
+> specific lib it now needs: `${TINY_PLATFORM_LIB}`, `${TINY_DSP_LIB}` (§12), or
+> `tiny::skia`. If an intermediate library's **public** headers expose these types
+> (e.g. a header with an `sk_sp<SkFontMgr>` member), link it **`PUBLIC`** so the
+> requirement propagates to that library's own consumers.
+
+> **Expected duplicate-link warning.** Adding `${TINY_PLATFORM_LIB}` to your
+> plug-in's static lib (needed so the editor/worker can *see* the platform headers
+> at compile time) produces `ld: warning: ignoring duplicate libraries:
+> libtiny_platform.a` at the wrapper link stage, because `make_<format>_plugin`
+> already links it. This is harmless — expected, not a misconfiguration.
+
 **Platform macros renamed + `Platform` struct removed.** If your code does
 compile-time OS selection:
 
@@ -317,7 +354,8 @@ works (most plug-ins only need this). The CMake target names are unchanged
 | Old | New |
 |---|---|
 | `#include "tinyplug/tiny_platform.hpp"` | `#include <tinyplug/platform_defs.hpp>` (OS macros; **renamed**) |
-| `#include "platform/platform.hpp"` | `#include <tiny_platform/tiny_platform.hpp>` |
+| `#include "platform/platform.hpp"` (umbrella, full platform surface) | `#include <tiny_platform/tiny_platform.hpp>` |
+| `#include "platform/platform.hpp"` (umbrella, used **only** for `PLATFORM_*` macros) | `#include <tinyplug/platform_defs.hpp>` (**core**; no `tiny_platform` link needed) |
 | `#include "platform/platform_view.hpp"` | `#include <tiny_platform/platform_view.hpp>` |
 | `#include "platform/platform_dialogs.hpp"` | `#include <tiny_platform/platform_dialogs.hpp>` |
 | `#include "platform/platform_paths.hpp"` | `#include <tiny_platform/platform_paths.hpp>` |
@@ -329,6 +367,13 @@ works (most plug-ins only need this). The CMake target names are unchanged
 General rule: `"platform/X.hpp"` → `<tiny_platform/X.hpp>`, `"dsp/X.hpp"` →
 `<tiny_dsp/X.hpp>`. (Your own plug-in-local `source/dsp/...` helpers are unaffected —
 those are your files, not the framework's.)
+
+The one mapping here that **isn't** mechanical is the platform umbrella: it splits by
+what you used it for. Code that pulled in `platform/platform.hpp` for the actual
+platform surface (view, dialogs, paths) goes to `<tiny_platform/tiny_platform.hpp>`
+and links `tiny_platform`; code that included it **only** for the `PLATFORM_*` OS
+macros goes to the core header `<tinyplug/platform_defs.hpp>` and needs **no**
+`tiny_platform` link at all (OS detection is a core concern). See both rows above.
 
 ### CMake: link `tiny_dsp` if you use the DSP helpers
 
@@ -353,6 +398,14 @@ The four message-type aliases and the three tuning constants move from the
 `plugin::Worker` class body into a nested `struct Model`, and two constants are
 renamed. The framework now reads everything via `Worker::Model::*`. **No worker, no
 change** — plug-ins without a `worker.hpp` are unaffected.
+
+> **Where your channel message structs go.** The structs carried over the channels
+> (`Tick`, `Set_session`, `Audio_sample`, …) are *your* types, not framework types,
+> so they're in none of the rename tables — define them in **`tiny::plugin`**,
+> alongside `Worker`, in `worker.hpp`. Because the umbrella auto-includes
+> `worker.hpp` (§1), they're then visible unqualified wherever `tinyplug.hpp` is
+> included — i.e. your `processor.cpp` / `editor.cpp` reference them without an
+> extra include or qualification.
 
 Before:
 

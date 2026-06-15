@@ -60,8 +60,8 @@ location, migrate refs, drop the aliases, build between each.
   `state_adapter`, `lock_free_queue`, `gesture_recognizers`, `task_*`, `serial_queue`,
   `notification_queue`) under `libs/tinyplug/include/tinyplug/detail/`, leaving the public
   surface clean. Natural to pair with a namespace pass.
-- **`change_list.hpp` public-vs-detail** — used by downstream `hii`. If it's external API,
-  keep it public (`tinyplug/`); if framework-only, move to `detail/`. Verify against `hii`.
+- **`change_list.hpp` public-vs-detail** — consumed by at least one downstream plug-in.
+  If it's external API, keep it public (`tinyplug/`); if framework-only, move to `detail/`.
 
 ## Model placeholders for upcoming features
 
@@ -85,7 +85,6 @@ so those land without churning the demos.
 
 ## Loose ends
 
-- **Downstream `~/Developer/hii`** — migrate to the new include paths / link lines (MIGRATION §11–13).
 - **`Value_helper` unit test** — the one logic-dense untested piece (plus the
   `default_value(Fixed, Host)` quantize tweak that landed during the refactor).
 - **AGENTS.md deep per-format path links** — still stale from the filename de-prefixing; a mechanical sweep.
