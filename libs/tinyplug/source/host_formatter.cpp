@@ -16,7 +16,7 @@ auto Host_formatter::to_string(double host_value, const Semantics::Any& semantic
 
     auto format_double = [](double value, int precision) {
         auto oss = std::ostringstream{};
-        oss << std::setprecision(precision) << value;
+        oss << std::fixed << std::setprecision(precision) << value;
         return oss.str();
     };
 
