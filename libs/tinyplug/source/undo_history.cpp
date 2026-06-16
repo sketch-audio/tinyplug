@@ -1,5 +1,8 @@
 #include "tinyplug/undo_history.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 namespace tiny {
 
 auto Undo_history::process_actions(std::span<const User_action> actions, Processor_state& state) -> void
@@ -10,6 +13,7 @@ auto Undo_history::process_actions(std::span<const User_action> actions, Process
         std::visit(Inline_visitor{
             [&](const Action_start& s) {
                 if (!undoable(s.address)) return;
+                _open_host_step.reset(); // A real gesture begins; stop amending the host-load step.
                 ++_active;
                 if (_active == 1) {
                     _current = Active_map{};
@@ -53,6 +57,64 @@ auto Undo_history::process_actions(std::span<const User_action> actions, Process
     }
 }
 
+auto Undo_history::push_host_load(std::span<const double> before, std::span<const double> after,
+                                  std::vector<Set_param>& out_changes) -> void
+{
+    out_changes.clear();
+
+    // Each load starts a fresh amend window; never extend a previous load's step.
+    _open_host_step.reset();
+
+    // A preset load mid-gesture is pathological; don't corrupt the active step.
+    if (_active != 0 || _current.has_value()) return;
+
+    const auto count = std::min(before.size(), after.size());
+    constexpr auto eps = 1e-9; // Absorb host value round-tripping.
+
+    auto step = Undo_step{};
+    for (auto i = size_t{}; i < count; ++i) {
+        const auto addr = static_cast<uint32_t>(i);
+        if (!undoable(addr)) continue;
+        if (std::abs(after[i] - before[i]) <= eps) continue;
+        step.changes.push_back(Param_change{.addr = addr, .from = before[i], .to = after[i]});
+        out_changes.push_back(Set_param{.address = addr, .value = after[i]});
+    }
+
+    if (!step.changes.empty()) {
+        _undo_stack.push_back(std::move(step));
+        _redo_stack.clear();
+        _open_host_step = _undo_stack.size() - 1; // Amendable until a gesture / undo / next load.
+    }
+    // If the diff was empty, _open_host_step stays reset; amend_host_load will
+    // create a fresh single-change step (e.g. a name-only preset load).
+}
+
+auto Undo_history::amend_host_load(uint32_t addr, double from, double to) -> void
+{
+    // Don't fold into a step while a normal gesture is mid-flight.
+    if (_active != 0 || _current.has_value()) return;
+    if (!undoable(addr)) return;
+
+    auto append = [&](Undo_step& step) {
+        for (auto& change : step.changes) {
+            if (change.addr == addr) { change.to = to; return; } // Coalesce repeats.
+        }
+        step.changes.push_back(Param_change{.addr = addr, .from = from, .to = to});
+    };
+
+    if (_open_host_step && *_open_host_step < _undo_stack.size()) {
+        append(_undo_stack[*_open_host_step]);
+    }
+    else {
+        // No open host-load step (the load changed no audio params): create one.
+        auto step = Undo_step{};
+        step.changes.push_back(Param_change{.addr = addr, .from = from, .to = to});
+        _undo_stack.push_back(std::move(step));
+        _redo_stack.clear();
+        _open_host_step = _undo_stack.size() - 1;
+    }
+}
+
 auto Undo_history::perform_actions(Action_queue::Actor actions) -> void
 {
     if (_deferred) {
@@ -68,6 +130,7 @@ auto Undo_history::perform_actions(Action_queue::Actor actions) -> void
             }
         }
         _deferred.reset();
+        _open_host_step.reset(); // The stack changed; the host-load step is no longer amendable.
     }
 }
 

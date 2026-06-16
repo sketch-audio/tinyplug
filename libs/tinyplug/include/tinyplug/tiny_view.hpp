@@ -84,12 +84,9 @@ struct Modifier_keys {
 // Ideas:
 // - view resized (atm passed with View_context)
 // - dpi changed (atm passed with View_context)
-
-struct Dark_mode_changed {
-    bool new_value{};
-};
-
-using Ui_notification = std::variant<Dark_mode_changed>;
+//
+// Dark_mode_changed now lives in tiny_events.hpp as part of Host_event, the single
+// event type delivered to the editor's notify().
 
 // MARK: - new gestures
 
@@ -302,7 +299,7 @@ struct Plugin_state {
 // The plug-in format's view will have a draw callback.
 // This is where it will resolve the application state and pass it to your custom view.
 using Draw_callback = std::function<void(View_context&)>;
-using Notify_callback = std::function<void(const Ui_notification&)>;
+using Notify_callback = std::function<void(const Dark_mode_changed&)>;
 
 // MARK: - debug
 

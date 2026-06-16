@@ -8,9 +8,8 @@ auto Editor::on_gui_create() -> void
 {
 }
 
-auto Editor::on_gui_show(const Edit_context& edit) -> void
+auto Editor::on_gui_show() -> void
 {
-    _edit = edit;
 
     _click = std::make_unique<Click_recognizer>(Gesture_callbacks<Click_info>{
         .on_started = [=, this](const Click_info& info) {
@@ -68,7 +67,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     canvas->drawRect(SkRect::MakeXYWH(0, 0, static_cast<float>(rsize.w), static_cast<float>(rsize.h)), paint);
 }
 
-auto Editor::on_gui_notify(const Ui_notification& notification) -> void
+auto Editor::notify(const Host_event& notification) -> void
 {
     std::visit(Inline_visitor{
         [](const auto&) {}

@@ -43,11 +43,17 @@ static_assert(false, "ARC must be enabled for this file");
     if (!au) return;
     self.audioUnit = au;
 
-    if (!_editor) {
-        _editor = std::make_shared<tiny::plugin::Editor>(_tasks.actor());
-    }
     Auv3_AUAudioUnit* auv3 = (Auv3_AUAudioUnit*)au;
     [auv3 setupParameterTree];
+    if (!_editor) {
+        _editor = std::make_shared<tiny::plugin::Editor>(tiny::Edit_context{
+            .actions = [auv3 actions]->actor(),
+            .format = tiny::Format::Auv3,
+            .state_adapter = [auv3 stateAdapter]->actor(),
+            .undo_redo = [auv3 undoHistory]->actor(),
+            .tasks = _tasks.actor(),
+        });
+    }
     [auv3 setEditor:_editor];
 #if TINY_HAS_WORKER
     [auv3 bindEditorToWorker];
@@ -70,6 +76,8 @@ static_assert(false, "ARC must be enabled for this file");
             _editor.get(),
             receiver,
             &_tasks,
+            [auv3 undoHistory],
+            [auv3 actions],
             [weak_auv3]() { [weak_auv3 drainWorkerToEditor]; }
         });
 #else
@@ -77,6 +85,8 @@ static_assert(false, "ARC must be enabled for this file");
             _editor.get(),
             receiver,
             &_tasks,
+            [auv3 undoHistory],
+            [auv3 actions],
         });
 #endif
         auto* custom_view = (__bridge PlatformView*)_view_adapter->create_view(); // also on_create

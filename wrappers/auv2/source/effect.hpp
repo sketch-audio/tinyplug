@@ -123,7 +123,16 @@ private:
                 .param_tree = &User_params::param_tree(),
                 .num_params = User_params::num_params,
             };
-        }
+        },
+        .save_model = [this]() {
+            const auto knob = _snapshot_knob_params();
+            return State_adapter::Save_model{
+                .version = 1,
+                .param_tree = &User_params::param_tree(),
+                .param_values = std::vector<double>(knob.begin(), knob.end()),
+                .editor_state = _editor ? _editor->save_state() : State_map{}
+            };
+        },
     }};
 
     std::vector<AUChannelInfo> cinfo{};
@@ -136,6 +145,25 @@ private:
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
+
+    // Undo history and action queue live on the Effect (plug-in lifetime), not in the
+    // view, so the editor's Edit_context (built once at construction) stays valid across
+    // window open/close and host preset loads are captured with the window closed.
+    // Declared before `_view` so its Deps can borrow pointers to them.
+    Undo_history _undo_history{};
+    Action_queue _actions{};
+
+    // Snapshot all current param values in knob space (mirrors the receiver's get_param).
+    auto _snapshot_knob_params() -> std::array<double, num_params>
+    {
+        auto out = std::array<double, num_params>{};
+        for (auto i = decltype(num_params){}; i < num_params; ++i) {
+            const auto& param = User_params::param_spec(i);
+            const auto host = Globals()->GetParameter(i);
+            out[i] = params::Value_helper::host_to_knob(host, param.semantics);
+        }
+        return out;
+    }
 
     static constexpr auto max_ichannels = size_t{2};
     static constexpr auto max_schannels = size_t{Plug_info::wants_sidechain ? 2 : 0};
@@ -297,6 +325,8 @@ private:
             }
         },
         .tasks = &_tasks,
+        .undo_history = &_undo_history,
+        .actions = &_actions,
 #if TINY_HAS_WORKER
         .drain_worker_to_editor = [this]() { this->_drain_worker_to_editor(); }
 #endif

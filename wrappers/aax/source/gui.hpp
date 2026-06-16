@@ -31,7 +31,7 @@ protected:
 private:
 
     auto on_draw(View_context& view_context) -> void;
-    auto on_notify(const Ui_notification& notification) -> void;
+    auto on_notify(const Dark_mode_changed& notification) -> void;
 
     using User_params = params::Infos<models::Params>;
     using User_meters = meters::Infos<models::Meters>;
@@ -39,30 +39,11 @@ private:
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 
-    Action_queue _actions{};
-    Undo_history _undo_history{};
-
     plugin::Editor* _editor{};
     Ui_receiver _receiver{};
     Task_manager* _tasks{};
     Parameters* _params{};
-
-    State_adapter _state_adapter{{
-        .load_model = []() {
-            return State_adapter::Load_model{
-                .param_tree = &User_params::param_tree(),
-                .num_params = User_params::num_params
-            };
-        },
-        .save_model = [this]() {
-            return State_adapter::Save_model{
-                .version = 1,
-                .param_tree = &User_params::param_tree(),
-                .param_values = std::vector<double>(_ui_params.begin(), _ui_params.end()),
-                .editor_state = _editor ? _editor->save_state() : State_map{}
-            };
-        },
-    }};
+    Action_queue* _actions{}; // Owned by Parameters (survives the Gui).
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
 

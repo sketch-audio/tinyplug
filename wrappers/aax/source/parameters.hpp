@@ -24,7 +24,13 @@ public:
     using Super = AAX_CMonolithicParameters;
     Parameters() : Super{}
     {
-        _editor = std::make_unique<plugin::Editor>(_tasks.actor());
+        _editor = std::make_unique<plugin::Editor>(Edit_context{
+            .actions = _actions.actor(),
+            .format = Format::Aax,
+            .state_adapter = _state_adapter.actor(),
+            .undo_redo = _undo_history.actor(),
+            .tasks = _tasks.actor(),
+        });
 
 #if TINY_HAS_WORKER
         try_bind_worker(*_processor, Worker_processor_actor{
@@ -82,6 +88,24 @@ public:
         return &_tasks;
     }
 
+    // Undo history and action queue live on Parameters (plug-in lifetime), not in the
+    // Gui, so the editor's Edit_context (built once at construction) stays valid across
+    // window open/close and host preset loads are captured with the window closed.
+    auto undo_history() -> Undo_history*
+    {
+        return &_undo_history;
+    }
+
+    auto actions() -> Action_queue*
+    {
+        return &_actions;
+    }
+
+    auto state_adapter() -> State_adapter*
+    {
+        return &_state_adapter;
+    }
+
     auto drain_worker_to_editor() -> void
     {
 #if TINY_HAS_WORKER
@@ -109,6 +133,33 @@ private:
     using User_meters = meters::Infos<models::Meters>;
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
+
+    Undo_history _undo_history{};
+    Action_queue _actions{};
+
+    // Snapshot all current param values in knob space (AAX normalized == knob).
+    // Defined in the .cpp where the AAX parameter manager / adapters are visible.
+    auto _snapshot_knob_params() -> std::array<double, num_params>;
+
+    // State adapter lives on Parameters too (the editor's Edit_context references it
+    // for life). save_model reads the current params via _snapshot_knob_params.
+    State_adapter _state_adapter{{
+        .load_model = []() {
+            return State_adapter::Load_model{
+                .param_tree = &User_params::param_tree(),
+                .num_params = User_params::num_params
+            };
+        },
+        .save_model = [this]() {
+            const auto knob = _snapshot_knob_params();
+            return State_adapter::Save_model{
+                .version = 1,
+                .param_tree = &User_params::param_tree(),
+                .param_values = std::vector<double>(knob.begin(), knob.end()),
+                .editor_state = _editor ? _editor->save_state() : State_map{}
+            };
+        },
+    }};
 
     static constexpr auto max_ichannels = size_t{2};
     static constexpr auto max_schannels = size_t{1};

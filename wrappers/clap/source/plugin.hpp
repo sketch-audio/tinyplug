@@ -36,7 +36,13 @@ public:
 
     Plugin(const clap_host* host) : PluginBase{&descriptor, host}, _host{host}
     {
-        _editor.emplace(_tasks.actor());
+        _editor.emplace(Edit_context{
+            .actions = _actions.actor(),
+            .format = Format::Clap,
+            .state_adapter = _state_adapter.actor(),
+            .undo_redo = _undo_history.actor(),
+            .tasks = _tasks.actor(),
+        });
 
 #if TINY_HAS_WORKER
         try_bind_worker(*_processor, Worker_processor_actor{
@@ -169,6 +175,24 @@ private:
     // GUI
     std::unique_ptr<View> _view{nullptr};
 
+    // Undo history and action queue live here (plug-in lifetime), not in the view,
+    // so the editor's Edit_context (built once at construction) stays valid across
+    // window open/close and host preset loads are captured with the window closed.
+    Undo_history _undo_history{};
+    Action_queue _actions{};
+
+    // Snapshot all current param values in knob space (for host-load undo diffs).
+    auto _snapshot_knob_params() const -> std::array<double, num_params>
+    {
+        auto out = std::array<double, num_params>{};
+        for (auto i = decltype(num_params){}; i < num_params; ++i) {
+            const auto& param = User_params::param_spec(i);
+            const auto host_value = _hostvalues[i].load(std::memory_order_relaxed);
+            out[i] = params::Value_helper::host_to_knob(host_value, param.semantics);
+        }
+        return out;
+    }
+
     // Latency 
     uint32_t _latency{_processor->latency_samps()};
 
@@ -253,7 +277,16 @@ private:
                 .param_tree = &User_params::param_tree(),
                 .num_params = User_params::num_params,
             };
-        }
+        },
+        .save_model = [this]() {
+            const auto knob = _snapshot_knob_params();
+            return State_adapter::Save_model{
+                .version = 1,
+                .param_tree = &User_params::param_tree(),
+                .param_values = std::vector<double>(knob.begin(), knob.end()),
+                .editor_state = _editor ? _editor->save_state() : State_map{}
+            };
+        },
     }};
 
     // MARK: - private

@@ -353,6 +353,42 @@ This has knock-on effects throughout the wrapper:
   AAX uses `.tfx` placed in the bundle; VST3 uses `.vstpreset` placed by
   the installer.
 
+### Host-initiated preset/state loads → undo + `notify`
+
+When the host loads a preset / full state, each format's restore entry point
+(VST3 `setComponentState`+`setState`, CLAP `_update_state`, AUv2 `RestoreState`,
+AUv3 `setFullState`, AAX `SetChunk`) snapshots all param values in **knob space**
+before and after applying the load, then calls
+`Undo_history::push_host_load(before, after, out_changes)` to record **one
+coalesced undo step**. The `Undo_history` lives on the long-lived wrapper class
+(`Controller`/`Plugin`/`Effect`/`Auv3_AUAudioUnit`/`Parameters`), **not** the
+view — the view borrows it via a `Undo_history*` in its `Deps` — so a host load
+is captured into undo **even when the editor window is closed**. The undo replay
+path is unchanged (`apply<>` pushes `Action_start`/`Set_param`/`Action_end` back
+through the editor's action handler to the host).
+
+The load is then surfaced to the editor by the wrapper calling
+`Editor::notify(Host_event{Host_preset_loaded{...}})` **synchronously** from the
+restore path — *not* deferred to the view loop. Because the `Editor` also lives at
+wrapper lifetime, this fires whether or not the GUI is open, **once per load**, so
+multiple closed-editor loads each notify on their own undo step (no dropped
+intermediates). The event carries `changes` (the diff), `params` (full post-load
+values, knob space), and `add_param(addr, knob)`, which applies an editor-owned
+marker param through the normal host/processor/UI path **and** folds it into the
+same undo step via `amend_host_load` — so a preset's name/index marker undoes
+together with its values. VST3 splits the load across two calls: the step is
+pushed in `setComponentState` and the `notify` is dispatched at the end of
+`setState` (guarded by a pending flag), where the editor state has also arrived
+and the step is still open. `notify` also delivers window events
+(`Dark_mode_changed`) — it is the editor's single notification entry point
+([tiny_events.hpp](libs/tinyplug/include/tinyplug/tiny_events.hpp):
+`Host_event = variant<Host_preset_loaded, Dark_mode_changed>`). Limitations:
+**params only** (not the editor `State_map`); a host single-param edit /
+automation is **not** surfaced (only full-state loads — source attribution is a
+planned follow-up); `notify` may arrive with the window closed, so authors must
+only mutate editor state in it, not touch live view resources. Assumes all
+restore entry points run on the UI/main thread (they do on all five hosts).
+
 ## Latency change protocol (consistent across formats)
 
 Every wrapper implements the same pattern:

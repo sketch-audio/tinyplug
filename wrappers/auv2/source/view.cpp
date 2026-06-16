@@ -23,12 +23,7 @@ auto View::create_view() -> void*
 
     _deps.tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
     _platform_view->on_show();
-    _deps.editor->on_gui_show({
-        .actions = _actions.actor(),
-        .format = Format::Auv2,
-        .state_adapter = _state_adapter.actor(),
-        .undo_redo = _undo_history.actor(),
-    });
+    _deps.editor->on_gui_show();
 
     return _platform_view->native_handle();
 }
@@ -53,8 +48,8 @@ auto View::on_draw(View_context& view_context) -> void
         _ui_meters,
         view_context,
         _deps.editor,
-        _actions,
-        _undo_history,
+        *_deps.actions,
+        *_deps.undo_history,
         *_deps.tasks,
         [this](auto w, auto h) {
             _platform_view->resize(static_cast<int32_t>(w), static_cast<int32_t>(h));
@@ -62,9 +57,9 @@ auto View::on_draw(View_context& view_context) -> void
     );
 }
 
-auto View::on_notify(const Ui_notification& notification) -> void
+auto View::on_notify(const Dark_mode_changed& notification) -> void
 {
-    _deps.editor->on_gui_notify(notification);
+    _deps.editor->notify(notification);
 }
 
 } // namespace tiny::auv2

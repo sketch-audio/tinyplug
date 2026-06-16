@@ -429,6 +429,9 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_
 {
     using namespace params;
 
+    // Snapshot for host-load undo capture (knob space, pre-load).
+    const auto before = _snapshot_knob_params();
+
     // Notify kernel and view (if not an interface parameter).
     auto notify = [&](const auto& param, auto knob_value) {
         const auto can_notify = knob_value.has_value() && State_rules::is_persistent(param);
@@ -466,6 +469,28 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_
 
     // Editor
     _editor->load_state(editor_state);
+
+    // Record the host load as one coalesced undo step (works editor open or closed)
+    // and notify the editor synchronously, so it can fold its marker params into the
+    // same step via add_param. Dispatching here (not the view loop) means each load
+    // notifies on its own step, even with the window closed — no intermediate is lost.
+    const auto after = _snapshot_knob_params();
+    auto changes = std::vector<Set_param>{};
+    _undo_history.push_host_load(before, after, changes);
+
+    auto add_param = [this](uint32_t addr, double knob) {
+        if (addr >= num_params) return;
+        const auto& spec = User_params::param_spec(addr);
+        const auto from = Value_helper::host_to_knob(_hostvalues[addr].load(std::memory_order_relaxed), spec.semantics);
+        this->_handle_user_action(Set_param{addr, knob}); // Normal host/processor path.
+        if (_view) _view->set_param(addr, knob);           // Keep the UI copy in sync if open.
+        _undo_history.amend_host_load(addr, from, knob);   // Fold into the load's single step.
+    };
+    _editor->notify(Host_event{Host_preset_loaded{
+        .changes = changes,
+        .params = after,
+        .add_param = add_param,
+    }});
 
     _host->request_process(_host); // We're using process to flush.
 }
@@ -973,6 +998,8 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
         .editor = &(*_editor),
         .receiver = std::move(receiver),
         .tasks = &_tasks,
+        .undo_history = &_undo_history,
+        .actions = &_actions,
 #if TINY_HAS_WORKER
         .drain_worker_to_editor = [this]() { this->_drain_worker_to_editor(); }
 #endif

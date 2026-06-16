@@ -20,7 +20,13 @@ public:
     using Super = Steinberg::Vst::EditControllerEx1;
     Controller() : Super{}
     {
-        _editor.emplace(_tasks.actor());
+        _editor.emplace(Edit_context{
+            .actions = _actions.actor(),
+            .format = Format::Vst3,
+            .state_adapter = _state_adapter.actor(),
+            .undo_redo = _undo_history.actor(),
+            .tasks = _tasks.actor(),
+        });
 #if TINY_HAS_WORKER
         _setup_worker();
 #endif
@@ -87,6 +93,43 @@ protected:
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 
+    // Undo history and action queue live on the controller (plug-in lifetime), not in
+    // the view, so the editor's Edit_context (built once at construction) stays valid
+    // across window open/close and host preset loads are captured with the window closed.
+    Undo_history _undo_history{};
+    Action_queue _actions{};
+
+    // Snapshot all current param values in knob space. VST3 normalized values are
+    // already knob space (0…1), so this mirrors the view's get_param.
+    auto _snapshot_knob_params() -> std::array<double, num_params>
+    {
+        auto out = std::array<double, num_params>{};
+        for (auto i = decltype(num_params){}; i < num_params; ++i) {
+            out[i] = getParamNormalized(i);
+        }
+        return out;
+    }
+
+    // State adapter lives on the controller too (the editor's Edit_context references
+    // it for life). save_model reads the controller's current normalized params.
+    State_adapter _state_adapter{{
+        .load_model = []() {
+            return State_adapter::Load_model{
+                .param_tree = &User_params::param_tree(),
+                .num_params = User_params::num_params
+            };
+        },
+        .save_model = [this]() {
+            const auto knob = _snapshot_knob_params();
+            return State_adapter::Save_model{
+                .version = 1,
+                .param_tree = &User_params::param_tree(),
+                .param_values = std::vector<double>(knob.begin(), knob.end()),
+                .editor_state = _editor ? _editor->save_state() : State_map{}
+            };
+        },
+    }};
+
     static constexpr auto meter_size = 25 * num_meters + 1;
     using Meter_queue = Lock_free_queue<Set_meter, meter_size>;
     Meter_queue _meter_queue{};
@@ -95,6 +138,14 @@ protected:
 
     std::unordered_set<uint32_t> _gestured{};
     std::optional<Rect_size> _last_size{};
+
+    // VST3 delivers a preset as two calls: setComponentState (params + undo step)
+    // then setState (editor state). We stash the load here so the editor notify()
+    // can fire at the end of setState, with both halves present and the undo step
+    // still open for marker folding.
+    bool _host_load_pending{};
+    std::vector<Set_param> _host_load_changes{};
+    std::array<double, num_params> _host_load_after{};
 
 #if TINY_HAS_WORKER
     // Worker channel. The worker lives on the controller side and uses the

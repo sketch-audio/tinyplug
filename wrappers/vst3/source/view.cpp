@@ -49,12 +49,7 @@ Steinberg::tresult PLUGIN_API View::attached(void* parent, Steinberg::FIDString 
 
     _deps.tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
     _platform_view->on_show();
-    _deps.editor->on_gui_show({
-        .actions = _actions.actor(),
-        .format = Format::Vst3,
-        .state_adapter = _state_adapter.actor(),
-        .undo_redo = _undo_history.actor(),
-    });
+    _deps.editor->on_gui_show();
 
     return Steinberg::kResultTrue;
 }
@@ -140,16 +135,16 @@ void View::on_draw(View_context& view_context)
         _ui_meters,
         view_context,
         _deps.editor,
-        _actions,
-        _undo_history,
+        *_deps.actions,
+        *_deps.undo_history,
         *_deps.tasks,
         [](auto, auto) {}
     );
 }
 
-auto View::on_notify(const Ui_notification& notification) -> void
+auto View::on_notify(const Dark_mode_changed& notification) -> void
 {
-    _deps.editor->on_gui_notify(notification);
+    _deps.editor->notify(notification);
 }
 
 } // namespace tiny::vst3

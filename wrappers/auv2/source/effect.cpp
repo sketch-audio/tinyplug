@@ -9,7 +9,13 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
 {
     using namespace params;
 
-    _editor.emplace(_tasks.actor());
+    _editor.emplace(Edit_context{
+        .actions = _actions.actor(),
+        .format = Format::Auv2,
+        .state_adapter = _state_adapter.actor(),
+        .undo_redo = _undo_history.actor(),
+        .tasks = _tasks.actor(),
+    });
 
 #if TINY_HAS_WORKER
     try_bind_worker(*_processor, Worker_processor_actor{
@@ -622,6 +628,10 @@ OSStatus Effect::RestoreState(CFPropertyListRef plist)
 {
     using namespace params;
 
+    // Snapshot for host-load undo capture (knob space, pre-load) — must be taken
+    // before Super::RestoreState, which applies the new values into Globals().
+    const auto before = _snapshot_knob_params();
+
     const auto result = Super::RestoreState(plist); // Base class maintains Globals().
     if (result != noErr) return result;
 
@@ -640,6 +650,12 @@ OSStatus Effect::RestoreState(CFPropertyListRef plist)
         }
         return false;
     };
+
+    // Host-load undo/notify data — captured in the param block below, dispatched at
+    // the end of RestoreState once the editor state is also loaded.
+    auto host_after = std::array<double, num_params>{};
+    auto host_changes = std::vector<Set_param>{};
+    auto host_loaded = false;
 
     // --- Parameter Values ---
     auto params_val = int32_t{};
@@ -671,6 +687,14 @@ OSStatus Effect::RestoreState(CFPropertyListRef plist)
         }
 
         _changes.push_n(change_list); // Batch publish everything.
+
+        // Record the host load as one coalesced undo step (works editor open or
+        // closed). The editor notify() is dispatched at the end of RestoreState,
+        // after the editor state is loaded, so a preset's name/marker can fold into
+        // this step. Stash the post-load snapshot so it survives until then.
+        host_after = _snapshot_knob_params();
+        _undo_history.push_host_load(before, host_after, host_changes);
+        host_loaded = true;
     }
 
     // --- Editor State ---
@@ -760,7 +784,27 @@ OSStatus Effect::RestoreState(CFPropertyListRef plist)
 
         _editor->load_state(edit_state);
     }
-    
+
+    // Notify the editor of the host load synchronously (works editor open or closed),
+    // letting it fold its marker params into the load's single undo step via add_param.
+    if (host_loaded) {
+        auto add_param = [this](uint32_t addr, double knob) {
+            using namespace params;
+            if (addr >= num_params) return;
+            const auto& spec = User_params::param_spec(addr);
+            const auto from = Value_helper::host_to_knob(Globals()->GetParameter(addr), spec.semantics);
+            const auto host = Value_helper::knob_to_host(knob, spec.semantics);
+            Globals()->SetParameter(addr, static_cast<float>(host));
+            _changes.push(Set_param{addr, Value_helper::knob_to_plain(knob, spec.semantics)});
+            _undo_history.amend_host_load(addr, from, knob);
+        };
+        _editor->notify(Host_event{Host_preset_loaded{
+            .changes = host_changes,
+            .params = host_after,
+            .add_param = add_param,
+        }});
+    }
+
     return result;
 }
 

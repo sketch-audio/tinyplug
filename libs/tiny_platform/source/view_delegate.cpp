@@ -44,7 +44,7 @@ auto View_delegate::draw(const User_interaction& interaction, const Time_point& 
     _draw(view_context);
 }
 
-auto View_delegate::notify(const Ui_notification& notification) -> void
+auto View_delegate::notify(const Dark_mode_changed& notification) -> void
 {
     _notify(notification);
 }

@@ -302,6 +302,17 @@ AAX_Result Parameters::GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChunk) 
 
 // MARK: - Set Chunk
 
+auto Parameters::_snapshot_knob_params() -> std::array<double, num_params>
+{
+    auto out = std::array<double, num_params>{};
+    for (auto i = decltype(num_params){}; i < num_params; ++i) {
+        if (auto* aax_param = get_aax_param(&mParameterManager, i)) {
+            out[i] = aax_param->GetNormalizedValue(); // AAX normalized == knob space.
+        }
+    }
+    return out;
+}
+
 AAX_Result Parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iChunk)
 {
     using namespace params;
@@ -311,6 +322,9 @@ AAX_Result Parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iC
     }
 
     mChunkParser.LoadChunk(iChunk);
+
+    // Snapshot for host-load undo capture (knob space, pre-load).
+    const auto before = _snapshot_knob_params();
 
     // Get number of params in the chunk.
     auto val = int32_t{};
@@ -377,7 +391,7 @@ AAX_Result Parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iC
             }
         }
 
-        // Set remaining parameters to defaults. 
+        // Set remaining parameters to defaults.
         for (auto i = num_chunk_params; i < num_params; ++i) {
             if (auto* aax_param = get_aax_param(&mParameterManager, i)) {
                 const auto& param = User_params::param_spec(i);
@@ -388,6 +402,14 @@ AAX_Result Parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iC
             }
         }
     }
+
+    // Record the host load as one coalesced undo step (works editor open or closed).
+    // Done here, after the param section, so it survives the editor-state early
+    // returns below. The editor notify() is dispatched at the end of SetChunk, after
+    // the editor state loads, so a preset's name/marker can fold into this step.
+    const auto host_after = _snapshot_knob_params();
+    auto host_changes = std::vector<Set_param>{};
+    _undo_history.push_host_load(before, host_after, host_changes);
 
     // Editor state.
     auto state_map = State_map{};
@@ -444,6 +466,23 @@ AAX_Result Parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iC
     }
     else {
         //_bypass.set_bypassed(false);
+    }
+
+    // Notify the editor of the host load synchronously (works editor open or closed),
+    // letting it fold its marker params into the load's single undo step via add_param.
+    if (_editor) {
+        auto add_param = [this](uint32_t addr, double knob) {
+            if (auto* aax_param = get_aax_param(&mParameterManager, addr)) {
+                const auto from = aax_param->GetNormalizedValue(); // Normalized == knob space.
+                aax_param->SetNormalizedValue(knob);
+                _undo_history.amend_host_load(addr, from, knob);
+            }
+        };
+        _editor->notify(Host_event{Host_preset_loaded{
+            .changes = host_changes,
+            .params = host_after,
+            .add_param = add_param,
+        }});
     }
 
     return AAX_SUCCESS;

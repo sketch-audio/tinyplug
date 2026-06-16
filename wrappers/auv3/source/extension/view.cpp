@@ -37,16 +37,16 @@ auto View::on_draw(View_context& view_context) -> void
         _ui_meters,
         view_context,
         _deps.editor,
-        _actions,
-        _undo_history,
+        *_deps.actions,
+        *_deps.undo_history,
         *_deps.tasks,
         [](auto, auto) {}
     );
 }
 
-auto View::on_notify(const Ui_notification& notification) -> void
+auto View::on_notify(const Dark_mode_changed& notification) -> void
 {
-    _deps.editor->on_gui_notify(notification);
+    _deps.editor->notify(notification);
 }
 
 } // namespace tiny::auv3

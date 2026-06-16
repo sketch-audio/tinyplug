@@ -585,8 +585,8 @@ together* (a buffer slot's overview is a Block) but neither owns the other.
    sampler/granular/drum plug-in with a clean author experience.
 
 Recommended order relative to other roadmap work (from the synthesis session):
-`host-initiated-param-changes` → `midi-support` → `block-output` → this plan.
-Build the outbound/overview primitive before the buffer system that draws with it.
+`midi-support` → `block-output` → this plan. (`host-initiated-param-changes` has
+landed.) Build the outbound/overview primitive before the buffer system that draws with it.
 
 ---
 

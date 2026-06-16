@@ -242,6 +242,9 @@ Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream*
 
     const auto num_stored_values = header[3];
 
+    // Snapshot for host-load undo capture (knob space, pre-load).
+    const auto before = _snapshot_knob_params();
+
     // Notify view (we perform the persistence check again here on the current model).
     auto notify = [this](auto& param, auto knob_value) {
         if (State_rules::is_persistent(param)) {
@@ -293,6 +296,15 @@ Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream*
     else {
         //setParamNormalized(bypass_param_id, 0.f);
     }
+
+    // Record the host load as one coalesced undo step (works editor open or closed).
+    // The editor notify() fires at the end of setState (the second of VST3's two
+    // restore calls), where the editor state has also arrived and this step is still
+    // open for marker folding. Stash the load so setState can dispatch it.
+    _host_load_after = _snapshot_knob_params();
+    _host_load_changes.clear();
+    _undo_history.push_host_load(before, _host_load_after, _host_load_changes);
+    _host_load_pending = true;
 
     if (auto* handler = getComponentHandler()) {
         handler->restartComponent(Steinberg::Vst::kParamValuesChanged);
@@ -401,6 +413,24 @@ Steinberg::tresult PLUGIN_API Controller::setState(Steinberg::IBStream* state)
     }
 
     _editor->load_state(edit_state);
+
+    // Notify the editor of the host load synchronously, now that both restore calls
+    // have landed. add_param folds any editor-owned marker into the load's single
+    // undo step (still open from setComponentState).
+    if (_host_load_pending) {
+        auto add_param = [this](uint32_t addr, double knob) {
+            if (addr >= num_params) return;
+            const auto from = getParamNormalized(addr);
+            setParamNormalized(addr, knob); // VST3 normalized == knob space.
+            _undo_history.amend_host_load(addr, from, knob);
+        };
+        _editor->notify(Host_event{Host_preset_loaded{
+            .changes = _host_load_changes,
+            .params = _host_load_after,
+            .add_param = add_param,
+        }});
+        _host_load_pending = false;
+    }
 
     return Steinberg::kResultTrue;
 }
@@ -654,6 +684,8 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
             .editor = &(*_editor),
             .receiver = std::move(receiver),
             .tasks = &_tasks,
+            .undo_history = &_undo_history,
+            .actions = &_actions,
 #if TINY_HAS_WORKER
             .drain_worker_to_editor = [this]() { this->_drain_worker_to_editor(); }
 #endif

@@ -8,9 +8,8 @@ auto Editor::on_gui_create() -> void
 {
 }
 
-auto Editor::on_gui_show(const Edit_context& edit) -> void
+auto Editor::on_gui_show() -> void
 {
-    _edit = edit;
 }
 
 auto Editor::on_gui_draw(Plugin_state& state) -> void
@@ -47,7 +46,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     canvas->drawRect(SkRect::MakeXYWH(0, g_y, static_cast<float>(rsize.w), g_h), paint);
 }
 
-auto Editor::on_gui_notify(const Ui_notification& notification) -> void
+auto Editor::notify(const Host_event& notification) -> void
 {
     std::visit(Inline_visitor{
         [&](const Dark_mode_changed& n) { _dark = n.new_value; },

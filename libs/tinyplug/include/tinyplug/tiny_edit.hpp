@@ -2,6 +2,7 @@
 
 #include "action_queue.hpp"
 #include "state_adapter.hpp"
+#include "task_manager.hpp"
 #include "undo_history.hpp"
 
 namespace tiny {
@@ -16,6 +17,7 @@ struct Edit_context {
     Format format{};
     State_adapter::Actor state_adapter{};
     Undo_history::Actor undo_redo{};
+    Task_manager::Actor tasks{};
 };
 
 } // namespace tiny

@@ -12,6 +12,7 @@ auto Gui::CreateViewContents() -> void
     _editor = params->get_editor();
     _tasks = params->get_tasks();
     _params = params;
+    _actions = params->actions();
 
     auto delegate = std::make_shared<View_delegate>(
         plugin::Editor::preferred_size(), // Initial size
@@ -105,12 +106,7 @@ auto Gui::CreateViewContainer() -> void
 
     _tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
     _platform_view->on_show();
-    _editor->on_gui_show({
-        .actions = _actions.actor(),
-        .format = Format::Aax,
-        .state_adapter = _state_adapter.actor(),
-        .undo_redo = _undo_history.actor(),
-    });
+    _editor->on_gui_show();
 }
 
 void Gui::DeleteViewContainer()
@@ -162,8 +158,8 @@ auto Gui::on_draw(View_context& view_context) -> void
         _ui_meters,
         view_context,
         _editor,
-        _actions,
-        _undo_history,
+        *_actions,
+        *_params->undo_history(),
         *_tasks,
         [this](auto w, auto h) {
             auto* view = GetViewContainer();
@@ -176,9 +172,9 @@ auto Gui::on_draw(View_context& view_context) -> void
     );
 }
 
-auto Gui::on_notify(const Ui_notification& notification) -> void
+auto Gui::on_notify(const Dark_mode_changed& notification) -> void
 {
-    _editor->on_gui_notify(notification);
+    _editor->notify(notification);
 }
 
 } // namespace tiny::aax

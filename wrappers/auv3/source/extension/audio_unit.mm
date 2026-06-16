@@ -41,6 +41,11 @@ static auto presets_path() -> std::filesystem::path
     bool _parameterTreeSetup;
     DSPKernel _kernel;
     std::shared_ptr<tiny::plugin::Editor> _editor;
+    // Undo history and action queue live on the AU (plug-in lifetime), not in the
+    // view, so the editor's Edit_context (built once at construction) stays valid
+    // across window open/close and host preset loads are captured with the window closed.
+    tiny::Undo_history _undo_history;
+    tiny::Action_queue _actions;
     BufferedInputBus _inputBus;
 #if TINY_WANTS_SIDECHAIN
     BufferedInputBus _sidechainBus;
@@ -201,6 +206,18 @@ static auto presets_path() -> std::filesystem::path
         
         _parameterTreeSetup = true;
     }
+}
+
+- (tiny::Undo_history*)undoHistory {
+    return &_undo_history;
+}
+
+- (tiny::Action_queue*)actions {
+    return &_actions;
+}
+
+- (tiny::State_adapter*)stateAdapter {
+    return _state_adapter.get();
 }
 
 // MARK: - makeReceiver
@@ -734,14 +751,28 @@ static auto presets_path() -> std::filesystem::path
 
 - (void)setFullState:(NSDictionary<NSString *,id> *)fullState {
     using namespace tiny;
-    
+
     if (fullState == nil) return;
-    
-    [super setFullState:fullState]; // Call base.
-    
+
     using User_params = tiny::params::Infos<tiny::models::Params>;
     const auto num_params = static_cast<int32_t>(User_params::num_params);
-    
+
+    // Snapshot all current param values in knob space (mirrors makeReceiver's get_param).
+    auto snapshot_knob_params = [&]() {
+        auto out = std::array<double, User_params::num_params>{};
+        for (auto i = decltype(num_params){}; i < num_params; ++i) {
+            const auto& spec = User_params::param_spec(static_cast<uint32_t>(i));
+            const auto host = _kernel.getParameter(static_cast<uint32_t>(i));
+            out[i] = params::Value_helper::host_to_knob(host, spec.semantics);
+        }
+        return out;
+    };
+
+    // Pre-load snapshot for host-load undo capture (before the base applies values).
+    const auto before = snapshot_knob_params();
+
+    [super setFullState:fullState]; // Call base.
+
     const auto num_stored_params = [&]() {
         id numParamsEntry = [fullState objectForKey:@(State_rules::Auv3::num_params)];
         if ([numParamsEntry isKindOfClass:[NSNumber class]]) {
@@ -797,7 +828,14 @@ static auto presets_path() -> std::filesystem::path
             [[_parameterTree parameterWithAddress:i] setValue:def_val];
         }
     }
-    
+
+    // Record the host load as one coalesced undo step (works editor open or closed).
+    // The editor notify() is dispatched at the end, after the editor state loads, so
+    // a preset's name/marker can fold into this step. Stash the snapshot until then.
+    const auto host_after = snapshot_knob_params();
+    auto host_changes = std::vector<Set_param>{};
+    _undo_history.push_host_load(before, host_after, host_changes);
+
     id numEditItems = [fullState objectForKey:@(State_rules::Auv3::num_editor_items)];
     if ([numEditItems isKindOfClass:[NSNumber class]]) {
         const auto num_edit_items = [numEditItems intValue];
@@ -872,6 +910,26 @@ static auto presets_path() -> std::filesystem::path
                 _editor->load_state(edit_state);
             }
         }
+    }
+
+    // Notify the editor of the host load synchronously (works editor open or closed),
+    // letting it fold its marker params into the load's single undo step via add_param.
+    if (_editor) {
+        auto add_param = [self](uint32_t addr, double knob) {
+            using namespace params;
+            auto* auparam = [self->_parameterTree parameterWithAddress:addr];
+            if (!auparam) return;
+            const auto& spec = User_params::param_spec(addr);
+            const auto from = Value_helper::host_to_knob(auparam.value, spec.semantics);
+            const auto host = Value_helper::knob_to_host(knob, spec.semantics);
+            [auparam setValue:static_cast<AUValue>(host)];
+            self->_undo_history.amend_host_load(addr, from, knob);
+        };
+        _editor->notify(Host_event{Host_preset_loaded{
+            .changes = host_changes,
+            .params = host_after,
+            .add_param = add_param,
+        }});
     }
 }
 

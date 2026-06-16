@@ -10,12 +10,12 @@ public:
 
     static auto preferred_size() -> Rect_size { return {200, 400}; }
 
-    Editor(Task_manager::Actor) {}
+    Editor(const Edit_context& edit) : _edit{edit} {}
     ~Editor() = default;
 
     auto on_gui_create() -> void;
-    auto on_gui_show(const Edit_context&) -> void;
-    auto on_gui_notify(const Ui_notification&) -> void;
+    auto on_gui_show() -> void;
+    auto notify(const Host_event&) -> void;
     auto on_gui_draw(Plugin_state&) -> void;
     auto on_gui_hide() -> void;
     auto on_gui_destroy() -> void;
