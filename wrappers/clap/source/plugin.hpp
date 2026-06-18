@@ -24,9 +24,9 @@ using CheckingLevel = ::clap::helpers::CheckingLevel;
 
 // Only terminate in debug mode
 #if defined(NDEBUG)
-using PluginBase = ::clap::helpers::Plugin<MisbehaviourHandler::Terminate, CheckingLevel::Maximal>;
-#else
 using PluginBase = ::clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::None>;
+#else
+using PluginBase = ::clap::helpers::Plugin<MisbehaviourHandler::Ignore, CheckingLevel::Maximal>;
 #endif
 
 namespace tiny::clap {
