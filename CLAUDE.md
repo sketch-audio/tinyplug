@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 Operational notes for agents working on tinyplug. This file is descriptive,
 not normative — when the code disagrees with it, trust the code and update
