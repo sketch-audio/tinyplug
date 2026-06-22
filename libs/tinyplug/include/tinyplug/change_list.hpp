@@ -11,7 +11,10 @@
 
 namespace tiny {
 
-struct Change_list {
+// Coalesces parameter updates for consumption by audio thread.
+// See: https://medium.com/@sgn00/triple-buffer-lock-free-concurrency-primitive-611848627a1e
+class Change_list {
+public:
 
     using Map = std::unordered_map<uint32_t, double>;
 
@@ -50,7 +53,10 @@ struct Change_list {
 
             // Possibly avoid the loop
             if (!_spare.compare_exchange_weak(expected, desired, std::memory_order_acq_rel)) {
-                return; // For now, we'll just try again later (UI thread could be clearing a large map).
+                // For now, we'll just try again later (UI thread could be clearing a large map).
+                return;
+
+                // Alternatively, we could spin until the merge is done.
                 // do {
                 //     expected.merging = false;
                 // } while(!_spare.compare_exchange_weak(expected, desired, std::memory_order_acq_rel));
