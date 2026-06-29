@@ -262,6 +262,13 @@ public:
 
                     if (_post_cycle) _post_cycle();
 
+                    // Optional periodic hook: a true wall-clock tick on the worker
+                    // thread, independent of message flow. Opt-in — workers that
+                    // don't define on_update() are unaffected.
+                    if constexpr (requires { _worker->on_update(); }) {
+                        _worker->on_update();
+                    }
+
                     if (!drained) {
                         std::this_thread::sleep_for(Worker::Model::update_period);
                     }
