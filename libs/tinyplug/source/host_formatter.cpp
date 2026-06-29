@@ -30,7 +30,8 @@ auto Host_formatter::to_string(double host_value, const Semantics::Any& semantic
         },
         [&](const Semantics::Int& i) {
             const auto suffix = Value_helper::units_label(i.units);
-            return format_double(plain_value, 0) + " " + suffix;
+            return suffix.empty() ? format_double(plain_value, 0)
+                                  : format_double(plain_value, 0) + " " + suffix;
         },
         [&](const auto& fr) {
             using enum Units;
