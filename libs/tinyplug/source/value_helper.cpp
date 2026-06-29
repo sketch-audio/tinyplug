@@ -393,4 +393,37 @@ auto Value_helper::knob_next(double x, const Semantics::Any& semantics) -> doubl
     }, semantics);
 }
 
+auto Value_helper::knob_prev(double x, const Semantics::Any& semantics) -> double
+{
+    return std::visit(Inline_visitor{
+        [x](const Semantics::Bool&) {
+            return x > 0.5 ? 0.0 : 1.0;
+        },
+        [x](const Semantics::List& s) {
+            const auto plain = knob_to_plain(x, s);
+            const auto idx = static_cast<size_t>(plain);
+            const auto prev = (idx + s.items.size() - 1) % s.items.size();
+            return plain_to_knob(static_cast<double>(prev), s);
+        },
+        [x](const Semantics::Int& s) {
+            const auto plain = knob_to_plain(x, s);
+            const auto val = static_cast<int32_t>(plain);
+            const auto range = s.max_val - s.min_val + 1;
+            const auto prev = ((val - s.min_val - 1 + range) % range) + s.min_val;
+            return plain_to_knob(static_cast<double>(prev), s);
+        },
+        [x](const Semantics::Fixed& s) {
+            const auto plain = knob_to_plain(x, s);
+            const auto prev = plain - s.step_size;
+            if (prev < s.min_val) {
+                return plain_to_knob(s.max_val, s);
+            }
+            return plain_to_knob(prev, s);
+        },
+        [x](const Semantics::Real&) {
+            return std::nextafter(x, 0.0);
+        }
+    }, semantics);
+}
+
 } // namespace tiny::params

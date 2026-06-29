@@ -97,6 +97,9 @@ struct Value_helper {
 
     // Advance a knob value to the next discrete step (wraps); continuous for Real.
     static auto knob_next(double knob_value, const Semantics::Any& semantics) -> double;
+
+    // Step a knob value to the previous discrete step (wraps); continuous for Real.
+    static auto knob_prev(double knob_value, const Semantics::Any& semantics) -> double;
 };
 
 // MARK: - array builders
