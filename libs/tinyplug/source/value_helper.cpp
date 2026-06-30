@@ -366,26 +366,26 @@ auto Value_helper::knob_next(double x, const Semantics::Any& semantics) -> doubl
         [x](const Semantics::Bool&) {
             return x > 0.5 ? 0.0 : 1.0;
         },
-        [x](const Semantics::List& s) {
-            const auto plain = knob_to_plain(x, s);
+        [&, x](const Semantics::List& s) {
+            const auto plain = knob_to_plain(x, semantics);
             const auto idx = static_cast<size_t>(plain);
             const auto next = (idx + 1) % s.items.size();
-            return plain_to_knob(static_cast<double>(next), s);
+            return plain_to_knob(static_cast<double>(next), semantics);
         },
-        [x](const Semantics::Int& s) {
-            const auto plain = knob_to_plain(x, s);
+        [&, x](const Semantics::Int& s) {
+            const auto plain = knob_to_plain(x, semantics);
             const auto val = static_cast<int32_t>(plain);
             const auto range = s.max_val - s.min_val + 1;
             const auto next = ((val - s.min_val + 1) % range) + s.min_val;
-            return plain_to_knob(static_cast<double>(next), s);
+            return plain_to_knob(static_cast<double>(next), semantics);
         },
-        [x](const Semantics::Fixed& s) {
-            const auto plain = knob_to_plain(x, s);
+        [&, x](const Semantics::Fixed& s) {
+            const auto plain = knob_to_plain(x, semantics);
             const auto next = plain + s.step_size;
             if (next > s.max_val) {
-                return plain_to_knob(s.min_val, s);
+                return plain_to_knob(s.min_val, semantics);
             }
-            return plain_to_knob(next, s);
+            return plain_to_knob(next, semantics);
         },
         [x](const Semantics::Real&) {
             return std::nextafter(x, 1.0);
@@ -399,26 +399,26 @@ auto Value_helper::knob_prev(double x, const Semantics::Any& semantics) -> doubl
         [x](const Semantics::Bool&) {
             return x > 0.5 ? 0.0 : 1.0;
         },
-        [x](const Semantics::List& s) {
-            const auto plain = knob_to_plain(x, s);
+        [&, x](const Semantics::List& s) {
+            const auto plain = knob_to_plain(x, semantics);
             const auto idx = static_cast<size_t>(plain);
             const auto prev = (idx + s.items.size() - 1) % s.items.size();
-            return plain_to_knob(static_cast<double>(prev), s);
+            return plain_to_knob(static_cast<double>(prev), semantics);
         },
-        [x](const Semantics::Int& s) {
-            const auto plain = knob_to_plain(x, s);
+        [&, x](const Semantics::Int& s) {
+            const auto plain = knob_to_plain(x, semantics);
             const auto val = static_cast<int32_t>(plain);
             const auto range = s.max_val - s.min_val + 1;
             const auto prev = ((val - s.min_val - 1 + range) % range) + s.min_val;
-            return plain_to_knob(static_cast<double>(prev), s);
+            return plain_to_knob(static_cast<double>(prev), semantics);
         },
-        [x](const Semantics::Fixed& s) {
-            const auto plain = knob_to_plain(x, s);
+        [&, x](const Semantics::Fixed& s) {
+            const auto plain = knob_to_plain(x, semantics);
             const auto prev = plain - s.step_size;
             if (prev < s.min_val) {
-                return plain_to_knob(s.max_val, s);
+                return plain_to_knob(s.max_val, semantics);
             }
-            return plain_to_knob(prev, s);
+            return plain_to_knob(prev, semantics);
         },
         [x](const Semantics::Real&) {
             return std::nextafter(x, 0.0);
