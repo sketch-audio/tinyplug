@@ -73,7 +73,8 @@ auto Window_context::teardown() -> void
 
 auto Window_context::set_drawable(void* drawable) -> void
 {
-    _impl->drawable = CFRetain((GrMTLHandle)drawable);
+    // A nil drawable (e.g. layer not yet renderable) must not be retained — CFRetain(nullptr) crashes.
+    _impl->drawable = drawable ? CFRetain((GrMTLHandle)drawable) : nullptr;
 }
 
 auto Window_context::begin_draw() -> void
