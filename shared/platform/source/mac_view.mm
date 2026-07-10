@@ -129,6 +129,11 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     const auto event_list = _events.consume(tiny::Steady_clock::now());
     _interaction.events = event_list;
 
+    // Pointer absolute position.
+    const auto mouse = [NSEvent mouseLocation]; // global, bottom-up
+    const auto screen_h = [NSScreen mainScreen] ? [NSScreen mainScreen].frame.size.height : 0.0;
+    _interaction.pointer_abs = tiny::Coords{mouse.x, screen_h - mouse.y};
+
     _delegate->draw(_interaction, time_now);
     _interaction.scroll_deltas = tiny::Coords{}; // Consume deltas
 }

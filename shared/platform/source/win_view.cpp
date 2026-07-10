@@ -225,6 +225,11 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
 
                 binder->interaction.modifier_keys = resolve_modifiers();
                 binder->interaction.events = binder->events.consume(Steady_clock::now());
+
+                // Pointer absolute position.
+                if (auto cursor = POINT{}; GetCursorPos(&cursor))
+                    binder->interaction.pointer_abs = {static_cast<double>(cursor.x), static_cast<double>(cursor.y)};
+
                 delegate->draw(binder->interaction, time_now); // Delegate window context handles everything.
                 binder->interaction.scroll_deltas = {};
 

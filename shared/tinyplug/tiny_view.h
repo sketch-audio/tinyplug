@@ -230,6 +230,7 @@ struct User_interaction {
     Coords scroll_deltas{};
     bool inertial_scroll{};
     Modifier_keys modifier_keys{};
+    Coords pointer_abs{}; // Pointer absolute (screen) position, top-down. For live resize.
     //bool operator==(const User_interaction&) const = default;
 };
 
