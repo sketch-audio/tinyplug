@@ -12,7 +12,7 @@ auto View::on_create() noexcept -> void
 {
     // Set up the delegate callbacks.
     auto delegate = std::make_shared<View_delegate>(
-        plugin::Editor::preferred_size(),
+        _deps.initial_size,
         [this](auto& context) { this->on_draw(context); },
         [this](const auto& notification) { this->on_notify(notification); }
     );
@@ -46,7 +46,7 @@ auto View::on_destroy() noexcept -> void
 
 auto View::get_size(uint32_t* w, uint32_t* h) noexcept -> void
 {
-    const auto platform_size = _platform_view ? _platform_view->get_size() : plugin::Editor::preferred_size();
+    const auto platform_size = _platform_view ? _platform_view->get_size() : _deps.initial_size;
     *w = static_cast<uint32_t>(platform_size.w);
     *h = static_cast<uint32_t>(platform_size.h);
 }
@@ -97,7 +97,14 @@ auto View::on_draw(View_context& view_context) -> void
         *_deps.actions,
         *_deps.undo_history,
         *_deps.tasks,
-        [](auto, auto) {}
+        [this](auto w, auto h) {
+            // Editor-initiated resize (corner-drag handle → Request_resize). Ask the
+            // host to resize us; it echoes back via guiSetSize, which resizes the
+            // platform view and refreshes the plug-in's size cache.
+            if (_deps.request_resize) {
+                _deps.request_resize(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+            }
+        }
     );
 }
 

@@ -140,6 +140,11 @@ private:
     std::optional<plugin::Editor> _editor{};
     Task_manager _tasks{};
 
+    // Framework-owned editor window-size cache (Effect lifetime, survives view
+    // recreation). Primed from persisted state in RestoreState; read by the view's
+    // initial_size provider; updated on every editor-initiated resize.
+    std::optional<Rect_size> _last_size{};
+
     using User_params = params::Infos<models::Params>;
     using User_meters = meters::Infos<models::Meters>;
 
@@ -327,6 +332,10 @@ private:
         .tasks = &_tasks,
         .undo_history = &_undo_history,
         .actions = &_actions,
+        .initial_size = [this]() { return _last_size.value_or(plugin::Editor::preferred_size()); },
+        .on_resized = [this](uint32_t w, uint32_t h) {
+            _last_size = Rect_size{static_cast<int32_t>(w), static_cast<int32_t>(h)};
+        },
 #if TINY_HAS_WORKER
         .drain_worker_to_editor = [this]() { this->_drain_worker_to_editor(); }
 #endif

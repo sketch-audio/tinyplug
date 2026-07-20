@@ -175,6 +175,11 @@ private:
     // GUI
     std::unique_ptr<View> _view{nullptr};
 
+    // Framework-owned editor window-size cache (plug-in lifetime, survives view
+    // recreation). Primed from persisted state on load; reports the initial size so
+    // the window reopens pre-sized. Updated on every host-echoed resize (guiSetSize).
+    std::optional<Rect_size> _last_size{};
+
     // Undo history and action queue live here (plug-in lifetime), not in the view,
     // so the editor's Edit_context (built once at construction) stays valid across
     // window open/close and host preset loads are captured with the window closed.

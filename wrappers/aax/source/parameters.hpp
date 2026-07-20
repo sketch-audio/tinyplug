@@ -88,6 +88,19 @@ public:
         return &_tasks;
     }
 
+    // Framework-owned editor window-size cache (Parameters lifetime, survives view
+    // recreation). Primed from the persisted chunk in SetChunk; read by the Gui to open
+    // pre-sized; updated on every editor-initiated resize.
+    auto resized(Rect_size size) -> void
+    {
+        _last_size = size;
+    }
+
+    auto get_last_size() const -> std::optional<Rect_size>
+    {
+        return _last_size;
+    }
+
     // Undo history and action queue live on Parameters (plug-in lifetime), not in the
     // Gui, so the editor's Edit_context (built once at construction) stays valid across
     // window open/close and host preset loads are captured with the window closed.
@@ -127,6 +140,7 @@ private:
 
     std::unique_ptr<plugin::Processor> _processor = std::make_unique<plugin::Processor>();
     std::unique_ptr<plugin::Editor> _editor{};
+    std::optional<Rect_size> _last_size{};
     Task_manager _tasks{};
 
     using User_params = params::Infos<models::Params>;

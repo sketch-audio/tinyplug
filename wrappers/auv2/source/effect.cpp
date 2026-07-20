@@ -554,7 +554,14 @@ OSStatus Effect::SaveState(CFPropertyListRef* outData)
     if (CFGetTypeID(dict) != CFDictionaryGetTypeID()) return kAudioUnitErr_InvalidProperty;
 
     // Get the editor state.
-    const auto edit_state = _editor->save_state();
+    auto edit_state = _editor->save_state();
+
+    // Inject the framework-owned editor window size (from our own cache) so the window
+    // reopens pre-sized. The app editor never emits these keys.
+    if (_last_size) {
+        editor_size_state::inject(edit_state, _last_size->w, _last_size->h);
+    }
+
     const auto num_editor_items = static_cast<int32_t>(edit_state.size());
 
     // Helper
@@ -781,6 +788,13 @@ OSStatus Effect::RestoreState(CFPropertyListRef plist)
 
             edit_state.emplace(std::move(key), std::move(value));
         }
+
+        // Prime the framework-owned size cache so create_view opens pre-sized, then strip
+        // the keys so the app editor never sees them.
+        if (const auto size = editor_size_state::extract(edit_state)) {
+            _last_size = Rect_size{size->first, size->second};
+        }
+        editor_size_state::strip(edit_state);
 
         _editor->load_state(edit_state);
     }

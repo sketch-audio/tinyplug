@@ -14,8 +14,10 @@ auto Gui::CreateViewContents() -> void
     _params = params;
     _actions = params->actions();
 
+    const auto initial_size = _params->get_last_size().value_or(plugin::Editor::preferred_size());
+
     auto delegate = std::make_shared<View_delegate>(
-        plugin::Editor::preferred_size(), // Initial size
+        initial_size, // Primed from persisted state so the window opens pre-sized.
         [this](auto& context) { this->on_draw(context); },
         [this](const auto& notification) { this->on_notify(notification); }
     );
@@ -121,7 +123,9 @@ void Gui::DeleteViewContainer()
 
 AAX_Result Gui::GetViewSize(AAX_Point* view_size) const
 {
-    const auto size = _platform_view ? _platform_view->get_size() : plugin::Editor::preferred_size();
+    const auto fallback = _params ? _params->get_last_size().value_or(plugin::Editor::preferred_size())
+                                  : plugin::Editor::preferred_size();
+    const auto size = _platform_view ? _platform_view->get_size() : fallback;
     view_size->horz = static_cast<float>(size.w);
     view_size->vert = static_cast<float>(size.h);
     return AAX_SUCCESS;
@@ -168,6 +172,8 @@ auto Gui::on_draw(View_context& view_context) -> void
             const auto result = view->SetViewSize(size);
             if (result != AAX_SUCCESS) return;
             _platform_view->resize(static_cast<int32_t>(w), static_cast<int32_t>(h));
+            // No host echo on AAX — update the size cache directly so it persists.
+            if (_params) _params->resized({static_cast<int32_t>(w), static_cast<int32_t>(h)});
         }
     );
 }

@@ -285,7 +285,14 @@ bool Plugin::stateSave(const clap_ostream* stream) noexcept
 
     if (!stream) return false;
 
-    const auto edit_state = _editor->save_state();
+    auto edit_state = _editor->save_state();
+
+    // Inject the framework-owned editor window size (from our own cache) so the window
+    // reopens pre-sized. The app editor never emits these keys.
+    if (_last_size) {
+        editor_size_state::inject(edit_state, _last_size->w, _last_size->h);
+    }
+
     const auto num_editor_items = static_cast<uint32_t>(edit_state.size());
 
     // Write header.
@@ -467,8 +474,15 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_
         }
     }
 
-    // Editor
-    _editor->load_state(editor_state);
+    // Editor. Prime the framework-owned size cache (present only in session state, not
+    // presets) so a subsequent guiCreate opens pre-sized, then strip the keys so the
+    // app editor never sees them.
+    auto editor_only = editor_state;
+    if (const auto size = editor_size_state::extract(editor_only)) {
+        _last_size = Rect_size{size->first, size->second};
+    }
+    editor_size_state::strip(editor_only);
+    _editor->load_state(editor_only);
 
     // Record the host load as one coalesced undo step (works editor open or closed)
     // and notify the editor synchronously, so it can fold its marker params into the
@@ -1000,6 +1014,11 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
         .tasks = &_tasks,
         .undo_history = &_undo_history,
         .actions = &_actions,
+        .initial_size = _last_size.value_or(plugin::Editor::preferred_size()),
+        .request_resize = [this](uint32_t w, uint32_t h) {
+            auto* gui_ext = static_cast<const clap_host_gui_t*>(_host->get_extension(_host, CLAP_EXT_GUI));
+            if (gui_ext && gui_ext->request_resize) gui_ext->request_resize(_host, w, h);
+        },
 #if TINY_HAS_WORKER
         .drain_worker_to_editor = [this]() { this->_drain_worker_to_editor(); }
 #endif
@@ -1063,6 +1082,9 @@ bool Plugin::guiAdjustSize(uint32_t* /*width*/, uint32_t* /*height*/) noexcept
 
 bool Plugin::guiSetSize(uint32_t width, uint32_t height) noexcept
 {
+    // Host-echoed resize (host frame drag or our own request_resize). Keep the size
+    // cache current so the latest size is what gets persisted.
+    _last_size = Rect_size{static_cast<int32_t>(width), static_cast<int32_t>(height)};
     return _view->set_size(width, height);
 }
 

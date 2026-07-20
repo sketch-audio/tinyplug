@@ -412,6 +412,13 @@ Steinberg::tresult PLUGIN_API Controller::setState(Steinberg::IBStream* state)
         edit_state.emplace(std::move(key), std::move(value));
     }
 
+    // Prime the size cache from the framework-owned keys so the view opens pre-sized
+    // (no preferred→saved flash), then strip them so the app editor never sees them.
+    if (const auto size = editor_size_state::extract(edit_state)) {
+        resized({size->first, size->second});
+    }
+    editor_size_state::strip(edit_state);
+
     _editor->load_state(edit_state);
 
     // Notify the editor of the host load synchronously, now that both restore calls
@@ -447,7 +454,14 @@ Steinberg::tresult PLUGIN_API Controller::getState(Steinberg::IBStream* state)
     // Streamer convenience wrapper.
     auto streamer = Steinberg::IBStreamer{state};
 
-    const auto edit_state = _editor->save_state();
+    auto edit_state = _editor->save_state();
+
+    // Inject the framework-owned editor window size (from our own cache) so the
+    // window reopens pre-sized. The app editor never emits these keys.
+    if (_last_size) {
+        editor_size_state::inject(edit_state, _last_size->w, _last_size->h);
+    }
+
     const auto num_editor_items = static_cast<uint32_t>(edit_state.size());
 
     const auto header = State_rules::Vst3::Header{

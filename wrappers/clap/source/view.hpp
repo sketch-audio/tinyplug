@@ -23,6 +23,8 @@ public:
         Task_manager* tasks{};
         Undo_history* undo_history{}; // Owned by the plug-in (survives the view).
         Action_queue* actions{};      // Owned by the plug-in (survives the view).
+        Rect_size initial_size{plugin::Editor::preferred_size()}; // Size to open at (primed from persisted state).
+        std::function<void(uint32_t, uint32_t)> request_resize{}; // Editor-initiated resize → ask host.
 #if TINY_HAS_WORKER
         std::function<void()> drain_worker_to_editor{};
 #endif

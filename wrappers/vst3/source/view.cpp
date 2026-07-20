@@ -138,7 +138,15 @@ void View::on_draw(View_context& view_context)
         *_deps.actions,
         *_deps.undo_history,
         *_deps.tasks,
-        [](auto, auto) {}
+        [this](auto w, auto h) {
+            // Editor-initiated resize (corner-drag handle → Request_resize). Ask the
+            // host to resize us; it echoes back via onSize, which resizes the platform
+            // view and refreshes the controller's size cache.
+            if (plugFrame) {
+                auto rect = Steinberg::ViewRect{0, 0, static_cast<Steinberg::int32>(w), static_cast<Steinberg::int32>(h)};
+                plugFrame->resizeView(this, &rect);
+            }
+        }
     );
 }
 

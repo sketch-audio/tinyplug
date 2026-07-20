@@ -5,7 +5,7 @@ namespace tiny::auv2 {
 auto View::create_view() -> void*
 {
     auto delegate = std::make_shared<View_delegate>(
-        plugin::Editor::preferred_size(),
+        _deps.initial_size(),
         [this](auto& context) { this->on_draw(context); },
         [this](const auto& notification) { this->on_notify(notification); }
     );
@@ -53,6 +53,8 @@ auto View::on_draw(View_context& view_context) -> void
         *_deps.tasks,
         [this](auto w, auto h) {
             _platform_view->resize(static_cast<int32_t>(w), static_cast<int32_t>(h));
+            // No host echo on AUv2 — update the size cache directly so it persists.
+            if (_deps.on_resized) _deps.on_resized(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
         }
     );
 }

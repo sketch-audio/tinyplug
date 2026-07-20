@@ -23,6 +23,12 @@ public:
         Task_manager* tasks{};
         Undo_history* undo_history{}; // Owned by the Effect (survives the view).
         Action_queue* actions{};      // Owned by the Effect (survives the view).
+        // Size to open at, read lazily at create_view time (the view is built at Effect
+        // construction, before state restore, so the size cache is primed later).
+        std::function<Rect_size()> initial_size{[]() { return plugin::Editor::preferred_size(); }};
+        // Called after an editor-initiated resize so the Effect's size cache stays current
+        // (the AUv2 resize policy resizes the platform view directly, with no host echo).
+        std::function<void(uint32_t, uint32_t)> on_resized{};
 #if TINY_HAS_WORKER
         std::function<void()> drain_worker_to_editor{};
 #endif

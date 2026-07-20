@@ -457,6 +457,13 @@ AAX_Result Parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iC
         state_map.emplace(std::move(key), std::move(value));
     }
 
+    // Prime the framework-owned size cache so the view opens pre-sized, then strip the
+    // keys so the app editor never sees them.
+    if (const auto size = editor_size_state::extract(state_map)) {
+        resized({size->first, size->second});
+    }
+    editor_size_state::strip(state_map);
+
     _editor->load_state(state_map);
 
     // Try to load the bypass state.
@@ -739,7 +746,14 @@ void Parameters::_build_chunk() const
 {
     mChunkParser.Clear();
 
-    const auto edit_state = _editor->save_state();
+    auto edit_state = _editor->save_state();
+
+    // Inject the framework-owned editor window size (from our own cache) so the window
+    // reopens pre-sized. The app editor never emits these keys.
+    if (_last_size) {
+        editor_size_state::inject(edit_state, _last_size->w, _last_size->h);
+    }
+
     const auto edit_keys = join_keys(edit_state);
 
     // Add the number of parameters and the edit keys.
