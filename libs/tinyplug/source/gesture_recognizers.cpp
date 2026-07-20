@@ -11,9 +11,10 @@ namespace tiny {
 
 auto Over_recognizer::set_frame(const Frame& frame) -> void
 {
+    const auto moved = (frame != _frame); // Make sure we really changed frame.
     _frame = frame;
 
-    if (_over) {
+    if (_over && moved) {
         _callbacks.on_cancelled();
         _over = false;
     }
@@ -81,9 +82,10 @@ auto Over_recognizer::resolve_events(Coords pos, bool was_over, bool now_over) -
 
 auto Down_recognizer::set_frame(const Frame& frame) -> void
 {
+    const auto moved = (frame != _frame); // Make sure we really changed frame.
     _frame = frame;
 
-    if (_down) {
+    if (_down && moved) {
         _callbacks.on_cancelled();
         _down = false;
     }
@@ -121,7 +123,9 @@ auto Down_recognizer::process_events(Event_list& events) -> void
 
 auto Dwell_recognizer::set_frame(const Frame& frame) -> void
 {
+    const auto moved = (frame != _frame); // Make sure we really changed frame.
     _frame = frame;
+    if (!moved) return;
 
     if (_dwelling) {
         _callbacks.on_cancelled();
