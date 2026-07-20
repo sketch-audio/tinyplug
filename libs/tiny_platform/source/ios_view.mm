@@ -26,11 +26,8 @@ static_assert(false, "This is a non-ARC file");
     
     tiny::User_interaction _interaction;
     struct Pointer_data {
-        std::optional<tiny::Coords> pos_down;
-        std::optional<tiny::Coords> pos_last;
-        bool pending_gesture;
-        bool started_drag;
-        bool ended;
+        std::optional<tiny::Coords> pos_last; // Latest position, for findClosest.
+        bool ended;                           // Lifted/cancelled; swept in drawRect.
     };
     
     std::unordered_map<UITouch*, Pointer_data> _active_pointers;
@@ -99,10 +96,6 @@ static_assert(false, "This is a non-ARC file");
     
     // I think we could move this to touchesEnded/touchesCancelled
     std::erase_if(_active_pointers, [](auto const& pair) { return pair.second.ended; });
-    
-    for (auto& [touch, pointer_data] : _active_pointers) {
-        pointer_data.pending_gesture = false;
-    }
 }
 
 - (UITouch*)findClosest:(tiny::Coords)loc {
@@ -124,86 +117,52 @@ static_assert(false, "This is a non-ARC file");
 
 - (void)handleSingleTap:(UITapGestureRecognizer *)gesture {
     using namespace tiny;
-    
-    if (gesture.state == UIGestureRecognizerStateEnded) {
-        NSUInteger touches = [gesture numberOfTouches];
-        for (NSUInteger i = 0; i < touches; ++i) {
-            CGPoint location = [gesture locationOfTouch:i inView:self];
-            Coords loc{location.x, location.y};
-            UITouch* closest_touch = [self findClosest:loc];
-            if (closest_touch) {
-                auto it = _active_pointers.find(closest_touch);
-                if (it != _active_pointers.end()) {
-                    auto& pointer_data = it->second;
-                    if (pointer_data.started_drag) continue;
-                    pointer_data.pending_gesture = true;
-                    pointer_data.pos_down = std::nullopt;
-                    pointer_data.started_drag = false;
-                    
-                    _events.push(Event{
-                        .event = Pointer_click{.count = 1, .pos = loc},
-                        .pointer_tag = (uintptr_t)closest_touch
-                    });
-                }
-            }
-        }
-    }
+
+    if (gesture.state != UIGestureRecognizerStateEnded) return;
+
+    // Use the aggregate location: at recognition the finger is already up, so
+    // `numberOfTouches` is often 0 and iterating it drops the click entirely.
+    const CGPoint location = [gesture locationInView:self];
+    const Coords loc{location.x, location.y};
+    UITouch* closest_touch = [self findClosest:loc];
+
+    _events.push(Event{
+        .event = Pointer_click{.count = 1, .pos = loc},
+        .pointer_tag = (uintptr_t)closest_touch
+    });
 }
 
 - (void)handleDoubleTap:(UITapGestureRecognizer *)gesture {
     using namespace tiny;
-    
-    if (gesture.state == UIGestureRecognizerStateEnded) {
-        NSUInteger touches = [gesture numberOfTouches];
-        for (NSUInteger i = 0; i < touches; ++i) {
-            CGPoint location = [gesture locationOfTouch:i inView:self];
-            Coords loc{location.x, location.y};
-            UITouch* closest_touch = [self findClosest:loc];
-            if (closest_touch) {
-                auto it = _active_pointers.find(closest_touch);
-                if (it != _active_pointers.end()) {
-                    auto& pointer_data = it->second;
-                    if (pointer_data.started_drag) continue;
-                    pointer_data.pending_gesture = true;
-                    pointer_data.pos_down = std::nullopt;
-                    pointer_data.started_drag = false;
-                    
-                    _events.push(Event{
-                        .event = Pointer_click{.count = 2, .pos = loc},
-                        .pointer_tag = (uintptr_t)closest_touch
-                    });
-                }
-            }
-        }
-    }
+
+    if (gesture.state != UIGestureRecognizerStateEnded) return;
+
+    const CGPoint location = [gesture locationInView:self];
+    const Coords loc{location.x, location.y};
+    UITouch* closest_touch = [self findClosest:loc];
+
+    _events.push(Event{
+        .event = Pointer_click{.count = 2, .pos = loc},
+        .pointer_tag = (uintptr_t)closest_touch
+    });
 }
 
 - (void)handleLongPress:(UILongPressGestureRecognizer *)gesture {
     using namespace tiny;
-    
-    if (gesture.state == UIGestureRecognizerStateBegan) {
-        NSUInteger touches = [gesture numberOfTouches];
-        for (NSUInteger i = 0; i < touches; ++i) {
-            CGPoint location = [gesture locationOfTouch:i inView:self];
-            Coords loc{location.x, location.y};
-            UITouch* closest_touch = [self findClosest:loc];
-            if (closest_touch) {
-                auto it = _active_pointers.find(closest_touch);
-                if (it != _active_pointers.end()) {
-                    auto& pointer_data = it->second;
-                    if (pointer_data.started_drag) continue;
-                    pointer_data.pending_gesture = true;
-                    pointer_data.pos_down = std::nullopt;
-                    pointer_data.started_drag = false;
-                    
-                    _events.push(Event{
-                        .event = Pointer_down{.button = Pointer_button::right, .pos = loc},
-                        .pointer_tag = (uintptr_t)closest_touch
-                    });
-                }
-            }
-        }
-    }
+
+    if (gesture.state != UIGestureRecognizerStateBegan) return;
+
+    // The finger is still down at `Began`, so the aggregate location is valid here too.
+    // The long-press recognizer's own allowableMovement fails it on a real drag, so this
+    // won't fire mid-drag — no need to gate it here.
+    const CGPoint location = [gesture locationInView:self];
+    const Coords loc{location.x, location.y};
+    UITouch* closest_touch = [self findClosest:loc];
+
+    _events.push(Event{
+        .event = Pointer_down{.button = Pointer_button::right, .pos = loc},
+        .pointer_tag = (uintptr_t)closest_touch
+    });
 }
 
 // MARK: - touches
@@ -217,10 +176,7 @@ static_assert(false, "This is a non-ARC file");
         const auto tag = (uintptr_t)touch;
         const auto pos = Coords{location.x, location.y};
         _active_pointers[touch] = Pointer_data{
-            .pos_down = pos,
             .pos_last = pos,
-            .pending_gesture = false,
-            .started_drag = false,
         };
         _activeTouches[touch] = location;
         
@@ -233,24 +189,24 @@ static_assert(false, "This is a non-ARC file");
 
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesMoved:touches withEvent:event];
-    
+
     using namespace tiny;
+
+    // Lossless (approach #2): the platform makes no tap-vs-drag decision. Every move is
+    // forwarded from the first pixel, so drag surfaces get zero-slop, pixel-0 tracking.
+    // Taps stay reliable because the tap recognizer only fires for genuine taps (its own
+    // movement tolerance fails it on a real drag, so it never produces a spurious click),
+    // and the click is emitted unconditionally by the handlers. Any tap/drag tie-break
+    // now lives in the surface's own Drag_recognizer (per-surface slop), not here.
     for (UITouch* touch in touches) {
-        CGPoint location = [touch locationInView:self];
+        const CGPoint location = [touch locationInView:self];
         const auto pos = Coords{location.x, location.y};
-        auto it = _active_pointers.find(touch);
-        if (it != _active_pointers.end()) {
-            auto& pointer_data = it->second;
-            if (const auto down_pos = pointer_data.pos_down; down_pos && pointer_data.started_drag) {
-                pointer_data.pos_last = pos;
-            }
-            else if (const auto down_pos = pointer_data.pos_down){
-                pointer_data.pos_last = pos;
-                pointer_data.started_drag = true;
-            }
-        }
         _activeTouches[touch] = location;
-        
+
+        if (auto it = _active_pointers.find(touch); it != _active_pointers.end()) {
+            it->second.pos_last = pos;
+        }
+
         const auto tag = (uintptr_t)touch;
         _events.push(Event{
             .event = Pointer_move{.pos = pos},
