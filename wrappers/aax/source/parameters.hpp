@@ -1,27 +1,35 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <charconv>
 #include <optional>
 
+#include "AAX_CEffectParameters.h"
+
 #include "adapters.hpp"
-#include "monolith.hpp"
+#include "alg_context.hpp"
 
 #include "plug_info.hpp"
 
-#include "processor.hpp"
 #include "models/meters.hpp"
 #include "models/params.hpp"
 #include "editor.hpp"
 
-#include <tiny_dsp/host_bypass.hpp>
-
 namespace tiny::aax {
 
-class Parameters : public AAX_CMonolithicParameters {
+/*
+    The data model half of the two-component design.
+
+    It owns everything that is not audio: the AAX parameter objects, the editor, the
+    worker, undo history, and state chunks. It has no processor and no audio buffers —
+    the DSP kernel lives in the algorithm's private data and is reachable only through
+    coefficient packets out and the Direct Data return channel in.
+*/
+class Parameters : public AAX_CEffectParameters {
 public:
 
-    using Super = AAX_CMonolithicParameters;
+    using Super = AAX_CEffectParameters;
     Parameters() : Super{}
     {
         _editor = std::make_unique<plugin::Editor>(Edit_context{
@@ -33,9 +41,6 @@ public:
         });
 
 #if TINY_HAS_WORKER
-        try_bind_worker(*_processor, Worker_processor_actor{
-            [this](const auto& m) { return _worker_from_proc.push(m); }
-        });
         try_bind_worker(*_editor, Worker_editor_actor{
             [this](const auto& m) { return _worker_from_edit.push(m); }
         });
@@ -51,14 +56,24 @@ public:
     AAX_Result EffectInit() override;
     AAX_Result NotificationReceived(AAX_CTypeID inNotificationType, const void* inNotificationData, uint32_t inNotificationDataSize) override;
 
+    // Packet generation. The host calls GenerateCoefficients after every parameter
+    // update, and timestamps every packet posted within it — which is what gives the
+    // decoupled design its automation accuracy.
+    AAX_Result UpdateParameterNormalizedValue(AAX_CParamID iParamID, double aValue, AAX_EUpdateSource inSource) override;
+    AAX_Result GenerateCoefficients() override;
+    AAX_Result TimerWakeup() override;
+
+    // The Direct Data module's channel to us. Nothing here dereferences algorithm
+    // memory; both directions carry framed bytes.
+    AAX_Result SetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSize, const void* iData) override;
+    AAX_Result GetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSize, void* oData, uint32_t* oDataWritten) const override;
+
     AAX_Result GetNumberOfChunks(int32_t* oNumChunks) const AAX_OVERRIDE;
 	AAX_Result GetChunkIDFromIndex(int32_t iIndex, AAX_CTypeID* oChunkID) const AAX_OVERRIDE;
     AAX_Result GetChunkSize(AAX_CTypeID iChunkID, uint32_t* oSize) const AAX_OVERRIDE;
 	AAX_Result GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChunk) const AAX_OVERRIDE;
 	AAX_Result SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iChunk) AAX_OVERRIDE;
 	AAX_Result CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_CBoolean* oIsEqual) const AAX_OVERRIDE;
-
-    void RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_t channelCount, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues) override;
 
     auto pop_meter(Set_meter& set_meter) -> bool
     {
@@ -72,13 +87,7 @@ public:
         });
     }
 
-    auto push_action(const User_action& action) -> void
-    {
-        [[maybe_unused]] const auto success = _to_processor.push(action);
-        assert(success && "Push to processor queue failed! Increase queue size.");
-    }
-
-    auto get_editor() -> plugin::Editor* 
+    auto get_editor() -> plugin::Editor*
     {
         return _editor.get();
     }
@@ -128,25 +137,20 @@ public:
 
 private:
 
-    auto _drain_worker_to_processor() -> void
-    {
-#if TINY_HAS_WORKER
-        try_drain_worker_to_processor(*_processor, _worker_to_proc);
-#endif
-    }
-
-
     auto _build_chunk() const -> void;
 
-    std::unique_ptr<plugin::Processor> _processor = std::make_unique<plugin::Processor>();
+    // Coefficient staging. One Coef_segment per port; a segment is rebuilt and posted
+    // only when one of the parameters packed into it has changed.
+    auto _mark_dirty(uint32_t address) -> void;
+    auto _fill_segment(size_t segment) -> void;
+    auto _post_segment(size_t segment) -> void;
+    auto _post_config() -> void;
+    auto _post_runtime() -> void;
+    auto _plain_value(uint32_t address) const -> double;
+
     std::unique_ptr<plugin::Editor> _editor{};
     std::optional<Rect_size> _last_size{};
     Task_manager _tasks{};
-
-    using User_params = params::Infos<models::Params>;
-    using User_meters = meters::Infos<models::Meters>;
-    static constexpr auto num_params = User_params::num_params;
-    static constexpr auto num_meters = User_meters::num_meters;
 
     Undo_history _undo_history{};
     Action_queue _actions{};
@@ -175,43 +179,30 @@ private:
         },
     }};
 
-    static constexpr auto max_ichannels = size_t{2};
-    static constexpr auto max_schannels = size_t{1};
-    static constexpr auto max_ochannels = size_t{2};
+    // Packets out.
+    std::array<Coef_segment, num_segments> _segments{};
+    std::array<bool, num_segments> _segment_dirty{};
+    uint64_t _seq{1};                   // 0 is the algorithm's "never seen" sentinel.
+    Config_packet _config{};
+    Runtime_packet _runtime{.latency_seq = 0, .accepted_latency = 0, .offline = 0, .recording = 0, .delay_comp = 1, .pad = 0};
+    bool _config_dirty{true};
+    std::atomic<bool> _runtime_dirty{true};
 
-    // Pointers to host io buffers.
-    std::array<const float*, max_ichannels> _ibuffers{};
-    std::array<const float*, max_schannels> _sbuffers{};
-    std::array<float*, max_ochannels> _obuffers{};
-    
-    std::array<float, num_meters> _meters{};
+    // Meters in. Mirrors the last value seen per meter so the Gui can be re-primed
+    // when a window opens (dump_meters).
     std::array<double, num_meters> _last_meters{};
-
-    static constexpr auto to_processor_size = 4 * num_params + 1;
-    using To_processor_queue = Lock_free_queue<User_action, to_processor_size>;
-    To_processor_queue _to_processor{}; // In AAX, this is actually only for non-automatable parameters.
 
     static constexpr auto to_editor_size = 25 * num_meters + 1;
     using Meter_queue = Lock_free_queue<Set_meter, to_editor_size>;
     Meter_queue _meter_queue{};
 
-    // Latency
-    // ---
-    using Latency_flag = std::atomic<std::optional<uint32_t>>;
-    static_assert(Latency_flag::is_always_lock_free);
-    Latency_flag _pending_latency{};
-    Latency_flag _accepted_latency{};
-    // ---
-
-    Host_bypass _bypass{};
-
-    // Notifications
-    std::atomic<bool> _delay_comp{true}; // Track Pro Tools delay compensation mode.
-    std::atomic<bool> _recording{false}; // Track recording state.
-    std::atomic<bool> _offline{false};   // Track offline (bounce) mode.
+    // Latency. The kernel proposes from the algorithm; the host owns the accepted
+    // value and hands it back through a notification.
+    std::atomic<bool> _pending_latency{false};
 
 #if TINY_HAS_WORKER
-    // Worker channel.
+    // Worker channel. Editor <-> worker is direct (both live here). Processor <-> worker
+    // traverses the Direct Data rings.
     using Worker_from_proc_q = Lock_free_queue<typename User_worker::Model::From_processor, User_worker::Model::inbound_capacity, Queue_concurrency::spsc>;
     using Worker_from_edit_q = Lock_free_queue<typename User_worker::Model::From_editor,    User_worker::Model::inbound_capacity, Queue_concurrency::spsc>;
     using Worker_to_proc_q   = Lock_free_queue<typename User_worker::Model::To_processor,   User_worker::Model::outbound_capacity>;
@@ -219,7 +210,7 @@ private:
 
     Worker_from_proc_q _worker_from_proc{};
     Worker_from_edit_q _worker_from_edit{};
-    Worker_to_proc_q   _worker_to_proc{};
+    mutable Worker_to_proc_q _worker_to_proc{};   // Drained from the const GetCustomData.
     Worker_to_edit_q   _worker_to_edit{};
 
     User_worker _worker{

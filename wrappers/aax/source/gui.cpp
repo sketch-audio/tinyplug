@@ -78,10 +78,11 @@ auto Gui::CreateViewContainer() -> void
                         view->HandleParameterMouseDrag(id_cstr, 0);
                         AAX_IParameter* param = nullptr;
                         if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS) {
+                            // Reaches the algorithm as a coefficient packet, automatable
+                            // or not: AAX_CParameter::SetValue always routes through the
+                            // automation delegate, so UpdateParameterNormalizedValue fires
+                            // either way.
                             param->SetNormalizedValue(a.value);
-                            if (!param->Automatable()) {
-                                params->push_action(a); // Non-automatable params are not synchronized.
-                            }
                         }
                     }
                 },

@@ -25,11 +25,15 @@ function(make_aax_plugin USER_TARGET)
 
     add_library(${AAX_TARGET} MODULE
         ${SOURCE_DIR}/source/adapters.hpp
+        ${SOURCE_DIR}/source/alg_context.hpp
+        ${SOURCE_DIR}/source/alg_proc.cpp
+        ${SOURCE_DIR}/source/alg_proc.hpp
+        ${SOURCE_DIR}/source/byte_ring.hpp
         ${SOURCE_DIR}/source/describe.cpp
+        ${SOURCE_DIR}/source/direct_data.cpp
+        ${SOURCE_DIR}/source/direct_data.hpp
         ${SOURCE_DIR}/source/gui.cpp
         ${SOURCE_DIR}/source/gui.hpp
-        ${SOURCE_DIR}/source/monolith.cpp
-        ${SOURCE_DIR}/source/monolith.hpp
         ${SOURCE_DIR}/source/parameters.cpp
         ${SOURCE_DIR}/source/parameters.hpp
         ${SOURCE_DIR}/source/taper_delegate.hpp

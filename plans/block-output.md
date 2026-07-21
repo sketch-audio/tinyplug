@@ -205,7 +205,7 @@ params/meters.
 
 ## 5. Format wrapper integration
 
-### 5.1 In-process formats (CLAP, AUv2, AUv3, AAX)
+### 5.1 In-process formats (CLAP, AUv2, AUv3)
 
 The framework's own channels, used directly.
 
@@ -247,11 +247,54 @@ lock-free, crosses the COM boundary by value:
 — processor stages blocks into a lock-free queue, a deferred callback ships them.
 Lossy under load, acceptable for visualization.
 
-### 5.3 Compatibility matrix
+### 5.3 AAX (two-component) — Direct Data
+
+> Added after [aax-two-component.md](aax-two-component.md) landed. AAX used to belong
+> in §5.1; it no longer does. The algorithm and the data model are separate components
+> and share no memory, so a `Block_channel` cannot straddle them — AAX now behaves
+> like VST3: a **transported** channel, not a shared one.
+
+This is the format where blocks fit *best*, because the AAX SDK names the use case
+outright — the Direct Data interface exists so that "the result of computing the audio
+spectrum or pitch data in the algorithm can be delivered to the host to display
+on-screen", and its API (`ReadPortDirect(field, offset, size, out)`) is a **memcpy of a
+byte range**, i.e. value semantics by construction.
+
+The channel exists twice, producer side and consumer side:
+
+| Piece | Where it lives |
+|---|---|
+| `Dsp_context::blocks.write_buffer()` target | a staging buffer inside `Alg_state` (algorithm private data) |
+| `publish()` | bumps a per-block `seq` (snapshot) or pushes an entry onto the existing `Return_ring` (stream) |
+| transport | `ReadPortDirect` on the Direct Data timer, ~33 Hz |
+| consumer-side `Block_channel` | on the data model, beside `_meter_queue` |
+| `Ui_receiver::read_block` | reads the data-model-side channel — **unchanged** from §4 |
+
+Concretely, on top of what the wrapper already has
+([wrappers/aax/source/](../wrappers/aax/source/)):
+
+- **`snapshot` policy** does not need the ring. Put a `[seq][floats…]` double-buffer
+  per block in a private data field; the timer reads `seq`, reads the payload, re-reads
+  `seq`, and retries on mismatch (a seqlock). Cheaper than framing every block.
+- **`stream` policy** reuses `Byte_ring` with a new `Ring_kind::Block_chunk`, and
+  `Direct_data::_drain_returns` forwards it through `custom_data_return` exactly like
+  meters. `Return_ring`'s capacity formula in
+  [alg_context.hpp](../wrappers/aax/source/alg_context.hpp) needs a block term added.
+- **Sizing.** A 1024-bin spectrum is 4 KB; at 33 Hz that is ~135 KB/s of memcpy per
+  instance — negligible on Native, and inside HDX's ~10 MB/s guidance if it ever
+  matters.
+
+**Cost:** the Direct Data wakeup is ~30 ms and explicitly not guaranteed to be regular,
+so a `stream` oscilloscope arrives in bursts of 1–2 blocks rather than smoothly, and
+33 fps is the ceiling for `snapshot`. Acceptable for visualization, and consistent with
+this plan's existing tolerance for dropped blocks — but it is a real difference from
+CLAP/AU, where the editor reads at frame rate.
+
+### 5.4 Compatibility matrix
 
 | Feature | VST3 | CLAP | AUv2 | AUv3 | AAX |
 |---|---|---|---|---|---|
-| Blocks (proc → editor) | `IDataExchangeHandler` / `IMessage` fallback | `Block_channel` | `Block_channel` | `Block_channel` | `Block_channel` |
+| Blocks (proc → editor) | `IDataExchangeHandler` / `IMessage` fallback | `Block_channel` | `Block_channel` | `Block_channel` | Direct Data (`ReadPortDirect`), ~33 Hz |
 
 ---
 
@@ -264,8 +307,9 @@ Lossy under load, acceptable for visualization.
    (`tiny_utils.h`); populate in `run_frame()` (`tiny_view.h`).
 4. Default empty `block_model.h` for existing plug-ins; confirm they compile
    unchanged.
-5. CLAP wrapper (reference), then AUv2 / AUv3 / AAX (same pattern).
+5. CLAP wrapper (reference), then AUv2 / AUv3 (same pattern).
 6. VST3 `IDataExchangeHandler` + `IMessage` fallback.
+6b. AAX Direct Data (§5.3) — closer in shape to the VST3 step than to the CLAP one.
 7. Demo: spectrum analyzer (snapshot) + oscilloscope (stream).
 
 ---
@@ -306,5 +350,8 @@ Lossy under load, acceptable for visualization.
 | `formats/clap/source/clap_plugin.h` | Channels + wiring (reference) |
 | `formats/vst3/source/vst3_processor.h` | `IDataExchangeHandler` |
 | `formats/vst3/source/vst3_controller.h` | `IDataExchangeReceiver` |
-| `formats/auv2|auv3|aax/...` | Channels + wiring |
+| `wrappers/auv2|auv3/...` | Channels + wiring |
+| `wrappers/aax/source/alg_context.hpp` | Block staging in `Alg_state`; `Ring_kind::Block_chunk`; ring capacity term |
+| `wrappers/aax/source/direct_data.cpp` | Forward block entries through `custom_data_return` |
+| `wrappers/aax/source/parameters.hpp/.cpp` | Consumer-side `Block_channel`s beside `_meter_queue` |
 | `plugins/*/source/models/block_model.h` | **New** empty default per plug-in |

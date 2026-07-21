@@ -52,15 +52,30 @@ state stays in the editor `State_map`. The buffer system is audio-buffer-only.
    Pointer-swap is legal **only intra-processor** (an off-thread-prepared buffer
    handed to the audio thread, same address space).
 
-2. **The processor owns the canonical source bytes.** Editor-origin acquisition
-   is just "the editor hands the processor a `Buffer_source`"; capture is "the
-   processor makes a source itself." Once the processor owns the source,
+2. **The state-owning component owns the canonical source bytes.** Editor-origin
+   acquisition is just "the editor hands the processor a `Buffer_source`"; capture is
+   "the processor makes a source itself." Once that component owns the source,
    **persistence, overview generation, and re-install are all origin-agnostic and
-   all processor-local.** This is the load-bearing rule: it dissolves the
+   all local to it.** This is the load-bearing rule: it dissolves the
    "editor loads it / processor renders it / who serializes it?" tension and makes
    **VST3 easy** — the canonical bytes live where `getState` lives, so nothing
    heavy ever crosses the COM boundary (only a small source on acquire and a small
    overview/status out).
+
+   > **Why "state-owning component" and not "the processor".** In VST3 those are the
+   > same object: `Vst3_processor` owns both `getState` for parameters and `process()`.
+   > The same holds in CLAP, AUv2, AUv3 — and in AAX *until* the two-component wrapper
+   > ([aax-two-component.md](aax-two-component.md)), where state lives on the data model
+   > and audio runs in the algorithm. Phrasing the rule around state keeps persistence
+   > local in **every** format; what comes apart in AAX is a different leg (install),
+   > handled in "Per-format persistence → AAX" below.
+   >
+   > | Format | Owns state | Runs RT audio | Same component? |
+   > |---|---|---|---|
+   > | VST3 | `Vst3_processor` | `Vst3_processor` | yes |
+   > | CLAP | `Clap_plugin` | `Clap_plugin` | yes |
+   > | AUv2 / AUv3 | `Effect` / `Auv3_AUAudioUnit` | same | yes |
+   > | **AAX (two-component)** | **data model** | **algorithm** | **no** |
 
 3. **Empty by default, zero overhead.** `num_buffers == 0` ⇒ every
    `if constexpr (num_buffers > 0)` branch compiles away; no format/behaviour
@@ -383,6 +398,53 @@ false ⇒ no buffers. Four bytes that don't match the magic ⇒ warn + skip.
   hits this. This is strictly simpler than the asset-store doc's "store mirrored
   across COM."
 
+#### AAX (two-component) — the one place install ≠ persist
+
+> Added after [aax-two-component.md](aax-two-component.md) landed. The persistence
+> scheme below is **unchanged** by the two-component move — this note covers the leg
+> that *is* affected.
+
+Under principle 2 as reworded, the canonical `source` lives on the **data model**,
+which is where `GetChunk`/`SetChunk` live. So three of the four legs are free, and one
+is not:
+
+| Leg | Crosses the component boundary? | Notes |
+|---|---|---|
+| **Persist** (`source` ↔ chunk) | no | source sits beside `GetChunk`. The `'tbuf'` scheme below is untouched. |
+| **Acquire** (editor → source) | no | editor and data model are the same component — *simpler* than VST3, which needs `IMessage` here. |
+| **Capture** (looper writes live audio) | yes | the capture scratch must live in `Alg_state`, so `Buffer_spec::max_frames × 2` becomes part of the private-data block size; committed bytes travel back over Direct Data for `encode_buffer`. Bounded, so this is fine. |
+| **Install** (`shared_ptr<const Prepared>` → audio thread) | **yes** | `Prepared` is unbounded by design and a pointer cannot cross a component boundary in principle. |
+
+**Resolution for install: a compile-time-gated co-location constraint.** Buffer-carrying
+plug-ins declare `AAX_eProperty_Constraint_Location = AAX_eConstraintLocationMask_DataModel`
+in [describe.cpp](../wrappers/aax/source/describe.cpp), which guarantees the algorithm
+runs in the data model's address space; `Set_buffer` then travels as a pointer payload
+on an unbuffered port:
+
+```cpp
+if constexpr (Buffer_infos<models::Buffers>::num_buffers > 0) {
+    properties->AddProperty(AAX_eProperty_Constraint_Location,
+                            AAX_eConstraintLocationMask_DataModel);
+}
+```
+
+- Zero-buffer plug-ins declare **no** constraint and stay strictly decoupled — which is
+  the state the wrapper ships in today.
+- The cost is that a buffer-carrying plug-in forfeits HDX/TI. A sampler forfeits it
+  anyway.
+- This is *the* named exception to AAX's value-semantics rule, confined to one payload
+  type on one port, directly analogous to VST3's documented `Outbound_message_shuttle`
+  exception to `kDistributable`.
+
+Two alternatives were evaluated and rejected. A **bounded private-data mirror**
+(`AddPrivateData(max_buffer_bytes)` + `WritePortDirect`) is genuinely distributable but
+needs a compile-time maximum and pushes megabytes through a 30 ms blocking timer — fine
+for a wavetable or short IR, hopeless for a sampler. **AAX Hybrid** names our use case
+verbatim (a second render callback with "direct access to the data model memory ... e.g.
+for direct access to impulse responses") but imposes a fixed round-trip latency,
+delivers parameter updates ~21 ms early, and is not supported by all AAX hosts; it is
+built for splitting a reverb tail off to the host, not for relocating a whole sampler.
+
 #### AAX — a **second raw chunk** (`'tbuf'`), parser bypassed
 
 AAX is the one format that **cannot** append to its existing state chunk, because the
@@ -470,8 +532,9 @@ buffer codepath is `if constexpr`-compiled away:
 Every path is additive; nothing reorders or rewrites existing bytes:
 
 1. **Zero-buffer plug-ins are untouched.** `num_buffers == 0` removes every buffer
-   branch at compile time, including AAX `GetNumberOfChunks` staying `1`. Existing
-   demos and shipped plug-ins are byte-identical.
+   branch at compile time, including AAX `GetNumberOfChunks` staying `1` and AAX
+   declaring no location constraint. Existing demos and shipped plug-ins are
+   byte-identical.
 2. **Old session → new build.** No `'bufs'` magic / no `'tbuf'` chunk / no
    `tinyplug-buffer-*` keys ⇒ slots stay empty, params + editor restore normally.
 3. **New session → old build.** The host preserves the extra `'tbuf'` chunk /

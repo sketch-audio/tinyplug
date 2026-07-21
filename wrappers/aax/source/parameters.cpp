@@ -21,7 +21,7 @@ namespace tiny::aax {
 AAX_Result Parameters::EffectInit()
 {
     using namespace params;
-    
+
     const auto& params = User_params::param_specs(Param_order::Presentation);
     const auto aax_ids = tree_to_aax_ids(User_params::param_tree());
     assert(params.size() == aax_ids.size() && "AAX IDs must have same size as param specs.");
@@ -45,9 +45,6 @@ AAX_Result Parameters::EffectInit()
                 }
                 aax_param->SetNumberOfSteps(2);
                 aax_param->SetType(AAX_eParameterType_Discrete);
-                if (aax_param->Automatable()) {
-                    AddSynchronizedParameter(*aax_param);
-                }
                 mParameterManager.AddParameter(aax_param.release());
             },
             [&](const params::Semantics::List& l) {
@@ -72,14 +69,11 @@ AAX_Result Parameters::EffectInit()
                 if (!param.short_name.empty()) {
                     aax_param->AddShortenedName(std::string{param.short_name}.c_str());
                 }
-                // AAX validator reports errors for parameters with more than 2048 steps. 
+                // AAX validator reports errors for parameters with more than 2048 steps.
                 // See: https://dev.avid.com/MP_DeveloperForumSupport?filterId=a9T310000004FCnEAM#!/feedtype=SINGLE_QUESTION_DETAIL&dc=Developer_Community_Q_A&criteria=ALLQUESTIONS&id=9065A000000oScuQAE
                 const auto steps = std::min(num_items, 2048);
                 aax_param->SetNumberOfSteps(static_cast<uint32_t>(steps));
                 aax_param->SetType(AAX_eParameterType_Discrete);
-                if (aax_param->Automatable()) {
-                    AddSynchronizedParameter(*aax_param);
-                }
                 mParameterManager.AddParameter(aax_param.release());
             },
             [&](const params::Semantics::Int& i) {
@@ -97,15 +91,12 @@ AAX_Result Parameters::EffectInit()
                 if (!param.short_name.empty()) {
                     aax_param->AddShortenedName(std::string{param.short_name}.c_str());
                 }
-                // AAX validator reports errors for parameters with more than 2048 steps. 
+                // AAX validator reports errors for parameters with more than 2048 steps.
                 // See: https://dev.avid.com/MP_DeveloperForumSupport?filterId=a9T310000004FCnEAM#!/feedtype=SINGLE_QUESTION_DETAIL&dc=Developer_Community_Q_A&criteria=ALLQUESTIONS&id=9065A000000oScuQAE
                 const auto steps = std::min(i.max_val - i.min_val + 1, 2048);
                 assert(steps >= 0 && "params::Semantics::Int must have max_val >= min_val."); // Otherwise we're gonna have an issue with the cast.
                 aax_param->SetNumberOfSteps(static_cast<uint32_t>(steps));
                 aax_param->SetType(AAX_eParameterType_Discrete);
-                if (aax_param->Automatable()) {
-                    AddSynchronizedParameter(*aax_param);
-                }
                 mParameterManager.AddParameter(aax_param.release());
             },
             [&](const params::Semantics::Fixed& f) {
@@ -124,16 +115,13 @@ AAX_Result Parameters::EffectInit()
                 if (!param.short_name.empty()) {
                     aax_param->AddShortenedName(std::string{param.short_name}.c_str());
                 }
-                // AAX validator reports errors for parameters with more than 2048 steps. 
+                // AAX validator reports errors for parameters with more than 2048 steps.
                 // See: https://dev.avid.com/MP_DeveloperForumSupport?filterId=a9T310000004FCnEAM#!/feedtype=SINGLE_QUESTION_DETAIL&dc=Developer_Community_Q_A&criteria=ALLQUESTIONS&id=9065A000000oScuQAE
                 const auto steps_raw = (f.max_val - f.min_val) / f.step_size + 1;
                 const auto steps = std::min(steps_raw, 2048.);
                 assert(steps >= 0 && "params::Semantics::Fixed must have max_val >= min_val."); // Otherwise we're gonna have an issue with the cast.
                 aax_param->SetNumberOfSteps(static_cast<uint32_t>(steps)); // Step count here is number of values.
                 aax_param->SetType(AAX_eParameterType_Continuous);
-                if (aax_param->Automatable()) {
-                    AddSynchronizedParameter(*aax_param);
-                }
                 mParameterManager.AddParameter(aax_param.release());
             },
             [&](const params::Semantics::Real& r) {
@@ -154,28 +142,14 @@ AAX_Result Parameters::EffectInit()
                 }
                 aax_param->SetNumberOfSteps(2048); // Most steps that will pass validation.
                 aax_param->SetType(AAX_eParameterType_Continuous);
-                if (aax_param->Automatable()) {
-                    AddSynchronizedParameter(*aax_param);
-                }
                 mParameterManager.AddParameter(aax_param.release());
             },
         }, param.semantics);
     }
 
-    auto sample_rate = AAX_CSampleRate{};
-    Controller()->GetSampleRate(&sample_rate);
-    _processor->reset(sample_rate);
-    const auto sl = static_cast<int32_t>(_processor->latency_samps());
-    Controller()->SetSignalLatency(sl); // Nothing pending, assume success.
-
-    _bypass.reset(sample_rate);
-    _bypass.set_latency(static_cast<size_t>(sl));
-
-#if TINY_HAS_WORKER
-    _worker_runner.start(sample_rate);
-#endif
-
-    // Pro Tool Bypass
+    // Pro Tools master bypass. It packs into the coefficient segments as a
+    // pseudo-parameter at `bypass_address`, so the algorithm receives it exactly like
+    // any other value and Host_bypass lives beside the kernel.
     const auto bypass_id = AAX_CString{cDefaultMasterBypassID};
     auto bypass_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<bool>(
         bypass_id.CString(),
@@ -188,8 +162,223 @@ AAX_Result Parameters::EffectInit()
     bypass_param->AddShortenedName("Bypass");
     bypass_param->SetNumberOfSteps(2);
     bypass_param->SetType(AAX_eParameterType_Discrete);
-    AddSynchronizedParameter(*bypass_param);
     mParameterManager.AddParameter(bypass_param.release());
+
+    auto sample_rate = AAX_CSampleRate{};
+    Controller()->GetSampleRate(&sample_rate);
+
+    // The config packet is delivered before the algorithm's instance-init callback
+    // runs, which is what lets the kernel's allocating reset() happen there rather
+    // than on the real-time thread.
+    _config.sample_rate = static_cast<double>(sample_rate);
+    _config.max_frames = 0;
+    _config.pad = 0;
+    _config_dirty = true;
+
+    // Everything is dirty at startup so the first GenerateCoefficients hands the
+    // algorithm a complete initial state.
+    _segment_dirty.fill(true);
+    _runtime_dirty.store(true, std::memory_order_release);
+
+#if TINY_HAS_WORKER
+    _worker_runner.start(sample_rate);
+#endif
+
+    return AAX_SUCCESS;
+}
+
+// MARK: - coefficient packets
+
+auto Parameters::_mark_dirty(uint32_t address) -> void
+{
+    const auto segment = segment_of(address);
+    if (segment < num_segments) {
+        _segment_dirty[segment] = true;
+    }
+}
+
+auto Parameters::_plain_value(uint32_t address) const -> double
+{
+    const auto* aax_param = address == bypass_address
+        ? mParameterManager.GetParameterByID(cDefaultMasterBypassID)
+        : get_aax_param(&mParameterManager, address);
+
+    if (aax_param == nullptr) return 0.;
+
+    // Only the getter matching the parameter's own storage type returns true, so this
+    // reads the exact stored value with no round trip through normalized space. Our
+    // taper delegates make the stored value plain space for every semantic.
+    auto d_value = double{};
+    auto i_value = int32_t{};
+    auto b_value = bool{};
+    if (aax_param->GetValueAsDouble(&d_value)) return d_value;
+    if (aax_param->GetValueAsInt32(&i_value)) return static_cast<double>(i_value);
+    if (aax_param->GetValueAsBool(&b_value)) return b_value ? 1. : 0.;
+
+    assert(false && "Unexpected parameter value type.");
+    return 0.;
+}
+
+auto Parameters::_fill_segment(size_t segment) -> void
+{
+    auto& out = _segments[segment];
+    out.seq = _seq++;
+
+    const auto base = segment * coefs_per_segment;
+    for (auto i = size_t{}; i < coefs_per_segment; ++i) {
+        const auto address = base + i;
+        out.value[i] = address < num_coefs ? _plain_value(static_cast<uint32_t>(address)) : 0.;
+    }
+}
+
+auto Parameters::_post_segment(size_t segment) -> void
+{
+    _fill_segment(segment);
+    Controller()->PostPacket(coef_field(segment), &_segments[segment], sizeof(Coef_segment));
+}
+
+auto Parameters::_post_config() -> void
+{
+    Controller()->PostPacket(field_config, &_config, sizeof(_config));
+}
+
+auto Parameters::_post_runtime() -> void
+{
+    Controller()->PostPacket(field_runtime, &_runtime, sizeof(_runtime));
+}
+
+AAX_Result Parameters::UpdateParameterNormalizedValue(AAX_CParamID iParamID, double aValue, AAX_EUpdateSource inSource)
+{
+    const auto result = Super::UpdateParameterNormalizedValue(iParamID, aValue, inSource);
+    if (result != AAX_SUCCESS) return result;
+
+    if (const auto tiny_id = aax_id_to_tiny(iParamID); tiny_id && *tiny_id < num_params) {
+        _mark_dirty(*tiny_id);
+    }
+    else if (std::strcmp(iParamID, cDefaultMasterBypassID) == 0) {
+        _mark_dirty(bypass_address);
+    }
+
+    return AAX_SUCCESS;
+}
+
+AAX_Result Parameters::GenerateCoefficients()
+{
+    // The host timestamps every packet posted inside this method with the automation
+    // breakpoint's timeline position, then splits render buffers (down to 32 samples
+    // on Native) so the algorithm sees it at the right sample. That is the whole
+    // reason to be decoupled — don't post from anywhere else.
+    if (_config_dirty) {
+        _post_config();
+        _config_dirty = false;
+    }
+
+    if (_runtime_dirty.exchange(false, std::memory_order_acq_rel)) {
+        _post_runtime();
+    }
+
+    for (auto segment = size_t{}; segment < num_segments; ++segment) {
+        if (!_segment_dirty[segment]) continue;
+        _segment_dirty[segment] = false;
+        _post_segment(segment);
+    }
+
+    return AAX_SUCCESS;
+}
+
+AAX_Result Parameters::TimerWakeup()
+{
+    // Notifications (offline mode, transport state, accepted latency) change the
+    // runtime packet without touching a parameter, so nothing would otherwise call
+    // GenerateCoefficients. Posting from here is only a problem for unbuffered ports
+    // (PTSW-187216); the runtime port is buffered, which is the documented workaround.
+    if (_runtime_dirty.exchange(false, std::memory_order_acq_rel)) {
+        _post_runtime();
+    }
+
+    return Super::TimerWakeup();
+}
+
+// MARK: - custom data (Direct Data bridge)
+
+AAX_Result Parameters::SetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSize, const void* iData)
+{
+    if (iDataBlockID != custom_data_return || iData == nullptr) {
+        return Super::SetCustomData(iDataBlockID, inDataSize, iData);
+    }
+    if (inDataSize < sizeof(Return_block)) return AAX_ERROR_INVALID_ARGUMENT;
+
+    auto block = Return_block{};
+    std::memcpy(&block, iData, sizeof(block));
+
+    const auto* payload = static_cast<const unsigned char*>(iData) + sizeof(block);
+    if (inDataSize - sizeof(block) < block.payload_bytes) return AAX_ERROR_INVALID_ARGUMENT;
+
+    switch (static_cast<Ring_kind>(block.kind)) {
+        case Ring_kind::Meter: {
+            if (block.payload_bytes != sizeof(Ring_meter)) break;
+            auto meter = Ring_meter{};
+            std::memcpy(&meter, payload, sizeof(meter));
+            if (meter.address < num_meters) {
+                _last_meters[meter.address] = meter.value;
+                _meter_queue.push(Set_meter{.address = meter.address, .value = meter.value});
+            }
+            break;
+        }
+        case Ring_kind::Propose_latency: {
+            if (block.payload_bytes != sizeof(Ring_latency)) break;
+            auto latency = Ring_latency{};
+            std::memcpy(&latency, payload, sizeof(latency));
+            // In AAX the host owns latency: propose, then read back what it accepted
+            // when the notification arrives.
+            Controller()->SetSignalLatency(static_cast<int32_t>(latency.samples));
+            _pending_latency.store(true, std::memory_order_release);
+            break;
+        }
+        case Ring_kind::Worker_from_processor: {
+#if TINY_HAS_WORKER
+            using From_processor = typename User_worker::Model::From_processor;
+            if constexpr (!std::is_same_v<From_processor, std::monostate>) {
+                if (block.payload_bytes != sizeof(From_processor)) break;
+                auto msg = From_processor{};
+                std::memcpy(&msg, payload, sizeof(msg));
+                [[maybe_unused]] const auto pushed = _worker_from_proc.push(msg);
+                assert(pushed && "Push to worker queue failed! Increase queue size.");
+            }
+#endif
+            break;
+        }
+        case Ring_kind::Worker_to_processor:
+        default:
+            break;
+    }
+
+    return AAX_SUCCESS;
+}
+
+AAX_Result Parameters::GetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSize, void* oData, uint32_t* oDataWritten) const
+{
+    if (iDataBlockID != custom_data_worker_reply) {
+        return Super::GetCustomData(iDataBlockID, inDataSize, oData, oDataWritten);
+    }
+
+    if (oDataWritten != nullptr) *oDataWritten = 0;
+
+#if TINY_HAS_WORKER
+    using To_processor = typename User_worker::Model::To_processor;
+    if constexpr (!std::is_same_v<To_processor, std::monostate>) {
+        if (oData == nullptr || inDataSize < sizeof(To_processor)) return AAX_ERROR_INVALID_ARGUMENT;
+
+        auto reply = To_processor{};
+        if (!_worker_to_proc.pop(reply)) return AAX_SUCCESS; // Nothing pending.
+
+        std::memcpy(oData, &reply, sizeof(reply));
+        if (oDataWritten != nullptr) *oDataWritten = static_cast<uint32_t>(sizeof(reply));
+    }
+#else
+    (void)inDataSize;
+    (void)oData;
+#endif
 
     return AAX_SUCCESS;
 }
@@ -201,11 +390,12 @@ AAX_Result Parameters::NotificationReceived(AAX_CTypeID inNotificationType, cons
     switch (inNotificationType) {
         case AAX_eNotificationEvent_SignalLatencyChanged: {
             // Check that there is a pending latency request.
-            const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
-            if (pending_latency) {
+            if (_pending_latency.exchange(false, std::memory_order_acq_rel)) {
                 auto accepted_latency = int32_t{}; // In AAX, the controller owns the plug-in latency.
                 if (Controller()->GetSignalLatency(&accepted_latency) == AAX_SUCCESS) {
-                    _accepted_latency.store(accepted_latency, std::memory_order_release);
+                    _runtime.accepted_latency = static_cast<uint32_t>(accepted_latency);
+                    _runtime.latency_seq += 1;
+                    _runtime_dirty.store(true, std::memory_order_release);
                 }
             }
             break;
@@ -213,23 +403,27 @@ AAX_Result Parameters::NotificationReceived(AAX_CTypeID inNotificationType, cons
         case AAX_eNotificationEvent_DelayCompensationState: {
             if (const auto* data = inNotificationData) {
                 const auto info = static_cast<const int32_t*>(data);
-                _delay_comp.store(*info > 0, std::memory_order_relaxed);
+                _runtime.delay_comp = *info > 0 ? uint8_t{1} : uint8_t{0};
+                _runtime_dirty.store(true, std::memory_order_release);
             }
             break;
         }
         case AAX_eNotificationEvent_TransportStateChanged: {
             if (const auto* data = inNotificationData) {
                 const auto* info = static_cast<const AAX_TransportStateInfo_V1*>(data);
-                _recording.store(info->mIsRecording, std::memory_order_relaxed);
+                _runtime.recording = info->mIsRecording ? uint8_t{1} : uint8_t{0};
+                _runtime_dirty.store(true, std::memory_order_release);
             }
             break;
         }
         case AAX_eNotificationEvent_EnteringOfflineMode: {
-            _offline.store(true, std::memory_order_relaxed);
+            _runtime.offline = 1;
+            _runtime_dirty.store(true, std::memory_order_release);
             break;
         }
         case AAX_eNotificationEvent_ExitingOfflineMode: {
-            _offline.store(false, std::memory_order_relaxed);
+            _runtime.offline = 0;
+            _runtime_dirty.store(true, std::memory_order_release);
             break;
         }
         default: break;
@@ -252,7 +446,7 @@ AAX_Result Parameters::GetChunkIDFromIndex(int32_t iIndex, AAX_CTypeID* oChunkID
 		*oChunkID = AAX_CTypeID(0);
 		return AAX_ERROR_INVALID_CHUNK_INDEX;
 	}
-	
+
 	*oChunkID = State_rules::Aax::chunk_id;
     return AAX_SUCCESS;
 }
@@ -263,14 +457,14 @@ AAX_Result Parameters::GetChunkSize(AAX_CTypeID iChunkID, uint32_t* oSize) const
 		*oSize = 0;
 		return AAX_ERROR_INVALID_CHUNK_ID;
 	}
-	
+
     this->_build_chunk();
     mChunkSize = mChunkParser.GetChunkDataSize();
-	
+
 	if (mChunkSize < 0) {
 		return AAX_ERROR_INCORRECT_CHUNK_SIZE;
 	}
-	
+
 	*oSize = static_cast<uint32_t>(mChunkSize);
 	return AAX_SUCCESS;
 }
@@ -281,7 +475,7 @@ AAX_Result Parameters::GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChunk) 
     if (iChunkID != State_rules::Aax::chunk_id) {
         return AAX_ERROR_INVALID_CHUNK_ID;
     }
-	
+
     this->_build_chunk();
 
     // Verify that the chunk data size hasn't changed since the last GetChunkSize call.
@@ -290,7 +484,7 @@ AAX_Result Parameters::GetChunk(AAX_CTypeID iChunkID, AAX_SPlugInChunk* oChunk) 
 	if (mChunkSize != currentChunkSize || mChunkSize == 0) {
 		return AAX_ERROR_INCORRECT_CHUNK_SIZE;
     }
-    
+
     // Set the version on the chunk data structure. The other manID, prodID, PlugID, and fSize are populated already, coming from AAXCollection.
 	oChunk->fVersion = mChunkParser.GetChunkVersion();
 	memset(oChunk->fName, 0, 32); // Just in case, lets make sure unused chars are null.
@@ -466,13 +660,13 @@ AAX_Result Parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iC
 
     _editor->load_state(state_map);
 
-    // Try to load the bypass state.
+    // Bypass is a real AAX parameter now, so restoring it goes through the normal
+    // parameter path and reaches the algorithm as a coefficient like anything else.
     auto bypassed = float{};
     if (mChunkParser.FindFloat(State_rules::Aax::host_bypass, &bypassed)) {
-        _bypass.set_bypassed(bypassed >= 0.5f);
-    }
-    else {
-        //_bypass.set_bypassed(false);
+        if (auto* bypass_param = mParameterManager.GetParameterByID(cDefaultMasterBypassID)) {
+            bypass_param->SetValueWithBool(bypassed >= 0.5f);
+        }
     }
 
     // Notify the editor of the host load synchronously (works editor open or closed),
@@ -502,7 +696,7 @@ AAX_Result Parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_C
     if (iChunkP->fChunkID != State_rules::Aax::chunk_id) {
 		// If we don't know what the chunk is then we don't want to be turning on the compare light unnecessarily.
 		*oIsEqual = true;
-		return AAX_SUCCESS; 
+		return AAX_SUCCESS;
     }
 
     *oIsEqual = false;
@@ -512,7 +706,7 @@ AAX_Result Parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_C
     auto num_chunk_params = int32_t{};
     const auto found_num_params = mChunkParser.FindInt32(State_rules::Aax::num_params, &num_chunk_params);
 
-    if (!found_num_params || (found_num_params && num_params != num_chunk_params))
+    if (!found_num_params || (found_num_params && num_params != static_cast<uint32_t>(num_chunk_params)))
         return AAX_SUCCESS;
 
     // Compare the parameter values (now we know `num_chunk_params` and `num_params` are equal).
@@ -562,184 +756,6 @@ AAX_Result Parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_C
     return AAX_SUCCESS;
 }
 
-// MARK: - RenderAudio
-
-void Parameters::RenderAudio(AAX_SInstrumentRenderInfo* ioRenderInfo, int32_t channelCount, const TParamValPair* inSynchronizedParamValues[], int32_t inNumSynchronizedParamValues)
-{
-    using namespace params;
-
-    this->_drain_worker_to_processor();
-
-    // Accept latency.
-    const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
-    if (accepted_latency) {
-        const auto new_latency = static_cast<uint32_t>(*accepted_latency);
-        _processor->handle_event(Accepted_latency{new_latency});
-        _bypass.set_latency(new_latency);
-        assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
-    }
-
-    // Handle synchronized events.
-    for (auto i = decltype(inNumSynchronizedParamValues){}; i < inNumSynchronizedParamValues; ++i) {
-        const auto* sync_value = inSynchronizedParamValues[i];
-        const auto aax_id = sync_value->first;
-        const auto aax_param = sync_value->second;
-
-        if (std::strcmp(aax_id, cDefaultMasterBypassID) == 0) {
-            // Handle bypass immediately
-            auto b_value = bool{};
-            if (aax_param->GetValueAsBool(&b_value)) {
-                _bypass.set_bypassed(b_value);
-            }
-            continue;
-        }
-
-        if (const auto tiny_id = aax_id_to_tiny(aax_id); *tiny_id < num_params) {
-            // ...
-            auto d_value = double{};
-            auto i_value = int32_t{};
-            auto b_value = bool{};
-            if (aax_param->GetValueAsDouble(&d_value)) {
-                _processor->handle_event(Set_param{.address = *tiny_id, .value = d_value});
-            }
-            else if (aax_param->GetValueAsInt32(&i_value)) {
-                d_value = static_cast<double>(i_value);
-                _processor->handle_event(Set_param{.address = *tiny_id, .value = d_value});
-            }
-            else if (aax_param->GetValueAsBool(&b_value)) {
-                d_value = b_value ? 1 : 0;
-                _processor->handle_event(Set_param{.address = *tiny_id, .value = d_value});
-            }
-        }
-    }
-
-    // Non-synchronized events come through here.
-    auto action = User_action{};
-    while (_to_processor.pop(action)) {
-        std::visit(Inline_visitor{
-            [&](const Set_param& p) {
-                const auto param = User_params::param_spec(p.address);
-                const auto plain_value = Value_helper::knob_to_plain(p.value, param.semantics);
-                _processor->handle_event(Set_param{.address = p.address, .value = plain_value});
-            },
-            [](const auto&) {}
-        }, action);
-    }
-
-    // Assign buffer ptrs.
-    for (auto i = 0; i < channelCount; ++i) {
-        const auto idx = static_cast<size_t>(i);
-        _ibuffers[idx] = ioRenderInfo->mAudioInputs[idx];
-    }
-    for (auto i = 0; i < channelCount; ++i) {
-        const auto idx = static_cast<size_t>(i);
-        _obuffers[idx] = ioRenderInfo->mAudioOutputs[idx];
-    }
-    if constexpr (Plug_info::wants_sidechain) {
-        if (const auto sc_idx = ioRenderInfo->mSidechainIndex; sc_idx != nullptr) {
-            for (size_t i = 0; i < max_schannels; ++i) {
-                const auto sc = static_cast<size_t>(*sc_idx);
-                _sbuffers[i] = ioRenderInfo->mAudioInputs[sc + i];
-            }
-        }
-    }
-
-    // Read host data.
-    struct {
-        double tempo{};
-        int32_t time_sig_numer{};
-        int32_t time_sig_denom{};
-        bool is_playing{};
-        int64_t tick_pos{};
-        bool is_looping{};
-        int64_t loop_start_tick{};
-        int64_t loop_end_tick{};
-        int64_t sample_pos{};
-        uint32_t ticks_per_beat{};
-        bool is_recording{};
-    } host_data{};
-
-    auto* transport = ioRenderInfo->mTransportNode->GetTransport();
-
-    // TODO: - Optionals 
-    [[maybe_unused]] auto result = AAX_Result{AAX_SUCCESS};
-    result = transport->GetCurrentTempo(&host_data.tempo);
-    result = transport->GetCurrentMeter(&host_data.time_sig_numer, &host_data.time_sig_denom);
-    result = transport->IsTransportPlaying(&host_data.is_playing);
-    result = transport->GetCurrentTickPosition(&host_data.tick_pos);
-    result = transport->GetCurrentLoopPosition(&host_data.is_looping, &host_data.loop_start_tick, &host_data.loop_end_tick);
-    result = transport->GetCurrentNativeSampleLocation(&host_data.sample_pos);
-    result = transport->GetCurrentTicksPerBeat(&host_data.ticks_per_beat);
-
-    host_data.is_recording = _recording.load(std::memory_order_relaxed); // From notifications.
-
-    const auto sample_pos = host_data.sample_pos;
-    const auto beat_pos = static_cast<double>(host_data.tick_pos) / host_data.ticks_per_beat;
-    const auto cycle_start = static_cast<double>(host_data.loop_start_tick) / host_data.ticks_per_beat;
-    const auto cycle_end = static_cast<double>(host_data.loop_end_tick) / host_data.ticks_per_beat;
-    const auto tempo = host_data.tempo;
-    const auto ts_numer = host_data.time_sig_numer;
-    const auto ts_denom = host_data.time_sig_denom;
-
-    const auto num_frames = static_cast<size_t>(*ioRenderInfo->mNumSamples);
-
-    // Process kernel.
-    auto context = Dsp_context{
-        .musical_context = {
-            .sample_pos = sample_pos,
-            .beat_pos = beat_pos,
-            .cycle_start = cycle_start,
-            .cycle_end = cycle_end,
-            .tempo_ideal = tempo,
-            .time_sig = {ts_numer, ts_denom},
-            .transport_state = {
-                .moving = host_data.is_playing,
-                .cycling = host_data.is_looping,
-                .recording = host_data.is_recording
-            }
-        },
-        .ibuffers = {_ibuffers.begin(), static_cast<size_t>(channelCount)},
-        .sbuffers = {_sbuffers.begin(), Plug_info::wants_sidechain ? max_schannels : 0}, // Always mono sidechain.
-        .obuffers = {_obuffers.begin(), static_cast<size_t>(channelCount)},
-        .num_frames = num_frames,
-        .meters = _meters
-    };
-    context.render_mode = _offline.load(std::memory_order_relaxed)
-        ? Render_mode::Offline
-        : Render_mode::Realtime;
-
-    const auto can_skip = _bypass.can_skip_effect();
-    if (!can_skip) {
-        _processor->process(context);
-    }
-
-    const auto num_channels = static_cast<size_t>(channelCount);
-    _bypass.process({_ibuffers.begin(), num_channels}, {_obuffers.begin(), num_channels}, num_frames);
-
-    // Write exports to meters.
-    for (size_t i = 0; i < num_meters; ++i) {
-        if (context.meters[i] != _last_meters[i]) {
-            // Send an output event.
-            const auto value = context.meters[i];
-            _meter_queue.push(Set_meter{.address = static_cast<uint32_t>(i), .value = value});
-
-            // Cache for next time.
-            _last_meters[i] = value;
-        }
-
-        _meters[i] = 0; // Reset for peak meters.
-    }
-
-    // Has the kernel proposed a latency.
-    const auto delay_comp = _delay_comp.load(std::memory_order_relaxed);
-    if (const auto proposed_latency = context.propose_latency; proposed_latency && delay_comp) {
-        // Notify controller and sit on the pending latency.
-        const auto sl = static_cast<int32_t>(*proposed_latency);
-        Controller()->SetSignalLatency(sl);
-        _pending_latency.store(true, std::memory_order_release);
-    }
-}
-
 // MARK: - private
 
 void Parameters::_build_chunk() const
@@ -757,7 +773,7 @@ void Parameters::_build_chunk() const
     const auto edit_keys = join_keys(edit_state);
 
     // Add the number of parameters and the edit keys.
-    mChunkParser.AddInt32(State_rules::Aax::num_params, num_params);
+    mChunkParser.AddInt32(State_rules::Aax::num_params, static_cast<int32_t>(num_params));
     mChunkParser.AddString(State_rules::Aax::edit_keys, edit_keys.c_str());
 
     // Add the parameter values.
@@ -827,8 +843,11 @@ void Parameters::_build_chunk() const
         }
     }
 
-    // Add the bypass state.
-    const auto bypassed = _bypass.is_bypassed();
+    // Add the bypass state, read back from the parameter that now owns it.
+    auto bypassed = bool{};
+    if (const auto* bypass_param = mParameterManager.GetParameterByID(cDefaultMasterBypassID)) {
+        bypass_param->GetValueAsBool(&bypassed);
+    }
     mChunkParser.AddFloat(State_rules::Aax::host_bypass, bypassed ? 1.f : 0.f);
 
 }

@@ -225,41 +225,83 @@ This has knock-on effects throughout the wrapper:
   wrapper-level traffic should prefix IDs with `tiny/` to avoid host
   collisions.
 
-### AAX (formats/aax/) — vendored monolith
+### AAX (wrappers/aax/) — TWO-COMPONENT, DECOUPLED
 
-- The wrapper extends `AAX_CMonolithicParameters`, but the SDK class has
-  been **vendored** into [aax_monolith.h](formats/aax/source/aax_monolith.h) /
-  [aax_monolith.cpp](formats/aax/source/aax_monolith.cpp) and edited
-  (replaces `kSynchronizedParameterQueueSize` with a per-plug-in compile-
-  time size from `Param_infos<Param_model>::num_params`, removes
-  `kMaxAuxOutputStems` waste). Don't replace this with the SDK version
-  without understanding why.
-- AAX is the only format where the manufacturer can ship both stereo and
-  mono variants of a single plug-in; [aax_describe.cpp](formats/aax/source/aax_describe.cpp)
-  calls `StaticDescribe` twice when `Plug_info::can_process_mono` is true
-  and offsets `plugin_id` by 1 for the mono build.
-- **AAX validator quirk**: parameters with more than 2048 steps fail
-  validation. [aax_parameters.cpp](formats/aax/source/aax_parameters.cpp)
-  clamps to 2048 for every semantic, even `Real`/`Fixed`. There's a
-  forum-link comment by every clamp.
-- The Pro Tools master bypass parameter is registered with the well-known
-  `cDefaultMasterBypassID` and is wired through `_bypass` (`Host_bypass`,
-  [shared/dsp/host_bypass.hpp](shared/dsp/host_bypass.hpp)).
-- **State chunk** uses `State_rules::Aax::chunk_id = 'tiny'` with named
-  string keys (`tinyplug-num-params`, `tinyplug-edit-keys`,
-  `tinyplug-host-bypass`). `Compare_active_chunk` is required for
-  Pro Tools' compare light; current implementation only compares params.
-- AAX parameters are addressed by **string IDs**, not integers; the
-  `tree_to_aax_ids` helper in [aax_adapters.h](formats/aax/source/aax_adapters.h)
-  builds canonical IDs from the param tree, and `aax_id_to_tiny` reverses
-  the map on the audio thread.
+Like VST3, AAX is split — but along a *different* seam. VST3 splits
+processor/controller; AAX splits **algorithm** (a stateless C callback owning
+the DSP) from **data model** (`Parameters`, owning parameters, editor, worker,
+undo, and state chunks). The GUI hangs off the data model. Design rationale and
+the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two-component.md).
+
+- **The algorithm's only window on the world is `Alg_context`**
+  ([alg_context.hpp](wrappers/aax/source/alg_context.hpp)) — a struct of
+  pointers the host repopulates before each call. There is deliberately no
+  route back to the data model object. `AAX_eProperty_Constraint_Location` is
+  **not** set, so co-location is not even assumed.
+- **Arbitrary parameters ride in segmented coefficient packets.**
+  `AAX_FIELD_INDEX` is `offsetof/sizeof(void*)` — a pointer-slot index — so the
+  C array `Coef_segment* coefs[num_segments]` occupies contiguous, arithmetically
+  derivable field indices; Describe and the algorithm agree via `coef_field()`.
+  No code generation. 15 doubles + a `seq` = exactly 128 bytes, the HDX minimum
+  transfer size Avid recommends targeting. **Values are PLAIN space** — the data
+  model converts, off the real-time thread.
+- **The algorithm diffs, the data model doesn't track.** A segment whose `seq`
+  is unchanged is skipped; otherwise its ≤15 values are compared against
+  `Alg_state::shadow` (seeded with NaN, so the first delivery emits everything)
+  and each difference becomes a `Set_param`. Don't replace this with a dirty
+  bitmask — the point is that the data model holds no per-address knowledge of
+  what the algorithm has consumed.
+- **The master bypass is a pseudo-parameter** at `bypass_address == num_params`,
+  packed into the segments like any other value, so `Host_bypass` lives in
+  `Alg_state` next to the kernel. The data model tracks no bypass state.
+- **`Alg_state` (kernel + bypass + shadows) lives in a private data block**, and
+  is placement-new'd by the `AAX_CInstanceInitProc` — **not** by `ResetFieldData`,
+  whose block is copied into the algorithm's memory pool and would require
+  `Alg_state` to be trivially relocatable. The init callback runs *after* packet
+  delivery, so the `Config_packet`'s sample rate is available and the kernel's
+  allocating `reset(sr)` happens off the real-time thread.
+- **Everything flowing outwards uses Direct Data**
+  ([direct_data.cpp](wrappers/aax/source/direct_data.cpp)): meters, worker
+  messages and latency proposals are staged in a `Byte_ring`
+  ([byte_ring.hpp](wrappers/aax/source/byte_ring.hpp)) inside private data and
+  copied across by `ReadPortDirect` — a memcpy of a byte range, the AAX analogue
+  of a VST3 `IMessage`. The wakeup is **~30 ms and not guaranteed regular**, so
+  nothing may assume a rate. The producer never overwrites unread data (a full
+  push drops), which is what lets the remote consumer read without a seqlock retry.
+- Direct Data reaches the data model through `Get/SetCustomData` — the SDK's
+  documented inter-module hook — never by casting `AAX_IEffectParameters*`.
+- **Automation timing is host-managed.** Packets posted inside
+  `GenerateCoefficients()` are timestamped with the breakpoint position, and the
+  host splits render buffers down to 32 samples to land them. **Never post from
+  anywhere else** — except the runtime packet from `TimerWakeup()`, which is safe
+  only because that port is buffered (PTSW-187216).
+- AAX is the only format where the manufacturer can ship both stereo and mono
+  variants of one plug-in; [describe.cpp](wrappers/aax/source/describe.cpp) adds
+  one algorithm component per stem format when `Plug_info::can_process_mono`,
+  offsetting `plugin_id` by 1 for mono.
+- **Every pointer slot in `Alg_context` must be registered** or the host corrupts
+  the context; unused slots get a small `AddPrivateData` filler.
+- **AAX validator quirk**: parameters with more than 2048 steps fail validation.
+  [parameters.cpp](wrappers/aax/source/parameters.cpp) clamps to 2048 for every
+  semantic, even `Real`/`Fixed`. There's a forum-link comment by every clamp.
+- **State chunk** uses `State_rules::Aax::chunk_id = 'tiny'` with named string
+  keys (`tinyplug-num-params`, `tinyplug-edit-keys`, `tinyplug-host-bypass`).
+  Pure data model — untouched by the two-component split. `CompareActiveChunk`
+  is required for Pro Tools' compare light; current implementation only compares
+  params.
+- AAX parameters are addressed by **string IDs**, not integers; `tree_to_aax_ids`
+  in [adapters.hpp](wrappers/aax/source/adapters.hpp) builds canonical IDs from
+  the param tree, and `aax_id_to_tiny` reverses the map.
 - Custom taper delegates (`Real_semanticsTaperDelegate`, `Fixed_semanticsTaperDelegate`,
-  [aax_taper_delegate.h](formats/aax/source/aax_taper_delegate.h)) exist
-  so AAX's normalized-to-plain transform respects our `Knob_adapter`.
-- Latency change protocol: kernel proposes → wrapper notifies host →
-  AAX delivers `AAX_eNotificationEvent_SignalLatencyChanged` → wrapper
-  reads back what the host accepted (the host owns latency in AAX) →
-  `_accepted_latency` propagates to the kernel.
+  [taper_delegate.hpp](wrappers/aax/source/taper_delegate.hpp)) exist so AAX's
+  normalized-to-plain transform respects our `Knob_adapter`.
+- Latency change protocol: kernel proposes → algorithm pushes onto the return
+  ring → Direct Data calls `SetSignalLatency` → AAX delivers
+  `AAX_eNotificationEvent_SignalLatencyChanged` → data model reads back what the
+  host accepted (the host owns latency in AAX) → next `Runtime_packet` carries it
+  with a bumped `latency_seq`, and the algorithm issues `Accepted_latency`.
+  The **sequence, not the value**, gates application — a zero-initialised packet
+  must not read as "the host accepted zero".
 
 ### AUv2 (formats/auv2/) — macOS desktop AU
 
