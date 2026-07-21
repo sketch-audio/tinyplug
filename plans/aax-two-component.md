@@ -281,6 +281,65 @@ and the host delivers posts in timestamp order. Param A's breakpoint at t=1000
 posts `{A_new, B_old}`; param B's at t=1500 posts `{A_new, B_new}`. Both are
 correct at their respective render positions.
 
+### How far does this scale?
+
+There is **no hard ceiling** in the design — `AAX_CFieldIndex` is an `int32_t` slot
+index and nothing in our code is superlinear — but the port count grows linearly, so
+it is worth knowing where the corners are.
+
+| Params | Segments = ports | Context struct | Full refresh | Worst-case chunk-load traffic |
+|---|---|---|---|---|
+| 8 | 1 | 96 B | 0.1 KB | negligible |
+| 200 | 14 | 200 B | 1.8 KB | 0.02 MB |
+| 1 000 | 67 | 624 B | 8.4 KB | 0.12 MB |
+| 10 000 | 667 | 5.4 KB | 83 KB | **1.22 MB** |
+
+Two things are verified *not* to be problems, both of which could plausibly have been
+quadratic:
+
+- **`AAX_CParameterManager::GetParameterByID` is a `std::map` lookup** (`mParametersMap`,
+  `AAX_CParameterManager.cpp:113`), not a scan of `mParameters`. So `_plain_value()` is
+  O(log n).
+- **`AAX_CChunkDataParser::FindName` is a wrapping linear scan with a resume-from-last-found
+  cursor** (`AAX_CChunkDataParser.cpp:444`) — O(1) amortised *if* keys are read in the
+  order they were written, O(n) per lookup otherwise. Our `_build_chunk` writes
+  `num_params`, `edit_keys`, params in address order, editor keys, `host_bypass`; and
+  `SetChunk` / `CompareActiveChunk` read in exactly that order. The cursor advances in
+  lockstep, so chunk handling is linear. **Do not reorder one without the other** — it
+  would silently turn state load into O(n²).
+
+What would actually bite first, in order:
+
+1. **Pro Tools' own UI and control surfaces.** 10 000 automatable parameters in the
+   automation-enable dialog, plus the page tables to map them, is a usability wall well
+   before a technical one. Most of a 10 k-parameter design would want
+   `params::Policy::Hidden` for the bulk of it.
+2. **Untested port counts.** 667 buffered ports on one Native component is 4× the
+   documented HDX cap (164, which does not apply to Native, where no cap is documented).
+   This is exactly what Rob Majors flagged: *"I don't recall us ever stress testing the
+   AAX Native packet delivery system in Pro Tools with, say, tens of thousands of
+   four-byte packets ... so be sure to check the behavior at whatever upper limit you
+   set."* Per-port per-callback cost is quoted at ~5 cycles on HDX; even at 10× that,
+   667 ports is ~0.15 % of a core.
+3. **Chunk-load packet traffic.** 1.22 MB for one preset load, because each of 10 001
+   parameter updates triggers a `GenerateCoefficients` that posts its (128 B) segment
+   again. Linear, not quadratic — but the constant is ugly.
+
+Two levers, which have to be pulled **together**:
+
+- **Coalesce during chunk load.** `UpdateParameterNormalizedValue` receives
+  `AAX_eUpdateSource_Chunk`; suppress posting while a load is in flight and post every
+  dirty segment once at the end. Turns the 1.22 MB into one 83 KB pass.
+- **Make `coefs_per_segment` adaptive** — scale it so `num_segments` stays under ~128
+  rather than fixing it at 15. Note this is only a win *after* coalescing: bigger
+  segments mean fewer ports but more bytes per redundant post, so on its own it would
+  make case 3 worse (79 coefs/segment → 640 B/segment → 6.4 MB chunk load).
+
+Neither is needed at any parameter count we ship today, and both are additive. The
+128-byte segment is the right default because it is the HDX transfer quantum; a
+plug-in large enough to care about port count is a plug-in that has already given up
+on HDX.
+
 ### Policy → port type
 
 | `params::Policy` | Port type | Rationale |
