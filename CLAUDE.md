@@ -553,8 +553,9 @@ graphics backend on macOS, more demo plug-ins.
 - **Don't reorder or remove `Param_address` values** once a plug-in has
   shipped — `enum_raw(addr)` is the persistence key. Adding new values
   at the end is fine.
-- **Don't use `--parallel` with cmake build.** Recorded preference; see
-  [.claude/memory](../.claude) memory file. Run one build at a time.
+- **Never run two builds at once.** `--parallel 8` is fine
+  (`cmake --build build-debug --parallel 8`); what's not fine is launching a
+  second build while one is still running.
 - **Worker reply handlers are concept-detected at compile time.** If a
   user's `Plug_processor` declares `handle_worker_reply(const To_processor&)`,
   it gets called automatically; if not, the drain is a no-op. The check
