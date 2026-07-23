@@ -176,7 +176,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
             .stepCount = 0,
             .defaultNormalizedValue = 0,
             .unitId = Steinberg::Vst::kRootUnitId,
-            .flags = (Steinberg::Vst::ParameterInfo::kIsReadOnly | Steinberg::Vst::ParameterInfo::kIsHidden)
+            .flags = Steinberg::Vst::ParameterInfo::kIsReadOnly // This is now consistent with the Steinberg example.
         };
         parameters.addParameter(export_info);
     }
@@ -189,7 +189,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
         .stepCount = 0,
         .defaultNormalizedValue = 0,
         .unitId = Steinberg::Vst::kRootUnitId,
-        .flags = (Steinberg::Vst::ParameterInfo::kIsReadOnly | Steinberg::Vst::ParameterInfo::kIsHidden)
+        .flags = Steinberg::Vst::ParameterInfo::kIsReadOnly
     };
     parameters.addParameter(latency_info);
 
