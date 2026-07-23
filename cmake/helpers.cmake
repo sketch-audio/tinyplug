@@ -225,13 +225,27 @@ endfunction()
 
 # Compile mac_view.mm into a format plugin target with a unique ObjC class name,
 # preventing collisions when multiple plugins are loaded in the same process.
-function(configure_mac_view FORMAT_TARGET BASE_FILENAME VERSION_STRING BUILD_NUMBER)
+#
+# The name must include the FORMAT, not just the plug-in. Objective-C has one flat,
+# process-wide class namespace, so when a host loads two bundles that both define
+# `MacView_DoctorVibe_1_0_0_438` — say the VST3 and the AU of the same product, which
+# any user may have installed and any host may load together — the runtime keeps one
+# and silently discards the other. Every view created from the losing bundle then runs
+# the winner's implementation over the wrong ivar layout, which the runtime itself
+# warns "may cause spurious casting failures and mysterious crashes". It does: they
+# land during NSWindow teardown, far from the cause, with no plug-in frames on the stack.
+function(configure_mac_view FORMAT_TARGET BASE_FILENAME VERSION_STRING BUILD_NUMBER FORMAT)
     string(REPLACE "." "_" _version_safe "${VERSION_STRING}")
-    set(TINY_MAC_VIEW "MacView_${BASE_FILENAME}_${_version_safe}_${BUILD_NUMBER}")
-    set(TINY_MAC_METAL_VIEW "MacMetalView_${BASE_FILENAME}_${_version_safe}_${BUILD_NUMBER}")
+    set(TINY_MAC_VIEW "MacView_${BASE_FILENAME}_${FORMAT}_${_version_safe}_${BUILD_NUMBER}")
+    set(TINY_MAC_METAL_VIEW "MacMetalView_${BASE_FILENAME}_${FORMAT}_${_version_safe}_${BUILD_NUMBER}")
+    # Generate into a per-FORMAT directory. `CMAKE_CURRENT_BINARY_DIR` is per *plug-in*,
+    # so every format target was writing the same mac_config.hpp and the last one to
+    # configure won — which is why all five bundles ended up carrying whichever format's
+    # class name happened to be generated last, regardless of the name computed above.
+    set(_mac_view_dir ${CMAKE_CURRENT_BINARY_DIR}/mac_view_${FORMAT})
     configure_file(
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../libs/tiny_platform/cmake/mac_config.hpp.in
-        ${CMAKE_CURRENT_BINARY_DIR}/mac_config.hpp
+        ${_mac_view_dir}/mac_config.hpp
     )
     target_sources(${FORMAT_TARGET} PRIVATE
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../libs/tiny_platform/source/mac_view.mm
@@ -242,7 +256,9 @@ function(configure_mac_view FORMAT_TARGET BASE_FILENAME VERSION_STRING BUILD_NUM
         PROPERTIES
         COMPILE_FLAGS "-fno-objc-arc"
     )
-    target_include_directories(${FORMAT_TARGET} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+    # Ahead of ${CMAKE_CURRENT_BINARY_DIR}, so this format's header wins over any stale
+    # one left in the plug-in's binary dir by an earlier build.
+    target_include_directories(${FORMAT_TARGET} BEFORE PRIVATE ${_mac_view_dir})
 endfunction()
 
 function(copy_file_list TARGET FILE_LIST DEST_DIR)

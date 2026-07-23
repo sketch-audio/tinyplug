@@ -385,7 +385,7 @@ function(make_auv3_plugin USER_TARGET)
     # Per-plugin mac view classes (macOS only — iOS extension runs out-of-process so no collision risk,
     # but we do this for consistency with the other formats).
     if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
-        configure_mac_view(${EXT_TARGET} ${TINY_BASE_FILENAME} ${TINY_VERSION_STRING} ${TINY_BUILD_NUMBER})
+        configure_mac_view(${EXT_TARGET} ${TINY_BASE_FILENAME} ${TINY_VERSION_STRING} ${TINY_BUILD_NUMBER} auv3)
     endif()
 
     # Configure Info.plist
