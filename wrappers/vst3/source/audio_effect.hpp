@@ -1,17 +1,21 @@
 #pragma once
 
-#include <limits>
+#include <array>
+#include <atomic>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "public.sdk/source/vst/vstaudioeffect.h"
 
+#include "plug_info.hpp"
 #include "processor.hpp"
 #include "models/meters.hpp"
 #include "models/params.hpp"
 
 #include <tiny_dsp/host_bypass.hpp>
 
+#include "adapters.hpp"
 #include "messaging.hpp"
 
 namespace tiny::vst3 {
@@ -112,6 +116,7 @@ private:
 
     std::unique_ptr<plugin::Processor> _processor = std::make_unique<plugin::Processor>();
     uint32_t _latency{_processor->latency_samps()};
+    uint32_t _reported_latency{_latency}; // Don't feedback latency changes.
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);

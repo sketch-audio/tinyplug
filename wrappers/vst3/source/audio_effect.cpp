@@ -1,7 +1,16 @@
+#include "audio_effect.hpp"
+
 #include <algorithm>
-#include <cstring>
+#include <array>
+#include <atomic>
+#include <bit>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <optional>
-#include <ranges>
+#include <span>
+#include <vector>
 
 #include "pluginterfaces/base/ibstream.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
@@ -16,7 +25,6 @@
 
 #include "adapters.hpp"
 #include "messaging.hpp"
-#include "audio_effect.hpp"
 
 namespace tiny::vst3 {
 
@@ -98,14 +106,6 @@ Steinberg::tresult PLUGIN_API Audio_effect::initialize(Steinberg::FUnknown* cont
 
     addAudioOutput(u"Output", SpeakerArr::kStereo, BusTypes::kMain);
 
-    // Create the event IO.
-    static constexpr auto events_size = []() {
-        const auto state = 4 * num_params;
-        const auto automation = 64 * std::bit_width(num_params); // We expect number of automated parameters to be small but we need to be able to handle a lot of flux.
-        return state + automation + 1;
-    }();
-    _events.reserve(events_size); // Want fixed size event vector.
-
     // Get knob defaults for automation points.
     for (const auto& param : User_params::param_specs(Param_order::Indexable)) {
         _last_points[param.address] = {.offset = -1, .value = Value_helper::default_value(param, Space::Knob)};
@@ -155,10 +155,20 @@ Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::Proc
     _bypass.reset(static_cast<float>(newSetup.sampleRate));
     _bypass.set_latency(_latency);
 
+    const auto max_samples = static_cast<size_t>(newSetup.maxSamplesPerBlock);
     for (auto& channel : _input_data) {
-        channel.resize(static_cast<size_t>(newSetup.maxSamplesPerBlock));
+        channel.resize(max_samples);
         std::fill(channel.begin(), channel.end(), 0.f);
     }
+
+    // Create the event IO.
+    static constexpr auto events_size = [](auto samples) {
+        const auto state = 4 * num_params;
+        const auto scale = std::max(samples / 256, size_t{1});
+        const auto automation = scale * 64 * std::bit_width(num_params); // We expect number of automated parameters to be small but we need to be able to handle a lot of flux.
+        return state + automation + 1;
+    };
+    _events.reserve(events_size(max_samples)); // Want fixed size event vector.
 
     _did_reset = true;
     return Steinberg::Vst::AudioEffect::setupProcessing(newSetup);
@@ -266,40 +276,91 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     auto context = Dsp_context{.meters = _meters};
 
     // kPrefetch (sampler pre-roll / variable-rate playback) is not a bounce → realtime.
-    context.render_mode = (data.processMode == Steinberg::Vst::kOffline)
-        ? Render_mode::Offline
-        : Render_mode::Realtime;
+    context.render_mode = (data.processMode == Steinberg::Vst::kOffline) ? Render_mode::Offline : Render_mode::Realtime;
+    const auto is_offline_bounce = (data.processMode == Steinberg::Vst::kOffline);
 
     const auto has_inputs = data.numInputs > 0 && data.inputs;
     const auto has_sidechain = data.numInputs > 1 && data.inputs;
     const auto has_outputs = data.numOutputs > 0 && data.outputs;
+
+    const auto required_in_channels = static_cast<Steinberg::int32>(_ichannels);
+    const auto required_out_channels = static_cast<Steinberg::int32>(_ochannels);
+    const auto required_sc_channels = static_cast<Steinberg::int32>(_schannels);
+
+    const auto inputs_shape_ok = !has_inputs
+        || (data.inputs[0].channelBuffers32 != nullptr && data.inputs[0].numChannels >= required_in_channels);
+    const auto outputs_shape_ok = !has_outputs
+        || (data.outputs[0].channelBuffers32 != nullptr && data.outputs[0].numChannels >= required_out_channels);
+    const auto sidechain_shape_ok = !(has_sidechain && Plug_info::wants_sidechain)
+        || (data.inputs[1].channelBuffers32 != nullptr && data.inputs[1].numChannels >= required_sc_channels);
+
+    if (!(inputs_shape_ok && outputs_shape_ok && sidechain_shape_ok)) {
+        return Steinberg::kResultOk;
+    }
+
+    auto main_input_pointers_ok = true;
+    if (has_inputs) {
+        for (size_t i = 0; i < _ichannels; ++i) {
+            if (data.inputs[0].channelBuffers32[i] == nullptr) {
+                main_input_pointers_ok = false;
+                break;
+            }
+        }
+    }
+
+    auto main_output_pointers_ok = true;
+    if (has_outputs) {
+        for (size_t i = 0; i < _ochannels; ++i) {
+            if (data.outputs[0].channelBuffers32[i] == nullptr) {
+                main_output_pointers_ok = false;
+                break;
+            }
+        }
+    }
+
+    auto sidechain_pointers_ok = true;
+    if (has_sidechain && Plug_info::wants_sidechain) {
+        for (size_t i = 0; i < _schannels; ++i) {
+            if (data.inputs[1].channelBuffers32[i] == nullptr) {
+                sidechain_pointers_ok = false;
+                break;
+            }
+        }
+    }
+
+    if (!(main_input_pointers_ok && main_output_pointers_ok && sidechain_pointers_ok)) {
+        return Steinberg::kResultOk;
+    }
 
     // Copy main input to internal buffers in case of in-place processing.
     if (has_inputs) {
         for (size_t i = 0; i < _ichannels; ++i) {
             const auto* in = data.inputs[0].channelBuffers32[i];
             auto& channel = _input_data[i];
+            assert(channel.size() >= static_cast<size_t>(data.numSamples) && "Input buffer too small!");
             std::copy(in, in + data.numSamples, channel.begin());
         }
     }
 
     // So we can process with an offset.
     auto do_process = [this, &data, &context, has_inputs, has_outputs, has_sidechain](size_t num_frames, size_t offset) {
+        assert(offset + num_frames <= static_cast<size_t>(data.numSamples) && "Offset + num_frames exceeds data.numSamples!");
+
         // Assign buffer ptrs.
         if (has_inputs) {
-            assert(data.inputs[0].numChannels == static_cast<Steinberg::int32>(_ichannels));
+            assert(data.inputs[0].numChannels >= static_cast<Steinberg::int32>(_ichannels));
             for (size_t i = 0; i < _ichannels; ++i) {
                 _ibuffers[i] = &_input_data[i][offset];
             }
         }
         if (has_outputs) {
-            assert(data.outputs[0].numChannels == static_cast<Steinberg::int32>(_ochannels));
+            assert(data.outputs[0].numChannels >= static_cast<Steinberg::int32>(_ochannels));
             for (size_t i = 0; i < _ochannels; ++i) {
                 _obuffers[i] = &data.outputs[0].channelBuffers32[i][offset];
             }
         }
         if (has_sidechain && Plug_info::wants_sidechain) {
-            assert(data.inputs[1].numChannels == static_cast<Steinberg::int32>(_schannels));
+            assert(data.inputs[1].numChannels >= static_cast<Steinberg::int32>(_schannels));
             for (size_t i = 0; i < _schannels; ++i) {
                 _sbuffers[i] = &data.inputs[1].channelBuffers32[i][offset]; // Assume sidechain not "in-place"
             }
@@ -363,12 +424,16 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     else {
         while (remaining > 0) {
             if (!event) {
-                const auto offset = frame_count - remaining;
+                const auto offset = frame_count - remaining; // remaining strictly <= frame_count.
                 do_process(static_cast<size_t>(remaining), static_cast<size_t>(offset));
                 break;
             }
 
-            const auto frames_until_event = std::max({}, event->offset - now);
+            // Clamp.
+            // Compute in 64-bit to avoid signed overflow on pathological offsets.
+            const auto delta64 = static_cast<int64_t>(event->offset) - static_cast<int64_t>(now);
+            const auto clamped64 = std::clamp<int64_t>(delta64, 0, static_cast<int64_t>(remaining));
+            const auto frames_until_event = static_cast<decltype(remaining)>(clamped64);
 
             if (frames_until_event > 0) {
                 const auto offset = frame_count - remaining;
@@ -401,7 +466,12 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
             return arr;
         }();
 
-        const auto min_channels = std::min(data.inputs[0].numChannels, data.outputs[0].numChannels);
+        const auto min_channels = std::min({
+            data.inputs[0].numChannels,
+            data.outputs[0].numChannels,
+            static_cast<Steinberg::int32>(max_ichannels),
+            static_cast<Steinberg::int32>(max_ochannels)
+        });
         const auto num_channels = static_cast<size_t>(min_channels);
         _bypass.process(
             {in_buffers.begin(), num_channels},
@@ -419,32 +489,39 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         queue->addPoint(0, value, point_index); // offset, value, index
     };
 
-    // Send exports as output parameter changes.
-    for (size_t i = 0; i < num_meters; ++i) {
-        if (context.meters[i] != _last_meters[i]) {
-            // Send normalized value to UI per VST spec.
-            const auto val = context.meters[i];
-            const auto& spec = User_meters::spec(static_cast<uint32_t>(i));
-            const auto norm = plain_to_norm(val, spec.range);
-            add_output_event(export_param_offset + static_cast<int32_t>(i), norm);
+    // Live can crash if we meter using output params during bounce!
+    if (!is_offline_bounce) {
+        for (size_t i = 0; i < num_meters; ++i) {
+            if (context.meters[i] != _last_meters[i]) {
+                // Send normalized value to UI per VST spec.
+                const auto val = context.meters[i];
+                const auto& spec = User_meters::spec(static_cast<uint32_t>(i));
+                const auto norm = plain_to_norm(val, spec.range);
+                add_output_event(export_param_offset + static_cast<int32_t>(i), norm);
 
-            _last_meters[i] = context.meters[i];
+                _last_meters[i] = context.meters[i];
+            }
         }
     }
 
-    // Has the kernel proposed a new latency?
-    if (const auto proposed_latency = context.propose_latency; proposed_latency/* && *proposed_latency != _latency*/) {
+    // Latency notifications, now only when actually changed!
+    if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _reported_latency) {
         // Notify controller and sit on the pending latency.
         _change_count += 1.;
         add_output_event(latency_param_id, static_cast<double>(_change_count / max_change_count));
         _pending_latency.store(*proposed_latency, std::memory_order_release);
+        _reported_latency = *proposed_latency;
     }
 
     if (_did_reset) {
-        // Force host to check latency.
-        _change_count += 1.;
-        add_output_event(latency_param_id, static_cast<double>(_change_count / max_change_count));
         _did_reset = false;
+
+        // Only send latency change if reset actually results in new latency.
+        if (_latency != _reported_latency) {
+            _change_count += 1.;
+            add_output_event(latency_param_id, static_cast<double>(_change_count / max_change_count));
+            _reported_latency = _latency;
+        }
     }
 
     return Steinberg::kResultOk;
@@ -474,6 +551,12 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
     assert(header[2] == Plug_info::plugin_code && "Unexpected plug-in code.");
 
     const auto num_stored_values = header[3];
+
+    // Defend against malformed/corrupted state chunks causing huge allocations.
+    static constexpr auto max_reasonable_stored_values = num_params + 4096u;
+    if (num_stored_values > max_reasonable_stored_values) {
+        return Steinberg::kResultFalse;
+    }
 
     // Notify kernel (we perform the persistence check again here on the current model).
     auto notify = [&](const auto& spec, auto plain_value) {
@@ -622,9 +705,10 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data) -> 
 
         if (id == bypass_param_id) {
             // Handle immediately
+            if (queue.getPointCount() <= 0) continue;
             auto value = Steinberg::Vst::ParamValue{};
             auto offset = int32_t{};
-            queue.getPoint(0, offset, value);
+            if (queue.getPoint(0, offset, value) != Steinberg::kResultTrue) continue;
             _bypass.set_bypassed(value >= 0.5);
             continue;
         }
@@ -640,14 +724,17 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data) -> 
         for (auto point_idx = decltype(point_count){}; point_idx < point_count; ++point_idx) {
             auto value = Steinberg::Vst::ParamValue{};
             auto offset = int32_t{};
-            queue.getPoint(point_idx, offset, value);
+            if (queue.getPoint(point_idx, offset, value) != Steinberg::kResultTrue) continue;
+
+            // VST3 docs mention implicit point at -1. Hard-clamp to legal range for this block.
+            const auto max_offset = std::max(data.numSamples - 1, 0);
+            offset = std::clamp(offset, -1, max_offset);
 
             const auto ramp_dur = std::max(offset - previous.offset, 0);
 
             if (_events.size() == _events.capacity()) {
                 // _events vector is full!
                 assert(false && "Event vector is full, increase capacity!");
-                std::cout << "Events vector full!\n";
             };
 
             // Set param
