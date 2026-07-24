@@ -70,7 +70,7 @@ OSStatus Effect::Initialize()
     _bypass.reset(static_cast<float>(sample_rate));
     _bypass.set_latency(_latency);
 
-    _events.reserve(4 * num_params + 1);
+    _events.reserve(events_size);
 
 #if TINY_HAS_WORKER
     _worker_runner.start(sample_rate);
@@ -201,10 +201,12 @@ OSStatus Effect::SetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
         case kAudioUnitProperty_BypassEffect: {
             const auto bypass = Deserialize<UInt32>(inData) != 0;
             _bypass.set_bypassed(bypass);
+            _needs_resync.store(true, std::memory_order_relaxed); // On the next render we need to discard the queue and sync from host values (Globals()).
             return noErr;
         }
         case kAudioUnitProperty_OfflineRender: {
             _offline.store(Deserialize<UInt32>(inData) != 0, std::memory_order_relaxed);
+            _needs_resync.store(true, std::memory_order_relaxed);
             return noErr;
         }
         default: break;
@@ -404,6 +406,7 @@ OSStatus Effect::GetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
 
 // MARK: - SetParameter
 
+// These are external events. The plug-in UI synchronizes with Globals() and pushes into the change list directly.
 OSStatus Effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope, AudioUnitElement inElement, AudioUnitParameterValue inValue, UInt32 inBufferOffsetInFrames)
 {
     using namespace params;
@@ -415,12 +418,24 @@ OSStatus Effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
 
     const auto plain_value = Value_helper::host_to_plain(inValue, param.semantics);
 
-    [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
-        .event = Set_param{.address = inID, .value = plain_value},
-        .offset = static_cast<int32_t>(inBufferOffsetInFrames),
-    });
-    assert(success && "Push to processor queue failed! Increase queue size.");
+    if (_bypass.is_bypassed()) {
+        // We may or may not be getting processed. 
+        // Render must watch to see if a resync is necessary.
+        _bypass_epoch.fetch_add(1, std::memory_order_relaxed);
+    }
+    else {
+        // I think we this could still fail here in case where plug-in is
+        // - not processing, but also not bypassed (common in Logic)
+        // - the user is controlling the plug-in via the host UI
+        [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
+            .event = Set_param{.address = inID, .value = plain_value},
+            .offset = static_cast<int32_t>(inBufferOffsetInFrames),
+        });
+        assert(success && "Push to processor queue failed! Increase queue size.");
+        if (!success) _needs_resync.store(true, std::memory_order_relaxed); // If we can't push to the queue, we need to resync on the next render.
+    }
 
+    // Maintain host values.
     return Super::SetParameter(inID, inScope, inElement, inValue, inBufferOffsetInFrames);
 }
 
@@ -446,11 +461,17 @@ OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEve
                 const auto value = event.eventValues.immediate.value;
                 const auto plain_value = Value_helper::host_to_plain(value, param.semantics);
 
-                [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
-                    .event = Set_param{.address = event.parameter, .value = plain_value},
-                    .offset = static_cast<int32_t>(offset),
-                });
-                assert(success && "Push to processor queue failed! Increase queue size.");
+                if (_bypass.is_bypassed()) {
+                    _bypass_epoch.fetch_add(1, std::memory_order_relaxed); // See SetParameter.
+                }
+                else {
+                    [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
+                        .event = Set_param{.address = event.parameter, .value = plain_value},
+                        .offset = static_cast<int32_t>(offset),
+                    });
+                    assert(success && "Push to processor queue failed! Increase queue size.");
+                    if (!success) _needs_resync.store(true, std::memory_order_relaxed);
+                }
 
                 // Maintain host values.
                 Super::SetParameter(event.parameter, event.scope, event.element, value, offset);
@@ -466,22 +487,29 @@ OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEve
                 const auto plain_initial = Value_helper::host_to_plain(initial, param.semantics);
                 const auto plain_target = Value_helper::host_to_plain(target, param.semantics);
 
-                // Do we need to be sending set initial?
-                [[maybe_unused]] const auto set_success = _to_processor.push(Tagged_event{
-                    .event = Set_param{.address = event.parameter, .value = plain_initial},
-                    .offset = offset,
-                });
-                assert(set_success && "Push to processor queue failed! Increase queue size.");
+                if (_bypass.is_bypassed()) {
+                    _bypass_epoch.fetch_add(1, std::memory_order_relaxed); // See SetParameter.
+                }
+                else {
+                    // Do we need to be sending set initial?
+                    [[maybe_unused]] const auto set_success = _to_processor.push(Tagged_event{
+                        .event = Set_param{.address = event.parameter, .value = plain_initial},
+                        .offset = offset,
+                    });
+                    assert(set_success && "Push to processor queue failed! Increase queue size.");
+                    if (!set_success) _needs_resync.store(true, std::memory_order_relaxed);
 
-                [[maybe_unused]] const auto ramp_success = _to_processor.push(Tagged_event{
-                    .event = Ramp_param{
-                        .address = event.parameter,
-                        .target = plain_target,
-                        .dur_samples = static_cast<int32_t>(duration)
-                    },
-                    .offset = offset,
-                });
-                assert(ramp_success && "Push to processor queue failed! Increase queue size.");
+                    [[maybe_unused]] const auto ramp_success = _to_processor.push(Tagged_event{
+                        .event = Ramp_param{
+                            .address = event.parameter,
+                            .target = plain_target,
+                            .dur_samples = static_cast<int32_t>(duration)
+                        },
+                        .offset = offset,
+                    });
+                    assert(ramp_success && "Push to processor queue failed! Increase queue size.");
+                    if (!ramp_success) _needs_resync.store(true, std::memory_order_relaxed);
+                }
 
                 // Maintain host values.
                 const auto off = static_cast<UInt32>(offset);
@@ -913,29 +941,65 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         Input(i).PullInput(ioActionFlags, inTimeStamp, i, nFrames);
     }
 
+    // Resolve latency handshake.
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
         const auto new_latency = static_cast<uint32_t>(*accepted_latency);
         _processor->handle_event(Accepted_latency{new_latency});
-        _bypass.set_latency(new_latency);
+        _bypass.set_latency(new_latency); // Unfortunately this could allocate, to avoid, the user model would need to be able to tell us its max latency.
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
 
-    _events.clear(); // Events are only valid for the current render cycle.
+    // Resolve events.
 
-    _changes.consume([&](auto address, auto value) {
-        assert(_events.size() < _events.capacity() && "Events vector full!");
-        _events.push_back(Tagged_event{
-            .event = Set_param{.address = address, .value = value},
-            .offset = 0,
+    // Events are only valid for the current render cycle.
+    _events.clear();
+
+    // If bypass state changed, we need a resync.
+    const auto needs_resync = _needs_resync.exchange(false, std::memory_order_relaxed);
+
+    // If bypassed, have parameters changed since the last render?
+    const auto epoch = _bypass_epoch.load(std::memory_order_relaxed);
+    const auto skipped_while_bypassed = epoch != _seen_epoch;
+    _seen_epoch = epoch;
+
+    if (needs_resync || skipped_while_bypassed) {
+        // Discard queue.
+        auto discarded = Tagged_event{};
+        while (_to_processor.pop(discarded)) {}
+
+        // Consume change list.
+        _changes.consume([&](auto, auto) {});
+
+        // Synchronize from Globals().
+        using namespace params;
+        const auto& specs = User_params::param_specs(Param_order::Indexable);
+        for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
+            if (_events.size() == _events.capacity()) break;
+            const auto host_value = Globals()->GetParameter(static_cast<AudioUnitParameterID>(addr));
+            _events.push_back(Tagged_event{
+                .event = Set_param{
+                    .address = static_cast<uint32_t>(addr),
+                    .value = Value_helper::host_to_plain(host_value, specs[addr].semantics)
+                },
+                .offset = 0,
+            });
+        }
+    }
+    else {
+        _changes.consume([&](auto address, auto value) {
+            assert(_events.size() < _events.capacity() && "Events vector full!");
+            _events.push_back(Tagged_event{
+                .event = Set_param{.address = address, .value = value},
+                .offset = 0,
+            });
         });
-    });
 
-
-    auto param_event = Tagged_event{};
-    while (_to_processor.pop(param_event)) {
-        assert(_events.size() < _events.capacity() && "Events vector full!");
-        _events.push_back(param_event);
+        auto param_event = Tagged_event{};
+        while (_to_processor.pop(param_event)) {
+            assert(_events.size() < _events.capacity() && "Events vector full!");
+            _events.push_back(param_event);
+        }
     }
 
     // Sort the events such that Set_params precedes Ramp_params with the same buffer offset.
@@ -944,8 +1008,9 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         return std::holds_alternative<Set_param>(a.event) && std::holds_alternative<Ramp_param>(b.event);
     });
 
+    // Not thrilled with this, by the way.
     const auto event_count = _events.size();
-    size_t event_index = 0;
+    auto event_index = size_t{};
     const auto* event = event_count > 0 ? &_events[event_index] : nullptr;
 
     auto next_event = [&]() {
@@ -1046,10 +1111,12 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         const auto ts_denom = static_cast<int32_t>(host_data.time_sig_denom);
 
         const auto to_bool = [](auto a) { return a != 0; };
-        const auto doff = static_cast<double>(offset);
+
+        // Host data sample pos is Float64, round here so values like 127.999 convert to 128.
+        const auto base_pos = static_cast<int64_t>(std::llround(sample_pos));
 
         context.musical_context = {
-            .sample_pos = static_cast<int64_t>(sample_pos + doff),
+            .sample_pos = base_pos + static_cast<int64_t>(offset),
             .beat_pos = beat_pos + frames_to_beats(static_cast<int64_t>(offset), tempo, _sr),
             .cycle_start = cycle_start,
             .cycle_end = cycle_end,
@@ -1074,7 +1141,6 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     auto remaining = frame_count;
 
     const auto can_skip = _bypass.can_skip_effect();
-
     if (can_skip) {
         // Manifest events until end of block.
         while (event) {

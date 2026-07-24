@@ -190,8 +190,11 @@ private:
         return state + automation + 1;
     }();
 
+    // Both queue and change list drain into events vector. 
+    // We may want to revisit to reduce memory usage for high parameter counts.
+    static constexpr auto events_size = num_params + queue_size + 1;
+
     // 
-    //static constexpr auto to_processor_size = 4 * num_params + 1;
     using To_processor_queue = Lock_free_queue<Tagged_event, queue_size, Queue_concurrency::mpsc>; // I believe SetParameter can happen from a variety of threads.
 
     static constexpr auto meter_size = 25 * num_meters + 1; // Approx number of 32 sample buffers between UI updates at 60fps (25).
@@ -224,6 +227,11 @@ private:
     std::atomic<bool> _offline{false};
 
     Host_bypass _bypass{};
+
+    // Resync mechanism.
+    std::atomic<bool> _needs_resync{true};
+    std::atomic<uint32_t> _bypass_epoch{};
+    uint32_t _seen_epoch{}; // Render-thread only.
 
 #if TINY_HAS_WORKER
     // Worker channel.
