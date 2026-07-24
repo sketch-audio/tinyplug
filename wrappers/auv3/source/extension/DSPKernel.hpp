@@ -161,10 +161,13 @@ public:
             _meters[i] = 0; // Reset for peak meters.
         }
 
-        // Has the kernel proposed a new latency?
-        if (const auto proposed_latency = context.propose_latency; proposed_latency/* && *proposed_latency != _latency*/) {
+        // Has the kernel proposed a new latency? Only act if it actually differs from
+        // what we last told the host — otherwise a kernel that re-proposes the same
+        // value every block would restart the handshake every block.
+        if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _reported_latency) {
             // Audio unit is polling. Could possibly fix.
             _pending_latency.store(*proposed_latency, std::memory_order_release);
+            _reported_latency = *proposed_latency;
         }
 
 //        const auto tail = _processor->tail_samps();
@@ -290,6 +293,7 @@ private:
     
     std::unique_ptr<tiny::plugin::Processor> _processor = std::make_unique<tiny::plugin::Processor>();
     uint32_t _latency{_processor->latency_samps()};
+    uint32_t _reported_latency{_latency}; // Don't feedback latency changes.
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);

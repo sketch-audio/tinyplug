@@ -1211,11 +1211,14 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         _meters[i] = 0; // Reset for peak meters.
     }
 
-    // Has the kernel proposed a new latency?
-    if (const auto proposed_latency = context.propose_latency; proposed_latency/* && *proposed_latency != _latency*/) {
+    // Has the kernel proposed a new latency? Only act if it actually differs from what
+    // we last told the host — otherwise a kernel that re-proposes the same value every
+    // block would restart the handshake every block.
+    if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _reported_latency) {
         // Notify controller and sit on the pending latency.
         _pqueue.push(Private_message{.type = Message_type::latency_changed});
         _pending_latency.store(*proposed_latency, std::memory_order_release);
+        _reported_latency = *proposed_latency;
     }
 
     return noErr;

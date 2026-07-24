@@ -210,6 +210,7 @@ struct Alg_state {
 
     uint32_t latency_seq{};
     uint32_t accepted_latency{};
+    uint32_t reported_latency{}; // Last value proposed to the host — don't feedback latency changes.
     bool constructed{};
 };
 

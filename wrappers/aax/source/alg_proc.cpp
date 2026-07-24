@@ -215,12 +215,19 @@ auto render_instance(Alg_context* ctx) -> void
 
     // Latency proposal out. The data model turns this into SetSignalLatency, the host
     // answers with a notification, and the accepted value comes back in Runtime_packet.
-    if (const auto proposed = context.propose_latency; proposed && runtime.delay_comp != 0) {
+    // Only act if it actually differs from what we last told the host — otherwise a
+    // kernel that re-proposes the same value every block would restart the handshake
+    // every block.
+    if (const auto proposed = context.propose_latency; proposed && *proposed != st->reported_latency && runtime.delay_comp != 0) {
         if (ctx->returns != nullptr) {
-            ctx->returns->push_value(Ring_kind::Propose_latency, Ring_latency{
+            // Only advance on a successful push, like the meters above — a proposal
+            // dropped by a full ring is retried on the next callback rather than lost
+            // until the kernel happens to propose again.
+            const auto sent = ctx->returns->push_value(Ring_kind::Propose_latency, Ring_latency{
                 .samples = *proposed,
                 .pad = 0
             });
+            if (sent) st->reported_latency = *proposed;
         }
     }
 }
@@ -290,10 +297,11 @@ int32_t AAX_CALLBACK alg_init(const Alg_context* context, AAX_EComponentInstance
             st->bypass.set_latency(initial_latency);
             st->accepted_latency = initial_latency;
             if (auto* returns = context->returns) {
-                returns->push_value(Ring_kind::Propose_latency, Ring_latency{
+                const auto sent = returns->push_value(Ring_kind::Propose_latency, Ring_latency{
                     .samples = initial_latency,
                     .pad = 0
                 });
+                if (sent) st->reported_latency = initial_latency;
             }
 
 #if TINY_HAS_WORKER
