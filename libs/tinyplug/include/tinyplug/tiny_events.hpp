@@ -25,7 +25,10 @@ struct Accepted_latency {
     uint32_t samples{};
 };
 
-using Render_event = std::variant<Set_param, Ramp_param, Accepted_latency>;
+// If you have any deferred parameter changes, you should manifest them now.
+struct Resync_params {};
+
+using Render_event = std::variant<Set_param, Ramp_param, Accepted_latency, Resync_params>;
 
 struct Tagged_event {
     Render_event event{};

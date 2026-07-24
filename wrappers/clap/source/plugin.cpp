@@ -86,6 +86,10 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
             const auto plain = Value_helper::host_to_plain(host_value, spec.semantics);
             _processor->handle_event(Set_param{.address = addr, .value = plain});
         }
+
+        // Manifest immediately — a client reading realized state (e.g. an open editor)
+        // shouldn't see stale values for the whole inactive/sleeping stretch.
+        _processor->handle_event(Resync_params{});
     }
     this->_handle_host_flushed(needs_resync);
     this->_handle_user_actions(process->out_events, needs_resync);
@@ -181,6 +185,13 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     auto remaining = frame_count;
 
     const auto can_skip = _bypass.can_skip_effect();
+
+    // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
+    // process()) — settle before this block's own automation lands, not after.
+    if (_was_skipped && !can_skip) {
+        _processor->handle_event(Resync_params{});
+    }
+    _was_skipped = can_skip;
 
     if (can_skip) {
         // Manifest events until end of block.

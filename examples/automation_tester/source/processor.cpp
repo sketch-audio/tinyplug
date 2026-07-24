@@ -22,6 +22,12 @@ auto Processor::handle_event(const Render_event& event) -> void
                 _ramper.set_ramp(static_cast<float>(e.target), e.dur_samples);
             }
         },
+        [this](const Resync_params&) {
+            // Manifest: realized value must catch up to the current target now — process()
+            // may not run again for a while (e.g. still bypassed), so this can't wait for
+            // the next ramp step.
+            _ramper.settle();
+        },
         [this](const auto&) { /* Handle other events as needed. */ }
     }, event);
 }

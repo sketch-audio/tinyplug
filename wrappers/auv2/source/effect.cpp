@@ -955,6 +955,12 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     // Events are only valid for the current render cycle.
     _events.clear();
 
+    // Computed early (pure query) so the resync branch below and the can_skip-edge check
+    // can both use it before the _events array is finalized and sorted.
+    const auto can_skip = _bypass.can_skip_effect();
+    const auto resumed_from_skip = _was_skipped && !can_skip;
+    _was_skipped = can_skip;
+
     // If bypass state changed, we need a resync.
     const auto needs_resync = _needs_resync.exchange(false, std::memory_order_relaxed);
 
@@ -1002,10 +1008,28 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         }
     }
 
-    // Sort the events such that Set_params precedes Ramp_params with the same buffer offset.
-    std::ranges::sort(_events, [](const auto& a, const auto& b) {
+    // Tell the client to manifest realized values immediately: either we just restated
+    // targets from the truth store above, or we're resuming from a stretch where
+    // advance_rampers() didn't run (can_skip skips process()). Delivery isn't
+    // manifestation — see Resync_params.
+    if ((needs_resync || skipped_while_bypassed || resumed_from_skip) && _events.size() < _events.capacity()) {
+        _events.push_back(Tagged_event{.event = Resync_params{}, .offset = 0});
+    }
+
+    // Sort by offset; at equal offset, Resync_params before Set_param before Ramp_param —
+    // settle to the pre-block target before this block's own automation lands, and a fresh
+    // Set at an offset must still precede its own Ramp. A plain "Set < Ramp" boolean
+    // predicate isn't a strict weak ordering once a third type joins (Resync would compare
+    // equivalent to both Set and Ramp while Set < Ramp — an intransitive equivalence, UB in
+    // std::sort), so this ranks explicitly instead.
+    const auto event_rank = [](const Render_event& event) {
+        if (std::holds_alternative<Resync_params>(event)) return 0;
+        if (std::holds_alternative<Set_param>(event)) return 1;
+        return 2; // Ramp_param (and anything else, defensively).
+    };
+    std::ranges::sort(_events, [&](const auto& a, const auto& b) {
         if (a.offset != b.offset) return a.offset < b.offset;
-        return std::holds_alternative<Set_param>(a.event) && std::holds_alternative<Ramp_param>(b.event);
+        return event_rank(a.event) < event_rank(b.event);
     });
 
     // Not thrilled with this, by the way.
@@ -1140,7 +1164,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     auto now = decltype(frame_count){};
     auto remaining = frame_count;
 
-    const auto can_skip = _bypass.can_skip_effect();
+    // can_skip computed earlier, before _events was built.
     if (can_skip) {
         // Manifest events until end of block.
         while (event) {

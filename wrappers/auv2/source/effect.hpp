@@ -233,6 +233,7 @@ private:
     std::atomic<bool> _needs_resync{true};
     std::atomic<uint32_t> _bypass_epoch{};
     uint32_t _seen_epoch{}; // Render-thread only.
+    bool _was_skipped{}; // Render-thread only. Detects the can_skip -> processing edge.
 
 #if TINY_HAS_WORKER
     // Worker channel.

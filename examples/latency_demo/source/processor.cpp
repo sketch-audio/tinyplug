@@ -34,6 +34,10 @@ auto Processor::handle_event(const Render_event& event) -> void
             else {
                 assert(false && "Unexpected latency value!");
             }
+        },
+        [](const Resync_params&) {
+            // Nothing to settle — _values is written immediately for both Set_param and
+            // Ramp_param above, no ramper in this demo.
         }
     }, event);
 }

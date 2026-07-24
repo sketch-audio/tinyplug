@@ -146,6 +146,10 @@ public:
                 const auto plain = tiny::params::Value_helper::host_to_plain(host_value, spec.semantics);
                 _processor->handle_event(tiny::Set_param{.address = addr, .value = plain});
             }
+
+            // Manifest immediately — a client reading realized state (e.g. an open editor)
+            // shouldn't see stale values for the whole bypassed/inactive stretch.
+            _processor->handle_event(tiny::Resync_params{});
         }
         else {
             auto event = tiny::Render_event{};
@@ -178,7 +182,14 @@ public:
         context.num_frames = frameCount;
         
         const auto can_skip = _bypass.can_skip_effect();
-        
+
+        // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
+        // process()) — settle before this block's own automation lands, not after.
+        if (_was_skipped && !can_skip) {
+            _processor->handle_event(tiny::Resync_params{});
+        }
+        _was_skipped = can_skip;
+
         if (!can_skip) {
             _processor->process(context);
         }
@@ -318,6 +329,7 @@ private:
     std::atomic<bool> _needs_resync{true};
     std::atomic<uint32_t> _bypass_epoch{};
     uint32_t _seen_epoch{}; // process()-thread only.
+    bool _was_skipped{}; // process()-thread only. Detects the can_skip -> processing edge.
 
     static constexpr auto meter_size = 25 * num_meters + 1;
     using Meter_queue = tiny::Lock_free_queue<tiny::Set_meter, meter_size>;

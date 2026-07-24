@@ -31,6 +31,14 @@ struct Linear_ramper {
         _count = 0;
     }
 
+    // Manifest: snap the realized value to the current target, keeping the target as-is.
+    constexpr auto settle() -> void
+    {
+        _value = _target;
+        _inc = 0;
+        _count = 0;
+    }
+
     constexpr auto process() -> float
     {
         const auto step = _count > 0;

@@ -133,6 +133,10 @@ private:
 
     Host_bypass _bypass{};
 
+    // Resync_params triggers. Both audio-thread only, single-threaded with `process`.
+    bool _was_skipped{}; // Detects the can_skip -> processing edge.
+    Steinberg::int32 _last_process_mode{-1}; // Detects a data.processMode transition.
+
     auto normalize_input_events(Steinberg::Vst::ProcessData& data) -> void;
 
 #if TINY_HAS_WORKER

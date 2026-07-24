@@ -190,7 +190,16 @@ auto render_instance(Alg_context* ctx) -> void
     };
     context.render_mode = runtime.offline != 0 ? Render_mode::Offline : Render_mode::Realtime;
 
-    if (!st->bypass.can_skip_effect()) {
+    const auto can_skip = st->bypass.can_skip_effect();
+
+    // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
+    // process()) — settle before this block's own automation lands, not after.
+    if (st->was_skipped && !can_skip) {
+        st->processor.handle_event(Resync_params{});
+    }
+    st->was_skipped = can_skip;
+
+    if (!can_skip) {
         st->processor.process(context);
     }
     st->bypass.process({st->ibuffers.begin(), channels}, {st->obuffers.begin(), channels}, num_frames);

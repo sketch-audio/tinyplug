@@ -249,8 +249,14 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
 
     // Process events in state queue.
     auto state_event = Set_param{};
+    auto did_state_load = false;
     while (_queue.pop(state_event)) {
         _processor->handle_event(state_event);
+        did_state_load = true;
+    }
+    // A preset/session load should manifest immediately, not glide in.
+    if (did_state_load) {
+        _processor->handle_event(Resync_params{});
     }
 
     _events.clear(); // Events only valid for this render cycle.
@@ -278,6 +284,13 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     // kPrefetch (sampler pre-roll / variable-rate playback) is not a bounce → realtime.
     context.render_mode = (data.processMode == Steinberg::Vst::kOffline) ? Render_mode::Offline : Render_mode::Realtime;
     const auto is_offline_bounce = (data.processMode == Steinberg::Vst::kOffline);
+
+    // Ryan's "resync on bounce" idea: a processMode transition (e.g. entering/leaving an
+    // offline bounce) should manifest current values immediately, not glide in.
+    if (data.processMode != _last_process_mode) {
+        _processor->handle_event(Resync_params{});
+        _last_process_mode = data.processMode;
+    }
 
     const auto has_inputs = data.numInputs > 0 && data.inputs;
     const auto has_sidechain = data.numInputs > 1 && data.inputs;
@@ -413,6 +426,13 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     auto remaining = frame_count;
 
     const auto can_skip = _bypass.can_skip_effect();
+
+    // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
+    // process()) — settle before this block's own automation lands, not after.
+    if (_was_skipped && !can_skip) {
+        _processor->handle_event(Resync_params{});
+    }
+    _was_skipped = can_skip;
 
     if (can_skip) {
         // Manifest events until the end of the block.
