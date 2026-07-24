@@ -561,8 +561,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
     // Notify kernel (we perform the persistence check again here on the current model).
     auto notify = [&](const auto& spec, auto plain_value) {
         if (State_rules::is_persistent(spec)) {
-            [[maybe_unused]] const auto success = _queue.push(Set_param{spec.address, plain_value});
-            assert(success && "Queue is full, increase size!");
+            _queue.push(Set_param{spec.address, plain_value}); // Overwrite queue now, so we won't overflow.
         }
     };
     

@@ -106,7 +106,7 @@ private:
     std::array<float, num_meters> _meters{};
 
     static constexpr auto queue_size = 4 * num_params + 1; // This is just for state load.
-    using State_queue = Lock_free_queue<Set_param, queue_size>;
+    using State_queue = Overwrite_queue<Set_param, queue_size>;
     State_queue _queue{};
 
     std::array<Automation_point, num_params> _last_points{};
