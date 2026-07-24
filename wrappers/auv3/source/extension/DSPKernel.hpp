@@ -185,9 +185,9 @@ public:
         
         _bypass.process(inputBuffers, outputBuffers, frameCount);
         
-        // Send exports.
+        // Send exports. Not during an offline bounce — editor's almost always closed then anyway.
         for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
-            if (context.meters[i] != _last_meters[i]) {
+            if (context.render_mode != tiny::Render_mode::Offline && context.meters[i] != _last_meters[i]) {
                 const auto value = context.meters[i];
                 _meter_queue.push(tiny::Set_meter{.address = i, .value = value});
                 _last_meters[i] = value;

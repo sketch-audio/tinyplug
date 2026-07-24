@@ -238,9 +238,9 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     const auto num_channels = static_cast<size_t>(min_channels);
     _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, frame_count);
 
-    // Send exports.
+    // Send exports. Not during an offline bounce — editor's almost always closed then anyway.
     for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
-        if (context.meters[i] != _last_meters[i]) {
+        if (context.render_mode != Render_mode::Offline && context.meters[i] != _last_meters[i]) {
             // Send export and cache.
             const auto value = context.meters[i];
             _meter_queue.push(Set_meter{.address = i, .value = value});

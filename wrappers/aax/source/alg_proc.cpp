@@ -196,10 +196,11 @@ auto render_instance(Alg_context* ctx) -> void
     st->bypass.process({st->ibuffers.begin(), channels}, {st->obuffers.begin(), channels}, num_frames);
 
     // Meters out. Only changes are sent; the accumulator resets each callback so
-    // peak meters report the maximum over the buffer.
+    // peak meters report the maximum over the buffer. Not during an offline bounce —
+    // editor's almost always closed then anyway.
     for (auto i = size_t{}; i < num_meters; ++i) {
         const auto value = static_cast<double>(context.meters[i]);
-        if (value != st->last_meters[i] && ctx->returns != nullptr) {
+        if (context.render_mode != Render_mode::Offline && value != st->last_meters[i] && ctx->returns != nullptr) {
             const auto sent = ctx->returns->push_value(Ring_kind::Meter, Ring_meter{
                 .address = static_cast<uint32_t>(i),
                 .pad = 0,
