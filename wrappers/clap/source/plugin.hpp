@@ -239,6 +239,9 @@ private:
 
     Meter_queue _meter_queue{};
 
+    // Resync mechanism. Currently only a fallback in case we overflow our queue in release.
+    std::atomic<bool> _needs_resync{false};
+
 #if TINY_HAS_WORKER
     // Worker channel.
     using Worker_from_proc_q = Lock_free_queue<typename User_worker::Model::From_processor, User_worker::Model::inbound_capacity, Queue_concurrency::spsc>;
@@ -298,8 +301,8 @@ private:
     // MARK: - private
 
     auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void;
-    auto _handle_host_flushed() -> void;
-    auto _handle_user_actions(const clap_output_events_t* out_events) -> void;
+    auto _handle_host_flushed(bool needs_resync) -> void;
+    auto _handle_user_actions(const clap_output_events_t* out_events, bool needs_resync) -> void;
     auto _handle_user_action(const User_action& action) -> void;
 
     // This is where we handle host events from automation or flush.
@@ -337,6 +340,7 @@ private:
                     // On flush, we need to push into a queue for later.
                     [[maybe_unused]] const auto success = _from_flush.push(Set_param{.address = id, .value = plain_value});
                     assert(success && "Push to flush queue failed! Increase queue size.");
+                    if (!success) _needs_resync.store(true, std::memory_order_relaxed); // Resync from _hostvalues on the next process.
                 }
 
                 // Maintain host atomics.

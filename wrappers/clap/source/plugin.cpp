@@ -74,8 +74,21 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
 
-    this->_handle_host_flushed();
-    this->_handle_user_actions(process->out_events);
+    // Resolved once so both queues agree on whether this block is a resync.
+    const auto needs_resync = _needs_resync.exchange(false, std::memory_order_relaxed);
+
+    // Manifest, on helper functions will discard their queues.
+    if (needs_resync) {
+        using namespace params;
+        for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
+            const auto host_value = _hostvalues[addr].load(std::memory_order_relaxed);
+            const auto& spec = User_params::param_spec(addr);
+            const auto plain = Value_helper::host_to_plain(host_value, spec.semantics);
+            _processor->handle_event(Set_param{.address = addr, .value = plain});
+        }
+    }
+    this->_handle_host_flushed(needs_resync);
+    this->_handle_user_actions(process->out_events, needs_resync);
 
     // Get ready to process the input events.
     const auto* events = process->in_events;
@@ -1124,16 +1137,30 @@ uint32_t Plugin::tailGet() const noexcept
 
 // MARK: - private
 
-auto Plugin::_handle_host_flushed() -> void
+auto Plugin::_handle_host_flushed(bool needs_resync) -> void
 {
+    // Don't replay stale events.
+    if (needs_resync) {
+        auto discarded = Render_event{};
+        while (_from_flush.pop(discarded)) {}
+        return;
+    }
+
     auto kernel_event = Render_event{};
     while (_from_flush.pop(kernel_event)) {
         _processor->handle_event(kernel_event);
     }
 }
 
-auto Plugin::_handle_user_actions(const clap_output_events_t* out_events) -> void
+auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool needs_resync) -> void
 {
+    // Don't replay stale events.
+    if (needs_resync) {
+        auto discarded = User_action{};
+        while (_from_ui.pop(discarded)) {}
+        return;
+    }
+
     // The host only needs to know about changes where there might be automation or a control in the host UI.
     auto wants_host_notify = [](params::Policy policy) {
         using enum params::Policy;
@@ -1215,6 +1242,7 @@ auto Plugin::_handle_user_action(const User_action& action) -> void
     }
     [[maybe_unused]] const auto success = _from_ui.push(action);
     assert(success && "UI to processor queue full, increase queue size!");
+    if (!success) _needs_resync.store(true, std::memory_order_relaxed); // Resync from _hostvalues on the next process.
 }
 
 } // namespace tiny::clap
