@@ -223,7 +223,9 @@ auto Platform_dialogs::save_file(const std::string& title, const std::string& de
     });
 }
 
-auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void
+// Shared by `open_file`/`choose_dir` -- an NSOpenPanel restricted to either
+// files or directories, dispatched the same way either way.
+static auto run_open_panel(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks, bool choose_directory) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -239,8 +241,8 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
                 [panel setDirectoryURL:url];
             }
         }
-        [panel setCanChooseFiles:YES];
-        [panel setCanChooseDirectories:NO];
+        [panel setCanChooseFiles:!choose_directory];
+        [panel setCanChooseDirectories:choose_directory];
         [panel setAllowsMultipleSelection:NO];
 
         NSWindow* keyWindow = [[NSApplication sharedApplication] keyWindow];
@@ -291,6 +293,16 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
             }
         }
     });
+}
+
+auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void
+{
+    run_open_panel(title, default_path, std::move(on_open), tasks, false);
+}
+
+auto Platform_dialogs::choose_dir(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_choose, Task_manager::Actor tasks) -> void
+{
+    run_open_panel(title, default_path, std::move(on_choose), tasks, true);
 }
 
 } // namespace tiny

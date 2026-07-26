@@ -14,6 +14,7 @@
 #include <CommCtrl.h>
 #include <commdlg.h> // File dialogs
 #include <shellapi.h> // ShellExecute
+#include <shlobj.h> // SHBrowseForFolderW (folder picker)
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "Shell32.lib")
@@ -787,38 +788,73 @@ auto Platform_dialogs::save_file(const std::string& title, const std::string& de
     });
 }
 
+// Shared by `open_file` -- a single-file GetOpenFileNameW pick, run on the
+// caller's (background) thread.
+static auto run_file_dialog(HWND owner, const std::wstring& wtitle, const std::wstring& wdefault_path) -> std::optional<std::string>
+{
+    auto open_file_name = OPENFILENAMEW{};
+    auto file_buffer = std::array<wchar_t, 1024>{};
+    std::fill_n(file_buffer.data(), file_buffer.size(), 0);
+
+    open_file_name.lStructSize = sizeof(OPENFILENAMEW);
+    open_file_name.hwndOwner = owner;
+    open_file_name.lpstrFile = file_buffer.data();
+    open_file_name.nMaxFile = static_cast<DWORD>(file_buffer.size());
+    open_file_name.lpstrFilter = L"All Files\0*.*\0";
+    open_file_name.lpstrTitle = wtitle.c_str();
+    open_file_name.lpstrInitialDir = wdefault_path.empty() ? nullptr : wdefault_path.c_str();
+    open_file_name.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+    if (!GetOpenFileNameW(&open_file_name)) return std::nullopt;
+    return wstring_to_string(std::wstring{open_file_name.lpstrFile});
+}
+
+// Shared by `choose_dir` -- the classic SHBrowseForFolderW folder picker.
+static auto run_dir_dialog(HWND owner, const std::wstring& wtitle) -> std::optional<std::string>
+{
+    auto path_buffer = std::array<wchar_t, MAX_PATH>{};
+    std::fill_n(path_buffer.data(), path_buffer.size(), 0);
+
+    auto browse_info = BROWSEINFOW{};
+    browse_info.hwndOwner = owner;
+    browse_info.pszDisplayName = path_buffer.data();
+    browse_info.lpszTitle = wtitle.c_str();
+    browse_info.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+
+    LPITEMIDLIST pidl = SHBrowseForFolderW(&browse_info);
+    if (!pidl) return std::nullopt;
+
+    auto folder_buffer = std::array<wchar_t, MAX_PATH>{};
+    auto selected_path = std::optional<std::string>{};
+    if (SHGetPathFromIDListW(pidl, folder_buffer.data())) {
+        selected_path = wstring_to_string(std::wstring{folder_buffer.data()});
+    }
+    CoTaskMemFree(pidl);
+    return selected_path;
+}
+
 auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void
 {
     tasks.on_background([=, on_open=std::move(on_open)]() {
         if (const auto plugin_window = find_plugin_window()) {
-            auto wtitle = string_to_wstring(title);
-            auto wdefault_path = string_to_wstring(default_path);
+            const auto selected_path = run_file_dialog(plugin_window->hwnd, string_to_wstring(title), string_to_wstring(default_path));
+            tasks.on_background([=, on_open=std::move(on_open)]() {
+                on_open(selected_path);
+            });
 
-            auto open_file_name = OPENFILENAMEW{};
-            auto file_buffer = std::array<wchar_t, 1024>{};
-            std::fill_n(file_buffer.data(), file_buffer.size(), 0);
+            SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
+        }
+    });
+}
 
-            open_file_name.lStructSize = sizeof(OPENFILENAMEW);
-            open_file_name.hwndOwner = plugin_window->hwnd;
-            open_file_name.lpstrFile = file_buffer.data();
-            open_file_name.nMaxFile = static_cast<DWORD>(file_buffer.size());
-            open_file_name.lpstrFilter = L"All Files\0*.*\0";
-            open_file_name.lpstrTitle = wtitle.c_str();
-            open_file_name.lpstrInitialDir = wdefault_path.empty() ? nullptr : wdefault_path.c_str();
-            open_file_name.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-
-            const auto result = GetOpenFileNameW(&open_file_name);
-            if (result) {
-                const auto selected_path = wstring_to_string(std::wstring{open_file_name.lpstrFile});
-                tasks.on_background([=, on_open=std::move(on_open)]() {
-                    on_open(selected_path);
-                });
-            }
-            else {
-                tasks.on_background([=, on_open=std::move(on_open)]() {
-                    on_open(std::nullopt);
-                });
-            }
+auto Platform_dialogs::choose_dir(const std::string& title, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_choose, Task_manager::Actor tasks) -> void
+{
+    tasks.on_background([=, on_choose=std::move(on_choose)]() {
+        if (const auto plugin_window = find_plugin_window()) {
+            const auto selected_path = run_dir_dialog(plugin_window->hwnd, string_to_wstring(title));
+            tasks.on_background([=, on_choose=std::move(on_choose)]() {
+                on_choose(selected_path);
+            });
 
             SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
         }

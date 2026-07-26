@@ -26,6 +26,9 @@ struct Platform_dialogs {
 
     // Callback runs automatically in the executor's task launcher (some background thread). Because of sandboxing requirements on iOS, we can only guarantee access to the file during your callback scope! You are responsible for escaping back to main safely.
     static auto open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void;
+
+    // Same as `open_file`, but restricted to picking a folder instead of a file.
+    static auto choose_dir(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_choose, Task_manager::Actor tasks) -> void;
 };
 
 } // namespace tiny

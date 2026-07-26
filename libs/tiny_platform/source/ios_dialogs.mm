@@ -180,14 +180,12 @@ auto Platform_dialogs::save_file(const std::string& title, const std::string& de
 
 // MARK: - open file
 
-auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void
+// Shared by `open_file`/`choose_dir` -- the document picker only differs in
+// which content type it's restricted to (any item vs. folders only).
+static auto present_document_picker(NSString* content_type, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void
 {
-    // Copy to locals.
-    const auto title_copy = title;
-    const auto default_path_copy = default_path;
-
     dispatch_async(dispatch_get_main_queue(), ^{
-        UIDocumentPickerViewController* documentPicker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[UTTypeItem.identifier]
+        UIDocumentPickerViewController* documentPicker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[content_type]
                                                                                                                 inMode:UIDocumentPickerModeOpen];
         documentPicker.allowsMultipleSelection = false;
 
@@ -236,6 +234,16 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
         
         [topViewController presentViewController:documentPicker animated:YES completion:nil];
     });
+}
+
+auto Platform_dialogs::open_file(const std::string& /*title*/, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void
+{
+    present_document_picker(UTTypeItem.identifier, std::move(on_open), tasks);
+}
+
+auto Platform_dialogs::choose_dir(const std::string& /*title*/, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_choose, Task_manager::Actor tasks) -> void
+{
+    present_document_picker(UTTypeFolder.identifier, std::move(on_choose), tasks);
 }
 
 } // namespace tiny
