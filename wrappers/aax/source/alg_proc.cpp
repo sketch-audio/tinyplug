@@ -74,6 +74,74 @@ auto drain_inbound([[maybe_unused]] const Alg_context* ctx, [[maybe_unused]] Alg
 #endif
 }
 
+// Bring an algorithm instance up in the host-provided private data block.
+//
+// Called both when the host adds a new instance and when it resets one whose block it
+// has wiped — see the ResetInstance case in alg_init for why the second path exists.
+//
+// `adding_new` separates the two. Rebuilding DSP state is safe at any time, but the
+// host-facing half of instance creation is not, and a reconstruct has no business
+// repeating it:
+//
+//   - Re-initialising the return/inbound rings would reset their read/write positions
+//     underneath the data model's timer thread, which reads and writes those same fields
+//     through AAX_IPrivateDataAccess. At a genuine add the model is not yet pumping them,
+//     so there is nothing to race.
+//   - Re-proposing latency would make the host renegotiate delay compensation on every
+//     reset, including the two Pro Tools issues per offline bounce while it is rebuilding
+//     its mixer graph. A reconstruct instead re-syncs latency from the Runtime_packet,
+//     via the `latency_seq` path in render_instance, without initiating anything.
+auto construct_instance(const Alg_context* context, Alg_state* st, double sample_rate, bool adding_new) -> void
+{
+    // Placement new into the host-allocated private data block. Deliberately
+    // not done in ResetFieldData: that block is copied into the algorithm's
+    // memory pool, which would require Alg_state to be trivially relocatable.
+    st = new (static_cast<void*>(st)) Alg_state{};
+
+    // The rings arrive zeroed (the default ResetFieldData), which happens to be
+    // their correct initial state — but start their lifetimes properly rather
+    // than reading objects that were never constructed. Only ever on a genuine add:
+    // the data model is not yet pumping them then, so there is nothing to race.
+    if (adding_new) {
+        if (context->returns != nullptr) new (static_cast<void*>(context->returns)) Return_ring{};
+        if (context->inbound != nullptr) new (static_cast<void*>(context->inbound)) Inbound_ring{};
+    }
+
+    st->shadow.fill(std::numeric_limits<double>::quiet_NaN());
+
+    st->processor.reset(sample_rate);
+
+    st->bypass.reset(static_cast<float>(sample_rate));
+
+    const auto initial_latency = st->processor.latency_samps();
+    st->bypass.set_latency(initial_latency);
+    st->accepted_latency = initial_latency;
+
+    // Seed the host's latency from the kernel through the normal proposal
+    // path: the data model turns this into SetSignalLatency on the first
+    // Direct Data wakeup, and the accepted value comes back in Runtime_packet.
+    if (adding_new) {
+        if (auto* returns = context->returns) {
+            const auto sent = returns->push_value(Ring_kind::Propose_latency, Ring_latency{
+                .samples = initial_latency,
+                .pad = 0
+            });
+            if (sent) st->reported_latency = initial_latency;
+        }
+    }
+
+#if TINY_HAS_WORKER
+    if (auto* returns = context->returns) {
+        try_bind_worker(st->processor, Worker_processor_actor{
+            [returns](const auto& m) {
+                return returns->push(Ring_kind::Worker_from_processor, &m, static_cast<uint32_t>(sizeof(m)));
+            }
+        });
+    }
+#endif
+    st->constructed = true;
+}
+
 auto read_musical_context(const Alg_context* ctx, bool recording) -> Musical_context
 {
     auto out = Musical_context{};
@@ -124,13 +192,17 @@ template<int32_t num_channels>
 auto render_instance(Alg_context* ctx) -> void
 {
     auto* st = ctx->state;
-    if (st == nullptr) return;
+    if (st == nullptr) {
+        return;
+    }
 
     const auto num_frames = ctx->num_frames != nullptr
         ? static_cast<size_t>(*ctx->num_frames)
         : size_t{};
 
-    if (ctx->audio_in == nullptr || ctx->audio_out == nullptr) return;
+    if (ctx->audio_in == nullptr || ctx->audio_out == nullptr) {
+        return;
+    }
 
     // The instance-init callback should always have run by now. If it somehow did
     // not, still honour the AAX contract that every output sample is written.
@@ -285,45 +357,7 @@ int32_t AAX_CALLBACK alg_init(const Alg_context* context, AAX_EComponentInstance
 
     switch (action) {
         case AAX_eComponentInstanceInitAction_AddingNewInstance: {
-            // Placement new into the host-allocated private data block. Deliberately
-            // not done in ResetFieldData: that block is copied into the algorithm's
-            // memory pool, which would require Alg_state to be trivially relocatable.
-            st = new (static_cast<void*>(st)) Alg_state{};
-
-            // The rings arrive zeroed (the default ResetFieldData), which happens to be
-            // their correct initial state — but start their lifetimes properly rather
-            // than reading objects that were never constructed.
-            if (context->returns != nullptr) new (static_cast<void*>(context->returns)) Return_ring{};
-            if (context->inbound != nullptr) new (static_cast<void*>(context->inbound)) Inbound_ring{};
-
-            st->shadow.fill(std::numeric_limits<double>::quiet_NaN());
-            st->processor.reset(sample_rate);
-            st->bypass.reset(static_cast<float>(sample_rate));
-
-            // Seed the host's latency from the kernel through the normal proposal
-            // path: the data model turns this into SetSignalLatency on the first
-            // Direct Data wakeup, and the accepted value comes back in Runtime_packet.
-            const auto initial_latency = st->processor.latency_samps();
-            st->bypass.set_latency(initial_latency);
-            st->accepted_latency = initial_latency;
-            if (auto* returns = context->returns) {
-                const auto sent = returns->push_value(Ring_kind::Propose_latency, Ring_latency{
-                    .samples = initial_latency,
-                    .pad = 0
-                });
-                if (sent) st->reported_latency = initial_latency;
-            }
-
-#if TINY_HAS_WORKER
-            if (auto* returns = context->returns) {
-                try_bind_worker(st->processor, Worker_processor_actor{
-                    [returns](const auto& m) {
-                        return returns->push(Ring_kind::Worker_from_processor, &m, static_cast<uint32_t>(sizeof(m)));
-                    }
-                });
-            }
-#endif
-            st->constructed = true;
+            construct_instance(context, st, sample_rate, /*adding_new=*/true);
             return 0;
         }
         case AAX_eComponentInstanceInitAction_ResetInstance: {
@@ -332,6 +366,9 @@ int32_t AAX_CALLBACK alg_init(const Alg_context* context, AAX_EComponentInstance
                 st->bypass.reset(static_cast<float>(sample_rate));
                 st->shadow.fill(std::numeric_limits<double>::quiet_NaN());
                 st->shadow_seq.fill(0);
+            }
+            else {
+                construct_instance(context, st, sample_rate, /*adding_new=*/false);
             }
             return 0;
         }
