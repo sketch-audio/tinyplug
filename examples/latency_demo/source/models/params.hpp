@@ -9,7 +9,8 @@ struct Params {
     // You can use the raw values to index into arrays and vectors.
     // Once you ship a plug-in you should only add ids, not rearrange or remove!
     enum class Address : uint32_t {
-        Latency_mode = 0,
+        Gain = 0,
+        Latency_mode,
         Num_params
     };
 
@@ -22,6 +23,18 @@ struct Params {
         using namespace params;
         using enum Address;
         return Group{.nodes = {
+            Spec{
+                .address = enum_raw(Gain),
+                .string_id = "gain",
+                .name = "Gain",
+                .semantics = Semantics::Real{
+                    .min_val = 0,
+                    .def_val = 1,
+                    .max_val = 1,
+                    .units = Units::Generic,
+                    .knob_adapter = Adapter::Pow{3}
+                }
+            },
             Spec{
                 .address = enum_raw(Latency_mode),
                 .string_id = "latency",

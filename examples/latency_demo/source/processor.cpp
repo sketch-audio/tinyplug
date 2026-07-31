@@ -51,12 +51,14 @@ auto Processor::process(Dsp_context& context) -> void
         _wants_latency_change = false;
     }
 
+    const auto g = _values[enum_raw(Address::Gain)];
+
     for (size_t channel = 0; channel < context.ibuffers.size(); ++channel) {
         const auto left = (channel == 0);
         for (size_t frame = 0; frame < context.num_frames; ++frame) {
             const auto input = context.ibuffers[channel][frame];
             const auto output = _curr->process(input, left);
-            context.obuffers[channel][frame] = output;          
+            context.obuffers[channel][frame] = g * output;
         }
     }
 
