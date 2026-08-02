@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstring>
 
 #include "pluginterfaces/base/ibstream.h"
@@ -235,10 +236,9 @@ Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream*
         return Steinberg::kResultFalse;
     }
 
-    // Validate header.
-    assert(header[0] == Plug_info::framework_code && "Unexpected framework code.");
-    assert(header[1] == Plug_info::manufacturer_code && "Unexpected manufacturer code.");
-    assert(header[2] == Plug_info::plugin_code && "Unexpected plug-in code.");
+    if (header[0] != Plug_info::framework_code) return Steinberg::kResultFalse;
+    if (header[1] != Plug_info::manufacturer_code) return Steinberg::kResultFalse;
+    if (header[2] != Plug_info::plugin_code) return Steinberg::kResultFalse;
 
     const auto num_stored_values = header[3];
 
@@ -260,12 +260,16 @@ Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream*
         }
     };
 
-    // Read processor state into temporary vector.
-    auto stored_values = std::vector<float>(num_stored_values);
+    // Sized by what we can use, not by what the chunk claims; the stream is still read
+    // in full so the bypass float below stays aligned.
+    const auto usable_values = std::min<size_t>(num_stored_values, num_params);
+    auto stored_values = std::vector<float>(usable_values);
     for (auto i = decltype(num_stored_values){}; i < num_stored_values; ++i) {
-        if (!streamer.readFloat(stored_values[i])) {
+        auto value = float{};
+        if (!streamer.readFloat(value)) {
             return Steinberg::kResultFalse;
         }
+        if (i < num_params) stored_values[i] = value;
     }
 
     if (num_params <= num_stored_values) {
@@ -330,24 +334,32 @@ Steinberg::tresult PLUGIN_API Controller::setState(Steinberg::IBStream* state)
         return Steinberg::kResultFalse;
     }
 
-    // Validate header.
-    assert(header[0] == Plug_info::framework_code && "Unexpected framework code.");
-    assert(header[1] == Plug_info::manufacturer_code && "Unexpected manufacturer code.");
-    assert(header[2] == Plug_info::plugin_code && "Unexpected plug-in code.");
+    // Validate for real, not just in debug; every count below is untrusted until checked.
+    if (header[0] != Plug_info::framework_code) return Steinberg::kResultFalse;
+    if (header[1] != Plug_info::manufacturer_code) return Steinberg::kResultFalse;
+    if (header[2] != Plug_info::plugin_code) return Steinberg::kResultFalse;
 
     const auto num_stored_pairs = header[3];
 
-    // Helper
+    // Grows in slices as bytes actually arrive, so a garbage length costs one slice
+    // instead of a multi-gigabyte resize.
     auto read_container = [&](auto& container) {
         auto num = uint32_t{};
         if (!streamer.readInt32u(num)) {
             return false;
         }
-        container.resize(num);
-        if (num > 0) {
-            if (!streamer.readRaw(container.data(), sizeof(container[0]) * num)) {
+
+        constexpr auto slice_items = size_t{4096};
+        container.clear();
+
+        auto done = size_t{};
+        while (done < num) {
+            const auto want = std::min<size_t>(slice_items, num - done);
+            container.resize(done + want);
+            if (!streamer.readRaw(container.data() + done, static_cast<int32_t>(sizeof(container[0]) * want))) {
                 return false;
             }
+            done += want;
         }
         return true;
     };

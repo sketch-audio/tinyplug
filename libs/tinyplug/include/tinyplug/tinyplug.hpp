@@ -9,6 +9,7 @@
 #include "tiny_utils.hpp"
 #include "tiny_view.hpp"
 
+#include "denormal_guard.hpp"
 #include "gesture_recognizers.hpp"
 #include "host_formatter.hpp"
 #include "task_manager.hpp"

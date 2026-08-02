@@ -14,6 +14,7 @@
 #include "plug_info.hpp"
 
 #include <tiny_dsp/host_bypass.hpp>
+#include <tinyplug/denormal_guard.hpp>
 
 /*
  DSPKernel
@@ -122,6 +123,8 @@ public:
          modify the check in [Galaxy_Brain_AUAudioUnit allocateRenderResourcesAndReturnError]
          */
         assert(inputBuffers.size() == outputBuffers.size());
+
+        const auto denormals = tiny::Denormal_guard{}; // Restores the host's FP mode on the way out.
 
 #if TINY_HAS_WORKER
         drain_worker_to_processor();

@@ -12,6 +12,8 @@
 #include <span>
 #include <vector>
 
+#include <tinyplug/denormal_guard.hpp>
+
 #include "pluginterfaces/base/ibstream.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/vst/ivstprocesscontext.h"
@@ -237,6 +239,8 @@ Steinberg::tresult PLUGIN_API Audio_effect::canProcessSampleSize(Steinberg::int3
 
 Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData& data)
 {
+    const auto denormals = Denormal_guard{}; // Restores the host's FP mode on the way out.
+
     this->_drain_worker_to_processor();
 
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
@@ -565,18 +569,13 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
         return Steinberg::kResultFalse;
     }
 
-    // Validate header.
-    assert(header[0] == Plug_info::framework_code && "Unexpected framework code.");
-    assert(header[1] == Plug_info::manufacturer_code && "Unexpected manufacturer code.");
-    assert(header[2] == Plug_info::plugin_code && "Unexpected plug-in code.");
+    // Validate for real, not just in debug: hosts hand us chunks from other plug-ins
+    // and truncated session files, and every count below is untrusted until checked.
+    if (header[0] != Plug_info::framework_code) return Steinberg::kResultFalse;
+    if (header[1] != Plug_info::manufacturer_code) return Steinberg::kResultFalse;
+    if (header[2] != Plug_info::plugin_code) return Steinberg::kResultFalse;
 
     const auto num_stored_values = header[3];
-
-    // Defend against malformed/corrupted state chunks causing huge allocations.
-    static constexpr auto max_reasonable_stored_values = num_params + 4096u;
-    if (num_stored_values > max_reasonable_stored_values) {
-        return Steinberg::kResultFalse;
-    }
 
     // Notify kernel (we perform the persistence check again here on the current model).
     auto notify = [&](const auto& spec, auto plain_value) {
@@ -594,12 +593,16 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
         }
     };
 
-    // Read processor state into temporary vector.
-    auto stored_values = std::vector<float>(num_stored_values);
+    // Sized by what we can use, not by what the chunk claims; the stream is still read
+    // in full so the bypass float below stays aligned.
+    const auto usable_values = std::min<size_t>(num_stored_values, num_params);
+    auto stored_values = std::vector<float>(usable_values);
     for (auto i = decltype(num_stored_values){}; i < num_stored_values; ++i) {
-        if (!streamer.readFloat(stored_values[i])) {
+        auto value = float{};
+        if (!streamer.readFloat(value)) {
             return Steinberg::kResultFalse;
         }
+        if (i < num_params) stored_values[i] = value;
     }
 
     if (num_params <= num_stored_values) {

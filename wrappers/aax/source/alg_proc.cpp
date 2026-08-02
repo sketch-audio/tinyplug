@@ -6,6 +6,8 @@
 #include <limits>
 #include <new>
 
+#include <tinyplug/denormal_guard.hpp>
+
 #include "AAX_ITransport.h"
 
 namespace tiny::aax {
@@ -161,36 +163,47 @@ auto read_musical_context(const Alg_context* ctx, bool recording) -> Musical_con
     auto sample_pos = int64_t{};
     auto ticks_per_beat = uint32_t{};
 
-    [[maybe_unused]] auto result = AAX_Result{AAX_SUCCESS};
-    result = transport->GetCurrentTempo(&tempo);
-    result = transport->GetCurrentMeter(&ts_numer, &ts_denom);
-    result = transport->IsTransportPlaying(&is_playing);
-    result = transport->GetCurrentTickPosition(&tick_pos);
-    result = transport->GetCurrentLoopPosition(&is_looping, &loop_start_tick, &loop_end_tick);
-    result = transport->GetCurrentNativeSampleLocation(&sample_pos);
-    result = transport->GetCurrentTicksPerBeat(&ticks_per_beat);
+    // A failed query leaves its local zero-initialised, so each field keeps the
+    // free-running default rather than reporting 0 bpm / 0/0 as if it were real.
+    const auto ok = [](AAX_Result r) { return r == AAX_SUCCESS; };
 
-    if (ticks_per_beat == 0) ticks_per_beat = 1; // Defensive: avoid a divide by zero.
-    const auto per_beat = static_cast<double>(ticks_per_beat);
+    if (ok(transport->GetCurrentTempo(&tempo))) {
+        out.tempo_ideal = tempo;
+        out.tempo_real = tempo;
+    }
+    if (ok(transport->GetCurrentMeter(&ts_numer, &ts_denom)) && ts_denom != 0) {
+        out.time_sig = {ts_numer, ts_denom};
+    }
+    if (ok(transport->GetCurrentNativeSampleLocation(&sample_pos))) {
+        out.sample_pos = sample_pos;
+    }
 
-    out.sample_pos = sample_pos;
-    out.beat_pos = static_cast<double>(tick_pos) / per_beat;
-    out.cycle_start = static_cast<double>(loop_start_tick) / per_beat;
-    out.cycle_end = static_cast<double>(loop_end_tick) / per_beat;
-    out.tempo_ideal = tempo;
-    out.tempo_real = tempo;
-    out.time_sig = {ts_numer, ts_denom};
-    out.transport_state = {
-        .moving = is_playing,
-        .cycling = is_looping,
-        .recording = recording
-    };
+    auto per_beat = double{1};
+    if (ok(transport->GetCurrentTicksPerBeat(&ticks_per_beat)) && ticks_per_beat != 0) {
+        per_beat = static_cast<double>(ticks_per_beat);
+    }
+
+    if (ok(transport->GetCurrentTickPosition(&tick_pos))) {
+        out.beat_pos = static_cast<double>(tick_pos) / per_beat;
+    }
+    if (ok(transport->GetCurrentLoopPosition(&is_looping, &loop_start_tick, &loop_end_tick))) {
+        out.cycle_start = static_cast<double>(loop_start_tick) / per_beat;
+        out.cycle_end = static_cast<double>(loop_end_tick) / per_beat;
+        out.transport_state.cycling = is_looping;
+    }
+    if (ok(transport->IsTransportPlaying(&is_playing))) {
+        out.transport_state.moving = is_playing;
+    }
+    out.transport_state.recording = recording;
+
     return out;
 }
 
 template<int32_t num_channels>
 auto render_instance(Alg_context* ctx) -> void
 {
+    const auto denormals = Denormal_guard{}; // Restores the host's FP mode on the way out.
+
     auto* st = ctx->state;
     if (st == nullptr) {
         return;

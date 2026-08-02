@@ -3,6 +3,8 @@
 #include <AudioUnitSDK/ComponentBase.h>
 #include <AudioUnitSDK/AUUtility.h> // Serialize
 
+#include <tinyplug/denormal_guard.hpp>
+
 namespace tiny::auv2 {
 
 Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
@@ -934,6 +936,8 @@ OSStatus Effect::NewFactoryPresetSet(const AUPreset& inNewFactoryPreset)
 
 OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTimeStamp& inTimeStamp, UInt32 nFrames)
 {
+    const auto denormals = Denormal_guard{}; // Restores the host's FP mode on the way out.
+
     this->_drain_worker_to_processor();
 
     // Pull inputs.

@@ -215,6 +215,10 @@ private:
     // read on the audio thread in process.
     std::atomic<bool> _offline{false};
 
+    // Fallback sample clock for a null transport when the host has no steady_time
+    // either. Render-thread only.
+    int64_t _free_run_pos{};
+
     // Tail
     uint32_t _tail{_processor->tail_samps()};
 
@@ -300,6 +304,9 @@ private:
     }};
 
     // MARK: - private
+
+    auto _resolve_transport(const clap_process* process) -> Musical_context;
+    auto _read_state_chunk(const clap_istream* stream) -> bool;
 
     auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void;
     auto _handle_host_flushed(bool needs_resync) -> void;

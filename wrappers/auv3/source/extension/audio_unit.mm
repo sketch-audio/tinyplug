@@ -1,5 +1,6 @@
 #import "audio_unit.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
@@ -773,12 +774,13 @@ static auto presets_path() -> std::filesystem::path
 
     [super setFullState:fullState]; // Call base.
 
+    // Clamped: the count comes from the host's plist and indexes param_spec below.
     const auto num_stored_params = [&]() {
         id numParamsEntry = [fullState objectForKey:@(State_rules::Auv3::num_params)];
         if ([numParamsEntry isKindOfClass:[NSNumber class]]) {
-            return [numParamsEntry intValue];
+            return std::clamp([numParamsEntry intValue], int32_t{0}, num_params);
         }
-        return 0;
+        return int32_t{0};
     }();
     
     // Is this a preset or regular state?
@@ -803,8 +805,7 @@ static auto presets_path() -> std::filesystem::path
         for (auto i = 0; i < num_stored_params; ++i) {
             const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
             auto host = float{};
-            const auto success = read_value(host);
-            assert(success && "Bad state!");
+            if (!read_value(host)) break; // Truncated chunk; keep what we applied.
             if (!State_rules::is_persistent(param) || host == State_rules::no_value) continue;
             [[_parameterTree parameterWithAddress:i] setValue:host];
         }
@@ -850,64 +851,69 @@ static auto presets_path() -> std::filesystem::path
                 size_t offset = 0;
 
                 auto read_value = [&](auto& value) {
-                    if (offset + sizeof(value) <= size) {
-                        std::memcpy(&value, bytes + offset, sizeof(value));
-                        offset += sizeof(value);
-                    }
+                    if (offset + sizeof(value) > size) return false;
+                    std::memcpy(&value, bytes + offset, sizeof(value));
+                    offset += sizeof(value);
+                    return true;
                 };
                 auto read_container = [&](auto& container) {
                     using Element = typename std::decay<decltype(container)>::type::value_type;
                     auto num = uint32_t{};
-                    read_value(num);
+                    if (!read_value(num)) return false;
                     const auto container_size = sizeof(Element) * num;
-                    if (offset + container_size <= size) {
-                        container.resize(num);
-                        std::memcpy(container.data(), bytes + offset, container_size);
-                        offset += container_size;
-                    }
+                    if (offset + container_size > size) return false;
+                    container.resize(num);
+                    std::memcpy(container.data(), bytes + offset, container_size);
+                    offset += container_size;
+                    return true;
                 };
 
+                // Reject the whole map on any bad read: a partial parse misaligns the
+                // stream and would apply junk as if the load had succeeded.
                 auto edit_state = tiny::State_map{};
-                for (auto i = 0; i < num_edit_items; ++i) {
+                auto ok = true;
+                for (auto i = 0; i < num_edit_items && ok; ++i) {
                     auto key = std::string{};
-                    read_container(key);
+                    if (!read_container(key)) { ok = false; break; }
 
                     auto tag = tiny::State_tag{};
-                    read_value(tag);
+                    if (!read_value(tag)) { ok = false; break; }
 
                     auto value = tiny::State_item{};
                     switch (tag) {
                         case tiny::State_tag::Bool: {
                             auto v = bool{};
-                            read_value(v);
+                            ok = read_value(v);
                             value = v;
                             break;
                         }
                         case tiny::State_tag::Int: {
                             auto v = int32_t{};
-                            read_value(v);
+                            ok = read_value(v);
                             value = v;
                             break;
                         }
                         case tiny::State_tag::Double: {
                             auto v = double{};
-                            read_value(v);
+                            ok = read_value(v);
                             value = v;
                             break;
                         }
                         case tiny::State_tag::String: {
                             auto v = std::string{};
-                            read_container(v);
-                            value = v;
+                            ok = read_container(v);
+                            value = std::move(v);
                             break;
                         }
                         default:
+                            ok = false;
                             break;
                     }
+                    if (!ok) break;
                     edit_state.emplace(std::move(key), std::move(value));
                 }
 
-                _editor->load_state(edit_state);
+                if (ok) _editor->load_state(edit_state);
             }
         }
     }

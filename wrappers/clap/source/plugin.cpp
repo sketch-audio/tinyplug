@@ -1,9 +1,10 @@
+#include "plugin.hpp"
+
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
-
-#include "plugin.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -64,6 +65,8 @@ void Plugin::stopProcessing() noexcept
 
 clap_process_status Plugin::process(const clap_process* process) noexcept
 {
+    const auto denormals = Denormal_guard{}; // Restores the host's FP mode on the way out.
+
     this->_drain_worker_to_processor();
 
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
@@ -113,12 +116,13 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
 
     // Create the context.
     auto context = Dsp_context{.meters = _meters, .propose_latency = {}};
-    context.render_mode = _offline.load(std::memory_order_relaxed)
-        ? Render_mode::Offline
-        : Render_mode::Realtime;
+    context.render_mode = _offline.load(std::memory_order_relaxed) ? Render_mode::Offline : Render_mode::Realtime;
+
+    // Resolve transport.
+    const auto block_context = this->_resolve_transport(process);
 
     // So we can process with an offset.
-    auto do_process = [this, &process, &context](size_t num_frames, size_t offset) {
+    auto do_process = [this, &process, &context, &block_context](size_t num_frames, size_t offset) {
         // Assign buffer ptrs.
         const auto& input_port = process->audio_inputs[0];
         assert(input_port.channel_count == static_cast<uint32_t>(_ichannels));
@@ -140,36 +144,11 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
             }
         }
 
-        // Resolve the musical context.
-        const auto* transport = process->transport;
-
-        // We will derive the sample time from the time in seconds.
-        const auto sec_pos = static_cast<double>(transport->song_pos_seconds) / CLAP_SECTIME_FACTOR;
-        const auto sample_pos = std::round(sec_pos * _sr);
-        const auto beat_pos = static_cast<double>(transport->song_pos_beats) / CLAP_BEATTIME_FACTOR;
-        const auto cycle_start = static_cast<double>(transport->loop_start_beats) / CLAP_BEATTIME_FACTOR;
-        const auto cycle_end = static_cast<double>(transport->loop_end_beats) / CLAP_BEATTIME_FACTOR;
-        const auto tempo = transport->tempo;
-        const auto ts_numer = transport->tsig_num;
-        const auto ts_denom = transport->tsig_denom;
-
-        const auto flags = transport->flags;
-        const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
-        const auto doff = static_cast<double>(offset);
-
-        context.musical_context = {
-            .sample_pos = static_cast<int64_t>(sample_pos + doff),
-            .beat_pos = beat_pos + frames_to_beats(static_cast<int64_t>(offset), tempo, _sr),
-            .cycle_start = cycle_start,
-            .cycle_end = cycle_end,
-            .tempo_ideal = tempo,
-            .time_sig = {ts_numer, ts_denom},
-            .transport_state = {
-                .moving = has_flag(flags, CLAP_TRANSPORT_IS_PLAYING),
-                .cycling = has_flag(flags, CLAP_TRANSPORT_IS_LOOP_ACTIVE),
-                .recording = has_flag(flags, CLAP_TRANSPORT_IS_RECORDING)
-            }
-        };
+        // Advance the block's musical context to this segment's offset.
+        const auto beat_off = frames_to_beats(static_cast<int64_t>(offset), block_context.tempo_ideal, _sr);
+        context.musical_context = block_context;
+        context.musical_context.sample_pos = block_context.sample_pos + static_cast<int64_t>(offset);
+        context.musical_context.beat_pos = block_context.beat_pos + beat_off;
 
         context.ibuffers = {_ibuffers.begin(), _ichannels};
         context.obuffers = {_obuffers.begin(), _ochannels};
@@ -209,7 +188,8 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
                 break;
             }
 
-            const auto frames_until_event = std::max({}, event->time - now);
+            // Clamp
+            const auto frames_until_event = event->time > now ? std::min(event->time - now, remaining) : uint32_t{};
 
             if (frames_until_event > 0) {
                 const auto offset = frame_count - remaining;
@@ -280,6 +260,42 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     return CLAP_PROCESS_CONTINUE;
 }
 
+auto Plugin::_resolve_transport(const clap_process* process) -> Musical_context
+{
+    const auto* transport = process->transport;
+
+    // If we can't get a transport, at least keep the sample position advancing.
+    if (!transport) {
+        const auto steady = process->steady_time;
+        const auto sample_pos = steady >= 0 ? steady : _free_run_pos;
+        _free_run_pos += static_cast<int64_t>(process->frames_count);
+
+        return Musical_context{.sample_pos = sample_pos}; // Defaults: 120bpm, 4/4, stopped.
+    }
+
+    // We will derive the sample time from the time in seconds.
+    const auto sec_pos = static_cast<double>(transport->song_pos_seconds) / CLAP_SECTIME_FACTOR;
+    const auto sample_pos = std::round(sec_pos * _sr);
+    const auto tempo = transport->tempo > 0 ? transport->tempo : 120.; // Never divide by zero.
+
+    const auto flags = transport->flags;
+    const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
+
+    return Musical_context{
+        .sample_pos = static_cast<int64_t>(sample_pos),
+        .beat_pos = static_cast<double>(transport->song_pos_beats) / CLAP_BEATTIME_FACTOR,
+        .cycle_start = static_cast<double>(transport->loop_start_beats) / CLAP_BEATTIME_FACTOR,
+        .cycle_end = static_cast<double>(transport->loop_end_beats) / CLAP_BEATTIME_FACTOR,
+        .tempo_ideal = tempo,
+        .time_sig = {transport->tsig_num, transport->tsig_denom},
+        .transport_state = {
+            .moving = has_flag(flags, CLAP_TRANSPORT_IS_PLAYING),
+            .cycling = has_flag(flags, CLAP_TRANSPORT_IS_LOOP_ACTIVE),
+            .recording = has_flag(flags, CLAP_TRANSPORT_IS_RECORDING)
+        }
+    };
+}
+
 void Plugin::reset() noexcept
 {
 }
@@ -322,24 +338,6 @@ bool Plugin::stateSave(const clap_ostream* stream) noexcept
 
     const auto num_editor_items = static_cast<uint32_t>(edit_state.size());
 
-    // Write header.
-    const auto header = State_rules::Clap::Header{
-        Plug_info::framework_code,
-        Plug_info::manufacturer_code,
-        Plug_info::plugin_code,
-        num_params,
-        num_editor_items
-    };
-    {
-        const auto total = sizeof(header);
-        auto sent = size_t{};
-        while (sent < total) {
-            const auto n = stream->write(stream, header.data() + sent, total - sent);
-            if (n <= 0) return false;
-            sent += static_cast<size_t>(n);
-        }
-    }
-
     // Helpers — loop until full chunk accepted (hosts may accept fewer bytes than requested).
     auto write_value = [&](const auto& data) {
         const auto total = sizeof(data);
@@ -378,6 +376,18 @@ bool Plugin::stateSave(const clap_ostream* stream) noexcept
         }
         return true;
     };
+    
+    // Write the header (as value).
+    const auto header = State_rules::Clap::Header{
+        Plug_info::framework_code,
+        Plug_info::manufacturer_code,
+        Plug_info::plugin_code,
+        num_params,
+        num_editor_items
+    };
+    if (!write_value(header)) {
+        return false;
+    }
 
     // --- Write the processor state ---
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
@@ -533,33 +543,34 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_
         .add_param = add_param,
     }});
 
+    // Notify if host values changed.
+    const auto settled = _snapshot_knob_params();
+    const auto values_changed = !std::ranges::equal(before, settled);
+
+    if (values_changed) {
+        if (auto* params_ext = (const clap_host_params_t*)_host->get_extension(_host, CLAP_EXT_PARAMS); params_ext) {
+            params_ext->rescan(_host, CLAP_PARAM_RESCAN_VALUES);
+        }
+    }
+
     _host->request_process(_host); // We're using process to flush.
 }
 
 bool Plugin::stateLoad(const clap_istream* stream) noexcept
 {
+    try {
+        return this->_read_state_chunk(stream);
+    }
+    catch (...) {
+        return false;
+    }
+}
+
+auto Plugin::_read_state_chunk(const clap_istream* stream) -> bool
+{
     using namespace params;
 
     if (!stream) return false;
-
-    auto header = State_rules::Clap::Header{};
-    {
-        const auto total = sizeof(header);
-        auto got = size_t{};
-        while (got < total) {
-            const auto n = stream->read(stream, header.data() + got, total - got);
-            if (n <= 0) return false;
-            got += static_cast<size_t>(n);
-        }
-    }
-
-    // Validate header.
-    assert(header[0] == Plug_info::framework_code && "Unexpected framework code.");
-    assert(header[1] == Plug_info::manufacturer_code && "Unexpected manufacturer code.");
-    assert(header[2] == Plug_info::plugin_code && "Unexpected plug-in code.");
-
-    const auto num_stored_values = header[3];
-    const auto num_stored_pairs = header[4];
 
     // Helpers — loop until full chunk received (hosts may deliver fewer bytes than requested).
     auto read_value = [&](auto& data) {
@@ -574,6 +585,21 @@ bool Plugin::stateLoad(const clap_istream* stream) noexcept
         return true;
     };
 
+    auto header = State_rules::Clap::Header{};
+    if (!read_value(header)) {
+        return false;
+    }
+
+    // Validate the header for real, not just in debug. Hosts hand us chunks from other
+    // plug-ins, truncated session files, and (in the validator's case) megabytes of
+    // random bytes; every count below this point is attacker-controlled until checked.
+    if (header[0] != Plug_info::framework_code) return false;
+    if (header[1] != Plug_info::manufacturer_code) return false;
+    if (header[2] != Plug_info::plugin_code) return false;
+
+    const auto num_stored_values = header[3];
+    const auto num_stored_pairs = header[4];
+
     auto read_container = [&](auto& data) {
         auto num = uint32_t{};
         {
@@ -585,27 +611,41 @@ bool Plugin::stateLoad(const clap_istream* stream) noexcept
                 got += static_cast<size_t>(n);
             }
         }
-        data.resize(num);
-        if (num == 0) return true;
-        const auto total = sizeof(data[0]) * num;
-        auto got = size_t{};
-        auto* ptr = reinterpret_cast<char*>(data.data());
-        while (got < total) {
-            const auto n = stream->read(stream, ptr + got, total - got);
-            if (n <= 0) return false;
-            got += static_cast<size_t>(n);
+
+        // Chunk reads in case we got garbage.
+        constexpr auto slice_items = size_t{4096};
+        data.clear();
+
+        auto done = size_t{};
+        while (done < num) {
+            const auto want = std::min<size_t>(slice_items, num - done);
+            data.resize(done + want);
+
+            const auto total = sizeof(data[0]) * want;
+            auto got = size_t{};
+            auto* ptr = reinterpret_cast<char*>(data.data() + done); // After resize; it may reallocate.
+            while (got < total) {
+                const auto n = stream->read(stream, ptr + got, total - got);
+                if (n <= 0) return false;
+                got += static_cast<size_t>(n);
+            }
+            done += want;
         }
         return true;
     };
 
-    // Read processor state into temporary vector.
-    auto stored_values = Maybe_values<double>(static_cast<size_t>(num_stored_values), std::nullopt);
+    const auto usable_values = std::min<size_t>(num_stored_values, num_params);
+    auto stored_values = Maybe_values<double>(usable_values, std::nullopt);
+
     for (auto i = decltype(num_stored_values){}; i < num_stored_values; ++i) {
         // Read floats from state.
         auto host_value = float{};
         if (!read_value(host_value)) {
             return false;
         }
+
+        // Keep stream aligned but don't write into stored values if the chunk has more values than we can use.
+        if (i >= num_params) continue;
 
         // Do we have a meaningful value?
         if (host_value != State_rules::no_value) {
@@ -666,7 +706,7 @@ bool Plugin::stateLoad(const clap_istream* stream) noexcept
                 break;
             }
             default:
-                break;
+                return false;
         }
 
         edit_state.emplace(std::move(key), std::move(value));
@@ -764,6 +804,9 @@ bool Plugin::configurableAudioPortsCanApplyConfiguration(const clap_audio_port_c
     auto ochannels = uint32_t{};
 
     auto check_port_type = [](const clap_audio_port_configuration_request& request) {
+        if (!request.port_type) {
+            return request.channel_count == 1 || request.channel_count == 2;
+        }
         const auto mono_is_mono = (request.channel_count == 1 && strcmp(request.port_type, CLAP_PORT_MONO) == 0);
         const auto stereo_is_stereo = (request.channel_count == 2 && strcmp(request.port_type, CLAP_PORT_STEREO) == 0);
         return mono_is_mono || stereo_is_stereo;
@@ -771,8 +814,7 @@ bool Plugin::configurableAudioPortsCanApplyConfiguration(const clap_audio_port_c
 
     const auto requests_ = std::span{requests, static_cast<size_t>(request_count)};
     for (const auto& request : requests_) {
-        // Check port types match channel count.
-        if (!check_port_type(request)) continue;
+        if (!check_port_type(request)) return false;
 
         const auto is_main = (request.port_index == 0);
         if (request.is_input && is_main) {
@@ -805,17 +847,22 @@ bool Plugin::configurableAudioPortsApplyConfiguration(const clap_audio_port_conf
 
     if (request_count == 0) return true; // No change.
 
+    // Don't apply something we just said we couldn't.
+    if (!this->configurableAudioPortsCanApplyConfiguration(requests, request_count)) {
+        return false;
+    }
+
     const auto requests_ = std::span{requests, static_cast<size_t>(request_count)};
     for (const auto& request : requests_) {
         const auto is_main = (request.port_index == 0);
         if (request.is_input && is_main) {
-            _ichannels = request.channel_count;
+            _ichannels = std::min<size_t>(request.channel_count, max_ichannels);
         }
         else if (is_main) {
-            _ochannels = request.channel_count;
+            _ochannels = std::min<size_t>(request.channel_count, max_ochannels);
         }
         else if (request.is_input) {
-            _schannels = request.channel_count;
+            _schannels = std::min<size_t>(request.channel_count, max_schannels);
         }
     }
 

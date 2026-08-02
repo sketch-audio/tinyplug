@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <system_error>
 
 #include "clap/helpers/preset-discovery-provider.hh"
 #include "clap/helpers/preset-discovery-provider.hxx"
@@ -13,6 +14,14 @@ namespace tiny::clap {
 
 using Misbehaviour_handler = ::clap::helpers::MisbehaviourHandler;
 using Checking_level = ::clap::helpers::CheckingLevel;
+
+// Shared by both providers: a preset location is only worth declaring if the host can
+// actually crawl it. `exists` can throw on an unreadable path, and `init` is `noexcept`.
+inline auto location_exists(const std::filesystem::path& path) -> bool
+{
+    auto error = std::error_code{};
+    return std::filesystem::is_directory(path, error) && !error;
+}
 
 #if defined(NDEBUG)
 using Preset_discovery_base = ::clap::helpers::PresetDiscoveryProvider<Misbehaviour_handler::Ignore, Checking_level::None>;
@@ -53,6 +62,12 @@ public:
 
         const auto bundle_id = std::string{Plug_info::base_identifier} + ".clap";
         const auto location_path = Platform_paths::format_readable(bundle_id);
+
+        // Only declare a location that actually exists. (We may not have bundled presets).
+        if (!location_exists(location_path)) {
+            return true;
+        }
+
         const auto path_str = location_path.string();
 
         const auto location = clap_preset_discovery_location_t{
@@ -81,7 +96,7 @@ public:
     }
 };
 
-// User Presets
+// MARK: - User Presets
 
 class User_presets : public Preset_discovery_base {
 public:
@@ -116,6 +131,12 @@ public:
             .manufacturer = Plug_info::company_directory_name,
             .product = Plug_info::product_directory_name,
         });
+
+        // Only declare a location that actually exists. (We may not have the user preset directory yet.)
+        if (!location_exists(location_path)) {
+            return true;
+        }
+
         const auto path_str = location_path.string();
 
         const auto location = clap_preset_discovery_location_t{
