@@ -20,7 +20,7 @@ inline auto tree_to_clap_modules(const params::Node& root) -> std::vector<std::s
         std::visit(Inline_visitor{
             [&](const params::Spec&) { result.push_back(path); },
             [&](const params::Group& group) {
-                const auto group_path = path.empty() ? std::string{group.name} : path + "/" + std::string{group.name};
+                const auto group_path = path.empty() ? group.name : path + "/" + group.name;
                 for (const auto& child : group.nodes) {
                     self(child, group_path, self);
                 }

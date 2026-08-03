@@ -26,7 +26,7 @@ auto Host_formatter::to_string(double host_value, const Semantics::Any& semantic
         },
         [&](const Semantics::List& l) {
             const auto idx = static_cast<size_t>(plain_value);
-            return std::string{l.items[idx]};
+            return l.items[idx];
         },
         [&](const Semantics::Int& i) {
             const auto suffix = Value_helper::units_label(i.units);

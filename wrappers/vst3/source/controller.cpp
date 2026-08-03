@@ -102,7 +102,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
         auto param_info = std::visit(Inline_visitor{
             [&](const params::Semantics::Bool&) {
                 return Steinberg::Vst::ParameterInfo{
-                    .id = static_cast<Steinberg::Vst::ParamID>(param.address),
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.identity.address),
                     .stepCount = 1,
                     .defaultNormalizedValue = Value_helper::default_value(param, Space::Knob),
                     .unitId = unit_id.unit_id,
@@ -111,7 +111,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
             },
             [&](const params::Semantics::List& l) {
                 return Steinberg::Vst::ParameterInfo{
-                    .id = static_cast<Steinberg::Vst::ParamID>(param.address),
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.identity.address),
                     .stepCount = static_cast<int32_t>(l.items.size() - 1),
                     .defaultNormalizedValue = Value_helper::default_value(param, Space::Knob),
                     .unitId = unit_id.unit_id,
@@ -120,7 +120,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
             },
             [&](const params::Semantics::Int& i) {
                 return Steinberg::Vst::ParameterInfo{
-                    .id = static_cast<Steinberg::Vst::ParamID>(param.address),
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.identity.address),
                     .stepCount = i.max_val - i.min_val,
                     .defaultNormalizedValue = Value_helper::default_value(param, Space::Knob),
                     .unitId = unit_id.unit_id,
@@ -129,7 +129,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
             },
             [&](const params::Semantics::Fixed&) {
                 return Steinberg::Vst::ParameterInfo{
-                    .id = static_cast<Steinberg::Vst::ParamID>(param.address),
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.identity.address),
                     .stepCount = 0,
                     .defaultNormalizedValue = Value_helper::default_value(param, Space::Knob),
                     .unitId = unit_id.unit_id,
@@ -138,7 +138,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
             },
             [&](const params::Semantics::Real&) {
                 return Steinberg::Vst::ParameterInfo{
-                    .id = static_cast<Steinberg::Vst::ParamID>(param.address),
+                    .id = static_cast<Steinberg::Vst::ParamID>(param.identity.address),
                     .stepCount = 0,
                     .defaultNormalizedValue = Value_helper::default_value(param, Space::Knob),
                     .unitId = unit_id.unit_id,
@@ -161,9 +161,9 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
         }();
 
         // Shenanigans to get the name.
-        Steinberg::Vst::StringConvert::convert(std::string{param.name}, param_info.title);
+        Steinberg::Vst::StringConvert::convert(param.name, param_info.title);
         if (!param.short_name.empty()) {
-            Steinberg::Vst::StringConvert::convert(std::string{param.short_name}, param_info.shortTitle);
+            Steinberg::Vst::StringConvert::convert(param.short_name, param_info.shortTitle);
         }
 
         parameters.addParameter(param_info);
@@ -248,7 +248,7 @@ Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream*
     // Notify view (we perform the persistence check again here on the current model).
     auto notify = [this](auto& param, auto knob_value) {
         if (State_rules::is_persistent(param)) {
-            setParamNormalized(param.address, knob_value);
+            setParamNormalized(param.identity.address, knob_value);
         }
     };
 

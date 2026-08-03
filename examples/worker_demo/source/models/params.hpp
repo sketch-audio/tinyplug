@@ -16,8 +16,7 @@ struct Params {
         using enum Address;
         return Group{.nodes = {
             Spec{
-                .address = enum_raw(Gain),
-                .string_id = "gain",
+                .identity = {.address = enum_raw(Gain), .identifier = "gain"},
                 .name = "Gain",
                 .semantics = Semantics::Real{
                     .min_val = 0,

@@ -39,7 +39,7 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
     Globals()->UseIndexedParameters(User_params::num_params);
     for (const auto& param : params) {
         const auto def_val = Value_helper::default_value(param, Space::Host);
-        Globals()->SetParameter(param.address, static_cast<float>(def_val));
+        Globals()->SetParameter(param.identity.address, static_cast<float>(def_val));
     }
 
     // 
@@ -225,11 +225,13 @@ OSStatus Effect::GetParameterList(AudioUnitScope inScope, AudioUnitParameterID* 
 
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
 
-    // This is so we can determine the presentation order of the parameters by the host.
+    // Logic addresses automation by index into this list, so it comes from the model's pinned
+    // AU order, falling back to address order. Never presentation order — that would make the
+    // tree append-only and lock the author out of ever rearranging the display hierarchy.
     outNumParameters = num_params; // Do this first.
     if (!outParameterList) return noErr;
-    const auto& params = User_params::param_specs(Param_order::Presentation);
-    const auto ids = params | std::views::transform([](const auto& spec) { return spec.address; });
+    const auto& params = User_params::param_specs(Param_order::Au_ordinal);
+    const auto ids = params | std::views::transform([](const auto& spec) { return spec.identity.address; });
     std::ranges::copy(ids, outParameterList);
 
     return noErr;
@@ -279,7 +281,7 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
 
     const auto& params = User_params::param_specs(Param_order::Indexable);
     const auto& param = params[inParameterID];
-    const auto* clump = find_clump_for_parameter(_clumps, param.address);
+    const auto* clump = find_clump_for_parameter(_clumps, param.identity.address);
     const auto found_clump = clump != nullptr;
 
     std::visit(Inline_visitor{
@@ -288,7 +290,7 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
                 .name = {},
                 .unitName = {},
                 .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
-                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, std::string{param.name}.c_str(), kCFStringEncodingUTF8),
+                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name.c_str(), kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Boolean,
                 .minValue = 0,
                 .maxValue = 1,
@@ -301,7 +303,7 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
                 .name = {},
                 .unitName = {},
                 .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
-                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, std::string{param.name}.c_str(), kCFStringEncodingUTF8),
+                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name.c_str(), kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Indexed,
                 .minValue = 0,
                 .maxValue = static_cast<float>(l.items.size() - 1),
@@ -314,7 +316,7 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
                 .name = {},
                 .unitName = {},
                 .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
-                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, std::string{param.name}.c_str(), kCFStringEncodingUTF8),
+                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name.c_str(), kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Indexed,
                 .minValue = static_cast<float>(i.min_val),
                 .maxValue = static_cast<float>(i.max_val),
@@ -327,7 +329,7 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
                 .name = {},
                 .unitName = {},
                 .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
-                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, std::string{param.name}.c_str(), kCFStringEncodingUTF8),
+                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name.c_str(), kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Generic,
                 .minValue = static_cast<float>(f.min_val),
                 .maxValue = static_cast<float>(f.max_val),
@@ -341,7 +343,7 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
                 .name = {},
                 .unitName = {},
                 .clumpID = found_clump ? static_cast<UInt32>(clump->id) : UInt32{},
-                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, std::string{param.name}.c_str(), kCFStringEncodingUTF8),
+                .cfNameString = CFStringCreateWithCString(kCFAllocatorDefault, param.name.c_str(), kCFStringEncodingUTF8),
                 .unit = kAudioUnitParameterUnit_Generic,
                 .minValue = 0,
                 .maxValue = 1,
@@ -537,8 +539,8 @@ auto Effect::_update_state(const Maybe_values<double>& knob_values, const State_
         if (can_notify) {
             const auto host = Value_helper::knob_to_host(*knob_value, param.semantics);
             const auto plain = Value_helper::knob_to_plain(*knob_value, param.semantics);
-            Globals()->SetParameter(param.address, static_cast<float>(host));
-            change_list.push_back(Set_param{param.address, plain}); // We'll publish as a batch.
+            Globals()->SetParameter(param.identity.address, static_cast<float>(host));
+            change_list.push_back(Set_param{param.identity.address, plain}); // We'll publish as a batch.
         }
     };
 
@@ -720,7 +722,7 @@ OSStatus Effect::RestoreState(CFPropertyListRef plist)
             const auto host_value = Globals()->GetParameter(i);
             const auto plain_value = Value_helper::host_to_plain(host_value, param.semantics);
 
-            change_list.push_back(Set_param{param.address, plain_value});
+            change_list.push_back(Set_param{param.identity.address, plain_value});
         }
 
         _changes.push_n(change_list); // Batch publish everything.

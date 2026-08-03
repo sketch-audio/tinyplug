@@ -77,12 +77,13 @@ live alongside each interface — find them by searching for `concept Some_*`.
   on draw, emits `User_action` events (Action_start/Set_param/Action_end/
   Request_resize). Wrappers translate gestures into host-native begin/edit/end
   notifications. Editor never shares memory with the processor.
-- **`Param_model`** ([shared/tinyplug/tiny_params.h](shared/tinyplug/tiny_params.h)) —
-  enumerates `Param_address` and provides `build_tree()` returning a
-  `Param_node` tree (groups + specs). The framework flattens the tree to an
+- **`params::Model`** ([libs/tinyplug/include/tinyplug/tiny_params.hpp](libs/tinyplug/include/tinyplug/tiny_params.hpp)) —
+  enumerates `Address` and provides `build_tree()` returning a
+  `params::Node` tree (groups + specs). The framework flattens the tree to an
   indexable array but preserves structure where the format supports it
   (AUv2 clumps, VST3 units, AAX page tables, CLAP modules, AUv3 parameter
-  groups).
+  groups). A model may additionally satisfy `params::Au_ordered` by declaring
+  `au_order() -> std::vector<Address>` — see "Parameter permanence" below.
 - **`Meter_model`** ([shared/tinyplug/tiny_meters.h](shared/tinyplug/tiny_meters.h)) —
   same shape as params, but with `Meter_policy::{peak,stream,trig}` for how
   the editor consumes updates.
@@ -90,6 +91,40 @@ live alongside each interface — find them by searching for `concept Some_*`.
   optional. If the plug-in source dir contains `plug_worker.h` it is
   discovered via `__has_include` and `TINY_HAS_WORKER` is defined. Otherwise
   `No_worker` (monostate) collapses every worker member to nothing.
+
+## Parameter permanence
+
+A parameter model has **three** independent permanence surfaces, not one. Design
+notes and the sourcing behind each: [plans/param-identity-and-ordering.md](plans/param-identity-and-ordering.md).
+
+- **`Identity::address`** — the persistence and automation key in every format
+  (VST3 `ParamID`, CLAP `id`, AUv2/AUv3 address, and the AAX string ID is derived
+  from it). Assign at the end of the `Address` enum. Never change, reuse, or
+  remove — retire a parameter with `Policy::Hidden` and it keeps its slot.
+- **`Identity::identifier`** and `Group::identifier` — the AUv3 `keyPath` is the
+  dot-joined chain of ancestor group identifiers plus the parameter's own, and
+  preset JSON nests by exactly the same chain. So a parameter **may not move
+  between groups**, and no identifier may be renamed. `validate_tree` enforces
+  non-empty, unique-among-siblings, and globally-unique keypaths at startup.
+  The root group is exempt — it contributes to no path.
+- **`au_order()`** — the AUv2 parameter list. Logic addresses AUv2 automation by
+  *index into this list*, not by id, so it must be append-only across releases.
+  This is why it is declared separately from the tree: `build_tree()` also encodes
+  display order, and inserting a parameter next to its visual siblings shifts
+  every list position after it. With `au_order()` the tree stays free — put a new
+  parameter wherever it looks right, then append it to `au_order()`.
+
+`Param_order::Au_ordinal` returns that order and
+[wrappers/auv2/source/effect.cpp](wrappers/auv2/source/effect.cpp) `GetParameterList`
+is its only consumer. A model that doesn't declare `au_order()` falls back to
+**address order** (`Indexable`), which is append-only by construction since the
+`Address` enum is — it costs you control of the AU display order but is never
+unsafe. It must never fall back to tree order: that would make the tree itself
+append-only, which is exactly the constraint this design removes.
+Everything else is free to change: `name`, `short_name`, `Group::name`, and the
+whole display hierarchy provided ancestry is preserved. Group *names* (not
+identifiers) are what CLAP modules, VST3 units and AUv2 clumps are built from, so
+those are cosmetic.
 
 ## Three spaces, one parameter
 
@@ -509,6 +544,13 @@ speculation, they're scheduled work.
   **[refactor-ideas.md](plans/refactor-ideas.md)** (CI, clang-format, PCH/unity,
   further namespace passes, `detail/` split, downstream migration).
 
+- **[param-lockfile.md](plans/param-lockfile.md)** — deferred. A checked-in
+  `params.lock` per plug-in plus a `<Plugin>_paramlock` tool that links the real
+  model, so the permanence rules above become build-time enforcement instead of
+  convention. `validate_tree` can only check a single build for internal
+  consistency; every failure mode that matters is a question about change over
+  time. Design is settled; four open decisions are listed in the doc.
+
 - **[midi-support.md](plans/midi-support.md)** — adds note/MIDI types
   to the `Render_event` variant (`Note_on`, `Note_off`, `Note_choke`,
   `Note_expression_value`, `Midi_cc`, `Pitch_bend`, `Channel_pressure`)
@@ -550,9 +592,13 @@ graphics backend on macOS, more demo plug-ins.
   are sized at compile time; the kernel must keep `latency_samps()` and
   `tail_samps()` realtime-safe; the worker exists specifically for
   non-realtime work.
-- **Don't reorder or remove `Param_address` values** once a plug-in has
+- **Don't reorder or remove `Address` values** once a plug-in has
   shipped — `enum_raw(addr)` is the persistence key. Adding new values
   at the end is fine.
+- **Don't reorder `au_order()`, and don't rename an `identifier`.** Both are
+  permanence surfaces with silent failure modes — see "Parameter permanence".
+  Appending to `au_order()` is fine; rearranging the *tree* is fine too, which
+  is the whole reason the two are separate.
 - **Never run two builds at once.** `--parallel 8` is fine
   (`cmake --build build-debug --parallel 8`); what's not fine is launching a
   second build while one is still running.

@@ -15,7 +15,11 @@ struct Params {
 
     // Here you declare your parameters.
     // Your parameters will be displayed in the host in the order which they are declared here. (preorder depth-first traversal)
-    // Once you ship a plug-in, you can rearrange the tree, but you can't remove parameters!
+    // Once you ship a plug-in the tree is a permanence surface, not just presentation:
+    //  - never move a parameter between groups, and never change an `identifier` (breaks AUv3
+    //    host documents and preset recall)
+    //  - declare `au_order()` before you ship, and only ever append to it (Logic addresses AUv2
+    //    automation by index into that list)
     // You can always hide a parameter by marking its policy as `hidden` or `interface`. 
     static auto build_tree() -> params::Node
     {
@@ -23,8 +27,7 @@ struct Params {
         using enum Address;
         return Group{.nodes = {
             Spec{
-                .address = enum_raw(Gain),
-                .string_id = "gain",
+                .identity = {.address = enum_raw(Gain), .identifier = "gain"},
                 .name = "Gain",
                 .semantics = Semantics::Real{
                     .min_val = 0,

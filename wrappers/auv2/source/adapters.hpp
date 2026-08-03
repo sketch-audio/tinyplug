@@ -91,10 +91,10 @@ inline auto tree_to_clump_map(const params::Node& root) -> Clump_map
                         if (inserted) ++next_id;
                         return it->second;
                     }();
-                    result[spec.address] = {clump_id, path};
+                    result[spec.identity.address] = {clump_id, path};
                 },
                 [&](const params::Group& group) {
-                    const auto new_path = path.empty() ? std::string{group.name} : path + "/" + std::string{group.name};
+                    const auto new_path = path.empty() ? group.name : path + "/" + group.name;
 
                     for (const auto& child : group.nodes) {
                         self(child, new_path, self);

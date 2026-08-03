@@ -16,7 +16,11 @@ struct Params {
 
     // Here you declare your parameters.
     // Your parameters will be displayed in the host in the order which they are declared here. (preorder depth-first traversal)
-    // Once you ship a plug-in, you can rearrange the tree, but you can't remove parameters!
+    // Once you ship a plug-in the tree is a permanence surface, not just presentation:
+    //  - never move a parameter between groups, and never change an `identifier` (breaks AUv3
+    //    host documents and preset recall)
+    //  - declare `au_order()` before you ship, and only ever append to it (Logic addresses AUv2
+    //    automation by index into that list)
     // You can always hide a parameter by marking its policy as `hidden` or `interface`. 
     static auto build_tree() -> params::Node
     {
@@ -24,8 +28,7 @@ struct Params {
         using enum Address;
         return Group{.nodes = {
             Spec{
-                .address = enum_raw(Gain),
-                .string_id = "gain",
+                .identity = {.address = enum_raw(Gain), .identifier = "gain"},
                 .name = "Gain",
                 .semantics = Semantics::Real{
                     .min_val = 0,
@@ -36,15 +39,25 @@ struct Params {
                 }
             },
             Spec{
-                .address = enum_raw(Latency_mode),
-                .string_id = "latency",
+                .identity = {.address = enum_raw(Latency_mode), .identifier = "latency"},
                 .name = "Latency",
                 .semantics = Semantics::List{{"Low", "High"}},
                 .policy = Policy::Control // No automation.
             },
         }};
     }
+
+    // Append-only. See the template for why this is separate from the tree.
+    static auto au_order() -> std::vector<Address>
+    {
+        using enum Address;
+        return {
+            Gain,
+            Latency_mode,
+        };
+    }
 };
 static_assert(params::Model<Params>); // Check your interface.
+static_assert(params::Au_ordered<Params>); // Check your AU order.
 
 } // namespace tiny::models

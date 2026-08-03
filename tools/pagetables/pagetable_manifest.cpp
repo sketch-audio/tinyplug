@@ -27,7 +27,7 @@ auto main() -> int
         }();
         params.push_back({
             {"index",      i},
-            {"address",    s.address},
+            {"address",    s.identity.address},
             {"name",       std::string{s.name}},
             {"short_name", std::string{s.short_name}},
             {"policy",     policy}

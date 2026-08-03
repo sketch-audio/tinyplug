@@ -16,8 +16,7 @@ struct Params {
         using enum Address;
         return Group{.nodes = {
             Spec{
-                .address = enum_raw(Level),
-                .string_id = "level",
+                .identity = {.address = enum_raw(Level), .identifier = "level"},
                 .name = "Level",
                 .semantics = Semantics::Real{
                     .min_val = 0,

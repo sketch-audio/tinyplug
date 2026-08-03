@@ -480,9 +480,9 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_
     auto notify = [&](const auto& param, auto knob_value) {
         const auto can_notify = knob_value.has_value() && State_rules::is_persistent(param);
         if (can_notify) {
-            this->_handle_user_action(Set_param{.address = param.address, .value = *knob_value});
+            this->_handle_user_action(Set_param{.address = param.identity.address, .value = *knob_value});
             if (_view) {
-                _view->set_param(param.address, *knob_value);
+                _view->set_param(param.identity.address, *knob_value);
             }
         }
     };
@@ -903,7 +903,7 @@ bool Plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexce
     const auto& path = _modules[paramIndex];
 
     *info = {}; // Clear.
-    info->id = param.address;
+    info->id = param.identity.address;
     info->flags = [policy = param.policy]() {
         using enum params::Policy;
         switch (policy) {
@@ -915,7 +915,7 @@ bool Plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexce
         }
     }();
     info->cookie = nullptr;
-    std::snprintf(info->name, CLAP_NAME_SIZE, "%s", std::string{param.name}.c_str());
+    std::snprintf(info->name, CLAP_NAME_SIZE, "%s", param.name.c_str());
     std::snprintf(info->module, CLAP_NAME_SIZE, "%s", path.c_str());
 
     // CLAP uses host values.
@@ -1239,7 +1239,7 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
                             .type = CLAP_EVENT_PARAM_GESTURE_BEGIN,
                             .flags = {},
                         },
-                        .param_id = param.address
+                        .param_id = param.identity.address
                     };
                     out_events->try_push(out_events, &e.header);
                 }
@@ -1259,14 +1259,14 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
                             .type = CLAP_EVENT_PARAM_VALUE,
                             .flags = {},
                         },
-                        .param_id = param.address,
+                        .param_id = param.identity.address,
                         .value = host_value,
                     };
                     out_events->try_push(out_events, &e.header);
                 }
 
                 const auto plain_value = Value_helper::knob_to_plain(a.value, param.semantics);
-                _processor->handle_event(Set_param{param.address, plain_value});
+                _processor->handle_event(Set_param{param.identity.address, plain_value});
             },
             [&](const Action_end& a) {
                 const auto& param = User_params::param_spec(a.address);
@@ -1279,7 +1279,7 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
                             .type = CLAP_EVENT_PARAM_GESTURE_END,
                             .flags = {},
                         },
-                        .param_id = param.address
+                        .param_id = param.identity.address
                     };
                     out_events->try_push(out_events, &e.header);
                 }
@@ -1296,7 +1296,7 @@ auto Plugin::_handle_user_action(const User_action& action) -> void
     if (const auto* a = std::get_if<Set_param>(&action)) {
         const auto& param = User_params::param_spec(a->address);
         const auto host_value = Value_helper::knob_to_host(a->value, param.semantics);
-        _hostvalues[param.address].store(host_value, std::memory_order_relaxed);
+        _hostvalues[param.identity.address].store(host_value, std::memory_order_relaxed);
     }
     [[maybe_unused]] const auto success = _from_ui.push(action);
     assert(success && "UI to processor queue full, increase queue size!");

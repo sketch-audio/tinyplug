@@ -176,8 +176,8 @@ static auto presets_path() -> std::filesystem::path
                     for (const auto& child : group.nodes) {
                         [children addObject:self_(self_, child)];
                     }
-                    NSString* identifier = [NSString stringWithUTF8String:std::string{group.string_id}.c_str()];
-                    NSString* name = [NSString stringWithUTF8String:std::string{group.name}.c_str()];
+                    NSString* identifier = [NSString stringWithUTF8String:group.identifier.c_str()];
+                    NSString* name = [NSString stringWithUTF8String:group.name.c_str()];
                     return [AUParameterTree createGroupWithIdentifier:identifier name:name children:children];
                 }
             }, node);
@@ -294,12 +294,12 @@ static auto presets_path() -> std::filesystem::path
 
 // MARK: - makeParameterFor
 
-- (AUParameter*)makeParameterFor:(tiny::params::Spec)spec {
+- (AUParameter*)makeParameterFor:(const tiny::params::Spec&)spec {
     using namespace tiny;
     using namespace params;
 
-    NSString* identifier = [NSString stringWithUTF8String:std::string{spec.string_id}.c_str()];
-    NSString* name = [NSString stringWithUTF8String:std::string{spec.name}.c_str()];
+    NSString* identifier = [NSString stringWithUTF8String:spec.identity.identifier.c_str()];
+    NSString* name = [NSString stringWithUTF8String:spec.name.c_str()];
 
     auto flags_for = [](params::Policy policy) -> AudioUnitParameterOptions {
         switch (policy) {
@@ -315,7 +315,7 @@ static auto presets_path() -> std::filesystem::path
         [&](const params::Semantics::Bool& b) {
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
-                                                                        address:spec.address
+                                                                        address:spec.identity.address
                                                                             min:0
                                                                             max:1
                                                                             unit:kAudioUnitParameterUnit_Boolean
@@ -333,7 +333,7 @@ static auto presets_path() -> std::filesystem::path
             }
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
-                                                                        address:spec.address
+                                                                        address:spec.identity.address
                                                                             min:0
                                                                             max:static_cast<float>(l.items.size() - 1)
                                                                            unit:kAudioUnitParameterUnit_Indexed
@@ -347,7 +347,7 @@ static auto presets_path() -> std::filesystem::path
         [&](const params::Semantics::Int& i) {
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
-                                                                        address:spec.address
+                                                                        address:spec.identity.address
                                                                             min:static_cast<float>(i.min_val)
                                                                             max:static_cast<float>(i.max_val)
                                                                            unit:kAudioUnitParameterUnit_Indexed
@@ -361,7 +361,7 @@ static auto presets_path() -> std::filesystem::path
         [&](const params::Semantics::Real& r) {
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
-                                                                        address:spec.address
+                                                                        address:spec.identity.address
                                                                             min:0
                                                                             max:1
                                                                            unit:kAudioUnitParameterUnit_Generic
@@ -375,7 +375,7 @@ static auto presets_path() -> std::filesystem::path
         [&](const params::Semantics::Fixed& f) {
             AUParameter* param = [AUParameterTree createParameterWithIdentifier:identifier
                                                                            name:name
-                                                                        address:spec.address
+                                                                        address:spec.identity.address
                                                                             min:static_cast<float>(f.min_val)
                                                                             max:static_cast<float>(f.max_val)
                                                                            unit:kAudioUnitParameterUnit_Generic

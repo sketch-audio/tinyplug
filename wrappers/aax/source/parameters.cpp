@@ -34,14 +34,14 @@ AAX_Result Parameters::EffectInit()
             [&](const params::Semantics::Bool& b) {
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<bool>(
                     aax_id.c_str(),
-                    AAX_CString(std::string{param.name}.c_str()),
+                    AAX_CString(param.name.c_str()),
                     b.def_val,
                     AAX_CBinaryTaperDelegate<bool>(),
                     AAX_CBinaryDisplayDelegate<bool>("False", "True"),
                     param.policy == params::Policy::Automation
                 ));
                 if (!param.short_name.empty()) {
-                    aax_param->AddShortenedName(std::string{param.short_name}.c_str());
+                    aax_param->AddShortenedName(param.short_name.c_str());
                 }
                 aax_param->SetNumberOfSteps(2);
                 aax_param->SetType(AAX_eParameterType_Discrete);
@@ -60,14 +60,14 @@ AAX_Result Parameters::EffectInit()
                 for (const auto& s : item_storage) item_cstrs.push_back(s.c_str());
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<int32_t>(
                     aax_id.c_str(),
-                    AAX_CString(std::string{param.name}.c_str()),
+                    AAX_CString(param.name.c_str()),
                     static_cast<int32_t>(l.def_val),
                     AAX_CStateTaperDelegate<int32_t>(0, num_items - 1),
                     AAX_CStateDisplayDelegate<int32_t>(num_items, item_cstrs.data(), 0), // Yee haw.
                     param.policy == params::Policy::Automation
                 ));
                 if (!param.short_name.empty()) {
-                    aax_param->AddShortenedName(std::string{param.short_name}.c_str());
+                    aax_param->AddShortenedName(param.short_name.c_str());
                 }
                 // AAX validator reports errors for parameters with more than 2048 steps.
                 // See: https://dev.avid.com/MP_DeveloperForumSupport?filterId=a9T310000004FCnEAM#!/feedtype=SINGLE_QUESTION_DETAIL&dc=Developer_Community_Q_A&criteria=ALLQUESTIONS&id=9065A000000oScuQAE
@@ -82,14 +82,14 @@ AAX_Result Parameters::EffectInit()
 
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<int32_t>(
                     aax_id.c_str(),
-                    AAX_CString(std::string{param.name}.c_str()),
+                    AAX_CString(param.name.c_str()),
                     i.def_val,
                     AAX_CStateTaperDelegate<int32_t>(i.min_val, i.max_val),
                     AAX_CUnitDisplayDelegateDecorator<int32_t>(DisplayDelegate(), units_str.c_str()),
                     param.policy == params::Policy::Automation
                 ));
                 if (!param.short_name.empty()) {
-                    aax_param->AddShortenedName(std::string{param.short_name}.c_str());
+                    aax_param->AddShortenedName(param.short_name.c_str());
                 }
                 // AAX validator reports errors for parameters with more than 2048 steps.
                 // See: https://dev.avid.com/MP_DeveloperForumSupport?filterId=a9T310000004FCnEAM#!/feedtype=SINGLE_QUESTION_DETAIL&dc=Developer_Community_Q_A&criteria=ALLQUESTIONS&id=9065A000000oScuQAE
@@ -106,14 +106,14 @@ AAX_Result Parameters::EffectInit()
 
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
                     aax_id.c_str(),
-                    AAX_CString(std::string{param.name}.c_str()),
+                    AAX_CString(param.name.c_str()),
                     f.def_val,
                     TaperDelegate(f),
                     AAX_CUnitDisplayDelegateDecorator<double>(DisplayDelegate(), units_str.c_str()),
                     param.policy == params::Policy::Automation
                 ));
                 if (!param.short_name.empty()) {
-                    aax_param->AddShortenedName(std::string{param.short_name}.c_str());
+                    aax_param->AddShortenedName(param.short_name.c_str());
                 }
                 // AAX validator reports errors for parameters with more than 2048 steps.
                 // See: https://dev.avid.com/MP_DeveloperForumSupport?filterId=a9T310000004FCnEAM#!/feedtype=SINGLE_QUESTION_DETAIL&dc=Developer_Community_Q_A&criteria=ALLQUESTIONS&id=9065A000000oScuQAE
@@ -131,14 +131,14 @@ AAX_Result Parameters::EffectInit()
 
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
                     aax_id.c_str(),
-                    AAX_CString(std::string{param.name}.c_str()),
+                    AAX_CString(param.name.c_str()),
                     r.def_val,
                     TaperDelegate(r), // So we can use our own control adapter.
                     AAX_CUnitDisplayDelegateDecorator<double>(DisplayDelegate(), units_str.c_str()),
                     param.policy == params::Policy::Automation
                 ));
                 if (!param.short_name.empty()) {
-                    aax_param->AddShortenedName(std::string{param.short_name}.c_str());
+                    aax_param->AddShortenedName(param.short_name.c_str());
                 }
                 aax_param->SetNumberOfSteps(2048); // Most steps that will pass validation.
                 aax_param->SetType(AAX_eParameterType_Continuous);

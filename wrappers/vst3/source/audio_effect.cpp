@@ -110,7 +110,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::initialize(Steinberg::FUnknown* cont
 
     // Get knob defaults for automation points.
     for (const auto& param : User_params::param_specs(Param_order::Indexable)) {
-        _last_points[param.address] = {.offset = -1, .value = Value_helper::default_value(param, Space::Knob)};
+        _last_points[param.identity.address] = {.offset = -1, .value = Value_helper::default_value(param, Space::Knob)};
     }
 
     return Steinberg::kResultOk;
@@ -580,7 +580,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
     // Notify kernel (we perform the persistence check again here on the current model).
     auto notify = [&](const auto& spec, auto plain_value) {
         if (State_rules::is_persistent(spec)) {
-            _queue.push(Set_param{spec.address, plain_value}); // Overwrite queue now, so we won't overflow.
+            _queue.push(Set_param{spec.identity.address, plain_value}); // Overwrite queue now, so we won't overflow.
         }
     };
     

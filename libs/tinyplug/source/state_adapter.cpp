@@ -19,20 +19,20 @@ auto State_adapter::preset_state(const State_map& extras) const -> nlohmann::ord
         const auto persistent = (spec.policy != params::Policy::Interface);
         if (!persistent) return;
         const auto plain = Value_helper::knob_to_plain(value, spec.semantics);
-        json[spec.string_id] = static_cast<float>(plain);
+        json[spec.identity.identifier] = static_cast<float>(plain);
     };
 
     auto visit_group = [&add_value](const params::Group& group, const std::vector<double>& values, auto&& self) -> Json {
         auto group_json = Json{};
         for (const auto& node : group.nodes) {
             if (const auto* spec = std::get_if<params::Spec>(&node); spec) {
-                const auto value = values[spec->address];
+                const auto value = values[spec->identity.address];
                 add_value(group_json, *spec, value);
             }
             else if (const auto* subgroup = std::get_if<params::Group>(&node); subgroup) {
                 auto subjson = self(*subgroup, values, self);
                 if (!subjson.empty()) {
-                    group_json[subgroup->string_id] = subjson;
+                    group_json[subgroup->identifier] = subjson;
                 }
             }
         }
@@ -94,22 +94,22 @@ auto State_adapter::param_values(const nlohmann::ordered_json& preset_state) con
         for (const auto& node : group.nodes) {
             if (const auto* spec = std::get_if<params::Spec>(&node); spec) {
                 // Do we have a json number for this param?
-                const auto has_value = json.contains(spec->string_id) && json[spec->string_id].is_number();
+                const auto has_value = json.contains(spec->identity.identifier) && json[spec->identity.identifier].is_number();
                 if (has_value) {
-                    const auto plain = json[spec->string_id].get<double>();
+                    const auto plain = json[spec->identity.identifier].get<double>();
                     const auto knob = Value_helper::plain_to_knob(plain, spec->semantics);
-                    values[spec->address] = knob;
+                    values[spec->identity.address] = knob;
                 }
                 else {
                     const auto def_val = Value_helper::default_value(*spec, Space::Knob);
-                    values[spec->address] = def_val;
+                    values[spec->identity.address] = def_val;
                 }
             }
             else if (const auto* subgroup = std::get_if<params::Group>(&node); subgroup) {
                 // Do we have a json object for this param group?
-                const auto has_subjson = json.contains(subgroup->string_id) && json[subgroup->string_id].is_object();
+                const auto has_subjson = json.contains(subgroup->identifier) && json[subgroup->identifier].is_object();
                 if (has_subjson) {
-                    const auto& subjson = json[subgroup->string_id];
+                    const auto& subjson = json[subgroup->identifier];
                     self(*subgroup, subjson, values, self);
                 }
             }

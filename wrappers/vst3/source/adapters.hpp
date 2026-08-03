@@ -78,7 +78,7 @@ inline auto tree_to_units(const params::Node& root) -> Flattened_units
                     result.units.push_back(Unit_info{
                         .unit_id = this_unit_id,
                         .parent_id = parent_id,
-                        .name = std::string{group.name}
+                        .name = group.name
                     });
                 }
 
@@ -86,7 +86,7 @@ inline auto tree_to_units(const params::Node& root) -> Flattened_units
                     std::visit(Inline_visitor{
                         [&](const params::Spec& spec) {
                             result.param_to_unit.push_back(Param_unit{
-                                .param_id = spec.address,
+                                .param_id = spec.identity.address,
                                 .unit_id = this_unit_id
                             });
                         },

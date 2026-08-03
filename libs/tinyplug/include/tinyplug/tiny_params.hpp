@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <ranges>
 #include <string>
-#include <string_view>
 #include <type_traits>
 #include <unordered_set>
 #include <variant>
@@ -131,7 +130,7 @@ struct Semantics {
     // Interpreted as an item in a list. Requires `def_val` < `items.size()`.
     struct List {
         // The list items.
-        std::vector<std::string_view> items{"One", "Two", "Three"};
+        std::vector<std::string> items{"One", "Two", "Three"};
 
         // Default list item (index).
         size_t def_val{};
@@ -232,13 +231,27 @@ struct Group; struct Spec;
 // A node in a parameter tree.
 using Node = std::variant<Group, Spec>;
 
+// A parameter's permanent identity. Frozen the moment a plug-in ships.
+struct Identity {
+    // The parameter's unique address. The key for persistence and host automation.
+    uint32_t address{};
+
+    // Leaf identifier. The AUv3 keyPath and the preset key are this plus the group ancestry.
+    // Must be non-empty and unique among siblings.
+    std::string identifier{};
+
+    // Regular.
+    auto operator==(const Identity&) const -> bool = default;
+};
+
 // A named group of nodes.
 struct Group {
-    // The group name.
-    std::string_view name{""};
+    // The group name. Display only — free to change after shipping.
+    std::string name{""};
 
-    // Used by AUv3 and presets. Must be unique among siblings.
-    std::string_view string_id{};
+    // Frozen — part of every descendant's keyPath and preset path. Unique among siblings.
+    // The root group is exempt; it contributes nothing to either path.
+    std::string identifier{};
 
     // The group nodes.
     std::vector<Node> nodes{};
@@ -246,17 +259,14 @@ struct Group {
 
 // A specification for a parameter.
 struct Spec {
-    // The parameter's unique address.
-    uint32_t address{};
+    // The parameter's permanent identity.
+    Identity identity{};
 
-    // Used by AUv3 and presets. Must be unique among siblings.
-    std::string_view string_id{};
+    // Name. Display only — free to change after shipping.
+    std::string name{""};
 
-    // Name.
-    std::string_view name{""};
-
-    // Short name. (Optional)
-    std::string_view short_name{""};
+    // Short name. Display only. (Optional)
+    std::string short_name{""};
 
     // Parameter semantics.
     Semantics::Any semantics{std::in_place_type<Semantics::Real>};
@@ -278,6 +288,17 @@ concept Model = requires {
     requires std::same_as<std::underlying_type_t<typename T::Address>, uint32_t>;
     { T::Address::Num_params } -> std::same_as<typename T::Address>;
     { T::build_tree() } -> std::same_as<Node>;
+};
+
+// A model that pins its own AUv2 parameter list order.
+// Logic addresses AUv2 automation by index into that list rather than by id, so the list has to
+// be append-only across releases. The tree can't carry that guarantee — it also encodes display
+// order, and inserting a parameter next to its siblings shifts everything after it. Declaring the
+// order separately lets the tree stay free while the AU list stays frozen. Without this, AUv2
+// falls back to address order, which is append-only too but gives up control of AU display order.
+template<typename T>
+concept Au_ordered = Model<T> && requires {
+    { T::au_order() } -> std::same_as<std::vector<typename T::Address>>;
 };
 
 // MARK: - params impl
@@ -313,25 +334,42 @@ inline auto validate_spec(const Spec& spec) -> bool
     return ok_range;
 }
 
+// Every identifier in the tree is a permanence surface — it spells the AUv3 keyPath and the
+// preset key. A missing or duplicated one is silent breakage, so it's checked at startup.
 inline auto validate_tree(const Node& root, [[maybe_unused]] size_t num_expected) -> bool
 {
     auto ids = std::unordered_set<uint32_t>{};
+    auto keypaths = std::unordered_set<std::string>{};
 
-    const auto visit = [&](const auto& node, const auto& self) -> void {
+    // `is_root` because the root group contributes to no keypath and needs no identifier.
+    const auto visit = [&](const auto& node, const std::string& prefix, bool is_root, const auto& self) -> void {
+        auto siblings = std::unordered_set<std::string>{};
         std::visit(Inline_visitor{
             [&](const Spec& spec) {
                 validate_spec(spec);
-                ids.insert(spec.address);
+                ids.insert(spec.identity.address);
+                [[maybe_unused]] const auto unique = keypaths.insert(prefix + spec.identity.identifier).second;
+                assert(unique && "Param keypaths must be unique.");
             },
             [&](const Group& group) {
+                [[maybe_unused]] const auto named = is_root || !group.identifier.empty();
+                assert(named && "Param groups must have an identifier.");
+                const auto path = is_root ? std::string{} : prefix + group.identifier + "/";
                 for (const auto& child : group.nodes) {
-                    self(child, self);
+                    [[maybe_unused]] const auto& child_id = std::visit(Inline_visitor{
+                        [](const Spec& s) -> const std::string& { return s.identity.identifier; },
+                        [](const Group& g) -> const std::string& { return g.identifier; }
+                    }, child);
+                    assert(!child_id.empty() && "Param identifiers must not be empty.");
+                    [[maybe_unused]] const auto unique = siblings.insert(child_id).second;
+                    assert(unique && "Param identifiers must be unique among siblings.");
+                    self(child, path, false, self);
                 }
             }
         }, node);
     };
 
-    visit(root, visit);
+    visit(root, std::string{}, true, visit);
 
     const auto num_leaves = ids.size();
     assert(num_leaves == num_expected && "Param tree must contain all params.");
@@ -345,6 +383,21 @@ inline auto validate_tree(const Node& root, [[maybe_unused]] size_t num_expected
     return true;
 }
 
+// The AU list must name every parameter exactly once, or hosts index into the wrong one.
+template<Enum Address>
+inline auto validate_au_order(const std::vector<Address>& order, [[maybe_unused]] size_t num_expected) -> bool
+{
+    auto seen = std::unordered_set<uint32_t>{};
+    for (const auto addr : order) {
+        [[maybe_unused]] const auto raw = enum_raw(addr);
+        assert(raw < num_expected && "au_order() names an address outside the model.");
+        [[maybe_unused]] const auto unique = seen.insert(raw).second;
+        assert(unique && "au_order() names the same address twice.");
+    }
+    assert(seen.size() == num_expected && "au_order() must name every parameter exactly once.");
+    return true;
+}
+
 template <std::ranges::input_range R, typename Comp>
 inline auto sorted_copy(const R& range, Comp comp)
 {
@@ -354,9 +407,34 @@ inline auto sorted_copy(const R& range, Comp comp)
     return out;
 }
 
+// The model's pinned AU order if it declares one, otherwise address order.
+// Address order — never tree order — because the `Address` enum is already append-only, so it is
+// safe by construction for a model that hasn't opted in. Falling back to tree order would leave
+// presentation order load-bearing, which is the whole problem `au_order()` exists to remove.
+template<Model User_model>
+inline auto au_ordered_copy(const std::vector<Spec>& indexed_specs) -> std::vector<Spec>
+{
+    if constexpr (Au_ordered<User_model>) {
+        const auto order = User_model::au_order();
+        [[maybe_unused]] const auto is_valid = validate_au_order(order, indexed_specs.size());
+
+        auto out = std::vector<Spec>{};
+        out.reserve(order.size());
+        for (const auto addr : order) {
+            const auto raw = enum_raw(addr);
+            if (raw < indexed_specs.size()) out.push_back(indexed_specs[raw]);
+        }
+        return out;
+    }
+    else {
+        return indexed_specs;
+    }
+}
+
 } // namespace impl
 
-enum class Param_order : uint32_t { Indexable, Presentation };
+// Indexable is address order, Presentation is tree order, Au_ordinal is the AUv2 list order.
+enum class Param_order : uint32_t { Indexable, Presentation, Au_ordinal };
 
 // MARK: - params registry
 
@@ -380,7 +458,12 @@ public:
 
     static auto param_specs(Param_order ordering) -> const std::vector<Spec>&
     {
-        return ordering == Param_order::Indexable ? indexed_specs : display_specs;
+        switch (ordering) {
+            case Param_order::Presentation: return display_specs;
+            case Param_order::Au_ordinal:   return au_specs;
+            case Param_order::Indexable:    return indexed_specs;
+            default:                        return indexed_specs;
+        }
     }
 
     static auto param_spec(uint32_t address) -> const Spec&
@@ -391,11 +474,12 @@ public:
 
 private:
 
-    static constexpr auto id_less = [](const auto& a, const auto& b) { return a.address < b.address; };
+    static constexpr auto id_less = [](const auto& a, const auto& b) { return a.identity.address < b.identity.address; };
 
     inline static const Node user_tree = User_model::build_tree();
     inline static const std::vector<Spec> display_specs = impl::flatten_tree(user_tree);
     inline static const std::vector<Spec> indexed_specs = impl::sorted_copy(display_specs, id_less);
+    inline static const std::vector<Spec> au_specs = impl::au_ordered_copy<User_model>(indexed_specs);
 
 };
 
