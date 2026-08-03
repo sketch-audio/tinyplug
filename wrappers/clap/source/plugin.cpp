@@ -799,9 +799,12 @@ bool Plugin::configurableAudioPortsCanApplyConfiguration(const clap_audio_port_c
 
     if (request_count == 0) return true; // No change.
 
-    auto ichannels = uint32_t{};
-    auto schannels = uint32_t{};
-    auto ochannels = uint32_t{};
+    // A request describes changes to specific ports, not a complete restatement, so seed from the
+    // current configuration. Starting at zero rejects any request that simply omits a port — which
+    // for a sidechain plug-in is nearly all of them.
+    auto ichannels = static_cast<uint32_t>(_ichannels);
+    auto schannels = static_cast<uint32_t>(_schannels);
+    auto ochannels = static_cast<uint32_t>(_ochannels);
 
     auto check_port_type = [](const clap_audio_port_configuration_request& request) {
         if (!request.port_type) {
