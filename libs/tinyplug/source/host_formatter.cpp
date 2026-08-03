@@ -1,6 +1,7 @@
 #include "tinyplug/host_formatter.hpp"
 
 #include <cerrno>
+#include <cmath>
 #include <iomanip>
 #include <sstream>
 
@@ -18,6 +19,13 @@ auto Host_formatter::to_string(double host_value, const Semantics::Any& semantic
         auto oss = std::ostringstream{};
         oss << std::fixed << std::setprecision(precision) << value;
         return oss.str();
+    };
+
+    // Pick precision from the value as it will be *displayed*, not as it arrives. Text round-trips
+    // through host space are not bit-exact, so a value printing as "10" comes back as 9.99999… —
+    // a bare `>= 10` test would then print "10.0" and the host sees an inconsistent conversion.
+    auto adaptive_prec = [](double value) {
+        return (std::round(std::abs(value) * 10.0) >= 100.0) ? 0 : 1;
     };
 
     return std::visit(Inline_visitor{
@@ -44,25 +52,24 @@ auto Host_formatter::to_string(double host_value, const Semantics::Any& semantic
                 }
                 case Decibels: {
                     const auto prefix = (plain_value >= 0 ? "+" : "");
-                    const auto prec = (std::abs(plain_value) >= 10) ? 0 : 1;
                     const auto suffix = " dB";
-                    return prefix + format_double(plain_value, prec) + suffix;
+                    return prefix + format_double(plain_value, adaptive_prec(plain_value)) + suffix;
                 }
                 case Hertz: {
-                    if (plain_value >= 1000) {
+                    // Switch to kHz on the *rounded* value, so 999.96 doesn't print "1000.0 Hz"
+                    // and then re-parse into the kHz branch on the way back.
+                    if (std::abs(std::round(plain_value)) >= 1000) {
                         const auto suffix = " kHz";
                         return format_double(plain_value / 1000, 1) + suffix;
                     }
                     else {
                         const auto suffix = " Hz";
-                        const auto prec = (std::abs(plain_value) >= 10) ? 0 : 1;
-                        return format_double(plain_value, prec) + suffix;
+                        return format_double(plain_value, adaptive_prec(plain_value)) + suffix;
                     }
                 }
                 case Milliseconds: {
                     const auto suffix = " ms";
-                    const auto prec = (std::abs(plain_value) >= 10) ? 0 : 1;
-                    return format_double(plain_value, prec) + suffix;
+                    return format_double(plain_value, adaptive_prec(plain_value)) + suffix;
                 }
                 case Degrees: {
                     const auto prefix = (plain_value >= 0 ? "+" : "");
@@ -122,8 +129,16 @@ auto Host_formatter::to_value(const std::string& string, const Semantics::Any& s
             }
             return std::nullopt;
         },
-        [&](const auto&) -> std::optional<double> {
-            return parse_double(string);
+        [&](const auto& fr) -> std::optional<double> {
+            const auto value = parse_double(string);
+            if (!value) return std::nullopt;
+
+            // We print "1.5 kHz" above 1000 Hz, so we have to read it back. Hertz is the only
+            // unit that carries a multiplier, so the scan is scoped to it.
+            const auto is_kilo = (string.find_first_of("kK") != std::string::npos);
+            if (fr.units == Units::Hertz && is_kilo) return *value * 1000.;
+
+            return value;
         }
     }, semantics);
 }
