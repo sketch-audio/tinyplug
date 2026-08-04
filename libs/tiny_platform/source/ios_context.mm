@@ -101,7 +101,21 @@ auto Window_context::set_drawable(void* drawable) -> void
 auto Window_context::begin_draw() -> void
 {
     auto layer = static_cast<CAMetalLayer*>(_impl->layer);
-    
+
+    // Make sure we start with a fresh surface.
+    _impl->surface.reset();
+
+    // Don't render into a zero-size layer.
+    const auto layer_size = layer.drawableSize;
+    if (layer_size.width <= 0 || layer_size.height <= 0) {
+        // Release any externally-supplied drawable so end_draw can't present an undrawn frame.
+        if (_impl->drawable) {
+            CFRelease(_impl->drawable); // We need to handle lifetime better, but for now, just release it.
+            _impl->drawable = nullptr;
+        }
+        return;
+    }
+
     const auto drawable = [&]() -> id<CAMetalDrawable> {
         // Have to make sure we don't call next drawable when using CAMetalDisplayLink.
         if (@available(iOS 17, *)) {
@@ -119,9 +133,11 @@ auto Window_context::begin_draw() -> void
     auto texture_info = GrMtlTextureInfo{};
     texture_info.fTexture.retain(drawable.texture);
 
-    auto size = layer.drawableSize;
+    // Derive size from texture.
+    const auto width = static_cast<int>(drawable.texture.width);
+    const auto height = static_cast<int>(drawable.texture.height);
 
-    auto render_target = GrBackendRenderTargets::MakeMtl(size.width, size.height, texture_info);
+    auto render_target = GrBackendRenderTargets::MakeMtl(width, height, texture_info);
 
     auto surface = SkSurfaces::WrapBackendRenderTarget(_impl->context.get(),
                                                        render_target,

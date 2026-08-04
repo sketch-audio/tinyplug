@@ -6,9 +6,10 @@ namespace tiny {
 
 View_delegate::View_delegate(Rect_size initial_size, Draw_callback callback, Notify_callback notify)
     : _size{initial_size}, _draw{std::move(callback)}, _notify{std::move(notify)}
-{}
+{
+}
 
-View_delegate::~View_delegate() 
+View_delegate::~View_delegate()
 {
     this->destroy_context();
 }
@@ -56,7 +57,8 @@ auto View_delegate::invalidate_context() -> void
 
 auto View_delegate::on_resize(const Rect_size& size) -> void
 {
-    if (size.w < 0 || size.h < 0) return;
+    // Now we disallow zero size.
+    if (size.w <= 0 || size.h <= 0) return;
     _size = size;
     this->resize_context();
 }
@@ -73,6 +75,7 @@ auto View_delegate::resize_context() -> void
     if (!_context) return;
     _context->on_resized();
     const auto real_size = _context->real_size();
+    if (_size.w <= 0 || _size.h <= 0) return; // Don't divide by zero.
     _scale = static_cast<double>(real_size.w) / _size.w;
 }
 
