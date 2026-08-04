@@ -34,7 +34,13 @@ function(make_auv3_plugin USER_TARGET)
 
     # For entitlements files.
     read_property(${USER_TARGET} TINY_COMPANY_DIRECTORY_NAME)
+    if(NOT TINY_COMPANY_DIRECTORY_NAME)
+        set(TINY_COMPANY_DIRECTORY_NAME ${TINY_COMPANY_NAME})
+    endif()
     read_property(${USER_TARGET} TINY_PRODUCT_DIRECTORY_NAME)
+    if(NOT TINY_PRODUCT_DIRECTORY_NAME)
+        set(TINY_PRODUCT_DIRECTORY_NAME ${TINY_PRODUCT_NAME})
+    endif()
 
     read_property(${USER_TARGET} TINY_APP_PLIST_ENTRIES)
     if(NOT TINY_APP_PLIST_ENTRIES)
