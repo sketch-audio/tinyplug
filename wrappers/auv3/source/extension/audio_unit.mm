@@ -484,10 +484,17 @@ static auto presets_path() -> std::filesystem::path
     if (availableViewConfigurations.count == 0) {
         return [NSIndexSet indexSet]; // Return empty index set for empty array
     }
-    
-    // Create an index set for all indices from 0 to count-1
-    NSIndexSet *indexSet = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, availableViewConfigurations.count)];
-    return indexSet;
+
+    // New Logic versions appear to offer a wildcard 0x0 configuration along with 1024x768 and 1366x1024.
+    for (NSUInteger i = 0; i < availableViewConfigurations.count; ++i) {
+        AUAudioUnitViewConfiguration* config = availableViewConfigurations[i];
+        if (config.width <= 0. && config.height <= 0.) {
+            return [NSIndexSet indexSetWithIndex:i];
+        }
+    }
+
+    // Otherwise, accept all.
+    return [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, availableViewConfigurations.count)];
 }
 
 // Allocate resources required to render.
