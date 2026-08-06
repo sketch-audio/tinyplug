@@ -110,7 +110,9 @@ struct Alg_context {
     float** audio_out;                // AddAudioOut
     int32_t* num_frames;              // AddAudioBufferLength
     float* sample_rate;               // AddSampleRate
-    int32_t* sidechain_index;         // AddSideChainIn, or filler
+#if TINY_WANTS_SIDECHAIN
+    int32_t* sidechain_index;         // AddSideChainIn
+#endif
     AAX_IMIDINode* transport_node;    // AddMIDINode(Transport)
 
     const Config_packet* config;      // AddDataInPort
@@ -135,7 +137,9 @@ enum : AAX_CFieldIndex {
     field_audio_out = AAX_FIELD_INDEX(Alg_context, audio_out),
     field_num_frames = AAX_FIELD_INDEX(Alg_context, num_frames),
     field_sample_rate = AAX_FIELD_INDEX(Alg_context, sample_rate),
+#if TINY_WANTS_SIDECHAIN
     field_sidechain = AAX_FIELD_INDEX(Alg_context, sidechain_index),
+#endif
     field_transport = AAX_FIELD_INDEX(Alg_context, transport_node),
     field_config = AAX_FIELD_INDEX(Alg_context, config),
     field_runtime = AAX_FIELD_INDEX(Alg_context, runtime),

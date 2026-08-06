@@ -256,14 +256,14 @@ auto render_instance(Alg_context* ctx) -> void
         st->ibuffers[ch] = ctx->audio_in[ch];
         st->obuffers[ch] = ctx->audio_out[ch];
     }
-    if constexpr (Plug_info::wants_sidechain) {
-        if (ctx->sidechain_index != nullptr) {
-            const auto sc = static_cast<size_t>(*ctx->sidechain_index);
-            for (auto i = size_t{}; i < max_schannels; ++i) {
-                st->sbuffers[i] = ctx->audio_in[sc + i];
-            }
+#if TINY_WANTS_SIDECHAIN
+    if (ctx->sidechain_index != nullptr) {
+        const auto sc = static_cast<size_t>(*ctx->sidechain_index);
+        for (auto i = size_t{}; i < max_schannels; ++i) {
+            st->sbuffers[i] = ctx->audio_in[sc + i];
         }
     }
+#endif
 
     auto context = Dsp_context{
         .musical_context = read_musical_context(ctx, runtime.recording != 0),

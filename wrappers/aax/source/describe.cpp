@@ -43,12 +43,9 @@ auto describe_algorithm(AAX_IComponentDescriptor* desc, bool stereo) -> void
     err = desc->AddSampleRate(field_sample_rate);
     err = desc->AddMIDINode(field_transport, AAX_eMIDINodeType_Transport, "Transport", 0xffff);
 
-    if constexpr (Plug_info::wants_sidechain) {
-        err = desc->AddSideChainIn(field_sidechain);
-    }
-    else {
-        err = desc->AddPrivateData(field_sidechain, sizeof(float), AAX_ePrivateDataOptions_DefaultOptions);
-    }
+#if TINY_WANTS_SIDECHAIN
+    err = desc->AddSideChainIn(field_sidechain);
+#endif
 
     // Inbound packets. All buffered: the host timestamps them and splits render
     // buffers (to a 32-sample minimum on Native) so each lands at its automation
