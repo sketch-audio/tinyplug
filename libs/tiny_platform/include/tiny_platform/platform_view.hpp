@@ -25,6 +25,9 @@ struct Platform_binder {
     bool double_click{};
 
     bool dark_mode{};
+
+    // Reentrancy guard.
+    bool painting{};
 };
 class Dark_mode_watcher; // Have to manually watch dark mode.
 class Vsync_loop; // Vsync drawing.

@@ -212,24 +212,30 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
     switch (message) {
         case WM_PAINT: {
             if (delegate) {
-                const auto time_now = System_clock::now();
-
                 auto ps = PAINTSTRUCT{};
                 [[maybe_unused]] auto hdc = BeginPaint(window, &ps);
 
+                // Reentrancy guard.
+                if (!binder->painting) {
+                    binder->painting = true;
+                    const auto reset_painting = Deferred([binder]() { binder->painting = false; });
+
+                    const auto time_now = System_clock::now();
+
 #if !WIN_GRAPHICS_GPU
-                delegate->set_drawable(hdc);
+                    delegate->set_drawable(hdc);
 #endif
 
-                binder->interaction.modifier_keys = resolve_modifiers();
-                binder->interaction.events = binder->events.consume(Steady_clock::now());
+                    binder->interaction.modifier_keys = resolve_modifiers();
+                    binder->interaction.events = binder->events.consume(Steady_clock::now());
 
-                // Pointer absolute position.
-                if (auto cursor = POINT{}; GetCursorPos(&cursor))
-                    binder->interaction.pointer_abs = {static_cast<double>(cursor.x), static_cast<double>(cursor.y)};
+                    // Pointer absolute position.
+                    if (auto cursor = POINT{}; GetCursorPos(&cursor))
+                        binder->interaction.pointer_abs = {static_cast<double>(cursor.x), static_cast<double>(cursor.y)};
 
-                delegate->draw(binder->interaction, time_now); // Delegate window context handles everything.
-                binder->interaction.scroll_deltas = {};
+                    delegate->draw(binder->interaction, time_now); // Delegate window context handles everything.
+                    binder->interaction.scroll_deltas = {};
+                }
 
 #if !WIN_GRAPHICS_GPU
                 ReleaseDC(window, hdc);
@@ -495,6 +501,9 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
 
 Platform_view::~Platform_view()
 {
+    // Stop vsync thread before we destroy the window (don't want to call InvalidateRect on a destroyed window).
+    _vsync_loop.reset();
+
     auto* window = static_cast<HWND>(_view);
     SetWindowLongPtrW(window, GWLP_USERDATA, 0);
     DestroyWindow(window);
