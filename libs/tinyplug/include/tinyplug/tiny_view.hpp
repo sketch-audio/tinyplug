@@ -383,7 +383,10 @@ inline auto run_frame(
     _undo_history.perform_actions(_actions.actor());
 
     // Handle actions and update local state.
-    for (auto& action : _actions.get_actions()) {
+
+    // Grab value.
+    const auto actions = _actions.get_actions();
+    for (const auto& action : actions) {
         _receiver.action_handler(action);
         if (const auto* s = std::get_if<Set_param>(&action)) {
             _ui_params[s->address] = s->value; // Update the local copy.
