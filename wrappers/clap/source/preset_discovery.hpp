@@ -7,6 +7,7 @@
 #include "clap/helpers/preset-discovery-provider.hh"
 #include "clap/helpers/preset-discovery-provider.hxx"
 
+#include <tinyplug/platform_defs.hpp>
 #include <tiny_platform/platform_paths.hpp>
 #include "plug_info.hpp"
 
@@ -21,6 +22,32 @@ inline auto location_exists(const std::filesystem::path& path) -> bool
 {
     auto error = std::error_code{};
     return std::filesystem::is_directory(path, error) && !error;
+}
+
+// CLAP Validator workaround.
+// clap_preset_discovery_location_t::location must satisfy two different, apparently
+// unrelated consumers on Windows:
+//  - clap-validator's location-declare check, which (confirmed empirically, not by spec)
+//    is a naive "does the raw string's first character equal '/'" test -- it is not URI
+//    aware. Wrapping the path as a real "file://..." URI actually *fails* this check,
+//    since that string starts with 'f', not '/' (validator's own suggested fix was
+//    nonsensically "prepend '/' before file://").
+//  - the crawler's actual file access, which (per the CLAP header's own comment: "works
+//    with the OS file system functions (open/stat/...)") wants a string usable directly
+//    by Windows path APIs -- i.e. still fundamentally a native path, not a URI.
+// So: keep it a native path (backslashes, drive letter untouched) and just prepend a
+// single leading '/', which Windows path APIs tolerate. Do not go further into real
+// file:// URI territory (scheme, forward slashes, percent-encoding) -- that satisfies
+// neither consumer, as tested.
+inline auto location_uri_path(const std::filesystem::path& path) -> std::string
+{
+    auto str = path.string();
+#if TINY_PLATFORM_WINDOWS
+    if (!str.empty() && str.front() != '/') {
+        str.insert(str.begin(), '/');
+    }
+#endif
+    return str;
 }
 
 #if defined(NDEBUG)
@@ -68,7 +95,7 @@ public:
             return true;
         }
 
-        const auto path_str = location_path.string();
+        const auto path_str = location_uri_path(location_path);
 
         const auto location = clap_preset_discovery_location_t{
             .flags = CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT,
@@ -137,7 +164,7 @@ public:
             return true;
         }
 
-        const auto path_str = location_path.string();
+        const auto path_str = location_uri_path(location_path);
 
         const auto location = clap_preset_discovery_location_t{
             .flags = CLAP_PRESET_DISCOVERY_IS_USER_CONTENT,
