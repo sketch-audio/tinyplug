@@ -19,8 +19,11 @@ bool Plugin::init() noexcept
 
 bool Plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t /*maxFrameCount*/) noexcept
 {
-    // Reset kernel with sample rate only first time and then when sample rate changes.
-    if (!_once || sampleRate != _sr) {
+    // Are we here because the kernel wanted a latency change?
+    const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+    const auto self_requested_restart = pending_latency.has_value();
+
+    if (!_once || sampleRate != _sr || !self_requested_restart) {
         _processor->reset(sampleRate);
         _latency = _processor->latency_samps();
         _sr = sampleRate;
@@ -34,8 +37,6 @@ bool Plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t /*
     _worker_runner.start(sampleRate);
 #endif
 
-    // Are we here because the kernel wanted a latency change?
-    const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (pending_latency) {
         _accepted_latency.store(*pending_latency, std::memory_order_release); // The kernel should manifest on the next process.
         _latency = *pending_latency;
@@ -118,6 +119,12 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     auto context = Dsp_context{.meters = _meters, .propose_latency = {}};
     context.render_mode = _offline.load(std::memory_order_relaxed) ? Render_mode::Offline : Render_mode::Realtime;
 
+    // We need to resync on render mode edge.
+    if (_last_render_mode != context.render_mode) {
+        _processor->handle_event(Resync_params{});
+        _last_render_mode = context.render_mode;
+    }
+
     // Resolve transport.
     const auto block_context = this->_resolve_transport(process);
 
@@ -165,6 +172,9 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
 
     const auto can_skip = _bypass.can_skip_effect();
 
+    // Interpret zero frame count as a flush.
+    const auto renders_audio = frame_count > 0;
+
     // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
     // process()) — settle before this block's own automation lands, not after.
     if (_was_skipped && !can_skip) {
@@ -172,11 +182,16 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     }
     _was_skipped = can_skip;
 
-    if (can_skip) {
+    if (can_skip || !renders_audio) {
         // Manifest events until end of block.
+        auto delivered = false;
         while (event) {
             this->_handle_host_event<true>(event);
             next_event();
+            delivered = true;
+        }
+        if (!renders_audio && delivered) {
+            _processor->handle_event(Resync_params{});
         }
     }
     else {
@@ -1207,9 +1222,14 @@ auto Plugin::_handle_host_flushed(bool needs_resync) -> void
         return;
     }
 
+    auto delivered = false;
     auto kernel_event = Render_event{};
     while (_from_flush.pop(kernel_event)) {
         _processor->handle_event(kernel_event);
+        delivered = true;
+    }
+    if (delivered) {
+        _processor->handle_event(Resync_params{});
     }
 }
 

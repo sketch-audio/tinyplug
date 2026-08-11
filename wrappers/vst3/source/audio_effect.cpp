@@ -253,18 +253,69 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
 
     // Process events in state queue.
     auto state_event = Set_param{};
-    auto did_state_load = false;
     while (_queue.pop(state_event)) {
         _processor->handle_event(state_event);
-        did_state_load = true;
-    }
-    // A preset/session load should manifest immediately, not glide in.
-    if (did_state_load) {
-        _processor->handle_event(Resync_params{});
     }
 
+    // Validate shape up front.
+    const auto has_inputs = data.numInputs > 0 && data.inputs;
+    const auto has_sidechain = data.numInputs > 1 && data.inputs;
+    const auto has_outputs = data.numOutputs > 0 && data.outputs;
+
+    const auto required_in_channels = static_cast<Steinberg::int32>(_ichannels);
+    const auto required_out_channels = static_cast<Steinberg::int32>(_ochannels);
+    const auto required_sc_channels = static_cast<Steinberg::int32>(_schannels);
+
+    const auto inputs_shape_ok = !has_inputs
+        || (data.inputs[0].channelBuffers32 != nullptr && data.inputs[0].numChannels >= required_in_channels);
+    const auto outputs_shape_ok = !has_outputs
+        || (data.outputs[0].channelBuffers32 != nullptr && data.outputs[0].numChannels >= required_out_channels);
+    const auto sidechain_shape_ok = !(has_sidechain && Plug_info::wants_sidechain)
+        || (data.inputs[1].channelBuffers32 != nullptr && data.inputs[1].numChannels >= required_sc_channels);
+
+    const auto shape_ok = inputs_shape_ok && outputs_shape_ok && sidechain_shape_ok;
+
+    // Guarded on `shape_ok`: a null `channelBuffers32` is exactly what the shape check
+    // above rejects, and indexing it to look for null *channels* would dereference it.
+    auto main_input_pointers_ok = true;
+    if (shape_ok && has_inputs) {
+        for (size_t i = 0; i < _ichannels; ++i) {
+            if (data.inputs[0].channelBuffers32[i] == nullptr) {
+                main_input_pointers_ok = false;
+                break;
+            }
+        }
+    }
+
+    auto main_output_pointers_ok = true;
+    if (shape_ok && has_outputs) {
+        for (size_t i = 0; i < _ochannels; ++i) {
+            if (data.outputs[0].channelBuffers32[i] == nullptr) {
+                main_output_pointers_ok = false;
+                break;
+            }
+        }
+    }
+
+    auto sidechain_pointers_ok = true;
+    if (shape_ok && has_sidechain && Plug_info::wants_sidechain) {
+        for (size_t i = 0; i < _schannels; ++i) {
+            if (data.inputs[1].channelBuffers32[i] == nullptr) {
+                sidechain_pointers_ok = false;
+                break;
+            }
+        }
+    }
+
+    const auto pointers_ok = main_input_pointers_ok && main_output_pointers_ok && sidechain_pointers_ok;
+
+    // Well-formed *and* actually carrying samples on both the main input and the main
+    // output. Everything else is a flush.
+    const auto renders_audio = shape_ok && pointers_ok
+        && has_inputs && has_outputs && data.numSamples > 0;
+
     _events.clear(); // Events only valid for this render cycle.
-    this->normalize_input_events(data);
+    this->normalize_input_events(data, renders_audio);
 
     // Now we have the events organized how we want.
     const auto event_count = _events.size();
@@ -296,61 +347,8 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         _last_process_mode = data.processMode;
     }
 
-    const auto has_inputs = data.numInputs > 0 && data.inputs;
-    const auto has_sidechain = data.numInputs > 1 && data.inputs;
-    const auto has_outputs = data.numOutputs > 0 && data.outputs;
-
-    const auto required_in_channels = static_cast<Steinberg::int32>(_ichannels);
-    const auto required_out_channels = static_cast<Steinberg::int32>(_ochannels);
-    const auto required_sc_channels = static_cast<Steinberg::int32>(_schannels);
-
-    const auto inputs_shape_ok = !has_inputs
-        || (data.inputs[0].channelBuffers32 != nullptr && data.inputs[0].numChannels >= required_in_channels);
-    const auto outputs_shape_ok = !has_outputs
-        || (data.outputs[0].channelBuffers32 != nullptr && data.outputs[0].numChannels >= required_out_channels);
-    const auto sidechain_shape_ok = !(has_sidechain && Plug_info::wants_sidechain)
-        || (data.inputs[1].channelBuffers32 != nullptr && data.inputs[1].numChannels >= required_sc_channels);
-
-    if (!(inputs_shape_ok && outputs_shape_ok && sidechain_shape_ok)) {
-        return Steinberg::kResultOk;
-    }
-
-    auto main_input_pointers_ok = true;
-    if (has_inputs) {
-        for (size_t i = 0; i < _ichannels; ++i) {
-            if (data.inputs[0].channelBuffers32[i] == nullptr) {
-                main_input_pointers_ok = false;
-                break;
-            }
-        }
-    }
-
-    auto main_output_pointers_ok = true;
-    if (has_outputs) {
-        for (size_t i = 0; i < _ochannels; ++i) {
-            if (data.outputs[0].channelBuffers32[i] == nullptr) {
-                main_output_pointers_ok = false;
-                break;
-            }
-        }
-    }
-
-    auto sidechain_pointers_ok = true;
-    if (has_sidechain && Plug_info::wants_sidechain) {
-        for (size_t i = 0; i < _schannels; ++i) {
-            if (data.inputs[1].channelBuffers32[i] == nullptr) {
-                sidechain_pointers_ok = false;
-                break;
-            }
-        }
-    }
-
-    if (!(main_input_pointers_ok && main_output_pointers_ok && sidechain_pointers_ok)) {
-        return Steinberg::kResultOk;
-    }
-
     // Copy main input to internal buffers in case of in-place processing.
-    if (has_inputs) {
+    if (renders_audio) {
         for (size_t i = 0; i < _ichannels; ++i) {
             const auto* in = data.inputs[0].channelBuffers32[i];
             auto& channel = _input_data[i];
@@ -438,11 +436,18 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     }
     _was_skipped = can_skip;
 
-    if (can_skip) {
-        // Manifest events until the end of the block.
+    if (can_skip || !renders_audio) {
+        // No kernel run to interleave the events with, so deliver them all.
+        auto delivered = false;
         while (event) {
             _processor->handle_event(event->event);
             next_event();
+            delivered = true;
+        }
+
+        // Resync on flush block.
+        if (!renders_audio && delivered) {
+            _processor->handle_event(Resync_params{});
         }
     }
     else {
@@ -473,7 +478,8 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         }
     }
 
-    if (has_inputs && has_outputs && data.numSamples > 0) {
+    // Host bypass.
+    if (renders_audio) {
         auto in_buffers = [&]() {
             auto arr = std::array<const float*, max_ichannels>{};
             for (size_t i = 0; i < _ichannels; ++i) {
@@ -513,8 +519,9 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         queue->addPoint(0, value, point_index); // offset, value, index
     };
 
+    // Don't meter during flush blocks.
     // Live can crash if we meter using output params during bounce!
-    if (!is_offline_bounce) {
+    if (renders_audio && !is_offline_bounce) {
         for (size_t i = 0; i < num_meters; ++i) {
             if (context.meters[i] != _last_meters[i]) {
                 // Send normalized value to UI per VST spec.
@@ -710,7 +717,7 @@ Steinberg::uint32 PLUGIN_API Audio_effect::getProcessContextRequirements()
 
 // MARK: - private
 
-auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data) -> void
+auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, bool renders_audio) -> void
 {
     using namespace params;
 
@@ -752,7 +759,8 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data) -> 
             const auto max_offset = std::max(data.numSamples - 1, 0);
             offset = std::clamp(offset, -1, max_offset);
 
-            const auto ramp_dur = std::max(offset - previous.offset, 0);
+            // Flush blocks don't render audio, so ramp duration is zero samples.
+            const auto ramp_dur = renders_audio ? std::max(offset - previous.offset, 0) : 0;
 
             if (_events.size() == _events.capacity()) {
                 // _events vector is full!

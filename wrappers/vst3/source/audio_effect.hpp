@@ -137,7 +137,9 @@ private:
     bool _was_skipped{}; // Detects the can_skip -> processing edge.
     Steinberg::int32 _last_process_mode{-1}; // Detects a data.processMode transition.
 
-    auto normalize_input_events(Steinberg::Vst::ProcessData& data) -> void;
+    // `renders_audio` is false for a parameter flush (and for a malformed block we
+    // decline to render), where offsets carry no timing information — see `process`.
+    auto normalize_input_events(Steinberg::Vst::ProcessData& data, bool renders_audio) -> void;
 
 #if TINY_HAS_WORKER
     // Worker channel. The worker lives on the controller side. The audio

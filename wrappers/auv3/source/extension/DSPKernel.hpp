@@ -53,7 +53,6 @@ public:
     
     void setBypass(bool shouldBypass) {
         _bypass.set_bypassed(shouldBypass);
-        _needs_resync.store(true, std::memory_order_relaxed); // Restate from _hostvalues on the next process.
     }
 
     // MARK: - Parameter Getter / Setter
@@ -107,8 +106,8 @@ public:
     // Render mode (offline/bounce). Pushed from the AU's setRenderingOffline:
     // override (off the audio thread); read on the audio thread in process.
     void setOffline(bool offline) {
+        // The render-mode edge in process() resyncs; nothing was lost, so no restate.
         _offline.store(offline, std::memory_order_relaxed);
-        _needs_resync.store(true, std::memory_order_relaxed);
     }
     
     /**
@@ -130,11 +129,8 @@ public:
         drain_worker_to_processor();
 #endif
 
-        // Handle set_param events.
-        // If bypass state changed, or the queue was skipped/overflowed while bypassed,
-        // discard whatever's queued and restate every param from the truth store
-        // (_hostvalues) instead of draining it.
-        const auto needs_resync = _needs_resync.exchange(false, std::memory_order_relaxed);
+        // Resync logic
+        const auto needs_resync = _needs_resync.exchange(false, std::memory_order_relaxed); // Queue overflow.
         const auto epoch = _bypass_epoch.load(std::memory_order_relaxed);
         const auto skipped_while_bypassed = epoch != _seen_epoch;
         _seen_epoch = epoch;
@@ -174,6 +170,12 @@ public:
         context.render_mode = _offline.load(std::memory_order_relaxed)
             ? tiny::Render_mode::Offline
             : tiny::Render_mode::Realtime;
+
+        // We need to resync on render mode edge.
+        if (_last_render_mode != context.render_mode) {
+            _processor->handle_event(tiny::Resync_params{});
+            _last_render_mode = context.render_mode;
+        }
         
         assert(inputBuffers.size() == static_cast<size_t>(mInputChannelCount));
         assert(outputBuffers.size() == static_cast<size_t>(mOutputChannelCount));
@@ -329,10 +331,11 @@ private:
     Param_queue _param_queue{};
 
     // Resync mechanism (see setParameter / setBypass / setOffline / process).
-    std::atomic<bool> _needs_resync{true};
+    std::atomic<bool> _needs_resync{false}; // Queue-overflow recovery only. See process().
     std::atomic<uint32_t> _bypass_epoch{};
     uint32_t _seen_epoch{}; // process()-thread only.
     bool _was_skipped{}; // process()-thread only. Detects the can_skip -> processing edge.
+    std::optional<tiny::Render_mode> _last_render_mode{}; // process()-thread only. Detects the realtime <-> offline edge.
 
     static constexpr auto meter_size = 25 * num_meters + 1;
     using Meter_queue = tiny::Lock_free_queue<tiny::Set_meter, meter_size>;

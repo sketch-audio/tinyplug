@@ -216,6 +216,7 @@ struct Alg_state {
     uint32_t accepted_latency{};
     uint32_t reported_latency{}; // Last value proposed to the host — don't feedback latency changes.
     bool was_skipped{}; // Detects the can_skip -> processing edge, for Resync_params.
+    int8_t last_render_mode{-1};
     bool constructed{};
 };
 

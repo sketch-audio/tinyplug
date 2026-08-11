@@ -230,10 +230,11 @@ private:
     Host_bypass _bypass{};
 
     // Resync mechanism.
-    std::atomic<bool> _needs_resync{true};
+    std::atomic<bool> _needs_resync{false}; // Queue-overflow recovery only. See Render().
     std::atomic<uint32_t> _bypass_epoch{};
     uint32_t _seen_epoch{}; // Render-thread only.
     bool _was_skipped{}; // Render-thread only. Detects the can_skip -> processing edge.
+    std::optional<Render_mode> _last_render_mode{}; // Render-thread only. Detects the realtime <-> offline edge.
 
 #if TINY_HAS_WORKER
     // Worker channel.

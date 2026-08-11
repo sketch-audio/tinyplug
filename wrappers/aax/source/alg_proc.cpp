@@ -275,6 +275,13 @@ auto render_instance(Alg_context* ctx) -> void
     };
     context.render_mode = runtime.offline != 0 ? Render_mode::Offline : Render_mode::Realtime;
 
+    // We need to resync on render mode edge.
+    const auto render_mode_tag = static_cast<int8_t>(context.render_mode);
+    if (st->last_render_mode != render_mode_tag) {
+        st->processor.handle_event(Resync_params{});
+        st->last_render_mode = render_mode_tag;
+    }
+
     const auto can_skip = st->bypass.can_skip_effect();
 
     // Resuming from a stretch where advance_rampers() didn't run (can_skip skips

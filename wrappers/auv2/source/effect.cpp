@@ -203,12 +203,11 @@ OSStatus Effect::SetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
         case kAudioUnitProperty_BypassEffect: {
             const auto bypass = Deserialize<UInt32>(inData) != 0;
             _bypass.set_bypassed(bypass);
-            _needs_resync.store(true, std::memory_order_relaxed); // On the next render we need to discard the queue and sync from host values (Globals()).
             return noErr;
         }
         case kAudioUnitProperty_OfflineRender: {
-            _offline.store(Deserialize<UInt32>(inData) != 0, std::memory_order_relaxed);
-            _needs_resync.store(true, std::memory_order_relaxed);
+            const auto offline = Deserialize<UInt32>(inData) != 0;
+            _offline.store(offline, std::memory_order_relaxed);
             return noErr;
         }
         default: break;
@@ -967,7 +966,13 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     const auto resumed_from_skip = _was_skipped && !can_skip;
     _was_skipped = can_skip;
 
-    // If bypass state changed, we need a resync.
+    // Render mode changed? 
+    const auto render_mode = _offline.load(std::memory_order_relaxed) ? Render_mode::Offline : Render_mode::Realtime;
+    const auto render_mode_changed = (_last_render_mode != render_mode);
+    _last_render_mode = render_mode;
+
+    // Set only when a param couldn't be pushed to the queue: "the queue lost something,
+    // restate from Globals()". Every other trigger is derivable from the edges above.
     const auto needs_resync = _needs_resync.exchange(false, std::memory_order_relaxed);
 
     // If bypassed, have parameters changed since the last render?
@@ -1018,7 +1023,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     // targets from the truth store above, or we're resuming from a stretch where
     // advance_rampers() didn't run (can_skip skips process()). Delivery isn't
     // manifestation — see Resync_params.
-    if ((needs_resync || skipped_while_bypassed || resumed_from_skip) && _events.size() < _events.capacity()) {
+    if ((needs_resync || skipped_while_bypassed || resumed_from_skip || render_mode_changed) && _events.size() < _events.capacity()) {
         _events.push_back(Tagged_event{.event = Resync_params{}, .offset = 0});
     }
 
@@ -1103,9 +1108,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 
     // Create the context.
     auto context = Dsp_context{.meters = _meters};
-    context.render_mode = _offline.load(std::memory_order_relaxed)
-        ? Render_mode::Offline
-        : Render_mode::Realtime;
+    context.render_mode = render_mode; // Resolved above, where the transition is detected.
 
     auto do_process = [this, &context, &host_data](size_t num_frames, size_t offset) {
         const auto num_ichannels = Input(0).NumberChannels();
