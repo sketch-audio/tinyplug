@@ -1062,9 +1062,9 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         Float64 cycle_start{};
         Float64 cycle_end{};
         Float64 beat_pos{};
-        Float64 tempo{};
-        Float32 time_sig_numer{};
-        UInt32 time_sig_denom{};
+        Float64 tempo{120};
+        Float32 time_sig_numer{4};
+        UInt32 time_sig_denom{4};
     } host_data{};
 
     [[maybe_unused]] auto result = OSStatus{noErr};
