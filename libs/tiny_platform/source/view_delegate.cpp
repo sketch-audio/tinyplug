@@ -23,6 +23,7 @@ auto View_delegate::assign_context(std::unique_ptr<Window_context> context) -> v
 
 auto View_delegate::set_drawable(void* drawable) -> void
 {
+    if (!_context) return; // Matches `draw` — a display-link update can outrace teardown.
     _context->set_drawable(drawable);
 }
 
