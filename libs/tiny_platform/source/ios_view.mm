@@ -17,13 +17,16 @@ static_assert(false, "This is a non-ARC file");
     std::shared_ptr<tiny::View_delegate> _delegate;
 }
 - (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate;
-- (void)startDisplayLink;
+- (void)startDisplayLink; // Raw mechanism; overridden by IosMetalView.
 - (void)stopDisplayLink;
+- (void)resumeDisplayLink; // Visibility entry points — these track `_link_wanted`.
+- (void)suspendDisplayLink;
 @end
 
 @implementation IosView {
     CADisplayLink* _displayLink;
-    
+    BOOL _link_wanted; // Editor is on screen; survives a background/foreground round trip.
+
     tiny::User_interaction _interaction;
     struct Pointer_data {
         std::optional<tiny::Coords> pos_last; // Latest position, for findClosest.
@@ -62,8 +65,45 @@ static_assert(false, "This is a non-ARC file");
         longPress.cancelsTouchesInView = false;
         [self addGestureRecognizer:longPress];
         [longPress release];
+
+        // We need to stop the display link when the app/host gets backgrounded.
+        auto* center = [NSNotificationCenter defaultCenter];
+        for (NSNotificationName name in @[UIApplicationDidEnterBackgroundNotification,
+                                          NSExtensionHostDidEnterBackgroundNotification]) {
+            [center addObserver:self selector:@selector(appDidEnterBackground:) name:name object:nil];
+        }
+        for (NSNotificationName name in @[UIApplicationWillEnterForegroundNotification,
+                                          NSExtensionHostWillEnterForegroundNotification]) {
+            [center addObserver:self selector:@selector(appWillEnterForeground:) name:name object:nil];
+        }
     }
     return self;
+}
+
+// MARK: - App lifecycle
+
+- (void)appDidEnterBackground:(NSNotification *)note {
+    [self stopDisplayLink]; // Keeps `_link_wanted` — the editor is still on screen.
+
+    // Drop any drawable we're holding rather than carrying it across the boundary; it
+    // belongs to a layer that is about to stop vending.
+    if (_delegate) _delegate->set_drawable(nullptr);
+}
+
+- (void)appWillEnterForeground:(NSNotification *)note {
+    if (_link_wanted) [self startDisplayLink];
+}
+
+// Visibility entry points from `Platform_view`. These own `_link_wanted`; the
+// start/stop pair below is the raw mechanism and is overridden by `IosMetalView`.
+- (void)resumeDisplayLink {
+    _link_wanted = YES;
+    [self startDisplayLink];
+}
+
+- (void)suspendDisplayLink {
+    _link_wanted = NO;
+    [self stopDisplayLink];
 }
 
 - (void)startDisplayLink {
@@ -80,6 +120,7 @@ static_assert(false, "This is a non-ARC file");
 }
 
 - (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self stopDisplayLink];
     [super dealloc];
 }
@@ -344,14 +385,14 @@ auto Platform_view::on_create() -> void
 auto Platform_view::on_show() -> void
 {
     if (auto view = static_cast<IosView*>(_view)) {
-        [view startDisplayLink];
+        [view resumeDisplayLink];
     }
 }
 
 auto Platform_view::on_hide() -> void
 {
     if (auto view = static_cast<IosView*>(_view)) {
-        [view stopDisplayLink];
+        [view suspendDisplayLink];
     }
 }
 
