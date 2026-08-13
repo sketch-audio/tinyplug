@@ -97,6 +97,7 @@ auto Down_recognizer::process_events(Event_list& events) -> void
         if (event.consumed) continue;
         std::visit(Inline_visitor{
             [&](const Pointer_down& down) {
+                if (down.button != Pointer_button::left) return;
                 if (_frame.contains(down.pos)) {
                     _callbacks.on_started({down.pos, true});
                     _down = true;
