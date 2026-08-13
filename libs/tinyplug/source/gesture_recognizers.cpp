@@ -17,6 +17,7 @@ auto Over_recognizer::set_frame(const Frame& frame) -> void
     if (_over && moved) {
         _callbacks.on_cancelled();
         _over = false;
+        _tag = std::nullopt;
     }
 }
 
@@ -40,40 +41,42 @@ auto Over_recognizer::process_events(Event_list& events) -> void
                 if (has_touches && !touch_is_ours(event.pointer_tag)) return;
                 const auto was_over = _over;
                 const auto now_over = _frame.contains(move.pos);
-                resolve_events(move.pos, was_over, now_over);
+                resolve_events(move.pos, was_over, now_over, event.pointer_tag);
             },
             [&](const Pointer_enter& enter) {
                 if (has_touches && !touch_is_ours(event.pointer_tag)) return;
                 const auto was_over = _over;
                 const auto now_over = _frame.contains(enter.pos);
-                resolve_events(enter.pos, was_over, now_over);
+                resolve_events(enter.pos, was_over, now_over, event.pointer_tag);
             },
             [&](const Pointer_exit& exit) {
                 if (has_touches && !touch_is_ours(event.pointer_tag)) return;
-                resolve_events(exit.pos, _over, false);
+                resolve_events(exit.pos, _over, false, event.pointer_tag);
             },
 #if TINY_PLATFORM_IOS
             [&](const Pointer_up& up) {
-                if (has_touches && !touch_is_ours(event.pointer_tag)) return;
-                resolve_events(up.pos, _over, false);
+                if (_tag && *_tag != event.pointer_tag) return; // Some other finger let go.
+                resolve_events(up.pos, _over, false, event.pointer_tag);
             },
 #endif
             [&](const Pointer_cancel& cancel) {
-                if (has_touches && !touch_is_ours(event.pointer_tag)) return;
-                resolve_events(cancel.pos, _over, false);
+                if (_tag && *_tag != event.pointer_tag) return;
+                resolve_events(cancel.pos, _over, false, event.pointer_tag);
             },
             [](const auto&) {}
         }, event.event);
     }
 }
 
-auto Over_recognizer::resolve_events(Coords pos, bool was_over, bool now_over) -> void
+auto Over_recognizer::resolve_events(Coords pos, bool was_over, bool now_over, uintptr_t tag) -> void
 {
     if (!was_over && now_over) {
         _callbacks.on_started({pos, true});
+        _tag = tag; // Bind the pointer that brought us over.
     }
     else if (was_over && !now_over) {
         _callbacks.on_ended({pos, false});
+        _tag = std::nullopt;
     }
     _over = now_over;
 }
@@ -88,6 +91,7 @@ auto Down_recognizer::set_frame(const Frame& frame) -> void
     if (_down && moved) {
         _callbacks.on_cancelled();
         _down = false;
+        _tag = std::nullopt;
     }
 }
 
@@ -98,22 +102,26 @@ auto Down_recognizer::process_events(Event_list& events) -> void
         std::visit(Inline_visitor{
             [&](const Pointer_down& down) {
                 if (down.button != Pointer_button::left) return;
+                if (_down) return; // Already bound; a second finger must not re-press us.
                 if (_frame.contains(down.pos)) {
                     _callbacks.on_started({down.pos, true});
                     _down = true;
+                    _tag = event.pointer_tag;
                 }
             },
             [&](const Pointer_up& up) {
-                if (_down) { // Event could have left our frame
-                    _callbacks.on_ended({up.pos, false});
-                    _down = false;
-                }
+                if (!_down) return;
+                if (_tag && *_tag != event.pointer_tag) return; // Some other finger let go.
+                _callbacks.on_ended({up.pos, false}); // Pointer could have left our frame.
+                _down = false;
+                _tag = std::nullopt;
             },
             [&](const Pointer_cancel&) {
-                if (_down) {
-                    _callbacks.on_cancelled();
-                    _down = false;
-                }
+                if (!_down) return;
+                if (_tag && *_tag != event.pointer_tag) return;
+                _callbacks.on_cancelled();
+                _down = false;
+                _tag = std::nullopt;
             },
             [](const auto&) {}
         }, event.event);
@@ -132,24 +140,20 @@ auto Dwell_recognizer::set_frame(const Frame& frame) -> void
         _callbacks.on_cancelled();
         _dwelling = false;
     }
-    _down = false;
     _over_t = std::nullopt;
 }
 
 auto Dwell_recognizer::process_events(Event_list& events) -> void
 {
-    for (const auto& event : events.events) {
-        // Track down before consumed.
-        std::visit(Inline_visitor{
-            [&](const Pointer_down& down) {
-                _down = true; // Global down tracking.
-            },
-            [&](const Pointer_up&) {
-                _down = false;
-            },
-            [&](const auto&) {}
-        }, event.event);
+    // Replaces global down.
+    auto pointer_is_down = [&](uintptr_t tag) {
+        for (const auto& origin : events.pointer_origins) {
+            if (origin.tag == tag) return true;
+        }
+        return false;
+    };
 
+    for (const auto& event : events.events) {
         if (event.consumed) continue;
 
         std::visit(Inline_visitor{
@@ -163,7 +167,7 @@ auto Dwell_recognizer::process_events(Event_list& events) -> void
                 //
             },
             [&](const Pointer_move& move) {
-                if (_down) {
+                if (pointer_is_down(event.pointer_tag)) { // Held pointer: dragging, not hovering.
                     _over_t = std::nullopt;
                     return;
                 }
@@ -188,7 +192,6 @@ auto Dwell_recognizer::process_events(Event_list& events) -> void
                     _dwelling = false;
                 }
                 _over_t = std::nullopt;
-                _down = false; // Might not have gotten up.
             },
             [&](const auto&) {
                 if (_dwelling) {

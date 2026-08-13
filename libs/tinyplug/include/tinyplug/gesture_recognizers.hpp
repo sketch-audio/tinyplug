@@ -57,8 +57,9 @@ private:
     Gesture_callbacks<Info> _callbacks{};
     Frame _frame{};
     bool _over{};
+    std::optional<uintptr_t> _tag{};
 
-    auto resolve_events(Coords pos, bool was_over, bool now_over) -> void;
+    auto resolve_events(Coords pos, bool was_over, bool now_over, uintptr_t tag) -> void;
 
 };
 
@@ -85,6 +86,7 @@ private:
     Gesture_callbacks<Info> _callbacks{};
     Frame _frame{};
     bool _down{};
+    std::optional<uintptr_t> _tag{};
 
 };
 
@@ -113,7 +115,6 @@ private:
 
     Gesture_callbacks<Info> _callbacks{};
     Frame _frame{};
-    bool _down{}; // No dwell when down.
 
     std::optional<Steady_time> _over_t{};
     Coords _pos{};
