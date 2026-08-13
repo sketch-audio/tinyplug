@@ -57,6 +57,12 @@ auto Window_context::setup(const Setup& setup) -> void
 
 auto Window_context::teardown() -> void
 {
+    // Don't strand a drawable on the way out.
+    if (_impl->drawable) {
+        CFRelease(_impl->drawable);
+        _impl->drawable = nullptr;
+    }
+
     if (_impl->context) {
         _impl->context->abandonContext();
         _impl->context.reset();
@@ -73,6 +79,9 @@ auto Window_context::teardown() -> void
 
 auto Window_context::set_drawable(void* drawable) -> void
 {
+    // In case we didn't reach end draw, release the previous drawable.
+    if (_impl->drawable) CFRelease(_impl->drawable);
+
     // A nil drawable (e.g. layer not yet renderable) must not be retained — CFRetain(nullptr) crashes.
     _impl->drawable = drawable ? CFRetain((GrMTLHandle)drawable) : nullptr;
 }
