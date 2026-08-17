@@ -108,9 +108,11 @@ Steinberg::tresult PLUGIN_API Audio_effect::initialize(Steinberg::FUnknown* cont
 
     addAudioOutput(u"Output", SpeakerArr::kStereo, BusTypes::kMain);
 
-    // Get knob defaults for automation points.
+    // Sync host values.
     for (const auto& param : User_params::param_specs(Param_order::Indexable)) {
-        _last_points[param.identity.address] = {.offset = -1, .value = Value_helper::default_value(param, Space::Knob)};
+        const auto address = param.identity.address;
+        const auto knob_value = Value_helper::default_value(param, Space::Knob);
+        _hostvalues[address].store(knob_value, std::memory_order_relaxed);
     }
 
     return Steinberg::kResultOk;
@@ -187,7 +189,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setBusArrangements(Steinberg::Vst::S
 
     if (numIns != expected_ins || numOuts != expected_outs) return Steinberg::kResultFalse;
 
-    // What does the host want to do? 
+    // What does the host want to do?
     auto& input_arr = inputs[0];
     auto& output_arr = outputs[0];
     const auto wants_mono = SpeakerArr::getChannelCount(input_arr) == 1 && SpeakerArr::getChannelCount(output_arr) == 1;
@@ -568,7 +570,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
         return Steinberg::kResultFalse;
     }
 
-    // Streamer convenience wrapper. 
+    // Streamer convenience wrapper.
     auto streamer = Steinberg::IBStreamer{state};
 
     auto header = State_rules::Vst3::Header{};
@@ -584,19 +586,23 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
 
     const auto num_stored_values = header[3];
 
-    // Notify kernel (we perform the persistence check again here on the current model).
-    auto notify = [&](const auto& spec, auto plain_value) {
-        if (State_rules::is_persistent(spec)) {
-            _queue.push(Set_param{spec.identity.address, plain_value}); // Overwrite queue now, so we won't overflow.
-        }
+    auto notify = [&](const auto& spec, float knob_value) {
+        if (!State_rules::is_persistent(spec)) return;
+
+        const auto address = spec.identity.address;
+        const auto plain_value = Value_helper::knob_to_plain(knob_value, spec.semantics);
+
+        // Queue sends events to processor at next process call. 
+        _queue.push(Set_param{address, plain_value}); // Overwrite queue, won't overflow.
+
+        // Maintain host values.
+        _hostvalues[address].store(knob_value, std::memory_order_relaxed);
     };
-    
+
     auto read_and_notify = [&](const auto& knob_values, auto index) {
         // Do we have a real value?
         if (const auto knob_value = knob_values[index]; knob_value != State_rules::no_value) {
-            const auto& spec = User_params::param_spec(index);
-            const auto plain_value = Value_helper::knob_to_plain(knob_value, spec.semantics);
-            notify(spec, plain_value);
+            notify(User_params::param_spec(index), knob_value);
         }
     };
 
@@ -627,8 +633,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
         // Set remaining parameters to defaults.
         for (auto i = num_stored_values; i < num_params; ++i) {
             const auto& param = User_params::param_spec(i);
-            const auto plain_value = Value_helper::default_value(param, Space::Plain);
-            notify(param, plain_value);
+            notify(param, static_cast<float>(Value_helper::default_value(param, Space::Knob)));
         }
     }
 
@@ -652,7 +657,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::getState(Steinberg::IBStream* state)
         return Steinberg::kResultFalse;
     }
 
-    // Streamer convenience wrapper. 
+    // Streamer convenience wrapper.
     auto streamer = Steinberg::IBStreamer{state};
 
     // Generate the header.
@@ -668,8 +673,8 @@ Steinberg::tresult PLUGIN_API Audio_effect::getState(Steinberg::IBStream* state)
     }
 
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
-        const auto& last_point = _last_points[i]; // Grab value from last automation points.
-        const auto knob_value = static_cast<float>(last_point.value);
+        // Grab state from host values.
+        const auto knob_value = static_cast<float>(_hostvalues[i].load(std::memory_order_relaxed));
 
         const auto& spec = User_params::param_spec(i);
         const auto to_write = State_rules::is_persistent(spec) ? knob_value : State_rules::no_value;
@@ -741,14 +746,15 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
             _bypass.set_bypassed(value >= 0.5);
             continue;
         }
-        
+
         if (id >= User_params::num_params) continue; // Be defensive.
 
         const auto& param = User_params::param_spec(id); // To denormalize the automation values.
 
         const auto point_count = queue.getPointCount();
 
-        auto& previous = _last_points[id];
+        // Block starts with an implicit point at -1 offset.
+        auto previous_offset = int32_t{-1};
 
         for (auto point_idx = decltype(point_count){}; point_idx < point_count; ++point_idx) {
             auto value = Steinberg::Vst::ParamValue{};
@@ -760,7 +766,7 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
             offset = std::clamp(offset, -1, max_offset);
 
             // Flush blocks don't render audio, so ramp duration is zero samples.
-            const auto ramp_dur = renders_audio ? std::max(offset - previous.offset, 0) : 0;
+            const auto ramp_dur = renders_audio ? std::max(offset - previous_offset, 0) : 0;
 
             if (_events.size() == _events.capacity()) {
                 // _events vector is full!
@@ -774,7 +780,7 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
                         .address = id,
                         .value = Value_helper::knob_to_plain(value, param.semantics)
                     },
-                    .offset = std::max(previous.offset, {}),
+                    .offset = std::max(previous_offset, {}),
                 });
             }
             // Ramp param
@@ -785,15 +791,15 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
                         .target = Value_helper::knob_to_plain(value, param.semantics),
                         .dur_samples = ramp_dur
                     },
-                    .offset = std::max(previous.offset, {}),
+                    .offset = std::max(previous_offset, {}),
                 });
             }
 
-            previous.offset = offset;
-            previous.value = value;
-        }
+            previous_offset = offset;
 
-        previous.offset = -1; // Next buffer starts with -1;
+            // Maintain host values.
+            _hostvalues[id].store(value, std::memory_order_relaxed);
+        }
     }
 
     // sort events.

@@ -75,12 +75,6 @@ public:
     Steinberg::uint32 PLUGIN_API getProcessContextRequirements() SMTG_OVERRIDE;
 
 private:
-    //
-    struct Automation_point {
-        int32_t offset{-1};
-        double value{};
-    };
-
     using User_params = params::Infos<models::Params>;
     using User_meters = meters::Infos<models::Meters>;
 
@@ -109,7 +103,8 @@ private:
     using State_queue = Overwrite_queue<Set_param, queue_size>;
     State_queue _queue{};
 
-    std::array<Automation_point, num_params> _last_points{};
+    // God's truth.
+    std::array<std::atomic<double>, num_params> _hostvalues{};
     std::array<double, num_meters> _last_meters{};
 
     std::vector<Tagged_event> _events{}; // Some fixed size thing.
