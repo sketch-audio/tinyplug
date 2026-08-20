@@ -245,7 +245,7 @@ entry point with **no audio** purely to deliver parameter changes while idle.
 | Invariant | Tier | Formats |
 |---|---|---|
 | Events on a zero-frame call are **delivered** to the kernel (not parsed and dropped) | T2 | VST3, CLAP, AUv2, AAX |
-| Events on a zero-frame call are **manifested** — a `Resync_params` follows, so the idle stretch's edits don't arrive as a ramp across the head of the next real render | T2 | VST3, CLAP, AUv2, AAX |
+| Events on a zero-frame call are **manifested** — a `snap()` follows, so the idle stretch's edits don't arrive as a ramp across the head of the next real render | T2 | VST3, CLAP, AUv2, AAX |
 | All five VST3 flush block shapes: null bus arrays; zero-channel bus arrays; `numSamples == 0` with complete buses; `numChannels == 0`; null channel pointers on a full-length block | T2 | VST3 |
 | CLAP `paramsFlush` (called outside `process`, on the main *or* audio thread) delivers and manifests, and interleaves correctly with the `_from_flush` queue on the next `process` | T2 | CLAP |
 | AUv2 `SetParameter`/`ScheduleParameter` with no intervening `Render` | T2 | AUv2 |

@@ -58,7 +58,30 @@ struct Dsp_context {
 
 template<typename T>
 concept Some_plug_processor = requires(T t) {
+    // Three tiers of state, weakest last. What is guaranteed is that each tier is
+    // *individually invocable* — `clear` and `snap` never allocate and never need a
+    // `reset` first — not that an implementation confines itself to exactly its own tier.
+    // Doing more is allowed and common: our adapters end `reset` with `clear(); snap();`,
+    // and a parameter smoother's `clear` necessarily lands it. The wrapper knows what the
+    // host asked for, so it calls every tier at or below it, strongest first, and any
+    // overlap is idempotent:
+    //
+    //   sample rate / activate        reset(sr) -> clear() -> snap()
+    //   discontinuity (seek, bounce)              clear() -> snap()
+    //   values without audio (flush)                         snap()
+    //
+    // Resources: size and allocate for this sample rate. Off the audio thread. Leaves
+    // history undefined and values unmanifested, so it is never sufficient on its own.
     { t.reset(double{/*sample_rate*/}) } -> std::same_as<void>;
+
+    // History: forget it — delay lines, filter state, oscillator phase, transport
+    // position. Must not allocate, and must not touch parameter values or latency (a
+    // ramp in flight is a realized *value*; landing it belongs to `snap`).
+    { t.clear() } -> std::same_as<void>;
+
+    // Values: manifest any deferred parameter changes now, with no glide.
+    { t.snap() } -> std::same_as<void>;
+
     { t.handle_event(std::declval<const Render_event&>(/*event*/)) } -> std::same_as<void>;
     { t.process(std::declval<Dsp_context&>(/*context*/)) } -> std::same_as<void>;
     { t.latency_samps() } -> std::same_as<uint32_t>;

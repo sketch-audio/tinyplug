@@ -24,7 +24,9 @@ bool Plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t /*
     const auto self_requested_restart = pending_latency.has_value();
 
     if (!_once || sampleRate != _sr || !self_requested_restart) {
-        _processor->reset(sampleRate);
+        _processor->reset(sampleRate); // Resources, then history, then values — the caller owns the ladder.
+        _needs_clear.store(true, std::memory_order_relaxed);
+
         _latency = _processor->latency_samps();
         _sr = sampleRate;
         _once = true;
@@ -78,6 +80,15 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
 
+    // Discontinuity requested by the host — forget history before anything this block
+    // delivers lands.
+    if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
+        _processor->clear();
+        _processor->snap(); // Paired: a discontinuity warrants both.
+        _bypass.clear();    // Its delay lines hold pre-seek dry audio.
+        _bypass.snap();
+    }
+
     // Resolved once so both queues agree on whether this block is a resync.
     const auto needs_resync = _needs_resync.exchange(false, std::memory_order_relaxed);
 
@@ -93,7 +104,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
 
         // Manifest immediately — a client reading realized state (e.g. an open editor)
         // shouldn't see stale values for the whole inactive/sleeping stretch.
-        _processor->handle_event(Resync_params{});
+        _processor->snap();
     }
     this->_handle_host_flushed(needs_resync);
     this->_handle_user_actions(process->out_events, needs_resync);
@@ -120,8 +131,13 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     context.render_mode = _offline.load(std::memory_order_relaxed) ? Render_mode::Offline : Render_mode::Realtime;
 
     // We need to resync on render mode edge.
+    // Realtime <-> offline is a discontinuity: the audio either side is unrelated, so
+    // forget history as well as manifesting values.
     if (_last_render_mode != context.render_mode) {
-        _processor->handle_event(Resync_params{});
+        _processor->clear();
+        _processor->snap();
+        _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
+        _bypass.snap();
         _last_render_mode = context.render_mode;
     }
 
@@ -178,7 +194,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
     // process()) — settle before this block's own automation lands, not after.
     if (_was_skipped && !can_skip) {
-        _processor->handle_event(Resync_params{});
+        _processor->snap();
     }
     _was_skipped = can_skip;
 
@@ -191,7 +207,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
             delivered = true;
         }
         if (!renders_audio && delivered) {
-            _processor->handle_event(Resync_params{});
+            _processor->snap();
         }
     }
     else {
@@ -311,8 +327,11 @@ auto Plugin::_resolve_transport(const clap_process* process) -> Musical_context
     };
 }
 
+// The host is about to feed us discontinuous audio (seek, loop jump, un-mute, offline
+// render). Deferred to `process` so it can't race a block already in flight.
 void Plugin::reset() noexcept
 {
+    _needs_clear.store(true, std::memory_order_relaxed);
 }
 
 void Plugin::onMainThread() noexcept
@@ -1229,7 +1248,7 @@ auto Plugin::_handle_host_flushed(bool needs_resync) -> void
         delivered = true;
     }
     if (delivered) {
-        _processor->handle_event(Resync_params{});
+        _processor->snap();
     }
 }
 

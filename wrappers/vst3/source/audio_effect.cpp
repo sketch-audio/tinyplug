@@ -153,7 +153,9 @@ Steinberg::tresult PLUGIN_API Audio_effect::setActive(Steinberg::TBool state)
 Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::ProcessSetup& newSetup)
 {
     // Called before any processing.
-    _processor->reset(newSetup.sampleRate);
+    _processor->reset(newSetup.sampleRate); // Resources, then history, then values — the caller owns the ladder.
+    _needs_clear.store(true, std::memory_order_relaxed);
+
     _latency = _processor->latency_samps();
 
     _bypass.reset(static_cast<float>(newSetup.sampleRate));
@@ -176,6 +178,14 @@ Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::Proc
 
     _did_reset = true;
     return Steinberg::Vst::AudioEffect::setupProcessing(newSetup);
+}
+
+// The stream is discontinuous on both edges of this call. Deferred to `process` so it
+// can't race a block already in flight.
+Steinberg::tresult PLUGIN_API Audio_effect::setProcessing(Steinberg::TBool state)
+{
+    _needs_clear.store(true, std::memory_order_relaxed);
+    return Steinberg::Vst::AudioEffect::setProcessing(state);
 }
 
 Steinberg::tresult PLUGIN_API Audio_effect::setBusArrangements(Steinberg::Vst::SpeakerArrangement* inputs, Steinberg::int32 numIns, Steinberg::Vst::SpeakerArrangement* outputs, Steinberg::int32 numOuts)
@@ -251,6 +261,15 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         _processor->handle_event(Accepted_latency{new_latency});
         _bypass.set_latency(new_latency);
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
+    }
+
+    // Discontinuity requested by the host — forget history before anything this block
+    // delivers lands.
+    if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
+        _processor->clear();
+        _processor->snap(); // Paired: a discontinuity warrants both.
+        _bypass.clear();    // Its delay lines hold pre-seek dry audio.
+        _bypass.snap();
     }
 
     // Process events in state queue.
@@ -342,10 +361,14 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     context.render_mode = (data.processMode == Steinberg::Vst::kOffline) ? Render_mode::Offline : Render_mode::Realtime;
     const auto is_offline_bounce = (data.processMode == Steinberg::Vst::kOffline);
 
-    // Ryan's "resync on bounce" idea: a processMode transition (e.g. entering/leaving an
-    // offline bounce) should manifest current values immediately, not glide in.
+    // A processMode transition (entering/leaving an offline bounce) is a discontinuity:
+    // the audio either side is unrelated, so forget history as well as manifesting values
+    // rather than gliding in.
     if (data.processMode != _last_process_mode) {
-        _processor->handle_event(Resync_params{});
+        _processor->clear();
+        _processor->snap();
+        _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
+        _bypass.snap();
         _last_process_mode = data.processMode;
     }
 
@@ -434,7 +457,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
     // process()) — settle before this block's own automation lands, not after.
     if (_was_skipped && !can_skip) {
-        _processor->handle_event(Resync_params{});
+        _processor->snap();
     }
     _was_skipped = can_skip;
 
@@ -449,7 +472,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
 
         // Resync on flush block.
         if (!renders_audio && delivered) {
-            _processor->handle_event(Resync_params{});
+            _processor->snap();
         }
     }
     else {

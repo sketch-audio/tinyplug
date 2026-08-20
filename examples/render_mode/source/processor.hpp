@@ -17,6 +17,12 @@ namespace tiny::plugin {
 class Processor {
 public:
     auto reset(double sample_rate) -> void;
+
+    // Forget render history (host seek, bounce, un-bypass). Never allocates.
+    auto clear() -> void {}
+
+    // Manifest deferred param changes now, with no glide.
+    auto snap() -> void {}
     auto handle_event(const Render_event& event) -> void;
     auto process(Dsp_context& context) -> void;
 

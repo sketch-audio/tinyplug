@@ -164,23 +164,16 @@ AAX_Result Parameters::EffectInit()
     bypass_param->SetType(AAX_eParameterType_Discrete);
     mParameterManager.AddParameter(bypass_param.release());
 
-    auto sample_rate = AAX_CSampleRate{};
-    Controller()->GetSampleRate(&sample_rate);
-
-    // The config packet is delivered before the algorithm's instance-init callback
-    // runs, which is what lets the kernel's allocating reset() happen there rather
-    // than on the real-time thread.
-    _config.sample_rate = static_cast<double>(sample_rate);
-    _config.max_frames = 0;
-    _config.pad = 0;
-    _config_dirty = true;
-
     // Everything is dirty at startup so the first GenerateCoefficients hands the
     // algorithm a complete initial state.
     _segment_dirty.fill(true);
     _runtime_dirty.store(true, std::memory_order_release);
 
 #if TINY_HAS_WORKER
+    // The algorithm reads its own rate from the AddSampleRate context field; this is the
+    // data model's separate copy, for the worker only.
+    auto sample_rate = AAX_CSampleRate{};
+    Controller()->GetSampleRate(&sample_rate);
     _worker_runner.start(sample_rate);
 #endif
 
@@ -237,11 +230,6 @@ auto Parameters::_post_segment(size_t segment) -> void
     Controller()->PostPacket(coef_field(segment), &_segments[segment], sizeof(Coef_segment));
 }
 
-auto Parameters::_post_config() -> void
-{
-    Controller()->PostPacket(field_config, &_config, sizeof(_config));
-}
-
 auto Parameters::_post_runtime() -> void
 {
     Controller()->PostPacket(field_runtime, &_runtime, sizeof(_runtime));
@@ -268,11 +256,6 @@ AAX_Result Parameters::GenerateCoefficients()
     // breakpoint's timeline position, then splits render buffers (down to 32 samples
     // on Native) so the algorithm sees it at the right sample. That is the whole
     // reason to be decoupled — don't post from anywhere else.
-    if (_config_dirty) {
-        _post_config();
-        _config_dirty = false;
-    }
-
     if (_runtime_dirty.exchange(false, std::memory_order_acq_rel)) {
         _post_runtime();
     }
@@ -284,6 +267,42 @@ AAX_Result Parameters::GenerateCoefficients()
     }
 
     return AAX_SUCCESS;
+}
+
+// The host calls this for every private data block whenever it (re)initialises the
+// algorithm, including the reset Pro Tools issues at each edge of an offline bounce.
+//
+// This is the whole reset-time channel: the algorithm's private data has just been wiped,
+// so it rebuilds from what we write here. Values come from the parameter manager rather
+// than from `_segments`, so the snapshot is current even if a change has not been posted
+// yet — the staleness that a data port cannot avoid. `seq` is carried across so the
+// algorithm's shadow stays in step and the next posted packet still diffs correctly.
+AAX_Result Parameters::ResetFieldData(AAX_CFieldIndex iFieldIndex, void* oData, uint32_t iDataSize) const
+{
+    if (iFieldIndex == field_reset_state) {
+        if (oData == nullptr || iDataSize != sizeof(Reset_state)) {
+            return AAX_ERROR_INVALID_FIELD_INDEX;
+        }
+
+        auto out = Reset_state{};
+        out.runtime = _runtime;
+
+        for (auto segment = size_t{}; segment < num_segments; ++segment) {
+            auto& seg = out.coefs[segment];
+            seg.seq = _segments[segment].seq;
+
+            const auto base = segment * coefs_per_segment;
+            for (auto i = size_t{}; i < coefs_per_segment; ++i) {
+                const auto address = base + i;
+                seg.value[i] = address < num_coefs ? _plain_value(static_cast<uint32_t>(address)) : 0.;
+            }
+        }
+
+        std::memcpy(oData, &out, sizeof(out));
+        return AAX_SUCCESS;
+    }
+
+    return Super::ResetFieldData(iFieldIndex, oData, iDataSize);
 }
 
 AAX_Result Parameters::TimerWakeup()

@@ -244,6 +244,7 @@ private:
     Meter_queue _meter_queue{};
 
     // Resync mechanism. Currently only a fallback in case we overflow our queue in release.
+    std::atomic<bool> _needs_clear{false}; // Set by `reset`, consumed at the top of `process`.
     std::atomic<bool> _needs_resync{false};
     bool _was_skipped{}; // Render-thread only. Detects the can_skip -> processing edge.
     std::optional<Render_mode> _last_render_mode{}; // Render-thread only. Detects the realtime <-> offline edge.

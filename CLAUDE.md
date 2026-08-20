@@ -68,8 +68,9 @@ The plug-in author implements two classes plus a few static models. Concepts
 live alongside each interface — find them by searching for `concept Some_*`.
 
 - **`Plug_processor`** ([shared/tinyplug/tiny_processor.h](shared/tinyplug/tiny_processor.h)) —
-  `reset(sr)`, `handle_event(Render_event)`, `process(Dsp_context&)`,
-  `latency_samps()`, `tail_samps()`. The concept is `Some_plug_processor`.
+  `reset(sr)`, `clear()`, `snap()`, `handle_event(Render_event)`,
+  `process(Dsp_context&)`, `latency_samps()`, `tail_samps()`. The concept is
+  `Some_plug_processor`.
   Events are interleaved with `process` calls by the wrapper so DSP code
   always sees them at the right sample offset (sample-accurate automation
   including ramps).
@@ -292,9 +293,11 @@ the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two
 - **`Alg_state` (kernel + bypass + shadows) lives in a private data block**, and
   is placement-new'd by the `AAX_CInstanceInitProc` — **not** by `ResetFieldData`,
   whose block is copied into the algorithm's memory pool and would require
-  `Alg_state` to be trivially relocatable. The init callback runs *after* packet
-  delivery, so the `Config_packet`'s sample rate is available and the kernel's
-  allocating `reset(sr)` happens off the real-time thread.
+  `Alg_state` to be trivially relocatable. The init callback reads the rate from the
+  `AddSampleRate` context field, so the kernel's allocating `reset(sr)` happens off
+  the real-time thread. `ResetFieldData` fills a separate `Reset_state` block with a
+  current snapshot of params + render mode, which the init callback adopts *before*
+  `reset` — private data is wiped at every reset, so nothing else survives.
 - **Everything flowing outwards uses Direct Data**
   ([direct_data.cpp](wrappers/aax/source/direct_data.cpp)): meters, worker
   messages and latency proposals are staged in a `Byte_ring`
@@ -543,6 +546,13 @@ speculation, they're scheduled work.
   consolidation. What remains is an optional backlog —
   **[refactor-ideas.md](plans/refactor-ideas.md)** (CI, clang-format, PCH/unity,
   further namespace passes, `detail/` split, downstream migration).
+
+- **[processor-lifecycle.md](plans/processor-lifecycle.md)** — scheduled next.
+  Replaces `reset(double)` with `configure(Config)` so parameter values arrive at
+  configuration time, folds `clear` into `reset`, reduces `Render_event` to
+  `{Set, Ramp}`, and moves latency onto a `Latency{accepted, proposed}` struct in the
+  process context. Closes the AAX-only ordering constraint where `handle_event`
+  precedes `reset`.
 
 - **[param-lockfile.md](plans/param-lockfile.md)** — deferred. A checked-in
   `params.lock` per plug-in plus a `<Plugin>_paramlock` tool that links the real

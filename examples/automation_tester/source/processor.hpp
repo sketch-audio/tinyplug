@@ -16,6 +16,13 @@ public:
     // This a good time to resize some vectors.
     auto reset(double sample_rate) -> void;
 
+    // Forget render history (host seek, bounce, un-bypass). Never allocates.
+    auto clear() -> void {}
+
+    // Manifest deferred param changes now, with no glide. The realized value must catch
+    // up to the target here — process() may not run again for a while (e.g. bypassed).
+    auto snap() -> void { _ramper.settle(); }
+
     // Receive a render event such as `Set_param`.
     // Events are interleaved with process calls so you can consider them as happening "now".
     auto handle_event(const Render_event& event) -> void;

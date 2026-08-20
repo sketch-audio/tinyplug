@@ -25,10 +25,9 @@ struct Accepted_latency {
     uint32_t samples{};
 };
 
-// If you have any deferred parameter changes, you should manifest them now.
-struct Resync_params {};
-
-using Render_event = std::variant<Set_param, Ramp_param, Accepted_latency, Resync_params>;
+// A parameter change at a point in time. Control-plane transitions are methods on the
+// processor (`clear`, `snap`), not events — they carry no payload and no frame offset.
+using Render_event = std::variant<Set_param, Ramp_param, Accepted_latency>;
 
 struct Tagged_event {
     Render_event event{};

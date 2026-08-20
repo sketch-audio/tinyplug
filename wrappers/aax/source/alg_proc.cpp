@@ -76,6 +76,46 @@ auto drain_inbound([[maybe_unused]] const Alg_context* ctx, [[maybe_unused]] Alg
 #endif
 }
 
+// Adopt the reset-time snapshot: render mode, and the complete parameter state.
+//
+// Pro Tools wipes private data at every reset, so the processor arrives default-
+// constructed with every value lost. Without this it comes up at defaults and ramps to
+// the real values as coefficient packets land after the first block.
+//
+// Order is load-bearing: these apply *before* `processor.reset()`, so reset comes up in
+// the configuration we are actually in rather than switching into it under audio.
+auto adopt_reset_state(const Alg_context* context, Alg_state& st) -> void
+{
+    const auto* reset = context->reset_state;
+    if (reset == nullptr) return;
+
+    st.render_mode = reset->runtime.offline != 0 ? Render_mode::Offline : Render_mode::Realtime;
+
+    // Applied unconditionally, unlike apply_coefs: the processor is default-constructed,
+    // so every address is new. Seeding the shadow and `seq` here means the next posted
+    // packet still diffs correctly and does not re-send what we just applied.
+    for (auto seg = size_t{}; seg < num_segments; ++seg) {
+        const auto& segment = reset->coefs[seg];
+        st.shadow_seq[seg] = segment.seq;
+
+        const auto base = seg * coefs_per_segment;
+        const auto count = std::min(coefs_per_segment, num_coefs - base);
+
+        for (auto i = size_t{}; i < count; ++i) {
+            const auto value = segment.value[i];
+            st.shadow[base + i] = value;
+
+            const auto address = static_cast<uint32_t>(base + i);
+            if (address == bypass_address) {
+                st.bypass.set_bypassed(value >= 0.5);
+            }
+            else {
+                st.processor.handle_event(Set_param{.address = address, .value = value});
+            }
+        }
+    }
+}
+
 // Bring an algorithm instance up in the host-provided private data block.
 //
 // Called both when the host adds a new instance and when it resets one whose block it
@@ -111,7 +151,12 @@ auto construct_instance(const Alg_context* context, Alg_state* st, double sample
 
     st->shadow.fill(std::numeric_limits<double>::quiet_NaN());
 
-    st->processor.reset(sample_rate);
+    // Values before reset, so reset configures the mode and latency we actually come up in.
+    adopt_reset_state(context, *st);
+
+    st->processor.reset(sample_rate); // Resources, then history, then values — the caller owns the ladder.
+    st->processor.clear();
+    st->processor.snap();
 
     st->bypass.reset(static_cast<float>(sample_rate));
 
@@ -273,21 +318,17 @@ auto render_instance(Alg_context* ctx) -> void
         .num_frames = num_frames,
         .meters = st->meters
     };
-    context.render_mode = runtime.offline != 0 ? Render_mode::Offline : Render_mode::Realtime;
-
-    // We need to resync on render mode edge.
-    const auto render_mode_tag = static_cast<int8_t>(context.render_mode);
-    if (st->last_render_mode != render_mode_tag) {
-        st->processor.handle_event(Resync_params{});
-        st->last_render_mode = render_mode_tag;
-    }
+    // Latched at the last reset, never mid-render. The kernel therefore only ever sees
+    // this change across a reset — a point at which it has already been cleared and
+    // snapped — so a late-arriving flag can no longer wipe history under flowing audio.
+    context.render_mode = st->render_mode;
 
     const auto can_skip = st->bypass.can_skip_effect();
 
     // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
     // process()) — settle before this block's own automation lands, not after.
     if (st->was_skipped && !can_skip) {
-        st->processor.handle_event(Resync_params{});
+        st->processor.snap();
     }
     st->was_skipped = can_skip;
 
@@ -361,19 +402,18 @@ int32_t AAX_CALLBACK alg_init(const Alg_context* context, AAX_EComponentInstance
     if (context == nullptr || context->state == nullptr) return 0;
     auto* st = context->state;
 
-    // Packets are delivered before this callback runs (step 4 of the documented
-    // algorithm initialization order), so the config packet is already in the
-    // context and the sample rate is known here — which is what lets the kernel's
-    // allocating reset() happen off the real-time thread.
-    const auto sample_rate = [&]() -> double {
-        if (context->config != nullptr && context->config->sample_rate > 0) {
-            return context->config->sample_rate;
-        }
-        if (context->sample_rate != nullptr && *context->sample_rate > 0) {
-            return static_cast<double>(*context->sample_rate);
-        }
-        return 44100.;
-    }();
+    // The AddSampleRate context field, which the host populates directly — the sanctioned
+    // way for an algorithm to read the rate (AAX_IComponentDescriptor.h: "host-provided
+    // information in the algorithm's context structure"; DemoGain_Smoothed reads
+    // `*instance->mSampleRate`). Measured live here at both init actions, which is what
+    // lets the kernel's allocating reset() happen off the real-time thread.
+    //
+    // Deliberately not relayed through a data port of our own: a port is only refreshed by
+    // GenerateCoefficients, which the host does not run at a reset, so it would be
+    // retained-but-stale at exactly the moment we read it — see Reset_state.
+    const auto sample_rate = context->sample_rate != nullptr && *context->sample_rate > 0
+        ? static_cast<double>(*context->sample_rate)
+        : 44100.;
 
     switch (action) {
         case AAX_eComponentInstanceInitAction_AddingNewInstance: {
@@ -382,10 +422,13 @@ int32_t AAX_CALLBACK alg_init(const Alg_context* context, AAX_EComponentInstance
         }
         case AAX_eComponentInstanceInitAction_ResetInstance: {
             if (st->constructed) {
-                st->processor.reset(sample_rate);
-                st->bypass.reset(static_cast<float>(sample_rate));
                 st->shadow.fill(std::numeric_limits<double>::quiet_NaN());
                 st->shadow_seq.fill(0);
+                adopt_reset_state(context, *st); // Values before reset — see adopt_reset_state.
+                st->processor.reset(sample_rate); // Resources, then history, then values — the caller owns the ladder.
+                st->processor.clear();
+                st->processor.snap();
+                st->bypass.reset(static_cast<float>(sample_rate));
             }
             else {
                 construct_instance(context, st, sample_rate, /*adding_new=*/false);

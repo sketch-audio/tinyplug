@@ -31,7 +31,9 @@ public:
         mSampleRate = inSampleRate;
         mInputChannelCount = inputChannelCount;
         mOutputChannelCount = outputChannelCount;
-        _processor->reset(mSampleRate);
+        _processor->reset(mSampleRate); // Resources, then history, then values — the caller owns the ladder.
+        _needs_clear.store(true, std::memory_order_relaxed);
+
         _latency = _processor->latency_samps();
 
         _bypass.reset(static_cast<float>(inSampleRate));
@@ -44,6 +46,12 @@ public:
     }
     
     void deInitialize() {
+    }
+
+    // AUAudioUnit's `-reset`: "Reset transitory rendering state to its initial state."
+    // Deferred to `process` so it can't race a block already in flight.
+    void clear() {
+        _needs_clear.store(true, std::memory_order_relaxed);
     }
     
     // MARK: - Bypass
@@ -129,6 +137,15 @@ public:
         drain_worker_to_processor();
 #endif
 
+        // Discontinuity requested by the host — forget history before anything this block
+        // delivers lands.
+        if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
+            _processor->clear();
+            _processor->snap(); // Paired: a discontinuity warrants both.
+            _bypass.clear();    // Its delay lines hold pre-seek dry audio.
+            _bypass.snap();
+        }
+
         // Resync logic
         const auto needs_resync = _needs_resync.exchange(false, std::memory_order_relaxed); // Queue overflow.
         const auto epoch = _bypass_epoch.load(std::memory_order_relaxed);
@@ -148,7 +165,7 @@ public:
 
             // Manifest immediately — a client reading realized state (e.g. an open editor)
             // shouldn't see stale values for the whole bypassed/inactive stretch.
-            _processor->handle_event(tiny::Resync_params{});
+            _processor->snap();
         }
         else {
             auto event = tiny::Render_event{};
@@ -172,8 +189,13 @@ public:
             : tiny::Render_mode::Realtime;
 
         // We need to resync on render mode edge.
+        // Realtime <-> offline is a discontinuity: the audio either side is unrelated, so
+        // forget history as well as manifesting values.
         if (_last_render_mode != context.render_mode) {
-            _processor->handle_event(tiny::Resync_params{});
+            _processor->clear();
+            _processor->snap();
+            _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
+            _bypass.snap();
             _last_render_mode = context.render_mode;
         }
         
@@ -191,7 +213,7 @@ public:
         // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
         // process()) — settle before this block's own automation lands, not after.
         if (_was_skipped && !can_skip) {
-            _processor->handle_event(tiny::Resync_params{});
+            _processor->snap();
         }
         _was_skipped = can_skip;
 
@@ -331,6 +353,7 @@ private:
     Param_queue _param_queue{};
 
     // Resync mechanism (see setParameter / setBypass / setOffline / process).
+    std::atomic<bool> _needs_clear{false}; // Set by clear(), consumed at the top of process().
     std::atomic<bool> _needs_resync{false}; // Queue-overflow recovery only. See process().
     std::atomic<uint32_t> _bypass_epoch{};
     uint32_t _seen_epoch{}; // process()-thread only.

@@ -63,6 +63,10 @@ public:
     AAX_Result GenerateCoefficients() override;
     AAX_Result TimerWakeup() override;
 
+    // Fills the algorithm's private data blocks at every reset. The only channel that
+    // reaches the algorithm synchronously *and* current at reset time — see Reset_state.
+    AAX_Result ResetFieldData(AAX_CFieldIndex iFieldIndex, void* oData, uint32_t iDataSize) const override;
+
     // The Direct Data module's channel to us. Nothing here dereferences algorithm
     // memory; both directions carry framed bytes.
     AAX_Result SetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSize, const void* iData) override;
@@ -144,7 +148,6 @@ private:
     auto _mark_dirty(uint32_t address) -> void;
     auto _fill_segment(size_t segment) -> void;
     auto _post_segment(size_t segment) -> void;
-    auto _post_config() -> void;
     auto _post_runtime() -> void;
     auto _plain_value(uint32_t address) const -> double;
 
@@ -183,9 +186,7 @@ private:
     std::array<Coef_segment, num_segments> _segments{};
     std::array<bool, num_segments> _segment_dirty{};
     uint64_t _seq{1};                   // 0 is the algorithm's "never seen" sentinel.
-    Config_packet _config{};
     Runtime_packet _runtime{.latency_seq = 0, .accepted_latency = 0, .offline = 0, .recording = 0, .delay_comp = 1, .pad = 0};
-    bool _config_dirty{true};
     std::atomic<bool> _runtime_dirty{true};
 
     // Meters in. Mirrors the last value seen per meter so the Gui can be re-primed

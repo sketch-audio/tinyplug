@@ -65,7 +65,9 @@ OSStatus Effect::Initialize()
 
     const auto format = GetStreamFormat(kAudioUnitScope_Output, 0);
     const auto sample_rate = format.mSampleRate;
-    _processor->reset(sample_rate);
+    _processor->reset(sample_rate); // Resources, then history, then values — the caller owns the ladder.
+    _needs_clear.store(true, std::memory_order_relaxed);
+
     _latency = _processor->latency_samps();
     _sr = sample_rate;
 
@@ -79,6 +81,16 @@ OSStatus Effect::Initialize()
 #endif
 
     return noErr;
+}
+
+// "This call will clear any render state of an audio unit... The call should only clear
+// memory, it should NOT allocate or free memory resources" (AUComponent.h). Deferred to
+// Render so it can't race a block already in flight — the SDK takes no lock here, and
+// AUMethodRender explicitly takes none either.
+OSStatus Effect::Reset(AudioUnitScope inScope, AudioUnitElement inElement)
+{
+    _needs_clear.store(true, std::memory_order_relaxed);
+    return Super::Reset(inScope, inElement);
 }
 
 // MARK: - GetPropertyInfo
@@ -955,6 +967,15 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
 
+    // Discontinuity requested by the host — forget history before anything this block
+    // delivers lands.
+    if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
+        _processor->clear();
+        _processor->snap(); // Paired: a discontinuity warrants both.
+        _bypass.clear();    // Its delay lines hold pre-seek dry audio.
+        _bypass.snap();
+    }
+
     // Resolve events.
 
     // Events are only valid for the current render cycle.
@@ -1019,24 +1040,29 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         }
     }
 
+    // Realtime <-> offline is a discontinuity: the audio either side is unrelated, so
+    // forget history as well as manifesting values.
+    if (render_mode_changed) {
+        _processor->clear();
+        _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
+        _bypass.snap();
+    }
+
     // Tell the client to manifest realized values immediately: either we just restated
     // targets from the truth store above, or we're resuming from a stretch where
     // advance_rampers() didn't run (can_skip skips process()). Delivery isn't
-    // manifestation — see Resync_params.
-    if ((needs_resync || skipped_while_bypassed || resumed_from_skip || render_mode_changed) && _events.size() < _events.capacity()) {
-        _events.push_back(Tagged_event{.event = Resync_params{}, .offset = 0});
+    // manifestation. Called here, ahead of the drain below, so it lands before this
+    // block's own automation.
+    if (needs_resync || skipped_while_bypassed || resumed_from_skip || render_mode_changed) {
+        _processor->snap();
     }
 
-    // Sort by offset; at equal offset, Resync_params before Set_param before Ramp_param —
-    // settle to the pre-block target before this block's own automation lands, and a fresh
-    // Set at an offset must still precede its own Ramp. A plain "Set < Ramp" boolean
-    // predicate isn't a strict weak ordering once a third type joins (Resync would compare
-    // equivalent to both Set and Ramp while Set < Ramp — an intransitive equivalence, UB in
-    // std::sort), so this ranks explicitly instead.
+    // Sort by offset; at equal offset, Set_param before Ramp_param — a fresh Set at an
+    // offset must still precede its own Ramp. Ranked explicitly rather than as a bare
+    // "Set < Ramp" boolean so a third alternative can't produce an intransitive
+    // equivalence (UB in std::sort).
     const auto event_rank = [](const Render_event& event) {
-        if (std::holds_alternative<Resync_params>(event)) return 0;
-        if (std::holds_alternative<Set_param>(event)) return 1;
-        return 2; // Ramp_param (and anything else, defensively).
+        return std::holds_alternative<Set_param>(event) ? 0 : 1;
     };
     std::ranges::sort(_events, [&](const auto& a, const auto& b) {
         if (a.offset != b.offset) return a.offset < b.offset;

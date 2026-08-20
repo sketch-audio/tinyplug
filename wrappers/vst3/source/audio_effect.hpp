@@ -57,6 +57,9 @@ public:
     /** Will be called before any process call */
     Steinberg::tresult PLUGIN_API setupProcessing(Steinberg::Vst::ProcessSetup& newSetup) SMTG_OVERRIDE;
 
+    /** Processing is starting or stopping — the stream is discontinuous either side. */
+    Steinberg::tresult PLUGIN_API setProcessing(Steinberg::TBool state) SMTG_OVERRIDE;
+
     Steinberg::tresult PLUGIN_API setBusArrangements(Steinberg::Vst::SpeakerArrangement* inputs, Steinberg::int32 numIns, Steinberg::Vst::SpeakerArrangement* outputs, Steinberg::int32 numOuts) SMTG_OVERRIDE;
 
     /** Asks if a given sample size is supported see SymbolicSampleSizes. */
@@ -116,6 +119,9 @@ private:
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);
 
+    // Set by `setProcessing`, consumed at the top of `process`.
+    std::atomic<bool> _needs_clear{false};
+
     // Communicates the pending latency from `process` to `setActive`.
     Latency_flag _pending_latency{};
     bool _did_reset{}; // Flag to send latency change.
@@ -128,7 +134,7 @@ private:
 
     Host_bypass _bypass{};
 
-    // Resync_params triggers. Both audio-thread only, single-threaded with `process`.
+    // `snap` triggers. Both audio-thread only, single-threaded with `process`.
     bool _was_skipped{}; // Detects the can_skip -> processing edge.
     Steinberg::int32 _last_process_mode{-1}; // Detects a data.processMode transition.
 

@@ -534,6 +534,12 @@ static auto presets_path() -> std::filesystem::path
     return [super allocateRenderResourcesAndReturnError:outError];
 }
 
+// The host is about to feed us discontinuous audio (seek, loop jump, un-mute).
+- (void)reset {
+    _kernel.clear();
+    [super reset];
+}
+
 // Deallocate resources allocated in allocateRenderResourcesAndReturnError:
 // Subclassers should call the superclass implementation.
 - (void)deallocateRenderResources {

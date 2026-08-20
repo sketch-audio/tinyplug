@@ -37,6 +37,9 @@ public:
 
     OSStatus Initialize() override;
 
+    // AU's discontinuity hook — "clear any render state".
+    OSStatus Reset(AudioUnitScope inScope, AudioUnitElement inElement) override;
+
     UInt32 SupportedNumChannels(const AUChannelInfo** outInfo) override
     {
         if (cinfo.empty()) {
@@ -230,6 +233,7 @@ private:
     Host_bypass _bypass{};
 
     // Resync mechanism.
+    std::atomic<bool> _needs_clear{false}; // Set by Reset(), consumed at the top of Render().
     std::atomic<bool> _needs_resync{false}; // Queue-overflow recovery only. See Render().
     std::atomic<uint32_t> _bypass_epoch{};
     uint32_t _seen_epoch{}; // Render-thread only.

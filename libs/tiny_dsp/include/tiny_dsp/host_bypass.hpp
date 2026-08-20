@@ -17,13 +17,30 @@ public:
 
     auto reset(float sr) -> void
     {
-        // A reset is a hard boundary: adopt the requested state outright rather than
-        // fading from whatever the last block left behind. `set_target` first so
-        // `reset` has a target to jump `_value` to; it clears the ramp either way.
+        _sr = sr;
+        clear();
+        snap();
+    }
+
+    // The delay lines hold real dry audio at plug-in latency. On a discontinuity that
+    // audio belongs to the other side of the seek, so a bypassed (or fading) plug-in
+    // would emit pre-seek signal for a whole latency's worth of samples.
+    auto clear() -> void
+    {
+        for (auto& delay : _delays) {
+            delay.clear();
+        }
+    }
+
+    // A discontinuity is a hard boundary: adopt the requested state outright rather than
+    // fading from whatever the last block left behind. `set_target` first so the ramp has
+    // a target to jump `_value` to; `reset` clears the ramp either way.
+    auto snap() -> void
+    {
         _committed = _bypassed.load(std::memory_order_acquire);
         for (auto& ramp : _ramps) {
             ramp.set_target(_committed ? 0.f : 1.f);
-            ramp.reset(sr);
+            ramp.reset(_sr);
         }
     }
 
@@ -87,6 +104,7 @@ private:
     std::atomic<bool> _bypassed{false};
     bool _committed{false};
 
+    float _sr{48000};
     uint32_t _latency{0};
 
     static constexpr auto max_channels = size_t{2};

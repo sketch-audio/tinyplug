@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 #include "AAX.h"
 #include "AAX_IMIDINode.h"
@@ -80,13 +81,6 @@ struct Coef_segment {
     double value[coefs_per_segment];
 };
 
-// Static setup, posted once before the algorithm's instance-init callback runs.
-struct Config_packet {
-    double sample_rate;
-    uint32_t max_frames;
-    uint32_t pad;
-};
-
 // Host state that changes independently of parameters, and the latency the host has
 // accepted. Posted whenever a notification changes it.
 //
@@ -102,6 +96,29 @@ struct Runtime_packet {
     uint8_t pad;
 };
 
+// The reset-time snapshot: a by-value copy of every data-model-owned port, handed to the
+// algorithm through AAX_IEffectParameters::ResetFieldData().
+//
+// Ports are only refreshed by PostPacket from GenerateCoefficients, which the host does
+// not run as part of a reset — measured: at a Pro Tools bounce entry the data model
+// already holds offline=1 while the Runtime_packet port still carries the previous value.
+// And private data is *always* wiped on reset (AAX_ePrivateDataOptions_KeepOnReset is
+// declared but "Not currently implemented"), so the algorithm rebuilds from nothing.
+// ResetFieldData is the only channel that is both synchronous and current at that moment,
+// which is exactly the workaround that enum names.
+//
+// Membership is mechanical rather than a judgement call: one member per data-model-owned
+// port. Snapshot here, deltas through the ports — the ports keep the timestamped,
+// sample-accurate delivery that automation needs and this cannot provide.
+//
+// A separate block from Alg_state because ResetFieldData's block is copied into the
+// algorithm's memory pool, which requires trivial copyability. Alg_state is not.
+struct Reset_state {
+    Runtime_packet runtime;
+    Coef_segment   coefs[num_segments];
+};
+static_assert(std::is_trivially_copyable_v<Reset_state>);
+
 // The algorithm's entire window on the world. Pointers only; the host repopulates
 // every field before each call. Note that there is no route back to the data model
 // object from here — that is the point.
@@ -115,9 +132,9 @@ struct Alg_context {
 #endif
     AAX_IMIDINode* transport_node;    // AddMIDINode(Transport)
 
-    const Config_packet* config;      // AddDataInPort
     const Runtime_packet* runtime;    // AddDataInPort
 
+    const Reset_state* reset_state;   // AddPrivateData — filled by ResetFieldData
     struct Alg_state* state;          // AddPrivateData
     struct Return_ring* returns;      // AddPrivateData — algorithm -> data model
     struct Inbound_ring* inbound;     // AddPrivateData — data model -> algorithm
@@ -141,8 +158,8 @@ enum : AAX_CFieldIndex {
     field_sidechain = AAX_FIELD_INDEX(Alg_context, sidechain_index),
 #endif
     field_transport = AAX_FIELD_INDEX(Alg_context, transport_node),
-    field_config = AAX_FIELD_INDEX(Alg_context, config),
     field_runtime = AAX_FIELD_INDEX(Alg_context, runtime),
+    field_reset_state = AAX_FIELD_INDEX(Alg_context, reset_state),
     field_state = AAX_FIELD_INDEX(Alg_context, state),
     field_returns = AAX_FIELD_INDEX(Alg_context, returns),
     field_inbound = AAX_FIELD_INDEX(Alg_context, inbound),
@@ -215,8 +232,10 @@ struct Alg_state {
     uint32_t latency_seq{};
     uint32_t accepted_latency{};
     uint32_t reported_latency{}; // Last value proposed to the host — don't feedback latency changes.
-    bool was_skipped{}; // Detects the can_skip -> processing edge, for Resync_params.
-    int8_t last_render_mode{-1};
+    bool was_skipped{}; // Detects the can_skip -> processing edge, for `snap`.
+    // Latched at reset from Reset_state, never from the per-block Runtime_packet — see
+    // Reset_state. The kernel only ever observes this change across a reset.
+    Render_mode render_mode{Render_mode::Realtime};
     bool constructed{};
 };
 

@@ -50,14 +50,15 @@ auto describe_algorithm(AAX_IComponentDescriptor* desc, bool stereo) -> void
     // Inbound packets. All buffered: the host timestamps them and splits render
     // buffers (to a 32-sample minimum on Native) so each lands at its automation
     // breakpoint. That host-managed synchronization is the point of being decoupled.
-    err = desc->AddDataInPort(field_config, sizeof(Config_packet));
     err = desc->AddDataInPort(field_runtime, sizeof(Runtime_packet));
     for (auto segment = size_t{}; segment < num_segments; ++segment) {
         err = desc->AddDataInPort(coef_field(segment), sizeof(Coef_segment));
     }
 
-    // Algorithm-owned persistent memory. Alg_state holds the user's DSP kernel and is
-    // constructed by the instance-init callback below, in this memory space.
+    // Private data. `reset_state` is host-filled at every reset via ResetFieldData; the
+    // rest is algorithm-owned and persists across one, with Alg_state holding the user's
+    // DSP kernel, constructed by the instance-init callback in this memory space.
+    err = desc->AddPrivateData(field_reset_state, static_cast<int32_t>(sizeof(Reset_state)), AAX_ePrivateDataOptions_External);
     err = desc->AddPrivateData(field_state, static_cast<int32_t>(sizeof(Alg_state)), AAX_ePrivateDataOptions_External);
     err = desc->AddPrivateData(field_returns, static_cast<int32_t>(sizeof(Return_ring)), AAX_ePrivateDataOptions_External);
     err = desc->AddPrivateData(field_inbound, static_cast<int32_t>(sizeof(Inbound_ring)), AAX_ePrivateDataOptions_External);
