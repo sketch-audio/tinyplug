@@ -77,8 +77,10 @@ private:
         uint32_t index{};
         bool updated{};
         bool merging{};
+        uint16_t reserved{}; // Padding not ignored by CAS until after C++ 20.
     };
     static_assert(std::atomic<Control>::is_always_lock_free);
+    static_assert(sizeof(Control) == sizeof(uint32_t) + 2 * sizeof(bool) + sizeof(uint16_t)); // No padding bits.
 
     std::mutex _push{};
     std::array<Map, 3> _changes{};
