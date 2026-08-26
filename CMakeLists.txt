@@ -5,6 +5,17 @@ option(TINY_INSTALL_PLUGINS "Copy plug-ins to system folders after build (may pr
 
 project(tinyplug VERSION 0.1.0) # Version code is used to generate names for Obj-C classes.
 
+# Logging / lifecycle probing. On for Debug, off otherwise — the macros and every
+# `log::Probe` method compile away entirely when it is off.
+if(NOT DEFINED TINY_LOG)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR "Debug" IN_LIST CMAKE_CONFIGURATION_TYPES)
+        set(TINY_LOG ON CACHE BOOL "Build the tiny::log logging layer.")
+    else()
+        set(TINY_LOG OFF CACHE BOOL "Build the tiny::log logging layer.")
+    endif()
+endif()
+message(STATUS "[tiny] logging layer: ${TINY_LOG}")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

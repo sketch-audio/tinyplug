@@ -12,7 +12,7 @@ struct Latency {
     constexpr auto reset(double sr) -> void
     {
         _sr = sr;
-        const auto latency_samples = _latency_ms * 1e-3f * _sr;
+        const auto latency_samples = this->_delay_samples();
         const auto min_samples = latency_samples + 2; // So we can have zero latency.
         auto n = size_t{1};
         while (n < static_cast<size_t>(min_samples)) n *= 2;
@@ -34,11 +34,25 @@ struct Latency {
     
     constexpr auto latency_samps() -> uint32_t
     {
-        return static_cast<uint32_t>(_latency_ms * 1e-3f * _sr);
+        return static_cast<uint32_t>(this->_delay_samples());
     }
 
 private:
-    
+
+    // Below this the allpass is both pointless and ill-conditioned: `_eta` tends to 1 as
+    // `_frac` tends to 0, which puts its pole on the unit circle at Nyquist. Snap to the
+    // integer tap instead. A thousandth of a sample is ~20 ns at 48k.
+    static constexpr auto min_frac = 1e-3f;
+
+    // `ms * sr / 1000`, not `ms * 1e-3 * sr`. `1e-3f` is a float literal — 0.001000000047 —
+    // so 0.5 ms at 48k came out 24.0000011 rather than 24, `_frac` was never exactly zero,
+    // and the integer path above was dead code at every sample rate. `reset` and
+    // `latency_samps` share this so they cannot disagree.
+    constexpr auto _delay_samples() const -> double
+    {
+        return _latency_ms * _sr / 1000.;
+    }
+
     double _sr{48000};
     double _latency_ms{};
 
@@ -63,7 +77,7 @@ private:
     constexpr auto read(bool post_write = true) -> float
     {
         const auto i = post_write ? size_t{1} : size_t{0};
-        return _frac == 0 ? _read(_off + i) : _allpass(_off + i, _frac);
+        return _frac < min_frac ? _read(_off + i) : _allpass(_off + i, _frac);
     }
 
     constexpr auto _read(size_t off) const -> float

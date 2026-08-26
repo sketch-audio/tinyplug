@@ -32,8 +32,6 @@ auto View::on_draw(View_context& view_context) -> void
 {
     using namespace params;
 
-    _deps.executor.on_main();
-
 #if TINY_HAS_WORKER
     if (_deps.drain_worker_to_editor) _deps.drain_worker_to_editor();
 #endif

@@ -139,6 +139,7 @@ function(make_auv3_plugin USER_TARGET)
         ${SOURCE_DIR}/source/extension/BufferedAudioBus.hpp
         ${SOURCE_DIR}/source/extension/DSPKernel.hpp
         ${SOURCE_DIR}/source/shared/TargetPlatforms.h
+        ${SOURCE_DIR}/../apple/relay.hpp
     )
 
     # iOS shared core framework
@@ -162,6 +163,7 @@ function(make_auv3_plugin USER_TARGET)
         target_include_directories(${CORE_TARGET} PRIVATE
             ${SOURCE_DIR}/source/extension
             ${SOURCE_DIR}/source/shared
+            ${SOURCE_DIR}/../apple
             ${CMAKE_CURRENT_BINARY_DIR}
         )
         set(CORE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/Info-Core.plist)
@@ -386,7 +388,7 @@ function(make_auv3_plugin USER_TARGET)
     target_link_libraries(${EXT_TARGET} PRIVATE ${USER_TARGET})
     target_link_libraries(${EXT_TARGET} PRIVATE ${TINY_PLATFORM_LIB})
     target_link_libraries(${EXT_TARGET} PRIVATE ${TINY_DSP_LIB})
-    target_include_directories(${EXT_TARGET} PRIVATE ${SOURCE_DIR}/source/shared)
+    target_include_directories(${EXT_TARGET} PRIVATE ${SOURCE_DIR}/source/shared ${SOURCE_DIR}/../apple)
 
     # Per-plugin mac view classes (macOS only — iOS extension runs out-of-process so no collision risk,
     # but we do this for consistency with the other formats).

@@ -5,9 +5,14 @@
 
 namespace tiny::plugin {
 
-auto Processor::reset(double sample_rate) -> void
+auto Processor::configure(const Config& config) -> void
 {
-    _sample_rate = sample_rate > 0 ? sample_rate : 44100;
+    // Come up holding the host's values: the first block renders from this state.
+    for (auto i = size_t{}; i < num_params; ++i) {
+        _values[i] = static_cast<float>(config.params[i]);
+    }
+
+    _sample_rate = config.sr > 0 ? config.sr : 44100;
     _phase = 0;
     _phase_inc = 2 * std::numbers::pi * tone_hz / _sample_rate;
 }

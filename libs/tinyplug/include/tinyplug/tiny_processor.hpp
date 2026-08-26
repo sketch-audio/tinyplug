@@ -56,23 +56,36 @@ struct Dsp_context {
     Render_mode render_mode{Render_mode::Realtime};
 };
 
+// What a processor is built for: the rate it will run at, and the parameter values it
+// comes up holding. Plain space, indexed by address. `params` is borrowed — it is valid
+// only for the duration of the `configure` call, so copy what you need.
+struct Config {
+    double sr{48000};
+    std::span<const double> params{};
+};
+
 template<typename T>
 concept Some_plug_processor = requires(T t) {
     // Three tiers of state, weakest last. What is guaranteed is that each tier is
     // *individually invocable* — `clear` and `snap` never allocate and never need a
-    // `reset` first — not that an implementation confines itself to exactly its own tier.
-    // Doing more is allowed and common: our adapters end `reset` with `clear(); snap();`,
-    // and a parameter smoother's `clear` necessarily lands it. The wrapper knows what the
-    // host asked for, so it calls every tier at or below it, strongest first, and any
-    // overlap is idempotent:
+    // `configure` first — not that an implementation confines itself to exactly its own
+    // tier. Doing more is allowed and common: a parameter smoother's `clear` necessarily
+    // lands it. The wrapper calls the tier the host asked for, and any overlap is
+    // idempotent:
     //
-    //   sample rate / activate        reset(sr) -> clear() -> snap()
-    //   discontinuity (seek, bounce)              clear() -> snap()
-    //   values without audio (flush)                         snap()
+    //   sample rate / configuration   configure(cfg)
+    //   discontinuity (seek, bounce)  clear() -> snap()
+    //   values without audio (flush)             snap()
     //
-    // Resources: size and allocate for this sample rate. Off the audio thread. Leaves
-    // history undefined and values unmanifested, so it is never sufficient on its own.
-    { t.reset(double{/*sample_rate*/}) } -> std::same_as<void>;
+    // Resources: size and allocate for this sample rate *and these parameter values*.
+    // Off the audio thread. Named `configure` rather than `reset` because it adopts a
+    // state rather than returning to an initial one.
+    //
+    // Unlike the tiers below it, `configure` is *sufficient on its own*: `clear` and
+    // `snap` are implied. On return the processor is ready to render from exactly this
+    // configuration with defined output, and `latency_samps()` is final for it — no
+    // negotiation, no glide up from defaults on the first block.
+    { t.configure(std::declval<const Config&>(/*config*/)) } -> std::same_as<void>;
 
     // History: forget it — delay lines, filter state, oscillator phase, transport
     // position. Must not allocate, and must not touch parameter values or latency (a

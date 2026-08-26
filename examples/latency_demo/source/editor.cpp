@@ -10,19 +10,6 @@ auto Editor::on_gui_create() -> void
 
 auto Editor::on_gui_show() -> void
 {
-
-    _click = std::make_unique<Click_recognizer>(Gesture_callbacks<Click_info>{
-        .on_started = [=, this](const Click_info& info) {
-            const auto addr = enum_raw(Address::Latency_mode);
-            const auto next = (_value == 0) ? 1. : 0.;
-            _edit.actions.push(Action_start{addr});
-            _edit.actions.push(Set_param{addr, next});
-            _edit.actions.push(Action_end{addr});
-        },
-        .on_updated = [](const Click_info&) {},
-        .on_ended = [](const Click_info&) {},
-        .on_cancelled = []() {}
-    }, Click_recognizer::Desc{/* single, left click */});
 }
 
 auto Editor::on_gui_draw(Plugin_state& state) -> void

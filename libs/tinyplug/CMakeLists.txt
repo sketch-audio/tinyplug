@@ -24,17 +24,20 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
     source/task_manager.cpp
     source/undo_history.cpp
     source/host_formatter.cpp
+    source/tiny_log.cpp
     source/value_helper.cpp
 )
 
 target_sources(${TINY_SHARED_LIB} PRIVATE
     include/tinyplug/platform_defs.hpp
+    include/tinyplug/lifecycle_probe.hpp
     include/tinyplug/tiny_events.hpp
     include/tinyplug/tiny_meters.hpp
     include/tinyplug/tiny_params.hpp
     include/tinyplug/value_helper.hpp
     include/tinyplug/tiny_processor.hpp
     include/tinyplug/lock_free_queue.hpp
+    include/tinyplug/tiny_log.hpp
     include/tinyplug/tiny_utils.hpp
     include/tinyplug/tiny_view.hpp
     include/tinyplug/tiny_worker.hpp
@@ -44,6 +47,10 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
 # Public include root → consumers write <tinyplug/...>.
 target_include_directories(${TINY_SHARED_LIB} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(${TINY_SHARED_LIB} PUBLIC nlohmann_json::nlohmann_json)
+
+# Logging / lifecycle probing. PUBLIC: the wrappers link this lib and their probe call
+# sites have to agree with the library about whether the layer exists at all.
+target_compile_definitions(${TINY_SHARED_LIB} PUBLIC TINY_LOG_ENABLED=$<BOOL:${TINY_LOG}>)
 
 # Forward to parent scope.
 set(TINY_SHARED_LIB ${TINY_SHARED_LIB} PARENT_SCOPE)

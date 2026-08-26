@@ -11,7 +11,12 @@ namespace tiny::plugin {
 class Processor {
 public:
 
-    auto reset(double /*sample_rate*/) -> void {}
+    auto configure(const Config& config) -> void
+    {
+        for (auto i = size_t{}; i < num_params; ++i) {
+            _values[i] = static_cast<float>(config.params[i]);
+        }
+    }
 
     // Forget render history (host seek, bounce, un-bypass). Never allocates.
     auto clear() -> void {}

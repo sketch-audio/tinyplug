@@ -16,7 +16,7 @@ namespace tiny::plugin {
 // (realtime) or yellow (offline).
 class Processor {
 public:
-    auto reset(double sample_rate) -> void;
+    auto configure(const Config& config) -> void;
 
     // Forget render history (host seek, bounce, un-bypass). Never allocates.
     auto clear() -> void {}

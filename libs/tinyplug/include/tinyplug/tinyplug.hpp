@@ -11,6 +11,7 @@
 
 #include "denormal_guard.hpp"
 #include "gesture_recognizers.hpp"
+#include "tiny_log.hpp"
 #include "host_formatter.hpp"
 #include "task_manager.hpp"
 #include "value_helper.hpp"

@@ -232,11 +232,16 @@ This has knock-on effects throughout the wrapper:
   `_pending_latency`, then bumps a hidden "latency" output parameter to
   force the controller to learn that something changed. The controller
   notices the latency-param change, calls
-  `restartComponent(kLatencyChanged)`, the host calls `getLatencySamples()`
-  and toggles `setActive`, at which point the processor reads the pending
-  value back, writes `_accepted_latency`, and the next `process` issues
-  `Accepted_latency` to the kernel. Don't simplify this — it's how the
-  state machine survives `kDistributable`.
+  `restartComponent(kLatencyChanged)`, and the host reads
+  `getLatencySamples()` — **that read is the acceptance**: it consumes
+  `_pending_latency`, writes `_accepted_latency`, and the next `process`
+  issues `Accepted_latency` to the kernel. `setActive(true)` consumes any
+  still-pending proposal too, for a host that re-activates without querying.
+  The getter has to complete it because FL Studio queries and keeps
+  processing, never toggling `setActive`; the proposal would otherwise stay
+  pending forever while the host compensated for a latency the kernel had
+  not applied. This matches AUv2's `GetLatency`. Don't simplify the rest of
+  it — it's how the state machine survives `kDistributable`.
 - **Meters travel as output parameter changes.** There is no direct
   processor→controller channel for streaming data, so meters are written
   into `data.outputParameterChanges` at the end of `process` using
@@ -484,9 +489,22 @@ Every wrapper implements the same pattern:
    the kernel must immediately match (assertion checked).
 6. `Host_bypass::set_latency` is updated in lockstep so soft-bypass
    PDC compensation tracks.
+7. A `configure` arriving mid-handshake **supersedes** it: the wrapper clears
+   `_pending_latency` / `_accepted_latency` so the old proposal cannot be
+   applied against the new configuration, and leaves `_reported_latency` alone
+   so the post-configure comparison still knows what the host was told.
+   VST3 `setupProcessing` · CLAP the fall-through in `activate` · AUv2
+   `Cleanup` · AUv3 `deInitialize` · AAX `adopt_reset_state`.
+
+Two numbers, two meanings: `_latency` is what the host holds, `_reported_latency`
+is what we last asked for. They diverge only inside the async window, which is why
+the dedupe guard cannot fold into `_latency`. Notify whenever the host's number
+became wrong — from a proposal *or* a configure — and never when it did not move.
 
 If you find yourself adding a special-case latency flow, you're probably
-fighting this protocol.
+fighting this protocol. The full contract, its known limits and the per-format
+accept points are in
+[lifecycle-migration-handoff.md](plans/lifecycle-migration-handoff.md) §3.
 
 ## Platform layer
 
@@ -507,6 +525,87 @@ TINY_PLATFORM_WINDOWS`; selection at compile time only.
   exposes background / main-thread / serial-queue dispatch. The view is
   the only thing that calls `bind_main` + `run_main`; user code uses the
   `Actor`.
+
+## Logging and lifecycle probing
+
+[tiny_log.hpp](libs/tinyplug/include/tinyplug/tiny_log.hpp) /
+[tiny_log.cpp](libs/tinyplug/source/tiny_log.cpp) is a realtime-safe logging layer;
+[lifecycle_probe.hpp](libs/tinyplug/include/tinyplug/lifecycle_probe.hpp) is a fixed
+vocabulary for the processor lifecycle and the latency handshake layered on top.
+
+**The wrappers carry no probes right now.** They were instrumented while the latency
+handshake was being repaired and then stripped so the lifecycle diff stays readable; the
+layer is kept intact so re-instrumenting is a matter of adding a `log::Probe` member back
+and calling the verbs below. Re-instrument all five with the same verbs, so a Pro Tools
+trace and a Logic trace of the same plug-in differ only where the formats genuinely differ.
+
+- **Realtime safety.** A log call captures its arguments into a fixed-size POD `Record`
+  and pushes it onto a bounded MPMC ring; a drain thread does all formatting and I/O.
+  Nothing allocates, locks or formats on the calling thread. Dynamic strings
+  (`string_view`/`std::string`) are copied into a 24-byte inline buffer — `const char*`
+  is stored by pointer and must be a literal.
+  The ring is *not* `Lock_free_queue<..., mpsc>`: that one keeps a registry of writer
+  threads that is never reclaimed, and a logger gets called from whatever threads the
+  host happens to own.
+- **Compiled out by default.** The CMake option `TINY_LOG` is ON for Debug and OFF
+  otherwise, and sets `TINY_LOG_ENABLED` **PUBLIC** on `tiny_shared_lib`. With it off
+  every macro is `((void)0)` (arguments unevaluated) and every `log::Probe` method is an
+  empty inline.
+- **Multi-process by design.** An AUv3 extension, a distributable VST3's two halves and
+  clap-validator's per-test forks are separate processes, so the default sinks are the
+  ones that merge them: `os_log` (subsystem `com.tinyplug.log`) on Apple,
+  `OutputDebugString` on Windows, plus stderr. Every line carries the pid; instance
+  numbers restart per process and only mean something read together with it.
+
+Reading it: `log stream --predicate 'subsystem == "com.tinyplug.log"'` on macOS,
+DebugView on Windows, or stderr for CLI hosts (auval, clap-validator, the AAX validator).
+The category becomes the os_log category, so
+`'subsystem == "com.tinyplug.log" && category == "latency"'` narrows natively. Levels map
+so the lifecycle/latency narrative is visible with no flags: `info`/`warn` →
+`OS_LOG_TYPE_DEFAULT` (persisted), `debug` → `OS_LOG_TYPE_INFO` (add `--info`), `trace` →
+`OS_LOG_TYPE_DEBUG` (add `--debug`).
+
+Runtime configuration, read once at init:
+
+| Variable | Effect |
+|---|---|
+| `TINYPLUG_LOG` | `trace`/`debug`/`info`/`warn`/`error`/`off`. Default `debug` (Debug builds), `warn` otherwise. |
+| `TINYPLUG_LOG_CATS` | Comma-separated category names, or `all`. Default all. |
+| `TINYPLUG_LOG_FILE` | Append a copy to this path. Off unless set. |
+| `TINYPLUG_LOG_STDERR` | `0`/`1` to force. Default on, except on Apple when the syslog sink is active and the process has no controlling terminal — a GUI host's stderr is routed into the unified log, so both sinks would log every line twice. |
+| `TINYPLUG_LOG_SYSLOG` | `0` to silence os_log / OutputDebugString. |
+
+Categories are a bitmask (`lifecycle`, `latency`, `params`, `state`, `worker`, `editor`,
+`process`, `host`, `graphics`, `general`) so a probing session can ask for one subsystem.
+Per-block logging lives at `trace` and is therefore off unless asked for.
+
+Writing to it:
+
+```cpp
+TINY_LOG_INFO(latency, "pending={} accepted={}", pending, accepted); // {} placeholders
+TINY_LOG_SCOPE(lifecycle, "setupProcessing");  // logs entry, exit and elapsed time
+TINY_LOG_THREAD(audio);                        // tag this thread, once, at the top of process
+TINY_PROBE(_probe, host, info, "custom line frames={}", frames); // free-form, but tagged
+```
+
+`std::optional` prints as `-` when disengaged, which matters because "absent" is the
+interesting half of most latency state.
+
+A wrapper object owns a `log::Probe` with a tag naming its half of the format —
+`"VST3/proc"` and `"VST3/ctrl"`, `"AAX/alg"` and `"AAX/model"`, `"AUv3/kernel"`, `"AUv2"`,
+`"CLAP"`. The probe constructor is what initializes the layer, so **construct probes off
+the audio thread** — that is the only reason the audio thread never runs the one-time
+setup. It also claims the `main` thread role if the constructing thread has none, which is
+correct in all five formats and saves tagging every main-thread entry point by hand.
+
+The probe verbs mirror the contract in
+[lifecycle-migration-handoff.md](plans/lifecycle-migration-handoff.md) §2 and §3:
+`configured` / `activated` / `cleared` / `snapped` / `render_mode_changed`, and
+`latency_proposed` / `latency_dropped` / `latency_notified` / `latency_queried` /
+`latency_accepted` / `latency_mismatch`. **`latency_dropped` is the important one** — a
+proposal suppressed by the dedupe guard, by AAX's PDC-disabled guard, or by a configure
+that superseded it is otherwise completely invisible, and silent drops are the failure
+mode this protocol has.
 
 ## CMake mechanics
 

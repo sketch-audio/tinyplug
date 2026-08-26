@@ -15,15 +15,6 @@
 
 namespace tiny {
 
-enum class Message_type : uint32_t { latency_changed = 0 };
-struct Private_message {
-    Message_type type{};
-};
-struct Main_executor {
-    using On_main = std::function<void(void)>;
-    On_main on_main = [](){};
-};
-
 inline auto cf_to_std(CFStringRef cfStr) -> std::string
 {
     if (!cfStr) return {};
@@ -40,34 +31,6 @@ inline auto cf_to_std(CFStringRef cfStr) -> std::string
 
     return {};
 }
-
-#pragma mark - CFString and CString Utilities
-
-static inline CFStringRef MakeCFString(const char* cStr)
-{
-  return CFStringCreateWithCString(0, cStr, kCFStringEncodingUTF8);
-}
-
-class CFStrLocal {
-public:
-  CFStrLocal(const char* cStr)
-  {
-    mCFStr = MakeCFString(cStr);
-  }
-    
-  ~CFStrLocal()
-  {
-    CFRelease(mCFStr);
-  }
-    
-  CFStrLocal(const CFStrLocal&) = delete;
-  CFStrLocal& operator=(const CFStrLocal&) = delete;
-    
-  CFStringRef Get() { return mCFStr; }
-    
-private:
-  CFStringRef mCFStr;
-};
 
 struct Clump {
     int32_t id{};

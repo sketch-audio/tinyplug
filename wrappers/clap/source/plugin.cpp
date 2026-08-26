@@ -19,33 +19,61 @@ bool Plugin::init() noexcept
 
 bool Plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t /*maxFrameCount*/) noexcept
 {
-    // Are we here because the kernel wanted a latency change?
-    const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
-    const auto self_requested_restart = pending_latency.has_value();
+    using namespace params;
 
-    if (!_once || sampleRate != _sr || !self_requested_restart) {
-        _processor->reset(sampleRate); // Resources, then history, then values — the caller owns the ladder.
-        _needs_clear.store(true, std::memory_order_relaxed);
-
-        _latency = _processor->latency_samps();
-        _sr = sampleRate;
-        _once = true;
-
-        _bypass.reset(static_cast<float>(sampleRate));
-        _bypass.set_latency(_latency);
-    }
+    const auto sr_changed = (_sr != sampleRate); // Need this below.
+    _sr = sampleRate;
 
 #if TINY_HAS_WORKER
     _worker_runner.start(sampleRate);
 #endif
 
-    if (pending_latency) {
+    auto notify = [this]() {
+        auto ext = _host->get_extension(_host, CLAP_EXT_LATENCY);
+        auto latency_ext = static_cast<const clap_host_latency_t*>(ext);
+        if (latency_ext) {
+            latency_ext->changed(_host);
+        }
+    };
+
+    // Are we here because the processor wanted a latency change?
+    const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+    if (pending_latency.has_value() && !sr_changed) {
         _accepted_latency.store(*pending_latency, std::memory_order_release); // The kernel should manifest on the next process.
         _latency = *pending_latency;
+        notify();
 
-        // Notify the host.
-        auto* latency_ext = (const clap_host_latency_t*)_host->get_extension(_host, CLAP_EXT_LATENCY);
-        if (latency_ext) latency_ext->changed(_host);
+        // Skip configure.
+        return true;
+    }
+
+    // Finish clearing handshake state for reconfigure.
+    _accepted_latency.store(std::nullopt, std::memory_order_release);
+
+    // Get the initial state for this configuration.
+    auto config_values = std::array<double, num_params>{};
+    for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
+        // Convert to plain space.
+        const auto& param = User_params::param_spec(addr);
+        const auto host = _hostvalues[addr].load(std::memory_order_relaxed);
+        const auto plain = Value_helper::host_to_plain(host, param.semantics);
+        config_values[addr] = plain;
+    }
+
+    _processor->configure(Config{
+        .sr = sampleRate,
+        .params = config_values
+    });
+    _latency = _processor->latency_samps();
+
+    _bypass.reset(static_cast<float>(sampleRate));
+    _bypass.set_latency(_latency);
+
+    // Did activate result in a changed latency?
+    const auto latency_changed = (_latency != _reported_latency.load(std::memory_order_relaxed));
+    if (latency_changed) {
+        _reported_latency.store(_latency, std::memory_order_relaxed);
+        notify();
     }
 
     return true;
@@ -271,14 +299,13 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
         _meters[i] = 0; // Reset for peak meters.
     }
 
-    // Has the kernel proposed a new latency? Only act if it actually differs from what
-    // we last told the host — otherwise a kernel that re-proposes the same value every
-    // block would restart the handshake every block.
-    if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _reported_latency) {
-        // Notify controller and sit on the pending latency.
+    // Did the processor propose a new (unreported) latency?
+    const auto reported = _reported_latency.load(std::memory_order_relaxed);
+    if (const auto proposed = context.propose_latency; proposed.has_value() && *proposed != reported) {
+        // Set pending latency, mark reported, and request a restart.
+        _pending_latency.store(*proposed, std::memory_order_release);
+        _reported_latency.store(*proposed, std::memory_order_relaxed);
         _host->request_restart(_host);
-        _pending_latency.store(*proposed_latency, std::memory_order_release);
-        _reported_latency = *proposed_latency;
     }
 
     const auto tail = _processor->tail_samps();

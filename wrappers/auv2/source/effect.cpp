@@ -47,29 +47,54 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
         const auto is_main = (i == 0);
         const auto* input_name = is_main ? "Input" : "Sidechain";
         const auto str = CFStringCreateWithCString(kCFAllocatorDefault, input_name, kCFStringEncodingUTF8);
+        auto defer = Deferred([str]() { CFRelease(str); });
         Inputs().GetElement(static_cast<UInt32>(i))->SetName(str);
     }
 
     const auto str = CFStringCreateWithCString(kCFAllocatorDefault, "Output", kCFStringEncodingUTF8);
+    auto defer = Deferred([str]() { CFRelease(str); });
     Outputs().GetElement(0)->SetName(str);
+
+    _relay.emplace(Relay::Spec{
+        .execute = [this]() {
+            PropertyChanged(kAudioUnitProperty_Latency, kAudioUnitScope_Global, 0);
+        },
+        .interval = 0.1, // seconds
+    });
 }
 
 Effect::~Effect()
 {
+    _relay.reset();
     this->_release_presets();
 }
 
 OSStatus Effect::Initialize()
 {
-    Super::Initialize();
+    auto result = Super::Initialize();
+    if (result != noErr) return result;
+
+    using namespace params;
 
     const auto format = GetStreamFormat(kAudioUnitScope_Output, 0);
     const auto sample_rate = format.mSampleRate;
-    _processor->reset(sample_rate); // Resources, then history, then values — the caller owns the ladder.
-    _needs_clear.store(true, std::memory_order_relaxed);
-
-    _latency = _processor->latency_samps();
+    if (sample_rate <= 0) return kAudioUnitErr_FormatNotSupported;
     _sr = sample_rate;
+
+    // Get the initial state for this configuration.
+    auto config_values = std::array<double, num_params>{};
+    for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
+        const auto& param = User_params::param_spec(addr);
+        const auto host = Globals()->GetParameter(static_cast<AudioUnitParameterID>(addr));
+        const auto plain = Value_helper::host_to_plain(host, param.semantics);
+        config_values[addr] = plain;
+    }
+
+    _processor->configure(Config{
+        .sr = sample_rate,
+        .params = config_values
+    });
+    _latency = _processor->latency_samps();
 
     _bypass.reset(static_cast<float>(sample_rate));
     _bypass.set_latency(_latency);
@@ -80,7 +105,21 @@ OSStatus Effect::Initialize()
     _worker_runner.start(sample_rate);
 #endif
 
+    // Normal path needs to report changes for non-zero initial latency and sample rate changes.
+    if (_latency != _reported_latency.load(std::memory_order_relaxed)) {
+        _reported_latency.store(_latency, std::memory_order_relaxed);
+        PropertyChanged(kAudioUnitProperty_Latency, kAudioUnitScope_Global, 0); // Should already be on main here.
+    }
+
     return noErr;
+}
+
+void Effect::Cleanup()
+{
+    // Resolve outstanding handshake, defer to next configure.
+    _pending_latency.store(std::nullopt, std::memory_order_relaxed);
+    _accepted_latency.store(std::nullopt, std::memory_order_relaxed);
+    Super::Cleanup();
 }
 
 // "This call will clear any render state of an audio unit... The call should only clear
@@ -155,8 +194,10 @@ OSStatus Effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
             auto* info = static_cast<AudioUnitCocoaViewInfo*>(outData);
 
             // Bundle
-            auto id = CFStrLocal{Plug_info::Auv2::bundle_id};
-            auto* bundle = CFBundleGetBundleWithIdentifier(id.Get());
+            auto id = CFStringCreateWithCString(kCFAllocatorDefault, Plug_info::Auv2::bundle_id, kCFStringEncodingUTF8);
+            auto defer = Deferred([id]() { CFRelease(id); });
+
+            auto* bundle = CFBundleGetBundleWithIdentifier(id);
             auto* url = CFBundleCopyBundleURL(bundle);
 
             info->mCocoaAUViewBundleLocation = url;
@@ -1270,14 +1311,13 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         _meters[i] = 0; // Reset for peak meters.
     }
 
-    // Has the kernel proposed a new latency? Only act if it actually differs from what
-    // we last told the host — otherwise a kernel that re-proposes the same value every
-    // block would restart the handshake every block.
-    if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _reported_latency) {
-        // Notify controller and sit on the pending latency.
-        _pqueue.push(Private_message{.type = Message_type::latency_changed});
-        _pending_latency.store(*proposed_latency, std::memory_order_release);
-        _reported_latency = *proposed_latency;
+    // Did the processor propose a new (unreported) latency?
+    const auto reported = _reported_latency.load(std::memory_order_relaxed);
+    if (const auto proposed = context.propose_latency; proposed.has_value() && *proposed != reported) {
+        // Set pending latency, mark reported, and post to the relay.
+        _pending_latency.store(*proposed, std::memory_order_release);
+        _reported_latency.store(*proposed, std::memory_order_relaxed);
+        _relay->post();
     }
 
     return noErr;

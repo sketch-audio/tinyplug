@@ -143,7 +143,6 @@ public:
 private:
 
     const clap_host* _host{nullptr};
-    bool _once{false}; // Have we been reset?
     double _sr{48000};
 
     using User_params = params::Infos<models::Params>;
@@ -199,8 +198,8 @@ private:
     }
 
     // Latency
-    uint32_t _latency{_processor->latency_samps()};
-    uint32_t _reported_latency{_latency}; // Don't feedback latency changes.
+    uint32_t _latency{};
+    std::atomic<uint32_t> _reported_latency{}; // Don't feedback latency changes.
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);

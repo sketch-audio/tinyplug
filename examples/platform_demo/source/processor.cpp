@@ -4,9 +4,12 @@
 
 namespace tiny::plugin {
 
-auto Processor::reset(double sample_rate) -> void
+auto Processor::configure(const Config& config) -> void
 {
-    // ...
+    // Come up holding the host's values: the first block renders from this state.
+    for (auto i = size_t{}; i < num_params; ++i) {
+        _values[i] = static_cast<float>(config.params[i]);
+    }
 }
 
 auto Processor::handle_event(const Render_event& event) -> void

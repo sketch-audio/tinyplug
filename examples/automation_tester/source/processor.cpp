@@ -4,9 +4,10 @@
 
 namespace tiny::plugin {
 
-auto Processor::reset(double sample_rate) -> void
+auto Processor::configure(const Config& config) -> void
 {
-    _ramper.reset(sample_rate);
+    _ramper.reset(config.sr);
+    _ramper.set_immediate(static_cast<float>(config.params[enum_raw(Address::Gain)]));
 }
 
 auto Processor::handle_event(const Render_event& event) -> void

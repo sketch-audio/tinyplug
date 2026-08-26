@@ -18,7 +18,6 @@ public:
 
     struct Deps {
         plugin::Editor* editor{};
-        Main_executor executor{};
         Ui_receiver receiver{};
         Task_manager* tasks{};
         Undo_history* undo_history{}; // Owned by the Effect (survives the view).

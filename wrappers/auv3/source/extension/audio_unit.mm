@@ -31,11 +31,11 @@ static auto presets_path() -> std::filesystem::path
 @property AUAudioUnitBusArray *outputBusArray;
 @property (nonatomic, readonly) AUAudioUnitBus *outputBus;
 @property (nonatomic, readwrite) AUAudioUnitPreset *preset;
+- (void)updateReportedLatency;
 @end
 
 @implementation Auv3_AUAudioUnit {
-    // Latency reporting.
-    dispatch_source_t _dispatchTimer;
+    // Latency reporting. Updated on main only; the render thread posts to the kernel's relay.
     NSTimeInterval _latency;
     
     // C++ members need to be ivars; they would be copied on access if they were properties.
@@ -119,8 +119,40 @@ static auto presets_path() -> std::filesystem::path
             };
         }
     });
-    
+
+    // Latency notifications can't be posted from the render thread, and can't be posted
+    // from the view either — the editor may never be opened. The render thread posts; the
+    // relay delivers on main. Scoped to the AU, not to render resources, so a proposal made
+    // in the last block before `deallocateRenderResources` still reaches the host.
+    __weak Auv3_AUAudioUnit* weak_self = self;
+    _kernel.start_relay(tiny::Relay::Spec{
+        .execute = [weak_self]() {
+            Auv3_AUAudioUnit* strong_self = weak_self;
+            if (strong_self == nil) return;
+            [strong_self updateReportedLatency];
+        },
+        .interval = 0.1, // Seconds.
+    });
+
     return self;
+}
+
+- (void)dealloc {
+    // Before anything else: a delivery must not observe a half-torn-down AU.
+    _kernel.stop_relay();
+}
+
+// Peek, never accept: the accept belongs to the `latency` getter, because the host reading
+// the property is the only thing that means it adopted the value. Compared against the ivar
+// rather than `self.latency`, which would call that getter and advance the handshake.
+// Main thread only — KVO observers run on the posting thread.
+- (void)updateReportedLatency {
+    const auto latency_secs = _kernel.peek_latency_secs();
+    if (_latency == latency_secs) { return; }
+
+    [self willChangeValueForKey:@"latency"];
+    _latency = latency_secs;
+    [self didChangeValueForKey:@"latency"];
 }
 
 #pragma mark - AUAudioUnit Setup
@@ -472,6 +504,10 @@ static auto presets_path() -> std::filesystem::path
 }
 
 - (NSTimeInterval)latency {
+    // The host is reading, so it has adopted the value — this is the accept half of the
+    // handshake, and the kernel may swap on its next render. `_latency` was already set to
+    // the peeked value when the pump posted the KVO change below.
+    _kernel.accept_latency();
     return _latency;
 }
 
@@ -520,7 +556,10 @@ static auto presets_path() -> std::filesystem::path
     _kernel.setTransportStateBlock(self.transportStateBlock);
     _kernel.initialize(inputChannelCount, outputChannelCount, _outputBus.format.sampleRate);
     _processHelper = std::make_unique<AUProcessHelper>(_kernel, inputChannelCount, outputChannelCount);
-    [self startDispatchTimer];
+
+    // `configure` may have moved our latency. We are already on the main thread here, so
+    // notify directly rather than waiting for the relay's next tick.
+    [self updateReportedLatency];
 
     // Since we're immediate in the gui we might be able to get rid of these observer tokens.
     __block DSPKernel *kernel = &_kernel;
@@ -543,8 +582,6 @@ static auto presets_path() -> std::filesystem::path
 // Deallocate resources allocated in allocateRenderResourcesAndReturnError:
 // Subclassers should call the superclass implementation.
 - (void)deallocateRenderResources {
-    [self stopDispatchTimer];
-    
     // Deallocate your resources.
     _kernel.deInitialize();
 
@@ -1153,51 +1190,6 @@ static auto presets_path() -> std::filesystem::path
     }
     
     return nil;
-}
-
-
-// MARK: - Timer
-
-- (void)startDispatchTimer {
-    // See: https://stackoverflow.com/questions/21563825/timer-in-another-thread-in-objective-c
-    if (_dispatchTimer != nil) {
-        [self stopDispatchTimer];
-    }
-
-    _dispatchTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0));
-    double interval = 1 / 30.0;
-    dispatch_time_t startTime = dispatch_time(DISPATCH_TIME_NOW, 0);
-    uint64_t intervalTime = (uint64_t)(interval * NSEC_PER_SEC);
-    dispatch_source_set_timer(_dispatchTimer, startTime, intervalTime, 0);
-    
-    __weak Auv3_AUAudioUnit *weakSelf = self;
-    __block DSPKernel *kernel = &_kernel;
-
-    // Attach the block you want to run on the timer fire
-    dispatch_source_set_event_handler(_dispatchTimer, ^{
-        //
-        Auv3_AUAudioUnit *strongSelf = weakSelf;
-        if (strongSelf == nil) { return; }
-        
-        // Latency reporting
-        const auto latency_secs = kernel->latency_secs();
-        
-        if (weakSelf.latency != latency_secs) {
-            [weakSelf willChangeValueForKey:@"latency"];
-            strongSelf->_latency = latency_secs;
-            [weakSelf didChangeValueForKey:@"latency"];
-        }
-    });
-
-    // Start the timer
-    dispatch_resume(_dispatchTimer);
-}
-
-- (void)stopDispatchTimer {
-    if (_dispatchTimer) {
-        dispatch_cancel(_dispatchTimer);
-        _dispatchTimer = nil;
-    }
 }
 
 @end

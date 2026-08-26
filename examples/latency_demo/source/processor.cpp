@@ -4,10 +4,21 @@
 
 namespace tiny::plugin {
 
-auto Processor::reset(double sample_rate) -> void
+auto Processor::configure(const Config& config) -> void
 {
-    _low.reset(sample_rate);
-    _high.reset(sample_rate);
+    // Come up holding the host's values: the first block renders from this state.
+    for (auto i = size_t{}; i < num_params; ++i) {
+        _values[i] = static_cast<float>(config.params[i]);
+    }
+
+    _sr = config.sr;
+    _low.reset(config.sr);
+    _high.reset(config.sr);
+
+    // Latency is final after `configure`: come up in the mode the values ask for
+    // rather than negotiating up from the default on the first block.
+    _curr = this->_wanted_mode();
+    _wants_latency_change = false;
 }
 
 auto Processor::handle_event(const Render_event& event) -> void
@@ -40,10 +51,14 @@ auto Processor::handle_event(const Render_event& event) -> void
 
 auto Processor::process(Dsp_context& context) -> void
 {
-    // You should wait until the host accepts your latency before applying the changes.
+    // Propose once per parameter change, and derive the value from the *parameter* rather
+    // than toggling off `_curr`. The host may not act on a proposal for a long time (Logic
+    // defers until playback starts), so what matters is that every change restates the
+    // intention — toggling back then supersedes the outstanding value instead of leaving a
+    // stale one for the host to find. Switching still waits: `_curr` only moves on
+    // `Accepted_latency`.
     if (_wants_latency_change) {
-        const auto propose = (_curr == &_low) ? _high.latency_samps() : _low.latency_samps();
-        context.propose_latency = propose;
+        context.propose_latency = this->_wanted_mode()->latency_samps();
         _wants_latency_change = false;
     }
 
@@ -59,7 +74,8 @@ auto Processor::process(Dsp_context& context) -> void
     }
 
     // Export `latency_actual` so we can see if there are discrepancies in the UI.
-    context.meters[enum_raw(models::Meters::Address::Latency_actual)] = (_curr == &_low) ? float{} : float{1};
+    const auto actual = (_curr == &_low) ? 0.f : 1.f;
+    context.meters[enum_raw(models::Meters::Address::Latency_actual)] = actual;
 }
 
 } // namespace tiny::plugin

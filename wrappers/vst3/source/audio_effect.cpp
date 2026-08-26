@@ -81,23 +81,22 @@ auto Audio_effect::_drain_worker_to_processor() -> void
 
 Steinberg::tresult PLUGIN_API Audio_effect::initialize(Steinberg::FUnknown* context)
 {
-    using namespace params;
-
     // Here the Plug-in will be instantiated.
 
     // Initialize the parent.
-    Steinberg::tresult result = Steinberg::Vst::AudioEffect::initialize(context);
+    auto result = Super::initialize(context);
 
-    if (result != Steinberg::kResultOk)
+    if (result != Steinberg::kResultOk) {
         return result;
+    }
 
     // Create the audio IO.
 
-    using namespace Steinberg::Vst;
+    using namespace Steinberg::Vst; // SpeakerArr, BusTypes
 
     const auto input_count = Plug_info::wants_sidechain ? 2 : 1;
 
-    for (size_t i = 0; i < input_count; ++i) {
+    for (auto i = decltype(input_count){}; i < input_count; ++i) {
         const auto is_main = (i == 0);
 
         const auto* input_name = is_main ? u"Input" : u"Sidechain";
@@ -107,13 +106,6 @@ Steinberg::tresult PLUGIN_API Audio_effect::initialize(Steinberg::FUnknown* cont
     }
 
     addAudioOutput(u"Output", SpeakerArr::kStereo, BusTypes::kMain);
-
-    // Sync host values.
-    for (const auto& param : User_params::param_specs(Param_order::Indexable)) {
-        const auto address = param.identity.address;
-        const auto knob_value = Value_helper::default_value(param, Space::Knob);
-        _hostvalues[address].store(knob_value, std::memory_order_relaxed);
-    }
 
     return Steinberg::kResultOk;
 }
@@ -126,37 +118,31 @@ Steinberg::tresult PLUGIN_API Audio_effect::terminate()
     return Steinberg::Vst::AudioEffect::terminate();
 }
 
-Steinberg::tresult PLUGIN_API Audio_effect::setActive(Steinberg::TBool state)
-{
-    // Called when the Plug-in is enable/disable (On/Off).
-
-    // When activating, we need to see if there is a pending latency.
-    if (state) {
-        const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
-        if (pending_latency) {
-            _accepted_latency.store(*pending_latency, std::memory_order_release); // The kernel should manifest on the next process.
-            _latency = *pending_latency;
-        }
-#if TINY_HAS_WORKER
-        _shuttle.start(User_worker::Model::update_period);
-#endif
-    }
-    else {
-#if TINY_HAS_WORKER
-        _shuttle.stop();
-#endif
-    }
-
-    return Steinberg::Vst::AudioEffect::setActive(state);
-}
-
 Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::ProcessSetup& newSetup)
 {
-    // Called before any processing.
-    _processor->reset(newSetup.sampleRate); // Resources, then history, then values — the caller owns the ladder.
-    _needs_clear.store(true, std::memory_order_relaxed);
+    using namespace params;
 
+    // Clear handshake state for reconfigure.
+    _pending_latency.store(std::nullopt, std::memory_order_release);
+    _accepted_latency.store(std::nullopt, std::memory_order_release);
+    _did_peek.store(false, std::memory_order_relaxed);
+
+    // Get the initial state for this configuration.
+    auto config_values = std::array<double, num_params>{};
+    for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
+        // Convert to plain space.
+        const auto& param = User_params::param_spec(addr);
+        const auto knob = _host_values[addr].load(std::memory_order_relaxed);
+        const auto plain = Value_helper::knob_to_plain(knob, param.semantics);
+        config_values[addr] = plain;
+    }
+
+    _processor->configure(Config{
+        .sr = newSetup.sampleRate,
+        .params = config_values
+    });
     _latency = _processor->latency_samps();
+    _needs_report.store(true, std::memory_order_relaxed); // Defer the normal-path latency notification to `process`.
 
     _bypass.reset(static_cast<float>(newSetup.sampleRate));
     _bypass.set_latency(_latency);
@@ -176,8 +162,32 @@ Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::Proc
     };
     _events.reserve(events_size(max_samples)); // Want fixed size event vector.
 
-    _did_reset = true;
     return Steinberg::Vst::AudioEffect::setupProcessing(newSetup);
+}
+
+Steinberg::tresult PLUGIN_API Audio_effect::setActive(Steinberg::TBool state)
+{
+    // Called when the Plug-in is enable/disable (On/Off).
+
+    // When activating, we need to see if there is a pending latency.
+    if (state) {
+        // Host accepted.
+        const auto pending = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+        if (pending.has_value()) {
+            _accepted_latency.store(*pending, std::memory_order_release);
+            _latency.store(*pending, std::memory_order_relaxed);
+        }
+#if TINY_HAS_WORKER
+        _shuttle.start(User_worker::Model::update_period);
+#endif
+    }
+    else {
+#if TINY_HAS_WORKER
+        _shuttle.stop();
+#endif
+    }
+
+    return Steinberg::Vst::AudioEffect::setActive(state);
 }
 
 // The stream is discontinuous on both edges of this call. Deferred to `process` so it
@@ -252,8 +262,30 @@ Steinberg::tresult PLUGIN_API Audio_effect::canProcessSampleSize(Steinberg::int3
 Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData& data)
 {
     const auto denormals = Denormal_guard{}; // Restores the host's FP mode on the way out.
-
     this->_drain_worker_to_processor();
+
+    // Latency fallback completes handshake on first `started` after a proposal.
+    const auto [playing, started] = [&]() {
+        auto context = data.processContext;
+        if (!context) return std::pair{false, false};
+
+        const auto state = context->state;
+        const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
+
+        const auto p = has_flag(state, Steinberg::Vst::ProcessContext::kPlaying);
+        const auto s = !_was_moving && p;
+        return std::pair{p, s};
+    }();
+    _was_moving = playing;
+
+    // Fallback complete handshake now in case of non-conforming host..
+    if (started && _did_peek.load(std::memory_order_relaxed)) {
+        if (const auto pending = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel)) {
+            _accepted_latency.store(*pending, std::memory_order_release); // The kernel should manifest on the next process.
+            _latency.store(*pending, std::memory_order_relaxed); // The non-conforming path.
+        }
+        _did_peek.store(false, std::memory_order_relaxed);
+    }
 
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
@@ -560,23 +592,29 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         }
     }
 
-    // Latency notifications, now only when actually changed!
-    if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _reported_latency) {
-        // Notify controller and sit on the pending latency.
+    auto notify = [&, this] {
         _change_count += 1.;
-        add_output_event(latency_param_id, static_cast<double>(_change_count / max_change_count));
-        _pending_latency.store(*proposed_latency, std::memory_order_release);
-        _reported_latency = *proposed_latency;
+        const auto value = std::fmod(_change_count / max_change_count, 1.);
+        add_output_event(latency_param_id, value);
+    };
+
+    // Latency notifications, now only when actually changed!
+    const auto reported = _reported_latency.load(std::memory_order_relaxed);
+    if (const auto proposed = context.propose_latency; proposed.has_value() && *proposed != reported) {
+        // Set pending, mark reported, & notify.
+        _pending_latency.store(*proposed, std::memory_order_release);
+        _did_peek.store(false, std::memory_order_relaxed);
+        _reported_latency.store(*proposed, std::memory_order_relaxed);
+        notify();
     }
 
-    if (_did_reset) {
-        _did_reset = false;
-
+    // Normal path latency still needs a notification.
+    if (_needs_report.exchange(false, std::memory_order_relaxed)) {
         // Only send latency change if reset actually results in new latency.
-        if (_latency != _reported_latency) {
-            _change_count += 1.;
-            add_output_event(latency_param_id, static_cast<double>(_change_count / max_change_count));
-            _reported_latency = _latency;
+        const auto latency = _latency.load(std::memory_order_relaxed);
+        if (latency != _reported_latency.load(std::memory_order_relaxed)) {
+            _reported_latency.store(latency, std::memory_order_relaxed);
+            notify();
         }
     }
 
@@ -619,7 +657,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
         _queue.push(Set_param{address, plain_value}); // Overwrite queue, won't overflow.
 
         // Maintain host values.
-        _hostvalues[address].store(knob_value, std::memory_order_relaxed);
+        _host_values[address].store(knob_value, std::memory_order_relaxed);
     };
 
     auto read_and_notify = [&](const auto& knob_values, auto index) {
@@ -697,7 +735,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::getState(Steinberg::IBStream* state)
 
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
         // Grab state from host values.
-        const auto knob_value = static_cast<float>(_hostvalues[i].load(std::memory_order_relaxed));
+        const auto knob_value = static_cast<float>(_host_values[i].load(std::memory_order_relaxed));
 
         const auto& spec = User_params::param_spec(i);
         const auto to_write = State_rules::is_persistent(spec) ? knob_value : State_rules::no_value;
@@ -720,7 +758,13 @@ Steinberg::tresult PLUGIN_API Audio_effect::getState(Steinberg::IBStream* state)
 
 Steinberg::uint32 PLUGIN_API Audio_effect::getLatencySamples()
 {
-    return _latency;
+    // Peek pending latency (host got notified already).
+    if (const auto pending = _pending_latency.load(std::memory_order_acquire)) {
+        _did_peek.store(true, std::memory_order_relaxed); // Fallback for non-conforming hosts.
+        return *pending;
+    }
+
+    return _latency.load(std::memory_order_relaxed);
 }
 
 Steinberg::uint32 PLUGIN_API Audio_effect::getTailSamples()
@@ -821,7 +865,7 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
             previous_offset = offset;
 
             // Maintain host values.
-            _hostvalues[id].store(value, std::memory_order_relaxed);
+            _host_values[id].store(value, std::memory_order_relaxed);
         }
     }
 

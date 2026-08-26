@@ -5,6 +5,7 @@
 #include <cstring>
 #include <limits>
 #include <new>
+#include <span>
 
 #include <tinyplug/denormal_guard.hpp>
 
@@ -76,20 +77,40 @@ auto drain_inbound([[maybe_unused]] const Alg_context* ctx, [[maybe_unused]] Alg
 #endif
 }
 
-// Adopt the reset-time snapshot: render mode, and the complete parameter state.
+// Adopt the reset-time snapshot: render mode, the master bypass, and the parameter
+// values the processor should come up holding.
 //
 // Pro Tools wipes private data at every reset, so the processor arrives default-
 // constructed with every value lost. Without this it comes up at defaults and ramps to
 // the real values as coefficient packets land after the first block.
 //
-// Order is load-bearing: these apply *before* `processor.reset()`, so reset comes up in
-// the configuration we are actually in rather than switching into it under audio.
-auto adopt_reset_state(const Alg_context* context, Alg_state& st) -> void
+// Values leave through `params_out` (plain space, indexed by address) and reach the
+// processor as `Config::params`, not as events replayed before it is configured. That is
+// what removes the ordering constraint this function used to carry — AAX was the one
+// format where `handle_event` preceded `reset`, an unenforceable rule with a silent,
+// format-specific failure mode. `params_out` arrives pre-filled with defaults, so an
+// absent snapshot leaves every address at its default.
+auto adopt_reset_state(const Alg_context* context, Alg_state& st, std::span<double> params_out) -> void
 {
     const auto* reset = context->reset_state;
     if (reset == nullptr) return;
 
     st.render_mode = reset->runtime.offline != 0 ? Render_mode::Offline : Render_mode::Realtime;
+
+    // The latency the host has already accepted. `latency_seq == 0` is the documented
+    // sentinel for "the host has not accepted anything yet", so a zero-initialised packet
+    // cannot read as "the host accepted zero".
+    //
+    // Seeding all three matters. `latency_seq` stops block 1 of every reconstruct from
+    // re-firing the seq guard in render_instance. `accepted_latency` makes the host's
+    // value the truth rather than the kernel's own opinion. And `reported_latency` would
+    // otherwise come up 0, so the kernel's first proposal of its actual latency would pass
+    // the dedupe guard and ask Pro Tools to renegotiate delay compensation at every reset.
+    if (reset->runtime.latency_seq != 0) {
+        st.latency_seq = reset->runtime.latency_seq;
+        st.accepted_latency = reset->runtime.accepted_latency;
+        st.reported_latency = reset->runtime.accepted_latency;
+    }
 
     // Applied unconditionally, unlike apply_coefs: the processor is default-constructed,
     // so every address is new. Seeding the shadow and `seq` here means the next posted
@@ -109,9 +130,62 @@ auto adopt_reset_state(const Alg_context* context, Alg_state& st) -> void
             if (address == bypass_address) {
                 st.bypass.set_bypassed(value >= 0.5);
             }
-            else {
-                st.processor.handle_event(Set_param{.address = address, .value = value});
+            else if (address < params_out.size()) {
+                params_out[address] = value;
             }
+        }
+    }
+}
+
+// Everything a `configure` owes, on both paths that can run one. The reset branch in
+// alg_init reuses a surviving Alg_state rather than placement-newing a fresh one, but it
+// owes the host exactly the same latency bookkeeping — until this was factored out it
+// silently skipped all of it.
+//
+// Latency is separated not by `adding_new` but by whether the value actually moved.
+// Re-proposing on every reset would make the host renegotiate delay compensation each
+// time, including the two Pro Tools issues per offline bounce while it is rebuilding its
+// mixer graph — but staying silent unconditionally would hide a genuine change, since
+// `configure` can come up at a different latency than the host holds (a preset moved a
+// structural parameter while the block was wiped). `adopt_reset_state` seeds
+// `reported_latency` from the snapshot, so the comparison below is silent on an ordinary
+// reset and speaks up exactly when the configuration moved.
+auto configure_instance(const Alg_context* context, Alg_state& st, double sample_rate) -> void
+{
+    // Before adopt_reset_state, which seeds both from the snapshot so the next posted
+    // packet still diffs correctly.
+    st.shadow.fill(std::numeric_limits<double>::quiet_NaN());
+    st.shadow_seq.fill(0);
+
+    // The values we come up holding travel in the configuration itself, so the kernel
+    // sizes for the mode and latency we are actually in rather than switching into it
+    // under audio. `configure` implies clear and snap, so nothing follows it here.
+    auto config_params = params::make_defaults<double, User_params>(params::Space::Plain);
+    adopt_reset_state(context, st, config_params);
+
+    st.processor.configure(Config{.sr = sample_rate, .params = config_params});
+
+    st.bypass.reset(static_cast<float>(sample_rate));
+
+    const auto latency = st.processor.latency_samps();
+    st.bypass.set_latency(latency); // Compensates our own delay, so always the kernel's value.
+
+    if (st.latency_seq == 0) {
+        // No host-accepted value exists yet — a genuine add, or a host that has never
+        // answered. The kernel's own number is the only truth there is.
+        st.accepted_latency = latency;
+    }
+
+    // Tell the host through the normal proposal path: the data model turns this into
+    // SetSignalLatency on the next Direct Data wakeup and the accepted value comes back in
+    // the Runtime_packet. Silent when nothing moved — see the note above.
+    if (latency != st.reported_latency) {
+        if (auto* returns = context->returns) {
+            const auto sent = returns->push_value(Ring_kind::Propose_latency, Ring_latency{
+                .samples = latency,
+                .pad = 0
+            });
+            if (sent) st.reported_latency = latency;
         }
     }
 }
@@ -129,10 +203,9 @@ auto adopt_reset_state(const Alg_context* context, Alg_state& st) -> void
 //     underneath the data model's timer thread, which reads and writes those same fields
 //     through AAX_IPrivateDataAccess. At a genuine add the model is not yet pumping them,
 //     so there is nothing to race.
-//   - Re-proposing latency would make the host renegotiate delay compensation on every
-//     reset, including the two Pro Tools issues per offline bounce while it is rebuilding
-//     its mixer graph. A reconstruct instead re-syncs latency from the Runtime_packet,
-//     via the `latency_seq` path in render_instance, without initiating anything.
+//
+// Everything from `configure` onwards is common to both paths and lives in
+// `configure_instance` above.
 auto construct_instance(const Alg_context* context, Alg_state* st, double sample_rate, bool adding_new) -> void
 {
     // Placement new into the host-allocated private data block. Deliberately
@@ -149,33 +222,7 @@ auto construct_instance(const Alg_context* context, Alg_state* st, double sample
         if (context->inbound != nullptr) new (static_cast<void*>(context->inbound)) Inbound_ring{};
     }
 
-    st->shadow.fill(std::numeric_limits<double>::quiet_NaN());
-
-    // Values before reset, so reset configures the mode and latency we actually come up in.
-    adopt_reset_state(context, *st);
-
-    st->processor.reset(sample_rate); // Resources, then history, then values — the caller owns the ladder.
-    st->processor.clear();
-    st->processor.snap();
-
-    st->bypass.reset(static_cast<float>(sample_rate));
-
-    const auto initial_latency = st->processor.latency_samps();
-    st->bypass.set_latency(initial_latency);
-    st->accepted_latency = initial_latency;
-
-    // Seed the host's latency from the kernel through the normal proposal
-    // path: the data model turns this into SetSignalLatency on the first
-    // Direct Data wakeup, and the accepted value comes back in Runtime_packet.
-    if (adding_new) {
-        if (auto* returns = context->returns) {
-            const auto sent = returns->push_value(Ring_kind::Propose_latency, Ring_latency{
-                .samples = initial_latency,
-                .pad = 0
-            });
-            if (sent) st->reported_latency = initial_latency;
-        }
-    }
+    configure_instance(context, *st, sample_rate);
 
 #if TINY_HAS_WORKER
     if (auto* returns = context->returns) {
@@ -289,6 +336,8 @@ auto render_instance(Alg_context* ctx) -> void
         st->accepted_latency = runtime.accepted_latency;
         st->processor.handle_event(Accepted_latency{runtime.accepted_latency});
         st->bypass.set_latency(runtime.accepted_latency);
+        // AAX owns the value and may clamp it, so this is the format where a mismatch is a
+        // live possibility rather than a kernel bug.
         assert(st->processor.latency_samps() == runtime.accepted_latency
             && "Kernel must apply the accepted latency!");
     }
@@ -361,8 +410,12 @@ auto render_instance(Alg_context* ctx) -> void
     // Only act if it actually differs from what we last told the host — otherwise a
     // kernel that re-proposes the same value every block would restart the handshake
     // every block.
-    if (const auto proposed = context.propose_latency; proposed && *proposed != st->reported_latency && runtime.delay_comp != 0) {
-        if (ctx->returns != nullptr) {
+    if (const auto proposed = context.propose_latency) {
+        // A steady intention restated every block is not a new proposal. PDC disabled by
+        // the host drops it outright — known unfixed bug: nothing re-proposes if it is
+        // switched back on.
+        const auto wants_push = *proposed != st->reported_latency && runtime.delay_comp != 0;
+        if (wants_push && ctx->returns != nullptr) {
             // Only advance on a successful push, like the meters above — a proposal
             // dropped by a full ring is retried on the next callback rather than lost
             // until the kernel happens to propose again.
@@ -422,13 +475,7 @@ int32_t AAX_CALLBACK alg_init(const Alg_context* context, AAX_EComponentInstance
         }
         case AAX_eComponentInstanceInitAction_ResetInstance: {
             if (st->constructed) {
-                st->shadow.fill(std::numeric_limits<double>::quiet_NaN());
-                st->shadow_seq.fill(0);
-                adopt_reset_state(context, *st); // Values before reset — see adopt_reset_state.
-                st->processor.reset(sample_rate); // Resources, then history, then values — the caller owns the ladder.
-                st->processor.clear();
-                st->processor.snap();
-                st->bypass.reset(static_cast<float>(sample_rate));
+                configure_instance(context, *st, sample_rate);
             }
             else {
                 construct_instance(context, st, sample_rate, /*adding_new=*/false);

@@ -13,9 +13,9 @@ namespace tiny::plugin {
 
 class Processor {
 public:
-    // Receive the sample rate.
+    // Receive the sample rate and the parameter values to come up holding.
     // This a good time to resize some vectors.
-    auto reset(double sample_rate) -> void;
+    auto configure(const Config& config) -> void;
 
     // Forget render history (host seek, bounce, un-bypass). Never allocates.
     auto clear() -> void {}
@@ -36,7 +36,7 @@ public:
     // - The option to propose a latency change
     auto process(Dsp_context& context) -> void;
 
-    // The framework will check and report this to the host right after calling `reset`.
+    // The framework will check and report this to the host right after calling `configure`.
     auto latency_samps() const -> uint32_t { return _curr->latency_samps(); }
 
     // You can get an infinite tail by returning `std::numeric_limits<uint32_t>::max()`.
@@ -57,6 +57,13 @@ private:
     Latency _high{5};
     Latency* _curr{&_low};
     bool _wants_latency_change{};
+
+    // The mode the parameter currently selects, which may not be the one we are rendering
+    // in: the host owns when the switch happens.
+    auto _wanted_mode() -> Latency*
+    {
+        return _values[enum_raw(Address::Latency_mode)] >= 0.5f ? &_high : &_low;
+    }
 
 };
 static_assert(Some_plug_processor<Processor>); // Check your interface.

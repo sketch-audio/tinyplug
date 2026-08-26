@@ -106,31 +106,40 @@ private:
     using State_queue = Overwrite_queue<Set_param, queue_size>;
     State_queue _queue{};
 
-    // God's truth.
-    std::array<std::atomic<double>, num_params> _hostvalues{};
+    //
+    using Host_value = std::atomic<double>;
+    using enum params::Space;
+
+    // FYI: VST3 host values are knob space.
+    std::array<Host_value, num_params> _host_values{tiny::params::make_defaults<Host_value, User_params>(Knob)};
+
     std::array<double, num_meters> _last_meters{};
 
     std::vector<Tagged_event> _events{}; // Some fixed size thing.
 
     std::unique_ptr<plugin::Processor> _processor = std::make_unique<plugin::Processor>();
-    uint32_t _latency{_processor->latency_samps()};
-    uint32_t _reported_latency{_latency}; // Don't feedback latency changes.
+
+    // Latency
+    std::atomic<uint32_t> _latency{};
+    std::atomic<uint32_t> _reported_latency{}; // Don't feedback latency changes.
+    std::atomic<bool> _needs_report{false}; // We have to report configure-time latency through process.
+    std::atomic<bool> _did_peek{false}; // Fallback for non-conforming hosts.
+    bool _was_moving{};
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);
 
-    // Set by `setProcessing`, consumed at the top of `process`.
-    std::atomic<bool> _needs_clear{false};
-
     // Communicates the pending latency from `process` to `setActive`.
     Latency_flag _pending_latency{};
-    bool _did_reset{}; // Flag to send latency change.
 
     // Communicates the accepted latency from `setActive` to `process`.
     Latency_flag _accepted_latency{};
 
     static constexpr auto max_change_count = 65536.; // !!!
     double _change_count{};
+
+    // Set by `setProcessing`, consumed at the top of `process`.
+    std::atomic<bool> _needs_clear{false};
 
     Host_bypass _bypass{};
 

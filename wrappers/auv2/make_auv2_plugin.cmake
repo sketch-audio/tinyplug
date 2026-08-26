@@ -31,6 +31,7 @@ function(make_auv2_plugin USER_TARGET)
         ${SOURCE_DIR}/source/view_factory.mm
         ${SOURCE_DIR}/source/view.cpp
         ${SOURCE_DIR}/source/view.hpp
+        ${SOURCE_DIR}/../apple/relay.hpp
     )
 
     target_link_libraries(${AUV2_TARGET} PRIVATE tiny::ausdk)
@@ -39,6 +40,9 @@ function(make_auv2_plugin USER_TARGET)
     target_link_libraries(${AUV2_TARGET} PRIVATE ${TINY_DSP_LIB})
 
     target_compile_options(${AUV2_TARGET} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
+    # Shared Apple-only wrapper plumbing (Relay).
+    target_include_directories(${AUV2_TARGET} PRIVATE ${SOURCE_DIR}/../apple)
+
     target_link_options(${AUV2_TARGET} PRIVATE "-Wl,-exported_symbols_list,${SOURCE_DIR}/cmake/exports.txt")
 
     configure_mac_view(${AUV2_TARGET} ${TINY_BASE_FILENAME} ${TINY_VERSION_STRING} ${TINY_BUILD_NUMBER} auv2)

@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <array>
+#include <optional>
 
 #import <AudioToolbox/AudioToolbox.h>
 #import <algorithm>
@@ -16,6 +17,8 @@
 #include <tiny_dsp/host_bypass.hpp>
 #include <tinyplug/denormal_guard.hpp>
 
+#include "relay.hpp"
+
 /*
  DSPKernel
  As a non-ObjC class, this is safe to use from render thread.
@@ -28,16 +31,36 @@ public:
     }
 
     void initialize(int inputChannelCount, int outputChannelCount, double inSampleRate) {
+        using namespace tiny;
+        using namespace tiny::params;
+
         mSampleRate = inSampleRate;
         mInputChannelCount = inputChannelCount;
         mOutputChannelCount = outputChannelCount;
-        _processor->reset(mSampleRate); // Resources, then history, then values — the caller owns the ladder.
-        _needs_clear.store(true, std::memory_order_relaxed);
 
-        _latency = _processor->latency_samps();
+        // Come up configured for the values we already hold (`_hostvalues` is host space).
+        auto config_params = std::array<double, num_params>{};
+        for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
+            const auto& param = User_params::param_spec(addr);
+            const auto host = _hostvalues[addr].load(std::memory_order_relaxed);
+            const auto plain = Value_helper::host_to_plain(host, param.semantics);
+            config_params[addr] = plain;
+        }
+        _processor->configure(Config{
+            .sr = mSampleRate,
+            .params = config_params
+        });
+        const auto latency = _processor->latency_samps();
+        _latency.store(latency, std::memory_order_release);
+
+        // What the host is about to be told, so a kernel proposal of the same value is a
+        // no-op. Any proposal still outstanding was cleared in `deInitialize`: `configure`
+        // supersedes it, and left in place it would be applied against this configuration
+        // and trip the assert in `process`.
+        _reported_latency.store(latency, std::memory_order_relaxed);
 
         _bypass.reset(static_cast<float>(inSampleRate));
-        _bypass.set_latency(_latency);
+        _bypass.set_latency(latency);
 
 #if TINY_HAS_WORKER
         bind_worker_to_kernel_classes();
@@ -46,6 +69,8 @@ public:
     }
     
     void deInitialize() {
+        _pending_latency.store(std::nullopt, std::memory_order_release);
+        _accepted_latency.store(std::nullopt, std::memory_order_release);
     }
 
     // AUAudioUnit's `-reset`: "Reset transitory rendering state to its initial state."
@@ -236,10 +261,15 @@ public:
         // Has the kernel proposed a new latency? Only act if it actually differs from
         // what we last told the host — otherwise a kernel that re-proposes the same
         // value every block would restart the handshake every block.
-        if (const auto proposed_latency = context.propose_latency; proposed_latency && *proposed_latency != _reported_latency) {
-            // Audio unit is polling. Could possibly fix.
-            _pending_latency.store(*proposed_latency, std::memory_order_release);
-            _reported_latency = *proposed_latency;
+        if (const auto proposed_latency = context.propose_latency) {
+            const auto reported = _reported_latency.load(std::memory_order_relaxed);
+            if (*proposed_latency != reported) {
+                // Release publishes `_pending_latency` to the thread that runs `execute`;
+                // the relay's own acquire is the matching half. Don't weaken either.
+                _pending_latency.store(*proposed_latency, std::memory_order_release);
+                _reported_latency.store(*proposed_latency, std::memory_order_relaxed);
+                if (_relay) _relay->post();
+            }
         }
 
 //        const auto tail = _processor->tail_samps();
@@ -285,17 +315,38 @@ public:
     }
     
     // tiny
-    auto latency_secs() -> double 
+    // Scoped to the AU's lifetime, not to render resources: a proposal made in the last
+    // block before `deallocateRenderResources` still has to reach the host. Started from
+    // `-initWithComponentDescription:` and stopped first in `-dealloc`, matching AUv2.
+    auto start_relay(tiny::Relay::Spec spec) -> void
     {
-        // Did we get here from a latency change notification?
-        const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
-        if (pending_latency) {
-            _accepted_latency.store(*pending_latency, std::memory_order_release); // The kernel should manifest on the next process.
-            _latency = *pending_latency;
-        }
-        
-        // _latency in samples
-        return _latency / mSampleRate;
+        _relay.emplace(std::move(spec));
+    }
+
+    auto stop_relay() -> void
+    {
+        _relay.reset();
+    }
+
+    // What our latency will be once the host reads it. Non-consuming, so the AU can decide
+    // whether to post a KVO change without advancing the handshake.
+    auto peek_latency_secs() const -> double
+    {
+        const auto pending = _pending_latency.load(std::memory_order_acquire);
+        const auto samps = pending ? *pending : _latency.load(std::memory_order_acquire);
+        return mSampleRate > 0 ? samps / mSampleRate : 0;
+    }
+
+    // The accept. Called from the AU's `latency` getter, because the host reading the
+    // property is the only thing here that means it has adopted the value — a timer tick
+    // means nothing to the host's delay compensation.
+    auto accept_latency() -> void
+    {
+        const auto pending = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+        if (!pending) return;
+
+        _accepted_latency.store(*pending, std::memory_order_release); // Kernel manifests on the next process.
+        _latency.store(*pending, std::memory_order_release);
     }
     
     auto tail_secs() -> double
@@ -372,8 +423,14 @@ private:
     std::array<float, num_meters> _last_meters{};
     
     std::unique_ptr<tiny::plugin::Processor> _processor = std::make_unique<tiny::plugin::Processor>();
-    uint32_t _latency{_processor->latency_samps()};
-    uint32_t _reported_latency{_latency}; // Don't feedback latency changes.
+
+    // Latency
+    std::atomic<uint32_t> _latency{};
+    // Written from `process` (audio) and `initialize` (main), so it cannot be plain.
+    std::atomic<uint32_t> _reported_latency{}; // Don't feedback latency changes.
+
+    // Carries "latency moved, go read it" from the render thread to the main thread.
+    std::optional<tiny::Relay> _relay{};
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);

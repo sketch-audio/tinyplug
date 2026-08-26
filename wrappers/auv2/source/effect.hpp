@@ -2,6 +2,7 @@
 
 #include <array>
 #include <memory>
+#include <optional>
 #include <ranges>
 
 #include <AudioUnitSDK/AUBase.h>
@@ -17,6 +18,7 @@
 #include "plug_info.hpp"
 
 #include "adapters.hpp"
+#include "relay.hpp"
 #include "view.hpp"
 
 #include "preset_list.hpp" // Generated.
@@ -36,6 +38,7 @@ public:
     ~Effect();
 
     OSStatus Initialize() override;
+    void Cleanup() override;
 
     // AU's discontinuity hook — "clear any render state".
     OSStatus Reset(AudioUnitScope inScope, AudioUnitElement inElement) override;
@@ -80,6 +83,10 @@ public:
     // latency
     Float64 GetLatency() override
     {
+        const auto format = GetStreamFormat(kAudioUnitScope_Output, 0);
+        const auto sample_rate = format.mSampleRate;
+        if (sample_rate <= 0) return 0.;
+
         // Did we get here from a latency change notification?
         const auto pending_latency = _pending_latency.exchange(std::nullopt, std::memory_order_acq_rel);
         if (pending_latency) {
@@ -87,20 +94,18 @@ public:
             _latency = *pending_latency;
         }
 
-        const auto format = GetStreamFormat(kAudioUnitScope_Output, 0);
-        const auto sample_rate = format.mSampleRate;
-        assert(sample_rate > 0 && "Invalid sample rate.");
         const auto latency_samps = static_cast<double>(_latency);
         return latency_samps / sample_rate;
     }
 
     Float64 GetTailTime() override
     {
-        const auto tail = _processor->tail_samps();
-        const auto inf_tail = std::numeric_limits<uint32_t>::max();
         const auto format = GetStreamFormat(kAudioUnitScope_Output, 0);
         const auto sample_rate = format.mSampleRate;
-        assert(sample_rate > 0 && "Invalid sample rate.");
+        if (sample_rate <= 0) return 0.;
+
+        const auto tail = _processor->tail_samps();
+        const auto inf_tail = std::numeric_limits<uint32_t>::max();
         return tail != inf_tail ? tail / sample_rate : std::numeric_limits<double>::infinity();
     }
     bool SupportsTail() override { return true; }
@@ -202,20 +207,20 @@ private:
 
     static constexpr auto meter_size = 25 * num_meters + 1; // Approx number of 32 sample buffers between UI updates at 60fps (25).
     using Meter_queue = Lock_free_queue<Set_meter, meter_size>;
-    using Private_queue = Lock_free_queue<Private_message, 24>; // Right now just to send latency change notifications.
 
     Change_list _changes{}; // State, UI updates (not for SetParameter).
     To_processor_queue _to_processor{};
 
     Meter_queue _meter_queue{};
-    Private_queue _pqueue{};
 
     // Render
     std::vector<Tagged_event> _events{}; // Some fixed size thing.
 
     std::unique_ptr<plugin::Processor> _processor = std::make_unique<plugin::Processor>();
-    uint32_t _latency{_processor->latency_samps()};
-    uint32_t _reported_latency{_latency}; // Don't feedback latency changes.
+
+    // Latency
+    uint32_t _latency{};
+    std::atomic<uint32_t> _reported_latency{}; // Don't feedback latency changes.
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);
@@ -225,6 +230,9 @@ private:
 
     // Communicates the accepted latency from `setActive` to `process`.
     Latency_flag _accepted_latency{};
+
+    // Relays latency proposal to main thread for property change notification.
+    std::optional<Relay> _relay{};
 
     // Render mode (offline/bounce). Set off the audio thread via the
     // kAudioUnitProperty_OfflineRender property, read on the audio thread.
@@ -278,19 +286,6 @@ private:
     // AUv2 view adapter.
     std::unique_ptr<View> _view = std::make_unique<View>(View::Deps{
         .editor = &(*_editor),
-        .executor = {[this]() {
-            auto message = Private_message{};
-            while (_pqueue.pop(message)) {
-                switch (message.type) {
-                    case Message_type::latency_changed: {
-                        PropertyChanged(kAudioUnitProperty_Latency, kAudioUnitScope_Global, 0);
-                        break;
-                    }
-                    default:
-                        break;
-                }
-            }
-        }},
         .receiver = {
             .get_param = [this](auto id) {
                 using namespace params;
