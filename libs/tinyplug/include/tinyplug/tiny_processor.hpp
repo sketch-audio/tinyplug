@@ -2,8 +2,10 @@
 
 #include <cassert>
 #include <concepts>
+#include <cstdint>
 #include <optional>
 #include <span>
+#include <variant>
 
 #include "tiny_events.hpp"
 #include "tiny_utils.hpp"
@@ -64,18 +66,53 @@ struct Config {
     std::span<const double> params{};
 };
 
+// Block-boundary synchronization. The configuration stays valid across all of these —
+// none of them reconfigures, and none carries a frame offset, which is what separates
+// them from `Render_event`.
+struct Reset {
+    // The stream is restarting: host seek, bounce edge, un-bypass. Past history must not
+    // influence future samples — forget delay lines, filter state, oscillator phase,
+    // transport position. **Total**: every deferred value lands too, including a long
+    // musical smoother. Fires when no audio is flowing, so that costs nothing audible.
+    //
+    // Owes convergence with `configure`: it must leave the processor where
+    // `configure(sr, current_values)` would have. Logic bounces through this call alone
+    // while AAX bounces through a full reconstruct, and the two have to agree bit-for-bit.
+    struct Hard {};
+
+    // A parameter sync-up with no audio to artifact: a flush block, or resuming from a
+    // stretch where `process` did not run. Land what must be exact *now* — anything
+    // feeding `latency_samps()` or structural configuration. **Deliberately partial**:
+    // history survives, and a long musical glide is explicitly permitted to keep gliding.
+    //
+    // It exists because ramps only advance inside `process`, and there are stretches where
+    // `process` does not run (bypass skip, inactive, flush with no audio). Without a call
+    // that manifests outside `process`, a delivered value can stay unrealized for the
+    // whole stretch and a client reading realized state sees stale values.
+    struct Soft {};
+
+    // The host accepted a latency proposal and has aligned its processing graph. Adopt it
+    // immediately: `latency_samps()` must equal `samples` when this call returns.
+    //
+    // Unlike the two above — which the framework issues whenever it judges them needed,
+    // and which are harmless if issued twice — this one is delivered exactly once per
+    // acceptance and carries that post-condition.
+    struct Latency { std::uint32_t samples{}; };
+
+    using Any = std::variant<Hard, Soft, Latency>;
+};
+
 template<typename T>
 concept Some_plug_processor = requires(T t) {
-    // Three tiers of state, weakest last. What is guaranteed is that each tier is
-    // *individually invocable* — `clear` and `snap` never allocate and never need a
-    // `configure` first — not that an implementation confines itself to exactly its own
-    // tier. Doing more is allowed and common: a parameter smoother's `clear` necessarily
-    // lands it. The wrapper calls the tier the host asked for, and any overlap is
-    // idempotent:
+    // Two entry points for state, split by what they cost rather than by depth:
     //
-    //   sample rate / configuration   configure(cfg)
-    //   discontinuity (seek, bounce)  clear() -> snap()
-    //   values without audio (flush)             snap()
+    //   sample rate / configuration   configure(cfg)      allocates, off the audio thread
+    //   everything else               reset(Reset::Any)   never allocates
+    //
+    // `reset` is always individually invocable — it never needs a `configure` first — and
+    // an implementation is free to do more than its alternative strictly asks. A parameter
+    // smoother's history-clearing necessarily lands it, and that overlap is fine because
+    // every alternative is idempotent.
     //
     // Resources: size and allocate for this sample rate *and these parameter values*.
     // Off the audio thread. Named `configure` rather than `reset` because it adopts a
@@ -87,13 +124,10 @@ concept Some_plug_processor = requires(T t) {
     // negotiation, no glide up from defaults on the first block.
     { t.configure(std::declval<const Config&>(/*config*/)) } -> std::same_as<void>;
 
-    // History: forget it — delay lines, filter state, oscillator phase, transport
-    // position. Must not allocate, and must not touch parameter values or latency (a
-    // ramp in flight is a realized *value*; landing it belongs to `snap`).
-    { t.clear() } -> std::same_as<void>;
-
-    // Values: manifest any deferred parameter changes now, with no glide.
-    { t.snap() } -> std::same_as<void>;
+    // Block-boundary synchronization — see `Reset` above for what each alternative owes.
+    // Never allocates. Safe on a never-configured processor: a host that resets before it
+    // initializes (validators do) must find a no-op, not undefined behaviour.
+    { t.reset(std::declval<const Reset::Any&>(/*reset*/)) } -> std::same_as<void>;
 
     { t.handle_event(std::declval<const Render_event&>(/*event*/)) } -> std::same_as<void>;
     { t.process(std::declval<Dsp_context&>(/*context*/)) } -> std::same_as<void>;

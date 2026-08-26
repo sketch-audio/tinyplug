@@ -16,12 +16,11 @@ public:
     // This a good time to resize some vectors.
     auto configure(const Config& config) -> void;
 
-    // Forget render history (host seek, bounce, un-bypass). Never allocates.
-    auto clear() -> void {}
-
-    // Manifest deferred param changes now, with no glide. The realized value must catch
-    // up to the target here — process() may not run again for a while (e.g. bypassed).
-    auto snap() -> void { _ramper.settle(); }
+    // Block-boundary sync. Never allocates. The ramper must land on both `Hard` and
+    // `Soft`: process() may not run again for a while (e.g. bypassed), and a target
+    // delivered now would otherwise stay unrealized for the whole stretch. No history
+    // worth forgetting here, and no latency to adopt.
+    auto reset(const Reset::Any& reset) -> void;
 
     // Receive a render event such as `Set_param`.
     // Events are interleaved with process calls so you can consider them as happening "now".

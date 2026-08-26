@@ -67,10 +67,18 @@ cmake --build build
 The plug-in author implements two classes plus a few static models. Concepts
 live alongside each interface — find them by searching for `concept Some_*`.
 
-- **`Plug_processor`** ([shared/tinyplug/tiny_processor.h](shared/tinyplug/tiny_processor.h)) —
-  `reset(sr)`, `clear()`, `snap()`, `handle_event(Render_event)`,
+- **`Plug_processor`** ([libs/tinyplug/include/tinyplug/tiny_processor.hpp](libs/tinyplug/include/tinyplug/tiny_processor.hpp)) —
+  `configure(Config)`, `reset(Reset::Any)`, `handle_event(Render_event)`,
   `process(Dsp_context&)`, `latency_samps()`, `tail_samps()`. The concept is
   `Some_plug_processor`.
+  Two axes, and the split is what to remember: **`configure` allocates** (sample rate
+  plus the parameter values to come up holding, plain space) and is the only tier
+  permitted to; **`reset` never does**. `Reset::Any` is a closed sum of block-boundary
+  syncs — `Hard` (stream restarting, forget history, land everything), `Soft` (land what
+  must be exact, history and long musical glides survive), `Latency{samples}` (the host
+  accepted a proposal — adopt it now, `latency_samps()` must match on return). An
+  exhaustive `std::visit` is the idiom, and it is what stops a kernel from silently
+  ignoring an accepted latency.
   Events are interleaved with `process` calls by the wrapper so DSP code
   always sees them at the right sample offset (sample-accurate automation
   including ramps).
@@ -78,6 +86,10 @@ live alongside each interface — find them by searching for `concept Some_*`.
   on draw, emits `User_action` events (Action_start/Set_param/Action_end/
   Request_resize). Wrappers translate gestures into host-native begin/edit/end
   notifications. Editor never shares memory with the processor.
+- **`Render_event`** is `variant<Set_param, Ramp_param>` — *everything in it carries a
+  frame offset*, which is what makes the `Tagged_event` sort meaningful. Anything the host
+  says at a block boundary is a `Reset::Any`, not an event. Keep that line intact when
+  adding MIDI.
 - **`params::Model`** ([libs/tinyplug/include/tinyplug/tiny_params.hpp](libs/tinyplug/include/tinyplug/tiny_params.hpp)) —
   enumerates `Address` and provides `build_tree()` returning a
   `params::Node` tree (groups + specs). The framework flattens the tree to an
@@ -485,7 +497,7 @@ Every wrapper implements the same pattern:
    format-native mechanism — see each format above.
 4. Host calls back; wrapper reads `_pending_latency`, stores
    `_accepted_latency = N`, reports `N` to the host.
-5. Next `process`, wrapper sends `Accepted_latency{N}` to the kernel and
+5. Next `process`, wrapper calls `reset(Reset::Latency{N})` on the kernel and
    the kernel must immediately match (assertion checked).
 6. `Host_bypass::set_latency` is updated in lockstep so soft-bypass
    PDC compensation tracks.

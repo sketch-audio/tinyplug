@@ -21,6 +21,30 @@ auto Processor::configure(const Config& config) -> void
     _wants_latency_change = false;
 }
 
+auto Processor::reset(const Reset::Any& reset) -> void
+{
+    std::visit(Inline_visitor{
+        // Both delay lines are pure history, and `configure` already sized them for the
+        // mode we are in, so there is nothing to restate.
+        [](const Reset::Hard&) {},
+        [](const Reset::Soft&) {},
+
+        // The host has aligned its graph, so this is the moment the mode actually moves.
+        // The parameter only ever states the intention — see `process`.
+        [this](const Reset::Latency& e) {
+            if (e.samples == _low.latency_samps()) {
+                _curr = &_low;
+            }
+            else if (e.samples == _high.latency_samps()) {
+                _curr = &_high;
+            }
+            else {
+                assert(false && "Unexpected latency value!");
+            }
+        }
+    }, reset);
+}
+
 auto Processor::handle_event(const Render_event& event) -> void
 {
     using namespace params;
@@ -34,17 +58,6 @@ auto Processor::handle_event(const Render_event& event) -> void
         },
         [this](const Ramp_param& e) {
             _values[e.address] = static_cast<float>(e.target); // You might want to handle this differently.
-        },
-        [this](const Accepted_latency& e) {
-            if (e.samples == _low.latency_samps()) {
-                _curr = &_low;
-            }
-            else if (e.samples == _high.latency_samps()) {
-                _curr = &_high;
-            }
-            else {
-                assert(false && "Unexpected latency value!");
-            }
         }
     }, event);
 }
@@ -56,7 +69,7 @@ auto Processor::process(Dsp_context& context) -> void
     // defers until playback starts), so what matters is that every change restates the
     // intention — toggling back then supersedes the outstanding value instead of leaving a
     // stale one for the host to find. Switching still waits: `_curr` only moves on
-    // `Accepted_latency`.
+    // `Reset::Latency`.
     if (_wants_latency_change) {
         context.propose_latency = this->_wanted_mode()->latency_samps();
         _wants_latency_change = false;

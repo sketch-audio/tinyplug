@@ -1003,7 +1003,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
         const auto new_latency = static_cast<uint32_t>(*accepted_latency);
-        _processor->handle_event(Accepted_latency{new_latency});
+        _processor->reset(Reset::Latency{new_latency});
         _bypass.set_latency(new_latency); // Unfortunately this could allocate, to avoid, the user model would need to be able to tell us its max latency.
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
@@ -1011,8 +1011,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     // Discontinuity requested by the host — forget history before anything this block
     // delivers lands.
     if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
-        _processor->clear();
-        _processor->snap(); // Paired: a discontinuity warrants both.
+        _processor->reset(Reset::Hard{});
         _bypass.clear();    // Its delay lines hold pre-seek dry audio.
         _bypass.snap();
     }
@@ -1082,9 +1081,10 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     }
 
     // Realtime <-> offline is a discontinuity: the audio either side is unrelated, so
-    // forget history as well as manifesting values.
+    // forget history as well as manifesting values. `Hard` already lands values, which is
+    // why the resync branch below is an `else`.
     if (render_mode_changed) {
-        _processor->clear();
+        _processor->reset(Reset::Hard{});
         _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
         _bypass.snap();
     }
@@ -1094,14 +1094,14 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     // advance_rampers() didn't run (can_skip skips process()). Delivery isn't
     // manifestation. Called here, ahead of the drain below, so it lands before this
     // block's own automation.
-    if (needs_resync || skipped_while_bypassed || resumed_from_skip || render_mode_changed) {
-        _processor->snap();
+    else if (needs_resync || skipped_while_bypassed || resumed_from_skip) {
+        _processor->reset(Reset::Soft{});
     }
 
     // Sort by offset; at equal offset, Set_param before Ramp_param — a fresh Set at an
     // offset must still precede its own Ramp. Ranked explicitly rather than as a bare
-    // "Set < Ramp" boolean so a third alternative can't produce an intransitive
-    // equivalence (UB in std::sort).
+    // "Set < Ramp" boolean so that adding an alternative (MIDI is scheduled) cannot
+    // produce an intransitive equivalence (UB in std::sort).
     const auto event_rank = [](const Render_event& event) {
         return std::holds_alternative<Set_param>(event) ? 0 : 1;
     };

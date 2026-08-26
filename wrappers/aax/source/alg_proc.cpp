@@ -334,7 +334,7 @@ auto render_instance(Alg_context* ctx) -> void
     if (runtime.latency_seq != 0 && runtime.latency_seq != st->latency_seq) {
         st->latency_seq = runtime.latency_seq;
         st->accepted_latency = runtime.accepted_latency;
-        st->processor.handle_event(Accepted_latency{runtime.accepted_latency});
+        st->processor.reset(Reset::Latency{runtime.accepted_latency});
         st->bypass.set_latency(runtime.accepted_latency);
         // AAX owns the value and may clamp it, so this is the format where a mismatch is a
         // live possibility rather than a kernel bug.
@@ -377,7 +377,7 @@ auto render_instance(Alg_context* ctx) -> void
     // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
     // process()) — settle before this block's own automation lands, not after.
     if (st->was_skipped && !can_skip) {
-        st->processor.snap();
+        st->processor.reset(Reset::Soft{});
     }
     st->was_skipped = can_skip;
 

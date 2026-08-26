@@ -19,15 +19,11 @@ struct Ramp_param {
     int32_t dur_samples{};
 };
 
-// The host has accepted your latency proposal.
-// You should immediately apply the new latency.
-struct Accepted_latency {
-    uint32_t samples{};
-};
-
-// A parameter change at a point in time. Control-plane transitions are methods on the
-// processor (`clear`, `snap`), not events — they carry no payload and no frame offset.
-using Render_event = std::variant<Set_param, Ramp_param, Accepted_latency>;
+// A parameter change at a point in time. Every alternative carries a frame offset, which
+// is what makes the `Tagged_event` sort meaningful. Anything the host tells the processor
+// at a block boundary — a discontinuity, a value sync-up, an accepted latency — is a
+// `Reset::Any` handed to `reset`, not an event.
+using Render_event = std::variant<Set_param, Ramp_param>;
 
 struct Tagged_event {
     Render_event event{};

@@ -290,7 +290,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
         const auto new_latency = static_cast<uint32_t>(*accepted_latency);
-        _processor->handle_event(Accepted_latency{new_latency});
+        _processor->reset(Reset::Latency{new_latency});
         _bypass.set_latency(new_latency);
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
@@ -298,8 +298,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     // Discontinuity requested by the host — forget history before anything this block
     // delivers lands.
     if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
-        _processor->clear();
-        _processor->snap(); // Paired: a discontinuity warrants both.
+        _processor->reset(Reset::Hard{});
         _bypass.clear();    // Its delay lines hold pre-seek dry audio.
         _bypass.snap();
     }
@@ -397,8 +396,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     // the audio either side is unrelated, so forget history as well as manifesting values
     // rather than gliding in.
     if (data.processMode != _last_process_mode) {
-        _processor->clear();
-        _processor->snap();
+        _processor->reset(Reset::Hard{});
         _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
         _bypass.snap();
         _last_process_mode = data.processMode;
@@ -489,7 +487,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
     // process()) — settle before this block's own automation lands, not after.
     if (_was_skipped && !can_skip) {
-        _processor->snap();
+        _processor->reset(Reset::Soft{});
     }
     _was_skipped = can_skip;
 
@@ -504,7 +502,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
 
         // Resync on flush block.
         if (!renders_audio && delivered) {
-            _processor->snap();
+            _processor->reset(Reset::Soft{});
         }
     }
     else {

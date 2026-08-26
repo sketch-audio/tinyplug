@@ -198,40 +198,54 @@ The `latency_mismatch` verb is the assertion in release clothing: it fires where
 both numbers. AAX is where it can legitimately fire, since the host owns the value and may
 clamp it.
 
-## 4. Next step — hoist latency out of `handle_event`
+## 4. Landed — `reset(Reset::Any)`
 
-The task: replace the edge-triggered `Accepted_latency` event with a level-triggered
-`Latency` struct in the process context.
+`clear()` / `snap()` are gone, and so is `Accepted_latency`. The processor concept now has
+two state entry points split by cost rather than depth:
 
 ```cpp
-struct Latency {
-    uint32_t accepted{};                // in:  what the host compensates for
-    std::optional<uint32_t> proposed{}; // out: framework reads at block end
+struct Reset {
+    struct Hard {};                              // stream restarting: forget history, land everything
+    struct Soft {};                              // land what must be exact; history and long glides survive
+    struct Latency { std::uint32_t samples{}; }; // host accepted a proposal — adopt it now
+    using Any = std::variant<Hard, Soft, Latency>;
 };
+
+auto configure(const Config&) -> void;   // allocates, off the audio thread
+auto reset(const Reset::Any&) -> void;   // never allocates
 ```
 
-**This changes the transport, not the contract.** Every clause in §3 is about who decides
-what and when the host is told; none mention how the value reaches the kernel. Clause 1
-gets strictly better: a processor that skipped a block can no longer lose the value.
+`Render_event` is down to `{Set_param, Ramp_param}`, so **every** alternative genuinely
+carries a frame offset and the `Tagged_event` sort means what it says.
 
-Work, in order:
+Why the variant rather than a level-triggered `Latency` in the process context, which an
+earlier draft of this document proposed: **a variant member is compile-time mandatory.**
+A kernel that never reads a context field renders at one latency while the host
+compensates for another — permanently misaligned, with no compile error and nothing in a
+trace. Omit an arm of an exhaustive visit and it does not build. The self-healing property
+the context version was for does not survive contact with the code either: all five
+wrappers already latch the accepted value and consume it at the top of `process` before
+any skip branch, so the level-triggering exists — at the wrapper layer, where it belongs.
 
-1. Add `Latency` to `Dsp_context`; remove `Accepted_latency` from `Render_event`, leaving
-   `{Set_param, Ramp_param}`. Every remaining alternative then genuinely has a sample
-   offset, which is what removes the explicit rank comparator in the AUv2 wrapper.
-2. Each wrapper keeps a plain member holding the last accepted value and writes
-   `context.latency.accepted = <member>` on **every** block, not only on change. The
-   existing one-shot `_accepted_latency` atomic still carries the main→audio crossing; what
-   changes is that consuming it updates a persistent member rather than firing an event.
-3. `context.propose_latency` becomes `context.latency.proposed`. The framework clears it
-   before each `process` or a stale proposal re-fires every block.
-4. The assert moves: read `latency.accepted` at the top of `process`, kernel must match by
-   the end. Same obligation, different placement. The `latency_accepted` /
-   `latency_mismatch` probe calls move with it — they currently sit next to the
-   `Accepted_latency` dispatch in all five wrappers.
+The reservation, recorded rather than argued away: what the three alternatives share is
+*delivery shape*, not meaning. `Hard` discards, `Soft` lands, `Latency` does neither — it
+adopts a number. And they differ on delivery contract. `Hard`/`Soft` are the framework's
+discretion, harmless if issued twice or judged unnecessary; `Latency` is a mandatory
+handoff with a post-condition, and the harm is in *not* delivering it. That difference is
+invisible once they are siblings in a variant, so it is stated at the type.
 
-The third verb's name is still open — `snap` stays until someone decides. Candidates and
-rationale are in the design doc; `settle` is the front-runner.
+Call-site mapping applied across all five wrappers:
+
+| was | now |
+|---|---|
+| `clear(); snap();` (host reset, render-mode edge) | `reset(Reset::Hard{})` |
+| lone `snap()` (flush, resync, bypass resume) | `reset(Reset::Soft{})` |
+| `handle_event(Accepted_latency{n})` | `reset(Reset::Latency{n})` |
+
+AUv2's render-mode branch became an `if/else` against the resync branch, since `Hard`
+already lands values. Its explicit `event_rank` comparator **stays**: the two-alternative
+variant no longer needs it, but [midi-support.md](midi-support.md) adds alternatives back,
+and an intransitive equivalence in `std::sort` is UB.
 
 ---
 
@@ -244,13 +258,15 @@ every clause.
 ### Mechanical part (all three)
 
 ```cpp
-auto reset(float sr) -> void            →  auto configure(const Config& config) -> void
+auto reset(float sr) -> void   →  auto configure(const Config& config) -> void
+auto clear() -> void           ┐
+auto snap()  -> void           ┴→ auto reset(const Reset::Any&) -> void
 ```
 
-Inside, `const auto sr = static_cast<float>(config.sr);` and adopt `config.params` before
-anything that depends on parameter values. `configure` implies `clear()` and `snap()`, so
-the existing trailing `clear(); snap();` stays — the *wrappers* stopped issuing the pair,
-not the adapter.
+Inside `configure`, `const auto sr = static_cast<float>(config.sr);` and adopt
+`config.params` before anything that depends on parameter values. `configure` implies both
+reset kinds, so the existing trailing `clear(); snap();` stays as private helpers the new
+`reset` dispatches to — the *wrappers* stopped issuing the pair, not the adapter.
 
 ### `effect_adapter` specifically
 
@@ -290,14 +306,21 @@ make `reset` come up in the mode a pending switch was heading for. With values a
 button mid-playback, dip, swap, propose — which is what it was written for and the only
 thing the handshake is still needed for.
 
-**4. When step 4 above lands**, move the `Accepted_latency` branch out of `handle_event`
-(lines 189–196) to the top of `process`:
+**4. `Accepted_latency` is gone.** Move that branch out of `handle_event` (lines 189–196)
+into the adapter's new `reset`:
 
 ```cpp
-_latency = context.latency.accepted;
+auto reset(const Reset::Any& reset) -> void
+{
+    std::visit(Inline_visitor{
+        [this](const Reset::Hard&)         { clear(); snap(); },
+        [this](const Reset::Soft&)         { snap(); },
+        [this](const Reset::Latency& e)    { _latency = e.samples; }
+    }, reset);
+}
 ```
 
-and `context.propose_latency = …` → `context.latency.proposed = …` at line 234. The
+`context.propose_latency` is unchanged — only the inbound half moved. The
 `settled` computation at line 489 (`!_target_quality && _latency == _latency_samps_for(_quality)`)
 keeps working unchanged, and the `quality_actual` meter now reads settled immediately after
 a configure — which is the visible symptom of this whole migration working.

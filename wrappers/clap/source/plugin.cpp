@@ -103,7 +103,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
         const auto new_latency = *accepted_latency;
-        _processor->handle_event(Accepted_latency{new_latency});
+        _processor->reset(Reset::Latency{new_latency});
         _bypass.set_latency(new_latency);
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
@@ -111,8 +111,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // Discontinuity requested by the host — forget history before anything this block
     // delivers lands.
     if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
-        _processor->clear();
-        _processor->snap(); // Paired: a discontinuity warrants both.
+        _processor->reset(Reset::Hard{});
         _bypass.clear();    // Its delay lines hold pre-seek dry audio.
         _bypass.snap();
     }
@@ -132,7 +131,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
 
         // Manifest immediately — a client reading realized state (e.g. an open editor)
         // shouldn't see stale values for the whole inactive/sleeping stretch.
-        _processor->snap();
+        _processor->reset(Reset::Soft{});
     }
     this->_handle_host_flushed(needs_resync);
     this->_handle_user_actions(process->out_events, needs_resync);
@@ -162,8 +161,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // Realtime <-> offline is a discontinuity: the audio either side is unrelated, so
     // forget history as well as manifesting values.
     if (_last_render_mode != context.render_mode) {
-        _processor->clear();
-        _processor->snap();
+        _processor->reset(Reset::Hard{});
         _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
         _bypass.snap();
         _last_render_mode = context.render_mode;
@@ -222,7 +220,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
     // process()) — settle before this block's own automation lands, not after.
     if (_was_skipped && !can_skip) {
-        _processor->snap();
+        _processor->reset(Reset::Soft{});
     }
     _was_skipped = can_skip;
 
@@ -235,7 +233,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
             delivered = true;
         }
         if (!renders_audio && delivered) {
-            _processor->snap();
+            _processor->reset(Reset::Soft{});
         }
     }
     else {
@@ -1275,7 +1273,7 @@ auto Plugin::_handle_host_flushed(bool needs_resync) -> void
         delivered = true;
     }
     if (delivered) {
-        _processor->snap();
+        _processor->reset(Reset::Soft{});
     }
 }
 

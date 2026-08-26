@@ -10,6 +10,15 @@ auto Processor::configure(const Config& config) -> void
     _ramper.set_immediate(static_cast<float>(config.params[enum_raw(Address::Gain)]));
 }
 
+auto Processor::reset(const Reset::Any& reset) -> void
+{
+    std::visit(Inline_visitor{
+        [this](const Reset::Hard&) { _ramper.settle(); },
+        [this](const Reset::Soft&) { _ramper.settle(); },
+        [](const Reset::Latency&) {}
+    }, reset);
+}
+
 auto Processor::handle_event(const Render_event& event) -> void
 {
     std::visit(Inline_visitor{
@@ -22,8 +31,7 @@ auto Processor::handle_event(const Render_event& event) -> void
             if (e.address == enum_raw(Address::Gain)) {
                 _ramper.set_ramp(static_cast<float>(e.target), e.dur_samples);
             }
-        },
-        [this](const auto&) { /* Handle other events as needed. */ }
+        }
     }, event);
 }
 

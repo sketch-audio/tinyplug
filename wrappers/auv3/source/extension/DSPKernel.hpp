@@ -162,11 +162,18 @@ public:
         drain_worker_to_processor();
 #endif
 
+        const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+        if (accepted_latency) {
+            const auto new_latency = *accepted_latency;
+            _processor->reset(tiny::Reset::Latency{new_latency});
+            _bypass.set_latency(new_latency);
+            assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
+        }
+
         // Discontinuity requested by the host — forget history before anything this block
         // delivers lands.
         if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
-            _processor->clear();
-            _processor->snap(); // Paired: a discontinuity warrants both.
+            _processor->reset(tiny::Reset::Hard{});
             _bypass.clear();    // Its delay lines hold pre-seek dry audio.
             _bypass.snap();
         }
@@ -190,7 +197,7 @@ public:
 
             // Manifest immediately — a client reading realized state (e.g. an open editor)
             // shouldn't see stale values for the whole bypassed/inactive stretch.
-            _processor->snap();
+            _processor->reset(tiny::Reset::Soft{});
         }
         else {
             auto event = tiny::Render_event{};
@@ -199,14 +206,6 @@ public:
             }
         }
 
-        const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
-        if (accepted_latency) {
-            const auto new_latency = *accepted_latency;
-            _processor->handle_event(tiny::Accepted_latency{new_latency});
-            _bypass.set_latency(new_latency);
-            assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
-        }
-        
         auto context = tiny::Dsp_context{.meters = _meters, .propose_latency = {}};
         context.musical_context = resolve_musical_context(frameCount);
         context.render_mode = _offline.load(std::memory_order_relaxed)
@@ -217,8 +216,7 @@ public:
         // Realtime <-> offline is a discontinuity: the audio either side is unrelated, so
         // forget history as well as manifesting values.
         if (_last_render_mode != context.render_mode) {
-            _processor->clear();
-            _processor->snap();
+            _processor->reset(tiny::Reset::Hard{});
             _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
             _bypass.snap();
             _last_render_mode = context.render_mode;
@@ -238,7 +236,7 @@ public:
         // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
         // process()) — settle before this block's own automation lands, not after.
         if (_was_skipped && !can_skip) {
-            _processor->snap();
+            _processor->reset(tiny::Reset::Soft{});
         }
         _was_skipped = can_skip;
 

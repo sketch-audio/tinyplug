@@ -17,11 +17,9 @@ public:
     // This a good time to resize some vectors.
     auto configure(const Config& config) -> void;
 
-    // Forget render history (host seek, bounce, un-bypass). Never allocates.
-    auto clear() -> void {}
-
-    // Manifest deferred param changes now, with no glide.
-    auto snap() -> void {}
+    // Block-boundary sync. Never allocates. `Latency` is the one that matters here: the
+    // mode only ever moves when the host says it has aligned its graph.
+    auto reset(const Reset::Any& reset) -> void;
 
     // Receive a render event such as `Set_param`.
     // Events are interleaved with process calls so you can consider them as happening "now".

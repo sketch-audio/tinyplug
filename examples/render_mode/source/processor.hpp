@@ -18,11 +18,9 @@ class Processor {
 public:
     auto configure(const Config& config) -> void;
 
-    // Forget render history (host seek, bounce, un-bypass). Never allocates.
-    auto clear() -> void {}
-
-    // Manifest deferred param changes now, with no glide.
-    auto snap() -> void {}
+    // Block-boundary sync: `Hard` restarts the stream, `Soft` lands deferred values,
+    // `Latency` hands over a latency the host accepted. Nothing to do here. Never allocates.
+    auto reset(const Reset::Any&) -> void {}
     auto handle_event(const Render_event& event) -> void;
     auto process(Dsp_context& context) -> void;
 
