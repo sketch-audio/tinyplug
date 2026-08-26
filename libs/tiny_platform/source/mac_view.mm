@@ -196,6 +196,10 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 
 // MARK: - events
 
+- (BOOL)acceptsFirstMouse:(NSEvent *)event {
+    return YES;
+}
+
 - (void)mouseDown:(NSEvent *)event {
     using namespace tiny;
     const auto locationInView = [self convertPoint:event.locationInWindow fromView:nil];
