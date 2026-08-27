@@ -99,7 +99,7 @@ struct Tagged_midi_output {
 - **Normalized doubles** (0.0–1.0 for velocity/CC) instead of raw MIDI integers — format wrappers convert.
 - **`Note_id`** unifies VST3 `noteId`, CLAP `note_id`, and channel+key for AU/AAX. Formats without voice IDs leave `id` at -1.
 - **`Note_choke`** is distinct from `Note_off` — it means "kill immediately, no release phase" (important for drum machines).
-- **Backward compatible** — existing effect plugins that only handle `Set_param`/`Ramp_param`/`Accepted_latency` in their `handle_event` visitor continue working unchanged. New variant alternatives fall through to the default `[](const auto&) {}` handler.
+- **Backward compatible** — existing effect plugins that only handle `Set_param`/`Ramp_param`/`Accepted_latency` in their `handle` visitor continue working unchanged. New variant alternatives fall through to the default `[](const auto&) {}` handler.
 
 ---
 
@@ -123,14 +123,14 @@ struct Dsp_context {
 ```cpp
 concept Some_plug_processor = requires(T t) {
     { t.reset(double{}) } -> std::same_as<void>;
-    { t.handle_event(std::declval<const Render_event&>()) } -> std::same_as<void>;
+    { t.handle(std::declval<const Render_event&>()) } -> std::same_as<void>;
     { t.process(std::declval<Dsp_context&>()) } -> std::same_as<void>;
     { t.latency_samps() } -> std::same_as<uint32_t>;
     { t.tail_samps() } -> std::same_as<uint32_t>;
 };
 ```
 
-This is a key advantage of the existing variant-based design: MIDI events are new alternatives in `Render_event`, so `handle_event` receives them automatically. Zero concept changes needed.
+This is a key advantage of the existing variant-based design: MIDI events are new alternatives in `Render_event`, so `handle` receives them automatically. Zero concept changes needed.
 
 ---
 

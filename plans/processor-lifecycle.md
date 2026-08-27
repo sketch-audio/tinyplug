@@ -24,7 +24,7 @@ Tools wipes algorithm private data at every reset
 (`AAX_ePrivateDataOptions_KeepOnReset` is declared but *"Not currently
 implemented"*), so the processor arrives default-constructed with every value lost.
 The current fix injects `Set_param` events *before* `reset`, which works but makes
-AAX the one format where `handle_event` precedes `reset` — an unenforceable ordering
+AAX the one format where `handle` precedes `reset` — an unenforceable ordering
 constraint with a silent, format-specific failure mode.
 
 **2. `Accepted_latency` is edge-triggered.** It is an event with no sample offset,
@@ -281,7 +281,7 @@ HQ-style parameter would exercise it.
   `ResetFieldData` **stay** — that is still how AAX obtains current values at reset
   time, and it grows the latency fields above — but it feeds `configure` instead of a
   pre-reset event replay.
-- The pre-reset `handle_event` contract, and with it the staging-representation
+- The pre-reset `handle` contract, and with it the staging-representation
   hazard (a processor holding parameter values before it knows the sample rate).
 - `Accepted_latency` from `Render_event`.
 - The `clear(); snap();` pairs the wrappers currently issue after `reset`.

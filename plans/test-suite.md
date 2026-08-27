@@ -18,7 +18,7 @@
 
 **Goal.** A client plug-in author writes one `plugin::Processor` and one
 `plugin::Editor` and gets five binaries. Everything between the host's API and
-`handle_event`/`process` is framework code the author cannot see, cannot debug,
+`handle`/`process` is framework code the author cannot see, cannot debug,
 and has to trust. This suite is the statement of what that code guarantees:
 
 - **Every format delivers the same events, in the same order, at the same sample
@@ -98,7 +98,7 @@ builds in a couple of seconds; no SDKs, no platform lib.
 
 Target `tinyplug_tests_contract`. Drives a fixture `Some_plug_processor`
 **directly**, through a `Reference_host` that reproduces the wrapper process
-loop: split the buffer at each event offset, `handle_event()` between sub-calls,
+loop: split the buffer at each event offset, `handle()` between sub-calls,
 correct `Musical_context::sample_pos` per sub-block, echo `propose_latency` back
 as `Accepted_latency`.
 
@@ -225,7 +225,7 @@ the main reason this suite has to exist.
 
 | Invariant | Tier | Formats |
 |---|---|---|
-| An automation point at timeline sample *N* is delivered to `handle_event` such that the *N*th sample of `process` sees the new value — for every block size, and for a block boundary landing exactly on *N* | T1+T2 | VST3, CLAP, AUv3 |
+| An automation point at timeline sample *N* is delivered to `handle` such that the *N*th sample of `process` sees the new value — for every block size, and for a block boundary landing exactly on *N* | T1+T2 | VST3, CLAP, AUv3 |
 | Multiple points in one block are delivered in ascending offset order, with `process` split between them | T1+T2 | VST3, CLAP, AUv3 |
 | Two points at the **same** offset preserve host order | T2 | VST3, CLAP |
 | A point at offset 0 is applied *before* the block's first sample, not after | T1+T2 | all |
