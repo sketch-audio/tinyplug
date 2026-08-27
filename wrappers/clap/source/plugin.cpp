@@ -60,7 +60,7 @@ bool Plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t /*
         config_values[addr] = plain;
     }
 
-    _processor->configure(Config{
+    _processor->configure(process::Config{
         .sr = sampleRate,
         .params = config_values
     });
@@ -103,7 +103,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
         const auto new_latency = *accepted_latency;
-        _processor->reset(Reset::Latency{new_latency});
+        _processor->reset(process::Reset::Latency{new_latency});
         _bypass.set_latency(new_latency);
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
@@ -111,7 +111,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // Discontinuity requested by the host — forget history before anything this block
     // delivers lands.
     if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
-        _processor->reset(Reset::Hard{});
+        _processor->reset(process::Reset::Hard{});
         _bypass.clear();    // Its delay lines hold pre-seek dry audio.
         _bypass.snap();
     }
@@ -126,12 +126,12 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
             const auto host_value = _hostvalues[addr].load(std::memory_order_relaxed);
             const auto& spec = User_params::param_spec(addr);
             const auto plain = Value_helper::host_to_plain(host_value, spec.semantics);
-            _processor->handle_event(Set_param{.address = addr, .value = plain});
+            _processor->handle(process::Event::Set{.address = addr, .value = plain});
         }
 
         // Manifest immediately — a client reading realized state (e.g. an open editor)
         // shouldn't see stale values for the whole inactive/sleeping stretch.
-        _processor->reset(Reset::Soft{});
+        _processor->reset(process::Reset::Soft{});
     }
     this->_handle_host_flushed(needs_resync);
     this->_handle_user_actions(process->out_events, needs_resync);
@@ -154,14 +154,14 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     };
 
     // Create the context.
-    auto context = Dsp_context{.meters = _meters, .propose_latency = {}};
-    context.render_mode = _offline.load(std::memory_order_relaxed) ? Render_mode::Offline : Render_mode::Realtime;
+    auto context = process::Dsp_context{.meters = _meters, .propose_latency = {}};
+    context.render_mode = _offline.load(std::memory_order_relaxed) ? process::Render_mode::Offline : process::Render_mode::Realtime;
 
     // We need to resync on render mode edge.
     // Realtime <-> offline is a discontinuity: the audio either side is unrelated, so
     // forget history as well as manifesting values.
     if (_last_render_mode != context.render_mode) {
-        _processor->reset(Reset::Hard{});
+        _processor->reset(process::Reset::Hard{});
         _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
         _bypass.snap();
         _last_render_mode = context.render_mode;
@@ -194,7 +194,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
         }
 
         // Advance the block's musical context to this segment's offset.
-        const auto beat_off = frames_to_beats(static_cast<int64_t>(offset), block_context.tempo_ideal, _sr);
+        const auto beat_off = process::frames_to_beats(static_cast<int64_t>(offset), block_context.tempo_ideal, _sr);
         context.musical_context = block_context;
         context.musical_context.sample_pos = block_context.sample_pos + static_cast<int64_t>(offset);
         context.musical_context.beat_pos = block_context.beat_pos + beat_off;
@@ -220,7 +220,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
     // process()) — settle before this block's own automation lands, not after.
     if (_was_skipped && !can_skip) {
-        _processor->reset(Reset::Soft{});
+        _processor->reset(process::Reset::Soft{});
     }
     _was_skipped = can_skip;
 
@@ -233,7 +233,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
             delivered = true;
         }
         if (!renders_audio && delivered) {
-            _processor->reset(Reset::Soft{});
+            _processor->reset(process::Reset::Soft{});
         }
     }
     else {
@@ -288,7 +288,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
 
     // Send exports. Not during an offline bounce — editor's almost always closed then anyway.
     for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
-        if (context.render_mode != Render_mode::Offline && context.meters[i] != _last_meters[i]) {
+        if (context.render_mode != process::Render_mode::Offline && context.meters[i] != _last_meters[i]) {
             // Send export and cache.
             const auto value = context.meters[i];
             _meter_queue.push(Set_meter{.address = i, .value = value});
@@ -316,7 +316,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     return CLAP_PROCESS_CONTINUE;
 }
 
-auto Plugin::_resolve_transport(const clap_process* process) -> Musical_context
+auto Plugin::_resolve_transport(const clap_process* process) -> process::Musical_context
 {
     const auto* transport = process->transport;
 
@@ -326,7 +326,7 @@ auto Plugin::_resolve_transport(const clap_process* process) -> Musical_context
         const auto sample_pos = steady >= 0 ? steady : _free_run_pos;
         _free_run_pos += static_cast<int64_t>(process->frames_count);
 
-        return Musical_context{.sample_pos = sample_pos}; // Defaults: 120bpm, 4/4, stopped.
+        return process::Musical_context{.sample_pos = sample_pos}; // Defaults: 120bpm, 4/4, stopped.
     }
 
     // We will derive the sample time from the time in seconds.
@@ -337,7 +337,7 @@ auto Plugin::_resolve_transport(const clap_process* process) -> Musical_context
     const auto flags = transport->flags;
     const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
 
-    return Musical_context{
+    return process::Musical_context{
         .sample_pos = static_cast<int64_t>(sample_pos),
         .beat_pos = static_cast<double>(transport->song_pos_beats) / CLAP_BEATTIME_FACTOR,
         .cycle_start = static_cast<double>(transport->loop_start_beats) / CLAP_BEATTIME_FACTOR,
@@ -1261,19 +1261,19 @@ auto Plugin::_handle_host_flushed(bool needs_resync) -> void
 {
     // Don't replay stale events.
     if (needs_resync) {
-        auto discarded = Render_event{};
+        auto discarded = process::Event::Any{};
         while (_from_flush.pop(discarded)) {}
         return;
     }
 
     auto delivered = false;
-    auto kernel_event = Render_event{};
+    auto kernel_event = process::Event::Any{};
     while (_from_flush.pop(kernel_event)) {
-        _processor->handle_event(kernel_event);
+        _processor->handle(kernel_event);
         delivered = true;
     }
     if (delivered) {
-        _processor->reset(Reset::Soft{});
+        _processor->reset(process::Reset::Soft{});
     }
 }
 
@@ -1333,7 +1333,7 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
                 }
 
                 const auto plain_value = Value_helper::knob_to_plain(a.value, param.semantics);
-                _processor->handle_event(Set_param{param.identity.address, plain_value});
+                _processor->handle(process::Event::Set{param.identity.address, plain_value});
             },
             [&](const Action_end& a) {
                 const auto& param = User_params::param_spec(a.address);

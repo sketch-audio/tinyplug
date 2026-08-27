@@ -46,7 +46,7 @@ public:
             const auto plain = Value_helper::host_to_plain(host, param.semantics);
             config_params[addr] = plain;
         }
-        _processor->configure(Config{
+        _processor->configure(tiny::process::Config{
             .sr = mSampleRate,
             .params = config_params
         });
@@ -101,7 +101,7 @@ public:
             _bypass_epoch.fetch_add(1, std::memory_order_relaxed);
         }
         else {
-            [[maybe_unused]] const auto success = _param_queue.push(tiny::Set_param{
+            [[maybe_unused]] const auto success = _param_queue.push(tiny::process::Event::Set{
                 .address = addr,
                 .value = plain
             });
@@ -165,7 +165,7 @@ public:
         const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
         if (accepted_latency) {
             const auto new_latency = *accepted_latency;
-            _processor->reset(tiny::Reset::Latency{new_latency});
+            _processor->reset(tiny::process::Reset::Latency{new_latency});
             _bypass.set_latency(new_latency);
             assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
         }
@@ -173,7 +173,7 @@ public:
         // Discontinuity requested by the host — forget history before anything this block
         // delivers lands.
         if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
-            _processor->reset(tiny::Reset::Hard{});
+            _processor->reset(tiny::process::Reset::Hard{});
             _bypass.clear();    // Its delay lines hold pre-seek dry audio.
             _bypass.snap();
         }
@@ -185,38 +185,38 @@ public:
         _seen_epoch = epoch;
 
         if (needs_resync || skipped_while_bypassed) {
-            auto discarded = tiny::Render_event{};
+            auto discarded = tiny::process::Event::Any{};
             while (_param_queue.pop(discarded)) {}
 
             for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
                 const auto host_value = _hostvalues[addr].load(std::memory_order_relaxed);
                 const auto& spec = User_params::param_spec(addr);
                 const auto plain = tiny::params::Value_helper::host_to_plain(host_value, spec.semantics);
-                _processor->handle_event(tiny::Set_param{.address = addr, .value = plain});
+                _processor->handle(tiny::process::Event::Set{.address = addr, .value = plain});
             }
 
             // Manifest immediately — a client reading realized state (e.g. an open editor)
             // shouldn't see stale values for the whole bypassed/inactive stretch.
-            _processor->reset(tiny::Reset::Soft{});
+            _processor->reset(tiny::process::Reset::Soft{});
         }
         else {
-            auto event = tiny::Render_event{};
+            auto event = tiny::process::Event::Any{};
             while (_param_queue.pop(event)) {
-                _processor->handle_event(event);
+                _processor->handle(event);
             }
         }
 
-        auto context = tiny::Dsp_context{.meters = _meters, .propose_latency = {}};
+        auto context = tiny::process::Dsp_context{.meters = _meters, .propose_latency = {}};
         context.musical_context = resolve_musical_context(frameCount);
         context.render_mode = _offline.load(std::memory_order_relaxed)
-            ? tiny::Render_mode::Offline
-            : tiny::Render_mode::Realtime;
+            ? tiny::process::Render_mode::Offline
+            : tiny::process::Render_mode::Realtime;
 
         // We need to resync on render mode edge.
         // Realtime <-> offline is a discontinuity: the audio either side is unrelated, so
         // forget history as well as manifesting values.
         if (_last_render_mode != context.render_mode) {
-            _processor->reset(tiny::Reset::Hard{});
+            _processor->reset(tiny::process::Reset::Hard{});
             _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
             _bypass.snap();
             _last_render_mode = context.render_mode;
@@ -236,7 +236,7 @@ public:
         // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
         // process()) — settle before this block's own automation lands, not after.
         if (_was_skipped && !can_skip) {
-            _processor->reset(tiny::Reset::Soft{});
+            _processor->reset(tiny::process::Reset::Soft{});
         }
         _was_skipped = can_skip;
 
@@ -248,7 +248,7 @@ public:
         
         // Send exports. Not during an offline bounce — editor's almost always closed then anyway.
         for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
-            if (context.render_mode != tiny::Render_mode::Offline && context.meters[i] != _last_meters[i]) {
+            if (context.render_mode != tiny::process::Render_mode::Offline && context.meters[i] != _last_meters[i]) {
                 const auto value = context.meters[i];
                 _meter_queue.push(tiny::Set_meter{.address = i, .value = value});
                 _last_meters[i] = value;
@@ -287,7 +287,7 @@ public:
                 if (address >= num_params) return;
                 const auto& spec = User_params::param_spec(address);
                 const auto plain = tiny::params::Value_helper::host_to_plain(event->parameter.value, spec.semantics);
-                _processor->handle_event(tiny::Set_param{.address = address, .value = plain});
+                _processor->handle(tiny::process::Event::Set{.address = address, .value = plain});
                 _hostvalues[address].store(event->parameter.value, std::memory_order_relaxed); // Maintain host values.
                 break;
             }
@@ -297,7 +297,7 @@ public:
                 const auto dur_samples = static_cast<int32_t>(event->parameter.rampDurationSampleFrames);
                 const auto& spec = User_params::param_spec(address);
                 const auto plain = tiny::params::Value_helper::host_to_plain(event->parameter.value, spec.semantics);
-                _processor->handle_event(tiny::Ramp_param{.address = address, .target = plain, .dur_samples = dur_samples});
+                _processor->handle(tiny::process::Event::Ramp{.address = address, .target = plain, .dur_samples = dur_samples});
                 _hostvalues[address].store(event->parameter.value, std::memory_order_relaxed); // Maintain host values.
                 break;
             }
@@ -398,7 +398,7 @@ private:
     }();
 
     //static constexpr auto param_queue_min_size = 4 * num_params + 1;
-    using Param_queue = tiny::Lock_free_queue<tiny::Render_event, queue_size, tiny::Queue_concurrency::mpsc>; // I believe SetParameter can happen from multiple threads
+    using Param_queue = tiny::Lock_free_queue<tiny::process::Event::Any, queue_size, tiny::Queue_concurrency::mpsc>; // I believe SetParameter can happen from multiple threads
     Param_queue _param_queue{};
 
     // Resync mechanism (see setParameter / setBypass / setOffline / process).
@@ -407,7 +407,7 @@ private:
     std::atomic<uint32_t> _bypass_epoch{};
     uint32_t _seen_epoch{}; // process()-thread only.
     bool _was_skipped{}; // process()-thread only. Detects the can_skip -> processing edge.
-    std::optional<tiny::Render_mode> _last_render_mode{}; // process()-thread only. Detects the realtime <-> offline edge.
+    std::optional<tiny::process::Render_mode> _last_render_mode{}; // process()-thread only. Detects the realtime <-> offline edge.
 
     static constexpr auto meter_size = 25 * num_meters + 1;
     using Meter_queue = tiny::Lock_free_queue<tiny::Set_meter, meter_size>;
@@ -420,7 +420,7 @@ private:
     
     std::array<float, num_meters> _last_meters{};
     
-    std::unique_ptr<tiny::plugin::Processor> _processor = std::make_unique<tiny::plugin::Processor>();
+    std::unique_ptr<tiny::process::Processor> _processor = std::make_unique<tiny::process::Processor>();
 
     // Latency
     std::atomic<uint32_t> _latency{};
@@ -442,7 +442,7 @@ private:
     // Render mode (offline/bounce). Set via setOffline off the audio thread.
     std::atomic<bool> _offline{false};
 
-    tiny::Musical_context _context{};
+    tiny::process::Musical_context _context{};
 
     tiny::Host_bypass _bypass{};
 
@@ -493,7 +493,7 @@ private:
         return frames * beats_per_frame;
     }
     
-    auto resolve_musical_context(uint32_t frame_count) -> tiny::Musical_context
+    auto resolve_musical_context(uint32_t frame_count) -> tiny::process::Musical_context
     {
         if (mTransportStateBlock && mMusicalContextBlock) {
             // Buid the host context.

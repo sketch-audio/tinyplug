@@ -167,7 +167,7 @@ private:
     std::array<float, num_meters> _meters{};
 
     // USER
-    std::unique_ptr<plugin::Processor> _processor = std::make_unique<plugin::Processor>();
+    std::unique_ptr<process::Processor> _processor = std::make_unique<process::Processor>();
     std::optional<plugin::Editor> _editor{};
     Task_manager _tasks{};
 
@@ -233,7 +233,7 @@ private:
     static constexpr auto queue_size = 4 * num_params + 1; // State only
     static constexpr auto meter_size = 25 * num_meters + 1;
 
-    using From_flush_queue = Lock_free_queue<Render_event, queue_size>; //
+    using From_flush_queue = Lock_free_queue<process::Event::Any, queue_size>; //
     using From_ui_queue = Lock_free_queue<User_action, queue_size>;
     using Meter_queue = Lock_free_queue<Set_meter, meter_size>;
 
@@ -246,7 +246,7 @@ private:
     std::atomic<bool> _needs_clear{false}; // Set by `reset`, consumed at the top of `process`.
     std::atomic<bool> _needs_resync{false};
     bool _was_skipped{}; // Render-thread only. Detects the can_skip -> processing edge.
-    std::optional<Render_mode> _last_render_mode{}; // Render-thread only. Detects the realtime <-> offline edge.
+    std::optional<process::Render_mode> _last_render_mode{}; // Render-thread only. Detects the realtime <-> offline edge.
 
 #if TINY_HAS_WORKER
     // Worker channel.
@@ -306,7 +306,7 @@ private:
 
     // MARK: - private
 
-    auto _resolve_transport(const clap_process* process) -> Musical_context;
+    auto _resolve_transport(const clap_process* process) -> process::Musical_context;
     auto _read_state_chunk(const clap_istream* stream) -> bool;
 
     auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void;
@@ -343,11 +343,11 @@ private:
                 const auto plain_value = Value_helper::host_to_plain(value_event->value, param.semantics);
                 if constexpr (on_audio_thread) {
                     // On the audio thread we can handle the event now.
-                    _processor->handle_event(Set_param{.address = id, .value = plain_value});
+                    _processor->handle(process::Event::Set{.address = id, .value = plain_value});
                 }
                 else {
                     // On flush, we need to push into a queue for later.
-                    [[maybe_unused]] const auto success = _from_flush.push(Set_param{.address = id, .value = plain_value});
+                    [[maybe_unused]] const auto success = _from_flush.push(process::Event::Set{.address = id, .value = plain_value});
                     assert(success && "Push to flush queue failed! Increase queue size.");
                     if (!success) _needs_resync.store(true, std::memory_order_relaxed); // Resync from _hostvalues on the next process.
                 }

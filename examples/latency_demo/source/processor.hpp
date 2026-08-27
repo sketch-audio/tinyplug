@@ -9,7 +9,7 @@
 #include "dsp/latency.hpp"
 #include "dsp/stereo.hpp"
 
-namespace tiny::plugin {
+namespace tiny::process {
 
 class Processor {
 public:
@@ -21,9 +21,9 @@ public:
     // mode only ever moves when the host says it has aligned its graph.
     auto reset(const Reset::Any& reset) -> void;
 
-    // Receive a render event such as `Set_param`.
+    // Receive a render event such as `Event::Set`.
     // Events are interleaved with process calls so you can consider them as happening "now".
-    auto handle_event(const Render_event& event) -> void;
+    auto handle(const Event::Any& event) -> void;
 
     // This is where you can do your signal processing.
     // In the DSP context, you have:
@@ -66,4 +66,4 @@ private:
 };
 static_assert(Some_plug_processor<Processor>); // Check your interface.
 
-} // namespace tiny::plugin
+} // namespace tiny::process

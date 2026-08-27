@@ -103,7 +103,7 @@ private:
     std::array<float, num_meters> _meters{};
 
     static constexpr auto queue_size = 4 * num_params + 1; // This is just for state load.
-    using State_queue = Overwrite_queue<Set_param, queue_size>;
+    using State_queue = Overwrite_queue<process::Event::Set, queue_size>;
     State_queue _queue{};
 
     //
@@ -115,9 +115,9 @@ private:
 
     std::array<double, num_meters> _last_meters{};
 
-    std::vector<Tagged_event> _events{}; // Some fixed size thing.
+    std::vector<process::Tagged_event> _events{}; // Some fixed size thing.
 
-    std::unique_ptr<plugin::Processor> _processor = std::make_unique<plugin::Processor>();
+    std::unique_ptr<process::Processor> _processor = std::make_unique<process::Processor>();
 
     // Latency
     std::atomic<uint32_t> _latency{};

@@ -214,7 +214,7 @@ static_assert(sizeof(Return_block) == 8);
 // ResetFieldData: that runs on the host and its block is copied into the algorithm's
 // memory pool, which would require this type to be trivially relocatable.
 struct Alg_state {
-    plugin::Processor processor{};
+    process::Processor processor{};
     Host_bypass bypass{};
 
     // Shadow of the last coefficient state, for diffing. Seeded so that the first
@@ -235,7 +235,7 @@ struct Alg_state {
     bool was_skipped{}; // Detects the can_skip -> processing edge, for `snap`.
     // Latched at reset from Reset_state, never from the per-block Runtime_packet — see
     // Reset_state. The kernel only ever observes this change across a reset.
-    Render_mode render_mode{Render_mode::Realtime};
+    process::Render_mode render_mode{process::Render_mode::Realtime};
     bool constructed{};
 };
 

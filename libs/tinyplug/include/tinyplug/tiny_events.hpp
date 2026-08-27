@@ -8,29 +8,15 @@
 
 namespace tiny {
 
+// MARK: - edit events
+//
+// What the editor emits and what the undo history stores. **Values here are KNOB space**
+// (always 0…1). Never handed to a processor without going through `Value_helper`.
+
 struct Set_param {
     uint32_t address{};
-    double value{};
+    double value{}; // Knob space.
 };
-
-struct Ramp_param {
-    uint32_t address{};
-    double target{};
-    int32_t dur_samples{};
-};
-
-// A parameter change at a point in time. Every alternative carries a frame offset, which
-// is what makes the `Tagged_event` sort meaningful. Anything the host tells the processor
-// at a block boundary — a discontinuity, a value sync-up, an accepted latency — is a
-// `Reset::Any` handed to `reset`, not an event.
-using Render_event = std::variant<Set_param, Ramp_param>;
-
-struct Tagged_event {
-    Render_event event{};
-    int32_t offset{std::numeric_limits<decltype(offset)>::max()}; // Frame offset in current buffer.
-};
-
-// MARK: - UI events
 
 struct Set_meter {
     uint32_t address{};

@@ -67,10 +67,18 @@ cmake --build build
 The plug-in author implements two classes plus a few static models. Concepts
 live alongside each interface — find them by searching for `concept Some_*`.
 
-- **`Plug_processor`** ([libs/tinyplug/include/tinyplug/tiny_processor.hpp](libs/tinyplug/include/tinyplug/tiny_processor.hpp)) —
-  `configure(Config)`, `reset(Reset::Any)`, `handle_event(Render_event)`,
+- **`Processor`** ([libs/tinyplug/include/tinyplug/tiny_processor.hpp](libs/tinyplug/include/tinyplug/tiny_processor.hpp))
+  — the whole process side lives in **`tiny::process`**, *including the user's class*, so
+  a processor file writes the vocabulary unqualified:
+  `configure(const Config&)`, `reset(const Reset::Any&)`, `handle(const Event::Any&)`,
   `process(Dsp_context&)`, `latency_samps()`, `tail_samps()`. The concept is
   `Some_plug_processor`.
+
+  The namespaces are being split by **side**, not by author: `tiny::process` (done),
+  `tiny::edit` and `tiny::work` to follow. `tiny::plugin` is what remains shared — today
+  the user's `Editor` (until `edit` lands) and the `Worker` plus its message types, which
+  both sides address. A processor reaching a worker type writes `plugin::Tick`; see
+  [worker_demo](examples/worker_demo/).
   Two axes, and the split is what to remember: **`configure` allocates** (sample rate
   plus the parameter values to come up holding, plain space) and is the only tier
   permitted to; **`reset` never does**. `Reset::Any` is a closed sum of block-boundary
@@ -86,10 +94,16 @@ live alongside each interface — find them by searching for `concept Some_*`.
   on draw, emits `User_action` events (Action_start/Set_param/Action_end/
   Request_resize). Wrappers translate gestures into host-native begin/edit/end
   notifications. Editor never shares memory with the processor.
-- **`Render_event`** is `variant<Set_param, Ramp_param>` — *everything in it carries a
-  frame offset*, which is what makes the `Tagged_event` sort meaningful. Anything the host
-  says at a block boundary is a `Reset::Any`, not an event. Keep that line intact when
-  adding MIDI.
+- **Process events and edit events are different types, and the difference is the value
+  space.** `process::Event::{Set, Ramp}` carry **plain** values to the kernel;
+  `Set_param` carries **knob** values from the editor / undo history. They used to be one
+  type, which made a wrong-space assignment — the bug shape this codebase is most prone to
+  (see "Three spaces") — compile silently. `Value_helper` is the bridge, at the wrapper
+  boundary where it always was. `Change_list` is the one genuinely two-sided container and
+  is templated on the event type so each instance declares its space.
+  *Everything in `process::Event::Any` carries a frame offset*, which is what makes the
+  `Tagged_event` sort meaningful. Anything the host says at a block boundary is a
+  `Reset::Any`, not an event. Keep that line intact when adding MIDI.
 - **`params::Model`** ([libs/tinyplug/include/tinyplug/tiny_params.hpp](libs/tinyplug/include/tinyplug/tiny_params.hpp)) —
   enumerates `Address` and provides `build_tree()` returning a
   `params::Node` tree (groups + specs). The framework flattens the tree to an
@@ -653,16 +667,20 @@ speculation, they're scheduled work.
 - **The structural + naming refactor has landed** (`next` branch): the `libs/`
   layout (`tinyplug` core + `tiny_platform` + `tiny_dsp`, each with an isolated
   `include/<name>/` root), Skia `PRIVATE`, the `params`/`meters`/`models`/`plugin`
-  namespaces, `CMakePresets`, the worker `Model` restructure, and the `tools/`
+  namespaces (now joined by `process`), `CMakePresets`, the worker `Model` restructure, and the `tools/`
   consolidation. What remains is an optional backlog —
   **[refactor-ideas.md](plans/refactor-ideas.md)** (CI, clang-format, PCH/unity,
   further namespace passes, `detail/` split, downstream migration).
+
+- **[processor-api-migration.md](plans/processor-api-migration.md)** — hand-off guide for
+  porting a downstream plug-in repo to the current processor API. Five changes in
+  dependency order, with the contracts and the traps.
 
 - **[processor-lifecycle.md](plans/processor-lifecycle.md)** — scheduled next.
   Replaces `reset(double)` with `configure(Config)` so parameter values arrive at
   configuration time, folds `clear` into `reset`, reduces `Render_event` to
   `{Set, Ramp}`, and moves latency onto a `Latency{accepted, proposed}` struct in the
-  process context. Closes the AAX-only ordering constraint where `handle_event`
+  process context. Closes the AAX-only ordering constraint where `handle`
   precedes `reset`.
 
 - **[param-lockfile.md](plans/param-lockfile.md)** — deferred. A checked-in

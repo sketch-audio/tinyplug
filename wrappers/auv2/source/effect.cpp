@@ -90,7 +90,7 @@ OSStatus Effect::Initialize()
         config_values[addr] = plain;
     }
 
-    _processor->configure(Config{
+    _processor->configure(process::Config{
         .sr = sample_rate,
         .params = config_values
     });
@@ -483,8 +483,8 @@ OSStatus Effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
         // I think we this could still fail here in case where plug-in is
         // - not processing, but also not bypassed (common in Logic)
         // - the user is controlling the plug-in via the host UI
-        [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
-            .event = Set_param{.address = inID, .value = plain_value},
+        [[maybe_unused]] const auto success = _to_processor.push(process::Tagged_event{
+            .event = process::Event::Set{.address = inID, .value = plain_value},
             .offset = static_cast<int32_t>(inBufferOffsetInFrames),
         });
         assert(success && "Push to processor queue failed! Increase queue size.");
@@ -521,8 +521,8 @@ OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEve
                     _bypass_epoch.fetch_add(1, std::memory_order_relaxed); // See SetParameter.
                 }
                 else {
-                    [[maybe_unused]] const auto success = _to_processor.push(Tagged_event{
-                        .event = Set_param{.address = event.parameter, .value = plain_value},
+                    [[maybe_unused]] const auto success = _to_processor.push(process::Tagged_event{
+                        .event = process::Event::Set{.address = event.parameter, .value = plain_value},
                         .offset = static_cast<int32_t>(offset),
                     });
                     assert(success && "Push to processor queue failed! Increase queue size.");
@@ -548,15 +548,15 @@ OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEve
                 }
                 else {
                     // Do we need to be sending set initial?
-                    [[maybe_unused]] const auto set_success = _to_processor.push(Tagged_event{
-                        .event = Set_param{.address = event.parameter, .value = plain_initial},
+                    [[maybe_unused]] const auto set_success = _to_processor.push(process::Tagged_event{
+                        .event = process::Event::Set{.address = event.parameter, .value = plain_initial},
                         .offset = offset,
                     });
                     assert(set_success && "Push to processor queue failed! Increase queue size.");
                     if (!set_success) _needs_resync.store(true, std::memory_order_relaxed);
 
-                    [[maybe_unused]] const auto ramp_success = _to_processor.push(Tagged_event{
-                        .event = Ramp_param{
+                    [[maybe_unused]] const auto ramp_success = _to_processor.push(process::Tagged_event{
+                        .event = process::Event::Ramp{
                             .address = event.parameter,
                             .target = plain_target,
                             .dur_samples = static_cast<int32_t>(duration)
@@ -584,7 +584,7 @@ auto Effect::_update_state(const Maybe_values<double>& knob_values, const State_
     using namespace params;
 
     // Notify kernel and view (if not an interface parameter).
-    auto change_list = std::vector<Set_param>{};
+    auto change_list = std::vector<process::Event::Set>{};
 
     auto notify = [&](const auto& param, auto knob_value) {
         const auto can_notify = knob_value.has_value() && State_rules::is_persistent(param);
@@ -592,7 +592,7 @@ auto Effect::_update_state(const Maybe_values<double>& knob_values, const State_
             const auto host = Value_helper::knob_to_host(*knob_value, param.semantics);
             const auto plain = Value_helper::knob_to_plain(*knob_value, param.semantics);
             Globals()->SetParameter(param.identity.address, static_cast<float>(host));
-            change_list.push_back(Set_param{param.identity.address, plain}); // We'll publish as a batch.
+            change_list.push_back(process::Event::Set{param.identity.address, plain}); // We'll publish as a batch.
         }
     };
 
@@ -767,14 +767,14 @@ OSStatus Effect::RestoreState(CFPropertyListRef plist)
 
         // Globals() now contains the full state. Notify everyone.
         // Interface parameters were omitted for us by the base implementation!
-        auto change_list = std::vector<Set_param>{};
+        auto change_list = std::vector<process::Event::Set>{};
 
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
             const auto& param = User_params::param_spec(i);
             const auto host_value = Globals()->GetParameter(i);
             const auto plain_value = Value_helper::host_to_plain(host_value, param.semantics);
 
-            change_list.push_back(Set_param{param.identity.address, plain_value});
+            change_list.push_back(process::Event::Set{param.identity.address, plain_value});
         }
 
         _changes.push_n(change_list); // Batch publish everything.
@@ -893,7 +893,7 @@ OSStatus Effect::RestoreState(CFPropertyListRef plist)
             const auto from = Value_helper::host_to_knob(Globals()->GetParameter(addr), spec.semantics);
             const auto host = Value_helper::knob_to_host(knob, spec.semantics);
             Globals()->SetParameter(addr, static_cast<float>(host));
-            _changes.push(Set_param{addr, Value_helper::knob_to_plain(knob, spec.semantics)});
+            _changes.push(process::Event::Set{addr, Value_helper::knob_to_plain(knob, spec.semantics)});
             _undo_history.amend_host_load(addr, from, knob);
         };
         _editor->notify(Host_event{Host_preset_loaded{
@@ -1003,7 +1003,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
     if (accepted_latency) {
         const auto new_latency = static_cast<uint32_t>(*accepted_latency);
-        _processor->reset(Reset::Latency{new_latency});
+        _processor->reset(process::Reset::Latency{new_latency});
         _bypass.set_latency(new_latency); // Unfortunately this could allocate, to avoid, the user model would need to be able to tell us its max latency.
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
@@ -1011,7 +1011,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     // Discontinuity requested by the host — forget history before anything this block
     // delivers lands.
     if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
-        _processor->reset(Reset::Hard{});
+        _processor->reset(process::Reset::Hard{});
         _bypass.clear();    // Its delay lines hold pre-seek dry audio.
         _bypass.snap();
     }
@@ -1028,7 +1028,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     _was_skipped = can_skip;
 
     // Render mode changed? 
-    const auto render_mode = _offline.load(std::memory_order_relaxed) ? Render_mode::Offline : Render_mode::Realtime;
+    const auto render_mode = _offline.load(std::memory_order_relaxed) ? process::Render_mode::Offline : process::Render_mode::Realtime;
     const auto render_mode_changed = (_last_render_mode != render_mode);
     _last_render_mode = render_mode;
 
@@ -1043,7 +1043,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 
     if (needs_resync || skipped_while_bypassed) {
         // Discard queue.
-        auto discarded = Tagged_event{};
+        auto discarded = process::Tagged_event{};
         while (_to_processor.pop(discarded)) {}
 
         // Consume change list.
@@ -1055,8 +1055,8 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
             if (_events.size() == _events.capacity()) break;
             const auto host_value = Globals()->GetParameter(static_cast<AudioUnitParameterID>(addr));
-            _events.push_back(Tagged_event{
-                .event = Set_param{
+            _events.push_back(process::Tagged_event{
+                .event = process::Event::Set{
                     .address = static_cast<uint32_t>(addr),
                     .value = Value_helper::host_to_plain(host_value, specs[addr].semantics)
                 },
@@ -1067,13 +1067,13 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     else {
         _changes.consume([&](auto address, auto value) {
             assert(_events.size() < _events.capacity() && "Events vector full!");
-            _events.push_back(Tagged_event{
-                .event = Set_param{.address = address, .value = value},
+            _events.push_back(process::Tagged_event{
+                .event = process::Event::Set{.address = address, .value = value},
                 .offset = 0,
             });
         });
 
-        auto param_event = Tagged_event{};
+        auto param_event = process::Tagged_event{};
         while (_to_processor.pop(param_event)) {
             assert(_events.size() < _events.capacity() && "Events vector full!");
             _events.push_back(param_event);
@@ -1084,7 +1084,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     // forget history as well as manifesting values. `Hard` already lands values, which is
     // why the resync branch below is an `else`.
     if (render_mode_changed) {
-        _processor->reset(Reset::Hard{});
+        _processor->reset(process::Reset::Hard{});
         _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
         _bypass.snap();
     }
@@ -1095,15 +1095,15 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     // manifestation. Called here, ahead of the drain below, so it lands before this
     // block's own automation.
     else if (needs_resync || skipped_while_bypassed || resumed_from_skip) {
-        _processor->reset(Reset::Soft{});
+        _processor->reset(process::Reset::Soft{});
     }
 
-    // Sort by offset; at equal offset, Set_param before Ramp_param — a fresh Set at an
+    // Sort by offset; at equal offset, Event::Set before Event::Ramp — a fresh Set at an
     // offset must still precede its own Ramp. Ranked explicitly rather than as a bare
     // "Set < Ramp" boolean so that adding an alternative (MIDI is scheduled) cannot
     // produce an intransitive equivalence (UB in std::sort).
-    const auto event_rank = [](const Render_event& event) {
-        return std::holds_alternative<Set_param>(event) ? 0 : 1;
+    const auto event_rank = [](const process::Event::Any& event) {
+        return std::holds_alternative<process::Event::Set>(event) ? 0 : 1;
     };
     std::ranges::sort(_events, [&](const auto& a, const auto& b) {
         if (a.offset != b.offset) return a.offset < b.offset;
@@ -1174,7 +1174,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     );
 
     // Create the context.
-    auto context = Dsp_context{.meters = _meters};
+    auto context = process::Dsp_context{.meters = _meters};
     context.render_mode = render_mode; // Resolved above, where the transition is detected.
 
     auto do_process = [this, &context, &host_data](size_t num_frames, size_t offset) {
@@ -1217,7 +1217,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 
         context.musical_context = {
             .sample_pos = base_pos + static_cast<int64_t>(offset),
-            .beat_pos = beat_pos + frames_to_beats(static_cast<int64_t>(offset), tempo, _sr),
+            .beat_pos = beat_pos + process::frames_to_beats(static_cast<int64_t>(offset), tempo, _sr),
             .cycle_start = cycle_start,
             .cycle_end = cycle_end,
             .tempo_ideal = tempo,
@@ -1244,7 +1244,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     if (can_skip) {
         // Manifest events until end of block.
         while (event) {
-            _processor->handle_event(event->event);
+            _processor->handle(event->event);
             next_event();
         }
     }
@@ -1271,7 +1271,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
             }
 
             do {
-                _processor->handle_event(event->event);
+                _processor->handle(event->event);
                 next_event();
             } while (event && event->offset <= static_cast<int32_t>(now));
         }
@@ -1299,7 +1299,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 
     // Send exports. Not during an offline bounce — editor's almost always closed then anyway.
     for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
-        if (context.render_mode != Render_mode::Offline && context.meters[i] != _last_meters[i]) {
+        if (context.render_mode != process::Render_mode::Offline && context.meters[i] != _last_meters[i]) {
             // Send an output event.
             const auto value = context.meters[i];
             _meter_queue.push(Set_meter{.address = i, .value = value});

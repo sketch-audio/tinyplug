@@ -10,7 +10,27 @@
 #include "tiny_events.hpp"
 #include "tiny_utils.hpp"
 
-namespace tiny {
+namespace tiny::process {
+
+struct Event {
+    struct Set {
+        uint32_t address{};
+        double value{}; // Plain space.
+    };
+
+    struct Ramp {
+        uint32_t address{};
+        double target{}; // Plain space.
+        int32_t dur_samples{};
+    };
+
+    using Any = std::variant<Set, Ramp>;
+};
+
+struct Tagged_event {
+    Event::Any event{};
+    int32_t offset{std::numeric_limits<decltype(offset)>::max()}; // Frame offset in current buffer.
+};
 
 inline auto frames_to_beats(int64_t frames, double tempo, double sample_rate) noexcept -> double
 {
@@ -118,10 +138,22 @@ concept Some_plug_processor = requires(T t) {
     // Off the audio thread. Named `configure` rather than `reset` because it adopts a
     // state rather than returning to an initial one.
     //
-    // Unlike the tiers below it, `configure` is *sufficient on its own*: `clear` and
-    // `snap` are implied. On return the processor is ready to render from exactly this
-    // configuration with defined output, and `latency_samps()` is final for it — no
-    // negotiation, no glide up from defaults on the first block.
+    // `configure` is *sufficient on its own* — it implies every `Reset` alternative. On
+    // return the processor renders from exactly this configuration with defined output.
+    //
+    // **The state handed in is the truth, not a request.** `latency_samps()` is final for
+    // this configuration and the framework reports it to the host directly, so a processor
+    // must come up already in whatever `params` implies: no negotiation, no glide up from
+    // defaults on block 1, no dip or cross-fade into it. Concretely, leave
+    // `Dsp_context::propose_latency` disengaged on every block until a *live* parameter
+    // change moves a structural parameter — re-proposing your own configured latency makes
+    // the host renegotiate delay compensation at every reset.
+    //
+    // Two further obligations, easy to leave unstated and expensive to discover late:
+    // `configure` must be **deterministic in `(sr, params)`** — AAX default-constructs the
+    // processor at every reset, so anything not reconstructible from those two is gone —
+    // and it must be **re-entrant**, since VST3 reconfigures a live object as a routine
+    // path.
     { t.configure(std::declval<const Config&>(/*config*/)) } -> std::same_as<void>;
 
     // Block-boundary synchronization — see `Reset` above for what each alternative owes.
@@ -129,10 +161,10 @@ concept Some_plug_processor = requires(T t) {
     // initializes (validators do) must find a no-op, not undefined behaviour.
     { t.reset(std::declval<const Reset::Any&>(/*reset*/)) } -> std::same_as<void>;
 
-    { t.handle_event(std::declval<const Render_event&>(/*event*/)) } -> std::same_as<void>;
+    { t.handle(std::declval<const Event::Any&>(/*event*/)) } -> std::same_as<void>;
     { t.process(std::declval<Dsp_context&>(/*context*/)) } -> std::same_as<void>;
     { t.latency_samps() } -> std::same_as<uint32_t>;
     { t.tail_samps() } -> std::same_as<uint32_t>;
 };
 
-}
+} // namespace tiny::process

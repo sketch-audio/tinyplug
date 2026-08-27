@@ -2,7 +2,7 @@
 
 #include <algorithm> // std::max
 
-namespace tiny::plugin {
+namespace tiny::process {
 
 auto Processor::configure(const Config& config) -> void
 {
@@ -45,18 +45,18 @@ auto Processor::reset(const Reset::Any& reset) -> void
     }, reset);
 }
 
-auto Processor::handle_event(const Render_event& event) -> void
+auto Processor::handle(const Event::Any& event) -> void
 {
     using namespace params;
     std::visit(Inline_visitor{
-        [this](const Set_param& e) {
+        [this](const Event::Set& e) {
             // Identify that we want a latency change.
             if (e.address == enum_raw(Address::Latency_mode) && e.value != _values[e.address]) {
                 _wants_latency_change = true;
             }
             _values[e.address] = static_cast<float>(e.value);
         },
-        [this](const Ramp_param& e) {
+        [this](const Event::Ramp& e) {
             _values[e.address] = static_cast<float>(e.target); // You might want to handle this differently.
         }
     }, event);
@@ -91,4 +91,4 @@ auto Processor::process(Dsp_context& context) -> void
     context.meters[enum_raw(models::Meters::Address::Latency_actual)] = actual;
 }
 
-} // namespace tiny::plugin
+} // namespace tiny::process

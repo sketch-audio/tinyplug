@@ -6,7 +6,7 @@
 #include "models/meters.hpp"
 #include "models/params.hpp"
 
-namespace tiny::plugin {
+namespace tiny::process {
 
 class Processor {
 public:
@@ -22,11 +22,11 @@ public:
     // `Latency` hands over a latency the host accepted. Nothing to do here. Never allocates.
     auto reset(const Reset::Any&) -> void {}
 
-    auto handle_event(const Render_event& event) -> void
+    auto handle(const Event::Any& event) -> void
     {
         std::visit(Inline_visitor{
-            [this](const Set_param& e) { _values[e.address] = static_cast<float>(e.value); },
-            [this](const Ramp_param& e) { _values[e.address] = static_cast<float>(e.target); },
+            [this](const Event::Set& e) { _values[e.address] = static_cast<float>(e.value); },
+            [this](const Event::Ramp& e) { _values[e.address] = static_cast<float>(e.target); },
             [](const auto&) {}
         }, event);
     }
@@ -40,7 +40,7 @@ public:
             }
         }
         // Push a tick to the worker once per process call (low frequency, just to exercise the path).
-        _worker.push(Tick{.sample_pos = context.musical_context.sample_pos});
+        _worker.push(plugin::Tick{.sample_pos = context.musical_context.sample_pos});
     }
 
     auto latency_samps() const -> uint32_t { return 0; }
@@ -50,10 +50,10 @@ public:
     auto bind_worker(Worker_processor_actor a) -> void { _worker = a; }
 
     // Optional opt-in: receive replies from the worker.
-    auto handle_worker_reply(const Worker::Model::To_processor& r) -> void
+    auto handle_worker_reply(const plugin::Worker::Model::To_processor& r) -> void
     {
         std::visit([this](const auto& a) {
-            if constexpr (std::is_same_v<std::remove_cvref_t<decltype(a)>, Set_counter>) {
+            if constexpr (std::is_same_v<std::remove_cvref_t<decltype(a)>, plugin::Set_counter>) {
                 _last_count = a.count;
             }
         }, r);
@@ -74,4 +74,4 @@ private:
 };
 static_assert(Some_plug_processor<Processor>);
 
-} // namespace tiny::plugin
+} // namespace tiny::process

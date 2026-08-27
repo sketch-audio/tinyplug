@@ -11,8 +11,15 @@
 
 namespace tiny {
 
-// Coalesces parameter updates for consumption by audio thread.
+// Coalesces parameter updates, keyed by address, for consumption on another thread.
 // See: https://medium.com/@sgn00/triple-buffer-lock-free-concurrency-primitive-611848627a1e
+//
+// Templated on the event type because this container is genuinely two-sided: AUv2 carries
+// `process::Event::Set` (plain) to the audio thread, while the VST3 controller carries
+// `Set_param` (knob) to the editor. `consume` yields a bare (address, value), so nothing
+// downstream can tell the spaces apart — naming the type here is what keeps each instance
+// honest about which one it holds.
+template<typename Event>
 class Change_list {
 public:
 
@@ -24,14 +31,14 @@ public:
         }
     }
 
-    auto push(const Set_param& event) -> void
+    auto push(const Event& event) -> void
     {
         do_push([&](auto& target) {
             target.insert_or_assign(event.address, event.value);
         });
     }
 
-    auto push_n(std::span<const Set_param> events) -> void
+    auto push_n(std::span<const Event> events) -> void
     {
         do_push([&](auto& target) {
             for (const auto& event : events) {

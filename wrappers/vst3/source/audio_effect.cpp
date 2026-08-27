@@ -121,6 +121,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::terminate()
 Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::ProcessSetup& newSetup)
 {
     using namespace params;
+    using namespace process;
 
     // Clear handshake state for reconfigure.
     _pending_latency.store(std::nullopt, std::memory_order_release);
@@ -261,6 +262,8 @@ Steinberg::tresult PLUGIN_API Audio_effect::canProcessSampleSize(Steinberg::int3
 
 Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData& data)
 {
+    using namespace process;
+
     const auto denormals = Denormal_guard{}; // Restores the host's FP mode on the way out.
     this->_drain_worker_to_processor();
 
@@ -304,9 +307,9 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     }
 
     // Process events in state queue.
-    auto state_event = Set_param{};
+    auto state_event = process::Event::Set{};
     while (_queue.pop(state_event)) {
-        _processor->handle_event(state_event);
+        _processor->handle(state_event);
     }
 
     // Validate shape up front.
@@ -495,7 +498,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         // No kernel run to interleave the events with, so deliver them all.
         auto delivered = false;
         while (event) {
-            _processor->handle_event(event->event);
+            _processor->handle(event->event);
             next_event();
             delivered = true;
         }
@@ -527,7 +530,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
             }
 
             do {
-                _processor->handle_event(event->event);
+                _processor->handle(event->event);
                 next_event();
             } while (event && event->offset <= now);
         }
@@ -624,6 +627,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
 Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
 {
     using namespace params;
+    using namespace process;
 
     if (!state) {
         return Steinberg::kResultFalse;
@@ -652,7 +656,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
         const auto plain_value = Value_helper::knob_to_plain(knob_value, spec.semantics);
 
         // Queue sends events to processor at next process call. 
-        _queue.push(Set_param{address, plain_value}); // Overwrite queue, won't overflow.
+        _queue.push(process::Event::Set{address, plain_value}); // Overwrite queue, won't overflow.
 
         // Maintain host values.
         _host_values[address].store(knob_value, std::memory_order_relaxed);
@@ -790,6 +794,7 @@ Steinberg::uint32 PLUGIN_API Audio_effect::getProcessContextRequirements()
 auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, bool renders_audio) -> void
 {
     using namespace params;
+    using namespace process;
 
     if (!data.inputParameterChanges) return;
     auto& param_changes = *data.inputParameterChanges;
@@ -841,7 +846,7 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
             // Set param
             if (ramp_dur <= 1) {
                 _events.push_back({
-                    .event = Set_param{
+                    .event = process::Event::Set{
                         .address = id,
                         .value = Value_helper::knob_to_plain(value, param.semantics)
                     },
@@ -851,7 +856,7 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
             // Ramp param
             else {
                 _events.push_back({
-                    .event = Ramp_param{
+                    .event = process::Event::Ramp{
                         .address = id,
                         .target = Value_helper::knob_to_plain(value, param.semantics),
                         .dur_samples = ramp_dur

@@ -3,7 +3,7 @@
 #include <cmath>
 #include <numbers>
 
-namespace tiny::plugin {
+namespace tiny::process {
 
 auto Processor::configure(const Config& config) -> void
 {
@@ -17,13 +17,13 @@ auto Processor::configure(const Config& config) -> void
     _phase_inc = 2 * std::numbers::pi * tone_hz / _sample_rate;
 }
 
-auto Processor::handle_event(const Render_event& event) -> void
+auto Processor::handle(const Event::Any& event) -> void
 {
     std::visit(Inline_visitor{
-        [this](const Set_param& e) {
+        [this](const Event::Set& e) {
             _values[e.address] = static_cast<float>(e.value);
         },
-        [this](const Ramp_param& e) {
+        [this](const Event::Ramp& e) {
             _values[e.address] = static_cast<float>(e.target);
         },
         [this](const auto&) { /* Handle other events as needed. */ }
@@ -64,4 +64,4 @@ auto Processor::process(Dsp_context& context) -> void
         context.meters[enum_raw(Meter::Offline)] = is_offline ? 1.0f : 0.0f;
 }
 
-} // namespace tiny::plugin
+} // namespace tiny::process

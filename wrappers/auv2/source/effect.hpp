@@ -203,20 +203,20 @@ private:
     static constexpr auto events_size = num_params + queue_size + 1;
 
     // 
-    using To_processor_queue = Lock_free_queue<Tagged_event, queue_size, Queue_concurrency::mpsc>; // I believe SetParameter can happen from a variety of threads.
+    using To_processor_queue = Lock_free_queue<process::Tagged_event, queue_size, Queue_concurrency::mpsc>; // I believe SetParameter can happen from a variety of threads.
 
     static constexpr auto meter_size = 25 * num_meters + 1; // Approx number of 32 sample buffers between UI updates at 60fps (25).
     using Meter_queue = Lock_free_queue<Set_meter, meter_size>;
 
-    Change_list _changes{}; // State, UI updates (not for SetParameter).
+    Change_list<process::Event::Set> _changes{}; // Plain space, to the audio thread.
     To_processor_queue _to_processor{};
 
     Meter_queue _meter_queue{};
 
     // Render
-    std::vector<Tagged_event> _events{}; // Some fixed size thing.
+    std::vector<process::Tagged_event> _events{}; // Some fixed size thing.
 
-    std::unique_ptr<plugin::Processor> _processor = std::make_unique<plugin::Processor>();
+    std::unique_ptr<process::Processor> _processor = std::make_unique<process::Processor>();
 
     // Latency
     uint32_t _latency{};
@@ -246,7 +246,7 @@ private:
     std::atomic<uint32_t> _bypass_epoch{};
     uint32_t _seen_epoch{}; // Render-thread only.
     bool _was_skipped{}; // Render-thread only. Detects the can_skip -> processing edge.
-    std::optional<Render_mode> _last_render_mode{}; // Render-thread only. Detects the realtime <-> offline edge.
+    std::optional<process::Render_mode> _last_render_mode{}; // Render-thread only. Detects the realtime <-> offline edge.
 
 #if TINY_HAS_WORKER
     // Worker channel.
@@ -324,7 +324,7 @@ private:
                         event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
                         event.mArgument.mParameter.mElement = 0;
                         AUEventListenerNotify(NULL, NULL, &event);
-                        _changes.push(Set_param{a.address, plain_value});
+                        _changes.push(process::Event::Set{a.address, plain_value});
                     },
                     [&](const Action_end& a) {
                         auto event = AudioUnitEvent{};

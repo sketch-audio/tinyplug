@@ -26,7 +26,7 @@ auto try_handle_worker_reply([[maybe_unused]] P& processor, [[maybe_unused]] con
     }
 }
 
-// Fold newly delivered coefficient segments into Set_param events.
+// Fold newly delivered coefficient segments into process::Event::Set events.
 //
 // A segment whose `seq` is unchanged is skipped outright; otherwise each of its
 // (at most 15) values is compared against the shadow. The shadow is seeded with NaN
@@ -53,7 +53,7 @@ auto apply_coefs(const Alg_context* ctx, Alg_state& st) -> void
                 st.bypass.set_bypassed(value >= 0.5);
             }
             else {
-                st.processor.handle_event(Set_param{.address = address, .value = value});
+                st.processor.handle(process::Event::Set{.address = address, .value = value});
             }
         }
     }
@@ -85,9 +85,9 @@ auto drain_inbound([[maybe_unused]] const Alg_context* ctx, [[maybe_unused]] Alg
 // the real values as coefficient packets land after the first block.
 //
 // Values leave through `params_out` (plain space, indexed by address) and reach the
-// processor as `Config::params`, not as events replayed before it is configured. That is
+// processor as `process::Config::params`, not as events replayed before it is configured. That is
 // what removes the ordering constraint this function used to carry — AAX was the one
-// format where `handle_event` preceded `reset`, an unenforceable rule with a silent,
+// format where `handle` preceded `reset`, an unenforceable rule with a silent,
 // format-specific failure mode. `params_out` arrives pre-filled with defaults, so an
 // absent snapshot leaves every address at its default.
 auto adopt_reset_state(const Alg_context* context, Alg_state& st, std::span<double> params_out) -> void
@@ -95,7 +95,7 @@ auto adopt_reset_state(const Alg_context* context, Alg_state& st, std::span<doub
     const auto* reset = context->reset_state;
     if (reset == nullptr) return;
 
-    st.render_mode = reset->runtime.offline != 0 ? Render_mode::Offline : Render_mode::Realtime;
+    st.render_mode = reset->runtime.offline != 0 ? process::Render_mode::Offline : process::Render_mode::Realtime;
 
     // The latency the host has already accepted. `latency_seq == 0` is the documented
     // sentinel for "the host has not accepted anything yet", so a zero-initialised packet
@@ -163,7 +163,7 @@ auto configure_instance(const Alg_context* context, Alg_state& st, double sample
     auto config_params = params::make_defaults<double, User_params>(params::Space::Plain);
     adopt_reset_state(context, st, config_params);
 
-    st.processor.configure(Config{.sr = sample_rate, .params = config_params});
+    st.processor.configure(process::Config{.sr = sample_rate, .params = config_params});
 
     st.bypass.reset(static_cast<float>(sample_rate));
 
@@ -236,9 +236,9 @@ auto construct_instance(const Alg_context* context, Alg_state* st, double sample
     st->constructed = true;
 }
 
-auto read_musical_context(const Alg_context* ctx, bool recording) -> Musical_context
+auto read_musical_context(const Alg_context* ctx, bool recording) -> process::Musical_context
 {
-    auto out = Musical_context{};
+    auto out = process::Musical_context{};
     if (ctx->transport_node == nullptr) return out;
 
     auto* transport = ctx->transport_node->GetTransport();
@@ -334,7 +334,7 @@ auto render_instance(Alg_context* ctx) -> void
     if (runtime.latency_seq != 0 && runtime.latency_seq != st->latency_seq) {
         st->latency_seq = runtime.latency_seq;
         st->accepted_latency = runtime.accepted_latency;
-        st->processor.reset(Reset::Latency{runtime.accepted_latency});
+        st->processor.reset(process::Reset::Latency{runtime.accepted_latency});
         st->bypass.set_latency(runtime.accepted_latency);
         // AAX owns the value and may clamp it, so this is the format where a mismatch is a
         // live possibility rather than a kernel bug.
@@ -359,7 +359,7 @@ auto render_instance(Alg_context* ctx) -> void
     }
 #endif
 
-    auto context = Dsp_context{
+    auto context = process::Dsp_context{
         .musical_context = read_musical_context(ctx, runtime.recording != 0),
         .ibuffers = {st->ibuffers.begin(), channels},
         .sbuffers = {st->sbuffers.begin(), Plug_info::wants_sidechain ? max_schannels : 0},
@@ -377,7 +377,7 @@ auto render_instance(Alg_context* ctx) -> void
     // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
     // process()) — settle before this block's own automation lands, not after.
     if (st->was_skipped && !can_skip) {
-        st->processor.reset(Reset::Soft{});
+        st->processor.reset(process::Reset::Soft{});
     }
     st->was_skipped = can_skip;
 
@@ -391,7 +391,7 @@ auto render_instance(Alg_context* ctx) -> void
     // editor's almost always closed then anyway.
     for (auto i = size_t{}; i < num_meters; ++i) {
         const auto value = static_cast<double>(context.meters[i]);
-        if (context.render_mode != Render_mode::Offline && value != st->last_meters[i] && ctx->returns != nullptr) {
+        if (context.render_mode != process::Render_mode::Offline && value != st->last_meters[i] && ctx->returns != nullptr) {
             const auto sent = ctx->returns->push_value(Ring_kind::Meter, Ring_meter{
                 .address = static_cast<uint32_t>(i),
                 .pad = 0,

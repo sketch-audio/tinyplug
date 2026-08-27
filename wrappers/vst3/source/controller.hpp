@@ -133,7 +133,7 @@ protected:
     static constexpr auto meter_size = 25 * num_meters + 1;
     using Meter_queue = Lock_free_queue<Set_meter, meter_size>;
     Meter_queue _meter_queue{};
-    Change_list _state_queue{};
+    Change_list<Set_param> _state_queue{}; // Knob space, to the editor.
     std::array<double, num_meters> _last_meters{};
 
     std::unordered_set<uint32_t> _gestured{};

@@ -2,7 +2,7 @@
 
 #include <algorithm> // std::max
 
-namespace tiny::plugin {
+namespace tiny::process {
 
 auto Processor::configure(const Config& config) -> void
 {
@@ -12,13 +12,13 @@ auto Processor::configure(const Config& config) -> void
     }
 }
 
-auto Processor::handle_event(const Render_event& event) -> void
+auto Processor::handle(const Event::Any& event) -> void
 {
     std::visit(Inline_visitor{
-        [this](const Set_param& e) {
+        [this](const Event::Set& e) {
             _values[e.address] = static_cast<float>(e.value);
         },
-        [this](const Ramp_param& e) {
+        [this](const Event::Ramp& e) {
             _values[e.address] = static_cast<float>(e.target); // You might want to handle this differently.
         },
         [this](const auto&) { /* Handle other events as needed. */ }
@@ -38,4 +38,4 @@ auto Processor::process(Dsp_context& context) -> void
     }
 }
 
-} // namespace tiny::plugin
+} // namespace tiny::process

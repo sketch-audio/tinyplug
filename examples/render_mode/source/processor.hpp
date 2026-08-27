@@ -7,7 +7,7 @@
 #include "models/meters.hpp"
 #include "models/params.hpp"
 
-namespace tiny::plugin {
+namespace tiny::process {
 
 // Demonstrates offline (bounce) detection. In realtime the output is a sine
 // tone plus white noise; when the host renders offline the noise is dropped,
@@ -21,7 +21,7 @@ public:
     // Block-boundary sync: `Hard` restarts the stream, `Soft` lands deferred values,
     // `Latency` hands over a latency the host accepted. Nothing to do here. Never allocates.
     auto reset(const Reset::Any&) -> void {}
-    auto handle_event(const Render_event& event) -> void;
+    auto handle(const Event::Any& event) -> void;
     auto process(Dsp_context& context) -> void;
 
     auto latency_samps() const -> uint32_t { return 0; }
@@ -46,4 +46,4 @@ private:
 };
 static_assert(Some_plug_processor<Processor>); // Check your interface.
 
-} // namespace tiny::plugin
+} // namespace tiny::process
