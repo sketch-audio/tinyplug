@@ -4,7 +4,7 @@
 
 namespace tiny::plugin {
 
-auto Editor::on_gui_create() -> void
+auto Editor::on_gui_create(Gui_info) -> void
 {
 }
 

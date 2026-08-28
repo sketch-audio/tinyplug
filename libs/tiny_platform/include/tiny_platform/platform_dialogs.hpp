@@ -16,15 +16,15 @@ namespace tiny {
 // that keep focus on their own window — Logic being the one that bit us — the
 // guess is wrong and the dialog appears somewhere the user cannot see.
 //
-// The conversion from a bare `Task_manager::Actor` is implicit so a call site
-// that has not been migrated keeps compiling and falls back to the old
-// behaviour. Migrate by passing the token the editor got from `on_gui_create`.
+// Construction is explicit: naming no window is a real decision (a controller with
+// no editor, say), not something a call site should fall into by passing the wrong
+// handle. Editors pass the token they were given in `on_gui_create`.
 struct Dialog_context {
     Task_manager::Actor tasks{};
     Window_token window{};
 
     Dialog_context() = default;
-    Dialog_context(Task_manager::Actor t, Window_token w = {}) : tasks{t}, window{w} {}
+    explicit Dialog_context(Task_manager::Actor t, Window_token w = {}) : tasks{t}, window{w} {}
 };
 
 struct Platform_dialogs {

@@ -14,7 +14,7 @@ public:
     Editor(const Edit_context& edit) : _edit{edit} {}
     ~Editor() = default;
 
-    auto on_gui_create() -> void;
+    auto on_gui_create(Gui_info) -> void;
     auto on_gui_show() -> void;
     auto on_gui_draw(Plugin_state&) -> void;
     auto on_gui_hide() -> void;

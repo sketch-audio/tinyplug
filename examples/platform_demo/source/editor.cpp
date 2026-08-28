@@ -31,7 +31,7 @@ auto Editor::_make_gestures() -> void
                     _edit.actions.push(Set_param{addr, knob});
                     _edit.actions.push(Action_end{addr});
                 }
-            }, {_tasks, _window});
+            }, Dialog_context{_tasks, _window});
         },
         .on_updated = [](const Click_info&) {},
         .on_ended = [](const Click_info&) {},
@@ -48,8 +48,8 @@ auto Editor::_make_gestures() -> void
                     confirmed ? "Second dialog" : "Cancelled",
                     confirmed ? "If you can read this, the sheet queued behind the first one instead of being dropped."
                               : "Cancel answers too — it no longer drops the callback.",
-                    []() {}, {_tasks, _window});
-            }, {_tasks, _window});
+                    []() {}, Dialog_context{_tasks, _window});
+            }, Dialog_context{_tasks, _window});
         },
         .on_updated = [](const Click_info&) {},
         .on_ended = [](const Click_info&) {},

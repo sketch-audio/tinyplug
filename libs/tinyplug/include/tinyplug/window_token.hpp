@@ -26,19 +26,4 @@ struct Gui_info {
     Window_token window{};
 };
 
-// Migration shim: editors that have not adopted `on_gui_create(Gui_info)` keep
-// their nullary hook and their dialogs keep the old fallback behaviour. The
-// editor is duck-typed (no concept), so this is the seam the wrappers call
-// through. Delete it — and this comment — once every editor takes `Gui_info`.
-template<typename Editor>
-auto gui_create(Editor* editor, Gui_info info) -> void
-{
-    if constexpr (requires { editor->on_gui_create(info); }) {
-        editor->on_gui_create(info);
-    }
-    else {
-        editor->on_gui_create();
-    }
-}
-
 } // namespace tiny

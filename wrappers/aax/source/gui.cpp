@@ -24,7 +24,7 @@ auto Gui::CreateViewContents() -> void
 
     _platform_view = Platform_views::make_owning(delegate);
     _platform_view->on_create();
-    gui_create(_editor, Gui_info{.window = _platform_view->token()});
+    _editor->on_gui_create(Gui_info{.window = _platform_view->token()});
 }
 
 auto Gui::CreateViewContainer() -> void

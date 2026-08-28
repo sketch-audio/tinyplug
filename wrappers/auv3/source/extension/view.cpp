@@ -12,7 +12,7 @@ auto View::create_view() -> void*
     _platform_view = Platform_views::make_owning(delegate); // TODO: - revisit
 
     _platform_view->on_create();
-    gui_create(_deps.editor, Gui_info{.window = _platform_view->token()});
+    _deps.editor->on_gui_create(Gui_info{.window = _platform_view->token()});
 
     return _platform_view->native_handle();
 }
