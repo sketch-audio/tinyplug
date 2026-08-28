@@ -43,6 +43,7 @@ endif()
 target_sources(${TINY_PLATFORM_LIB} PRIVATE
     ${PLATFORM_SOURCES}
     source/view_delegate.cpp
+    source/window_registry.cpp
 )
 
 target_sources(${TINY_PLATFORM_LIB} PRIVATE
@@ -53,6 +54,7 @@ target_sources(${TINY_PLATFORM_LIB} PRIVATE
     include/tiny_platform/view_delegate.hpp
     include/tiny_platform/window_context.hpp
     source/win_internal.hpp
+    source/window_registry.hpp
 )
 
 # Public include root → consumers (that link this lib) get <tiny_platform/...>.

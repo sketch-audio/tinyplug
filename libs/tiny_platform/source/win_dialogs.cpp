@@ -1,10 +1,12 @@
 #include <tiny_platform/platform_dialogs.hpp>
 
-#include "win_internal.hpp" // WM_TINY_SETCURSOR, view_window_class_name()
+#include "win_internal.hpp" // WM_TINY_SETCURSOR
+#include "window_registry.hpp"
 
 #include <algorithm>
 #include <array>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -50,41 +52,64 @@ static auto wstring_to_string(const std::wstring& wstr) -> std::string
     return str;
 }
 
-struct Window_info {
-    HWND hwnd;
-    RECT rect;
-    std::wstring class_name;
-};
-
-BOOL CALLBACK find_window_proc(HWND hwnd, LPARAM lparam) 
+// The plug-in view that asked (via its token), else the only view this binary
+// has open, else none. Messages meant for *us* — the cursor reset — go here.
+//
+// nullptr is a usable answer — every dialog below still opens, just unowned —
+// which is the point: the old class-name scan of the whole desktop returned the
+// *first* matching window (wrong instance with two editors open), and every call
+// site silently skipped the dialog *and* its callback when the scan missed.
+inline auto view_window(Window_token token) -> HWND
 {
-
-    static constexpr auto max_count = 256;
-    auto class_name = std::array<wchar_t, max_count>{};
-    auto window_name = std::array<wchar_t, max_count>{};
-    auto rect = RECT{0};
-
-    GetClassNameW(hwnd, class_name.data(), max_count);
-    GetWindowRect(hwnd, &rect);
-
-    if (view_window_class_name() == std::wstring{class_name.data()}) {
-        auto* info = reinterpret_cast<std::optional<Window_info>*>(lparam);
-        *info = Window_info{
-            .hwnd = hwnd,
-            .rect = rect,
-            .class_name = class_name.data(),
-        };
-        return FALSE;
-    }
-
-    return TRUE;
+    auto* native = Window_registry::resolve(token);
+    if (!native) native = Window_registry::sole();
+    return static_cast<HWND>(native);
 }
 
-inline auto find_plugin_window() -> std::optional<Window_info>
-{   
-    auto info = std::optional<Window_info>{};
-    EnumChildWindows(GetDesktopWindow(), find_window_proc, reinterpret_cast<LPARAM>(&info));
-    return info;
+// The window a dialog should be *owned* by, which is not the same window.
+//
+// Our view is a WS_CHILD re-parented into the host's frame, and a dialog owner
+// has to be top-level. Hand the dialog manager a child and it disables that
+// child instead of the host frame: the dialog is not actually modal to the host,
+// and the owner/owned activation pair is malformed. Cubase responds to that by
+// hiding the plug-in window. GA_ROOT walks up to the host's real frame window.
+inline auto owner_window(Window_token token) -> HWND
+{
+    auto* view = view_window(token);
+    if (!view) return nullptr;
+
+    // Before the host parents us, GA_ROOT is the view itself — already top-level.
+    return GetAncestor(view, GA_ROOT);
+}
+
+// Hands `job` to the UI thread that owns the view, to be run from its window
+// proc (see WM_TINY_RUN_DIALOG). Three reasons this is not just a thread hop:
+//
+//  - off the paint stack, so the modal's nested message loop can repaint us;
+//  - on the thread that owns the window, because a Win32 owner/owned pair
+//    across threads attaches the two input queues and wrecks activation;
+//  - deferred, so a dialog chained from another dialog's callback (which is
+//    drained during the draw) also lands outside WM_PAINT.
+//
+// With no window to post to we fall back to a worker thread — unowned and
+// cross-thread, i.e. the old behaviour, but shown. Note it must not run inline:
+// the caller is typically already inside WM_PAINT, which is the case that
+// freezes the editor for as long as the modal is up.
+inline auto dispatch_to_ui(Dialog_context ctx, std::function<void()> job) -> void
+{
+    auto* view = view_window(ctx.window);
+
+    if (view) {
+        auto request = std::make_unique<std::function<void()>>(std::move(job));
+        if (PostMessageW(view, WM_TINY_RUN_DIALOG, 0, reinterpret_cast<LPARAM>(request.get()))) {
+            (void)request.release(); // The handler owns it now.
+            return;
+        }
+        // Post failed — the window is on its way out. Fall through.
+        job = std::move(*request);
+    }
+
+    ctx.tasks.on_background(std::move(job));
 }
 
 // Handle owner draw buttons.
@@ -129,10 +154,12 @@ static INT_PTR CALLBACK dialog_proc(HWND hdlg, UINT message, WPARAM wparam, LPAR
 		case WM_INITDIALOG: {
 			SendDlgItemMessageW(hdlg, ID_EDIT, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(prompt_buffer));
             
-            // Center the dialog over the plugin window
-            if (const auto plugin_window = find_plugin_window()) {
-                auto rect = plugin_window->rect;
+            // Center over our owner — the plug-in window we passed to
+            // DialogBoxIndirectParamW, so no lookup is needed here.
+            if (auto* owner = GetWindow(hdlg, GW_OWNER)) {
+                auto rect = RECT{};
                 auto dlg_rect = RECT{};
+                GetWindowRect(owner, &rect);
                 GetWindowRect(hdlg, &dlg_rect);
                 const auto x = rect.left + (rect.right - rect.left - (dlg_rect.right - dlg_rect.left)) / 2;
                 const auto y = rect.top + (rect.bottom - rect.top - (dlg_rect.bottom - dlg_rect.top)) / 2;
@@ -300,491 +327,486 @@ inline auto align_dword(LPWORD lpIn) -> LPWORD
 
 // MARK: - message 
 
-auto Platform_dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, Task_manager::Actor tasks) -> void
+auto Platform_dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, Dialog_context ctx) -> void
 {
-    tasks.on_background([=, on_done=std::move(on_done)]() {
-        if (const auto plugin_window = find_plugin_window()) {
-            // calculate message size
-            const auto font = Font_info{.name = "Segoe UI", .size = 9};
-            auto [measured_w, text_h] = measure_text(message, font);
+    dispatch_to_ui(ctx, [=, on_done=std::move(on_done)]() {
+        auto* owner = owner_window(ctx.window);
+        // calculate message size
+        const auto font = Font_info{.name = "Segoe UI", .size = 9};
+        auto [measured_w, text_h] = measure_text(message, font);
 
-            const auto padding = 10;
-            const auto button_h = 15;
+        const auto padding = 10;
+        const auto button_h = 15;
 
-            const auto unclamped_w = padding + measured_w + padding;
-            const auto needs_wrap = unclamped_w > k_max_dialog_w;
-            const auto dialog_w = needs_wrap ? k_max_dialog_w : std::max(120, unclamped_w);
+        const auto unclamped_w = padding + measured_w + padding;
+        const auto needs_wrap = unclamped_w > k_max_dialog_w;
+        const auto dialog_w = needs_wrap ? k_max_dialog_w : std::max(120, unclamped_w);
 
-            const auto text_w = dialog_w - 2 * padding; // So we center properly.
-            const auto button_w = dialog_w - 2 * padding;
+        const auto text_w = dialog_w - 2 * padding; // So we center properly.
+        const auto button_w = dialog_w - 2 * padding;
 
-            if (needs_wrap) {
-                text_h = measure_text_wrapped(message, font, text_w);
-            }
+        if (needs_wrap) {
+            text_h = measure_text_wrapped(message, font, text_w);
+        }
 
-            const auto dialog_h = padding + text_h + padding + button_h + padding;
+        const auto dialog_h = padding + text_h + padding + button_h + padding;
 
-            // See: https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes
-            HINSTANCE hInstance = GetModuleHandle(nullptr);
-            HGLOBAL hgbl;
-            LPDLGTEMPLATE lpdt;
-            LPDLGITEMTEMPLATE lpdit;
-            LPWORD lpw;
-            LPWSTR lpwsz;
-            LRESULT ret;
-            int nchar;
+        // See: https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes
+        HINSTANCE hInstance = GetModuleHandle(nullptr);
+        HGLOBAL hgbl;
+        LPDLGTEMPLATE lpdt;
+        LPDLGITEMTEMPLATE lpdit;
+        LPWORD lpw;
+        LPWSTR lpwsz;
+        LRESULT ret;
+        int nchar;
 
-            hgbl = GlobalAlloc(GMEM_ZEROINIT, 4096);
-            if (!hgbl) return;
+        hgbl = GlobalAlloc(GMEM_ZEROINIT, 4096);
+        if (!hgbl) return;
         
-            lpdt = (LPDLGTEMPLATE)GlobalLock(hgbl);
+        lpdt = (LPDLGTEMPLATE)GlobalLock(hgbl);
         
-            // Define a dialog box.
+        // Define a dialog box.
         
-            lpdt->style = WS_POPUP | WS_BORDER | WS_SYSMENU | DS_MODALFRAME | WS_CAPTION | DS_SETFONT;
-            lpdt->dwExtendedStyle = WS_EX_NOPARENTNOTIFY;
-            lpdt->cdit = 2;         // Number of controls
-            lpdt->x  = 0;  lpdt->y  = 0;
-            lpdt->cx = static_cast<short>(dialog_w); lpdt->cy = static_cast<short>(dialog_h);
+        lpdt->style = WS_POPUP | WS_BORDER | WS_SYSMENU | DS_MODALFRAME | WS_CAPTION | DS_SETFONT;
+        lpdt->dwExtendedStyle = WS_EX_NOPARENTNOTIFY;
+        lpdt->cdit = 2;         // Number of controls
+        lpdt->x  = 0;  lpdt->y  = 0;
+        lpdt->cx = static_cast<short>(dialog_w); lpdt->cy = static_cast<short>(dialog_h);
 
-            lpw = (LPWORD)(lpdt + 1);
-            *lpw++ = 0;             // No menu
-            *lpw++ = 0;             // Predefined dialog box class (by default)
+        lpw = (LPWORD)(lpdt + 1);
+        *lpw++ = 0;             // No menu
+        *lpw++ = 0;             // Predefined dialog box class (by default)
 
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, static_cast<int>(title.size()) + 1);
-            lpw += nchar;
-            
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, static_cast<int>(title.size()) + 1);
+        lpw += nchar;
+        
 
-            *lpw++ = static_cast<WORD>(font.size);             // Font size
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, static_cast<int>(font.name.size()) + 1);
-            lpw += nchar;
+        *lpw++ = static_cast<WORD>(font.size);             // Font size
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, static_cast<int>(font.name.size()) + 1);
+        lpw += nchar;
 
-            //-----------------------
-            // Define an OK button.
-            //-----------------------
-            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
-            lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = static_cast<short>(padding); lpdit->y  = static_cast<short>(padding + text_h + padding);
-            lpdit->cx = static_cast<short>(button_w); lpdit->cy = static_cast<short>(button_h);
-            lpdit->id = IDOK;       // OK button identifier
-            lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW;
+        //-----------------------
+        // Define an OK button.
+        //-----------------------
+        lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+        lpdit = (LPDLGITEMTEMPLATE)lpw;
+        lpdit->x  = static_cast<short>(padding); lpdit->y  = static_cast<short>(padding + text_h + padding);
+        lpdit->cx = static_cast<short>(button_w); lpdit->cy = static_cast<short>(button_h);
+        lpdit->id = IDOK;       // OK button identifier
+        lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW;
 
-            lpw = (LPWORD)(lpdit + 1);
-            *lpw++ = 0xFFFF;
-            *lpw++ = 0x0080;        // Button class
+        lpw = (LPWORD)(lpdit + 1);
+        *lpw++ = 0xFFFF;
+        *lpw++ = 0x0080;        // Button class
 
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, "OK", -1, lpwsz, 50);
-            lpw += nchar;
-            *lpw++ = 0;             // No creation data
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, "OK", -1, lpwsz, 50);
+        lpw += nchar;
+        *lpw++ = 0;             // No creation data
 
-            //-----------------------
-            // Define a static text control.
-            //-----------------------
-            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
-            lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = static_cast<short>(padding); lpdit->y  = static_cast<short>(padding);
-            lpdit->cx = static_cast<short>(text_w); lpdit->cy = static_cast<short>(text_h);
-            lpdit->id = ID_TEXT;    // Text identifier
-            lpdit->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
+        //-----------------------
+        // Define a static text control.
+        //-----------------------
+        lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+        lpdit = (LPDLGITEMTEMPLATE)lpw;
+        lpdit->x  = static_cast<short>(padding); lpdit->y  = static_cast<short>(padding);
+        lpdit->cx = static_cast<short>(text_w); lpdit->cy = static_cast<short>(text_h);
+        lpdit->id = ID_TEXT;    // Text identifier
+        lpdit->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
 
-            lpw = (LPWORD)(lpdit + 1);
-            *lpw++ = 0xFFFF;
-            *lpw++ = 0x0082;        // Static class
+        lpw = (LPWORD)(lpdit + 1);
+        *lpw++ = 0xFFFF;
+        *lpw++ = 0x0082;        // Static class
 
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, static_cast<int>(message.size()) + 1);
-            lpw += nchar;
-            *lpw++ = 0;             // No creation data
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, static_cast<int>(message.size()) + 1);
+        lpw += nchar;
+        *lpw++ = 0;             // No creation data
 
-            GlobalUnlock(hgbl); 
-            ret = DialogBoxIndirectParamW(hInstance, 
-                                        (LPDLGTEMPLATE)hgbl, 
-                                        plugin_window->hwnd, 
-                                        (DLGPROC)dialog_proc, 0); 
-            GlobalFree(hgbl);
+        GlobalUnlock(hgbl); 
+        ret = DialogBoxIndirectParamW(hInstance, 
+                                    (LPDLGTEMPLATE)hgbl, 
+                                    owner, 
+                                    (DLGPROC)dialog_proc, 0); 
+        GlobalFree(hgbl);
 
-            tasks.on_main(on_done);
+        ctx.tasks.on_main(on_done);
 
-            SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
-        }        
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
     });
 }
 
 // MARK: - confirm
 
-auto Platform_dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_done, Task_manager::Actor tasks) -> void
+auto Platform_dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_done, Dialog_context ctx) -> void
 {
-    tasks.on_background([=, on_done=std::move(on_done)]() {
-        if (const auto plugin_window = find_plugin_window()) {
-            
-            // calculate message size
-            const auto font = Font_info{.name = "Segoe UI", .size = 9};
-            auto [measured_w, text_h] = measure_text(message, font);
-
-            const auto padding = 10;
-            const auto button_h = 15;
-
-            const auto unclamped_w = padding + measured_w + padding;
-            const auto needs_wrap = unclamped_w > k_max_dialog_w;
-            const auto dialog_w = needs_wrap ? k_max_dialog_w : std::max(120, unclamped_w);
-
-            const auto text_w = dialog_w - 2 * padding; // So we center properly.
-            const auto button_w = (dialog_w - 3 * padding) / 2;
-
-            if (needs_wrap) {
-                text_h = measure_text_wrapped(message, font, text_w);
-            }
-
-            const auto dialog_h = padding + text_h + padding + button_h + padding;
-
-
-            // See: https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes
-            HINSTANCE hInstance = GetModuleHandle(nullptr);
-            HGLOBAL hgbl;
-            LPDLGTEMPLATE lpdt;
-            LPDLGITEMTEMPLATE lpdit;
-            LPWORD lpw;
-            LPWSTR lpwsz;
-            LRESULT ret;
-            int nchar;
-
-            hgbl = GlobalAlloc(GMEM_ZEROINIT, 1024);
-            if (!hgbl) return;
+    dispatch_to_ui(ctx, [=, on_done=std::move(on_done)]() {
+        auto* owner = owner_window(ctx.window);
         
-            lpdt = (LPDLGTEMPLATE)GlobalLock(hgbl);
-        
-            // Define a dialog box.
-        
-            lpdt->style = WS_POPUP | WS_BORDER | WS_SYSMENU | DS_MODALFRAME | WS_CAPTION | DS_SETFONT;
-            lpdt->dwExtendedStyle = WS_EX_NOPARENTNOTIFY;
-            lpdt->cdit = 3;         // Number of controls
-            lpdt->x  = 0;  lpdt->y  = 0;
-            lpdt->cx = static_cast<short>(dialog_w); lpdt->cy = static_cast<short>(dialog_h);
+        // calculate message size
+        const auto font = Font_info{.name = "Segoe UI", .size = 9};
+        auto [measured_w, text_h] = measure_text(message, font);
 
-            lpw = (LPWORD)(lpdt + 1);
-            *lpw++ = 0;             // No menu
-            *lpw++ = 0;             // Predefined dialog box class (by default)
+        const auto padding = 10;
+        const auto button_h = 15;
 
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, static_cast<int>(title.size()) + 1);
-            lpw += nchar;
-            
+        const auto unclamped_w = padding + measured_w + padding;
+        const auto needs_wrap = unclamped_w > k_max_dialog_w;
+        const auto dialog_w = needs_wrap ? k_max_dialog_w : std::max(120, unclamped_w);
 
-            *lpw++ = static_cast<WORD>(font.size);             // Font size
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, static_cast<int>(font.name.size()) + 1);
-            lpw += nchar;
+        const auto text_w = dialog_w - 2 * padding; // So we center properly.
+        const auto button_w = (dialog_w - 3 * padding) / 2;
 
-            //-----------------------
-            // Define an OK button.
-            //-----------------------
-            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
-            lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = static_cast<short>(padding); lpdit->y  = static_cast<short>(padding + text_h + padding);
-            lpdit->cx = static_cast<short>(button_w); lpdit->cy = static_cast<short>(button_h);
-            lpdit->id = IDOK;       // OK button identifier
-            lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW;
-
-            lpw = (LPWORD)(lpdit + 1);
-            *lpw++ = 0xFFFF;
-            *lpw++ = 0x0080;        // Button class
-
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, "OK", -1, lpwsz, 50);
-            lpw += nchar;
-            *lpw++ = 0;             // No creation data
-
-            //-----------------------
-            // Define a cancel button.
-            //-----------------------
-            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
-            lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = static_cast<short>(padding + button_w + padding); lpdit->y  = static_cast<short>(padding + text_h + padding);
-            lpdit->cx = static_cast<short>(button_w); lpdit->cy = static_cast<short>(button_h);
-            lpdit->id = IDCANCEL;       // Cancel button identifier
-            lpdit->style = WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW;
-
-            lpw = (LPWORD)(lpdit + 1);
-            *lpw++ = 0xFFFF;
-            *lpw++ = 0x0080;        // Button class
-
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, "Cancel", -1, lpwsz, 50);
-            lpw += nchar;
-            *lpw++ = 0;             // No creation data
-
-            //-----------------------
-            // Define a static text control.
-            //-----------------------
-            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
-            lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x  = static_cast<short>(padding); lpdit->y  = static_cast<short>(padding);
-            lpdit->cx = static_cast<short>(text_w); lpdit->cy = static_cast<short>(text_h);
-            lpdit->id = ID_TEXT;    // Text identifier
-            lpdit->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
-
-            lpw = (LPWORD)(lpdit + 1);
-            *lpw++ = 0xFFFF;
-            *lpw++ = 0x0082;        // Static class
-
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, static_cast<int>(message.size()) + 1);
-            lpw += nchar;
-            *lpw++ = 0;             // No creation data
-
-
-            GlobalUnlock(hgbl); 
-            ret = DialogBoxIndirectParamW(hInstance, 
-                                        (LPDLGTEMPLATE)hgbl, 
-                                        plugin_window->hwnd, 
-                                        (DLGPROC)dialog_proc, 0); 
-            GlobalFree(hgbl);
-
-            tasks.on_main([on_done, ret]() {
-                on_done(ret == IDOK);
-            });
-
-            SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
+        if (needs_wrap) {
+            text_h = measure_text_wrapped(message, font, text_w);
         }
+
+        const auto dialog_h = padding + text_h + padding + button_h + padding;
+
+
+        // See: https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes
+        HINSTANCE hInstance = GetModuleHandle(nullptr);
+        HGLOBAL hgbl;
+        LPDLGTEMPLATE lpdt;
+        LPDLGITEMTEMPLATE lpdit;
+        LPWORD lpw;
+        LPWSTR lpwsz;
+        LRESULT ret;
+        int nchar;
+
+        hgbl = GlobalAlloc(GMEM_ZEROINIT, 1024);
+        if (!hgbl) return;
+        
+        lpdt = (LPDLGTEMPLATE)GlobalLock(hgbl);
+        
+        // Define a dialog box.
+        
+        lpdt->style = WS_POPUP | WS_BORDER | WS_SYSMENU | DS_MODALFRAME | WS_CAPTION | DS_SETFONT;
+        lpdt->dwExtendedStyle = WS_EX_NOPARENTNOTIFY;
+        lpdt->cdit = 3;         // Number of controls
+        lpdt->x  = 0;  lpdt->y  = 0;
+        lpdt->cx = static_cast<short>(dialog_w); lpdt->cy = static_cast<short>(dialog_h);
+
+        lpw = (LPWORD)(lpdt + 1);
+        *lpw++ = 0;             // No menu
+        *lpw++ = 0;             // Predefined dialog box class (by default)
+
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, static_cast<int>(title.size()) + 1);
+        lpw += nchar;
+        
+
+        *lpw++ = static_cast<WORD>(font.size);             // Font size
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, static_cast<int>(font.name.size()) + 1);
+        lpw += nchar;
+
+        //-----------------------
+        // Define an OK button.
+        //-----------------------
+        lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+        lpdit = (LPDLGITEMTEMPLATE)lpw;
+        lpdit->x  = static_cast<short>(padding); lpdit->y  = static_cast<short>(padding + text_h + padding);
+        lpdit->cx = static_cast<short>(button_w); lpdit->cy = static_cast<short>(button_h);
+        lpdit->id = IDOK;       // OK button identifier
+        lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW;
+
+        lpw = (LPWORD)(lpdit + 1);
+        *lpw++ = 0xFFFF;
+        *lpw++ = 0x0080;        // Button class
+
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, "OK", -1, lpwsz, 50);
+        lpw += nchar;
+        *lpw++ = 0;             // No creation data
+
+        //-----------------------
+        // Define a cancel button.
+        //-----------------------
+        lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+        lpdit = (LPDLGITEMTEMPLATE)lpw;
+        lpdit->x  = static_cast<short>(padding + button_w + padding); lpdit->y  = static_cast<short>(padding + text_h + padding);
+        lpdit->cx = static_cast<short>(button_w); lpdit->cy = static_cast<short>(button_h);
+        lpdit->id = IDCANCEL;       // Cancel button identifier
+        lpdit->style = WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW;
+
+        lpw = (LPWORD)(lpdit + 1);
+        *lpw++ = 0xFFFF;
+        *lpw++ = 0x0080;        // Button class
+
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, "Cancel", -1, lpwsz, 50);
+        lpw += nchar;
+        *lpw++ = 0;             // No creation data
+
+        //-----------------------
+        // Define a static text control.
+        //-----------------------
+        lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+        lpdit = (LPDLGITEMTEMPLATE)lpw;
+        lpdit->x  = static_cast<short>(padding); lpdit->y  = static_cast<short>(padding);
+        lpdit->cx = static_cast<short>(text_w); lpdit->cy = static_cast<short>(text_h);
+        lpdit->id = ID_TEXT;    // Text identifier
+        lpdit->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
+
+        lpw = (LPWORD)(lpdit + 1);
+        *lpw++ = 0xFFFF;
+        *lpw++ = 0x0082;        // Static class
+
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, static_cast<int>(message.size()) + 1);
+        lpw += nchar;
+        *lpw++ = 0;             // No creation data
+
+
+        GlobalUnlock(hgbl); 
+        ret = DialogBoxIndirectParamW(hInstance, 
+                                    (LPDLGTEMPLATE)hgbl, 
+                                    owner, 
+                                    (DLGPROC)dialog_proc, 0); 
+        GlobalFree(hgbl);
+
+        ctx.tasks.on_main([on_done, ret]() {
+            on_done(ret == IDOK);
+        });
+
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
     });
 }
 
 // MARK: - text_input
 
-auto Platform_dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Task_manager::Actor tasks) -> void
+auto Platform_dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Dialog_context ctx) -> void
 {
-    tasks.on_background([=, on_text=std::move(on_text)]() {
-        if (const auto plugin_window = find_plugin_window()) {
-            // calculate message size
-            const auto font = Font_info{.name = "Segoe UI", .size = 9};
-            auto [measured_w, text_h] = measure_text(message, font);
+    dispatch_to_ui(ctx, [=, on_text=std::move(on_text)]() {
+        auto* owner = owner_window(ctx.window);
+        // calculate message size
+        const auto font = Font_info{.name = "Segoe UI", .size = 9};
+        auto [measured_w, text_h] = measure_text(message, font);
 
-            const auto padding = 10;
-            const auto button_h = 15;
-            const auto edit_h = font.size + 2;
+        const auto padding = 10;
+        const auto button_h = 15;
+        const auto edit_h = font.size + 2;
 
-            const auto unclamped_w = padding + measured_w + padding;
-            const auto needs_wrap = unclamped_w > k_max_dialog_w;
-            const auto dialog_w = needs_wrap ? k_max_dialog_w : std::max(160, unclamped_w);
+        const auto unclamped_w = padding + measured_w + padding;
+        const auto needs_wrap = unclamped_w > k_max_dialog_w;
+        const auto dialog_w = needs_wrap ? k_max_dialog_w : std::max(160, unclamped_w);
 
-            const auto text_w = dialog_w - 2 * padding; // So we center properly.
-            const auto button_w = (dialog_w - 3 * padding) / 2;
-            const auto edit_w = dialog_w - 2 * padding;
+        const auto text_w = dialog_w - 2 * padding; // So we center properly.
+        const auto button_w = (dialog_w - 3 * padding) / 2;
+        const auto edit_w = dialog_w - 2 * padding;
 
-            if (needs_wrap) {
-                text_h = measure_text_wrapped(message, font, text_w);
-            }
+        if (needs_wrap) {
+            text_h = measure_text_wrapped(message, font, text_w);
+        }
 
-            const auto dialog_h = padding + text_h + padding + button_h + padding + edit_h + padding;
+        const auto dialog_h = padding + text_h + padding + button_h + padding + edit_h + padding;
 
-            // See: https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes
-            HINSTANCE hInstance = GetModuleHandle(nullptr);
-            HGLOBAL hgbl;
-            LPDLGTEMPLATE lpdt;
-            LPDLGITEMTEMPLATE lpdit;
-            LPWORD lpw;
-            LPWSTR lpwsz;
-            LRESULT ret;
-            int nchar;
+        // See: https://learn.microsoft.com/en-us/windows/win32/dlgbox/using-dialog-boxes
+        HINSTANCE hInstance = GetModuleHandle(nullptr);
+        HGLOBAL hgbl;
+        LPDLGTEMPLATE lpdt;
+        LPDLGITEMTEMPLATE lpdit;
+        LPWORD lpw;
+        LPWSTR lpwsz;
+        LRESULT ret;
+        int nchar;
 
-            hgbl = GlobalAlloc(GMEM_ZEROINIT, 1024);
-            if (!hgbl) return;
+        hgbl = GlobalAlloc(GMEM_ZEROINIT, 1024);
+        if (!hgbl) return;
         
-            lpdt = (LPDLGTEMPLATE)GlobalLock(hgbl);
+        lpdt = (LPDLGTEMPLATE)GlobalLock(hgbl);
         
-            // Define a dialog box.
+        // Define a dialog box.
         
-            lpdt->style = WS_POPUP | WS_BORDER | WS_SYSMENU | DS_MODALFRAME | WS_CAPTION | DS_SETFONT;
-            lpdt->dwExtendedStyle = WS_EX_NOPARENTNOTIFY;
-            lpdt->cdit = 4;         // Number of controls
-            lpdt->x  = 0;  lpdt->y  = 0;
-            lpdt->cx = static_cast<short>(dialog_w); lpdt->cy = static_cast<short>(dialog_h);
+        lpdt->style = WS_POPUP | WS_BORDER | WS_SYSMENU | DS_MODALFRAME | WS_CAPTION | DS_SETFONT;
+        lpdt->dwExtendedStyle = WS_EX_NOPARENTNOTIFY;
+        lpdt->cdit = 4;         // Number of controls
+        lpdt->x  = 0;  lpdt->y  = 0;
+        lpdt->cx = static_cast<short>(dialog_w); lpdt->cy = static_cast<short>(dialog_h);
 
-            lpw = (LPWORD)(lpdt + 1);
-            *lpw++ = 0;             // No menu
-            *lpw++ = 0;             // Predefined dialog box class (by default)
+        lpw = (LPWORD)(lpdt + 1);
+        *lpw++ = 0;             // No menu
+        *lpw++ = 0;             // Predefined dialog box class (by default)
 
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, static_cast<int>(title.size()) + 1);
-            lpw += nchar;
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, lpwsz, static_cast<int>(title.size()) + 1);
+        lpw += nchar;
 
-            *lpw++ = static_cast<WORD>(font.size);             // Font size
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, static_cast<int>(font.name.size()) + 1);
-            lpw += nchar;
+        *lpw++ = static_cast<WORD>(font.size);             // Font size
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, font.name.c_str(), -1, lpwsz, static_cast<int>(font.name.size()) + 1);
+        lpw += nchar;
 
-            //-----------------------
-            // Define an OK button.
-            //-----------------------
-            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
-            lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x = static_cast<short>(padding); 
-            lpdit->y = static_cast<short>(padding + text_h + padding + edit_h + padding);
-            lpdit->cx = static_cast<short>(button_w); 
-            lpdit->cy = static_cast<short>(button_h)    ;
-            lpdit->id = IDOK;       // OK button identifier
-            lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW;
+        //-----------------------
+        // Define an OK button.
+        //-----------------------
+        lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+        lpdit = (LPDLGITEMTEMPLATE)lpw;
+        lpdit->x = static_cast<short>(padding); 
+        lpdit->y = static_cast<short>(padding + text_h + padding + edit_h + padding);
+        lpdit->cx = static_cast<short>(button_w); 
+        lpdit->cy = static_cast<short>(button_h)    ;
+        lpdit->id = IDOK;       // OK button identifier
+        lpdit->style = WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | BS_OWNERDRAW;
 
-            lpw = (LPWORD)(lpdit + 1);
-            *lpw++ = 0xFFFF;
-            *lpw++ = 0x0080;        // Button class
+        lpw = (LPWORD)(lpdit + 1);
+        *lpw++ = 0xFFFF;
+        *lpw++ = 0x0080;        // Button class
 
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, "OK", -1, lpwsz, 50);
-            lpw += nchar;
-            *lpw++ = 0;             // No creation data
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, "OK", -1, lpwsz, 50);
+        lpw += nchar;
+        *lpw++ = 0;             // No creation data
 
-            //-----------------------
-            // Define a cancel button.
-            //-----------------------
-            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
-            lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x = static_cast<short>(padding + button_w + padding); 
-            lpdit->y = static_cast<short>(padding + text_h + padding + edit_h + padding);
-            lpdit->cx = static_cast<short>(button_w); 
-            lpdit->cy = static_cast<short>(button_h);
-            lpdit->id = IDCANCEL;       // Cancel button identifier
-            lpdit->style = WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW;
+        //-----------------------
+        // Define a cancel button.
+        //-----------------------
+        lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+        lpdit = (LPDLGITEMTEMPLATE)lpw;
+        lpdit->x = static_cast<short>(padding + button_w + padding); 
+        lpdit->y = static_cast<short>(padding + text_h + padding + edit_h + padding);
+        lpdit->cx = static_cast<short>(button_w); 
+        lpdit->cy = static_cast<short>(button_h);
+        lpdit->id = IDCANCEL;       // Cancel button identifier
+        lpdit->style = WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW;
 
-            lpw = (LPWORD)(lpdit + 1);
-            *lpw++ = 0xFFFF;
-            *lpw++ = 0x0080;        // Button class
+        lpw = (LPWORD)(lpdit + 1);
+        *lpw++ = 0xFFFF;
+        *lpw++ = 0x0080;        // Button class
 
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, "Cancel", -1, lpwsz, 50);
-            lpw += nchar;
-            *lpw++ = 0;             // No creation data
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, "Cancel", -1, lpwsz, 50);
+        lpw += nchar;
+        *lpw++ = 0;             // No creation data
 
-            //-----------------------
-            // Define an edit control.
-            //-----------------------
-            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
-            lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x = static_cast<short>(padding); 
-            lpdit->y = static_cast<short>(padding + text_h + padding);
-            lpdit->cx = static_cast<short>(edit_w);
-            lpdit->cy = static_cast<short>(edit_h);
-            lpdit->id = ID_EDIT;    // Help button identifier
-            lpdit->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL;
+        //-----------------------
+        // Define an edit control.
+        //-----------------------
+        lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+        lpdit = (LPDLGITEMTEMPLATE)lpw;
+        lpdit->x = static_cast<short>(padding); 
+        lpdit->y = static_cast<short>(padding + text_h + padding);
+        lpdit->cx = static_cast<short>(edit_w);
+        lpdit->cy = static_cast<short>(edit_h);
+        lpdit->id = ID_EDIT;    // Help button identifier
+        lpdit->style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL;
 
-            lpw = (LPWORD)(lpdit + 1);
-            *lpw++ = 0xFFFF;
-            *lpw++ = 0x0081;        // Button class atom
+        lpw = (LPWORD)(lpdit + 1);
+        *lpw++ = 0xFFFF;
+        *lpw++ = 0x0081;        // Button class atom
 
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, "", -1, lpwsz, 50);
-            lpw += nchar;
-            *lpw++ = 0;             // No creation data
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, "", -1, lpwsz, 50);
+        lpw += nchar;
+        *lpw++ = 0;             // No creation data
 
-            //-----------------------
-            // Define a static text control.
-            //-----------------------
-            lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
-            lpdit = (LPDLGITEMTEMPLATE)lpw;
-            lpdit->x = static_cast<short>(padding);
-            lpdit->y = static_cast<short>(padding);
-            lpdit->cx = static_cast<short>(text_w);
-            lpdit->cy = static_cast<short>(text_h);
-            lpdit->id = ID_TEXT;    // Text identifier
-            lpdit->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
+        //-----------------------
+        // Define a static text control.
+        //-----------------------
+        lpw = align_dword(lpw);    // Align DLGITEMTEMPLATE on DWORD boundary
+        lpdit = (LPDLGITEMTEMPLATE)lpw;
+        lpdit->x = static_cast<short>(padding);
+        lpdit->y = static_cast<short>(padding);
+        lpdit->cx = static_cast<short>(text_w);
+        lpdit->cy = static_cast<short>(text_h);
+        lpdit->id = ID_TEXT;    // Text identifier
+        lpdit->style = WS_CHILD | WS_VISIBLE | SS_CENTER;
 
-            lpw = (LPWORD)(lpdit + 1);
-            *lpw++ = 0xFFFF;
-            *lpw++ = 0x0082;        // Static class
+        lpw = (LPWORD)(lpdit + 1);
+        *lpw++ = 0xFFFF;
+        *lpw++ = 0x0082;        // Static class
 
-            lpwsz = (LPWSTR)lpw;
-            nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, static_cast<int>(message.size()) + 1);
-            lpw += nchar;
-            *lpw++ = 0;             // No creation data
+        lpwsz = (LPWSTR)lpw;
+        nchar = MultiByteToWideChar(CP_UTF8, 0, message.c_str(), -1, lpwsz, static_cast<int>(message.size()) + 1);
+        lpw += nchar;
+        *lpw++ = 0;             // No creation data
 
 
-            // 
-            std::fill_n(prompt_buffer, prompt_max_length, 0);
+        // 
+        std::fill_n(prompt_buffer, prompt_max_length, 0);
 
-            GlobalUnlock(hgbl); 
-            ret = DialogBoxIndirectParamW(hInstance, 
-                                        (LPDLGTEMPLATE)hgbl, 
-                                        plugin_window->hwnd, 
-                                        (DLGPROC)dialog_proc, 0); 
-            GlobalFree(hgbl);
+        GlobalUnlock(hgbl); 
+        ret = DialogBoxIndirectParamW(hInstance, 
+                                    (LPDLGTEMPLATE)hgbl, 
+                                    owner, 
+                                    (DLGPROC)dialog_proc, 0); 
+        GlobalFree(hgbl);
 
-            if (ret == IDOK) {
-                const auto text = wstring_to_string(std::wstring{prompt_buffer});
-                tasks.on_main([on_text, text]() {
-                    on_text(text);
-                });
-            }
+        // Cancel answers with nothing rather than dropping the callback.
+        const auto text = (ret == IDOK) ? wstring_to_string(std::wstring{prompt_buffer}) : std::string{};
+        ctx.tasks.on_main([on_text, text]() {
+            on_text(text);
+        });
 
-            SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
-        }        
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
     });
 }
 
-auto Platform_dialogs::open_url(const std::string& url, Task_manager::Actor tasks) -> void
+auto Platform_dialogs::open_url(const std::string& url, Dialog_context ctx) -> void
 {
-    tasks.on_background([=]() {
-        if (const auto plugin_window = find_plugin_window()) {
-            const auto wurl = string_to_wstring(url);
-            ShellExecuteW(nullptr, L"open", wurl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
-        }
+    // Stays on a worker: ShellExecuteW can block while a browser cold-starts,
+    // and it owns no window, so none of the reasons above apply.
+    ctx.tasks.on_background([=]() {
+        const auto wurl = string_to_wstring(url);
+        ShellExecuteW(nullptr, L"open", wurl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
     });
 }
 
-auto Platform_dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Task_manager::Actor tasks) -> void
+auto Platform_dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Dialog_context ctx) -> void
 {
-    tasks.on_background([=, on_save = std::move(on_save)]() {
-        if (const auto plugin_window = find_plugin_window()) {
-            auto wtitle = string_to_wstring(title);
-            auto wdefault_path = string_to_wstring(default_path);
-            auto wname = string_to_wstring(name);
-            auto wext = string_to_wstring(extension);
+    dispatch_to_ui(ctx, [=, on_save = std::move(on_save)]() {
+        auto* owner = owner_window(ctx.window);
+        auto wtitle = string_to_wstring(title);
+        auto wdefault_path = string_to_wstring(default_path);
+        auto wname = string_to_wstring(name);
+        auto wext = string_to_wstring(extension);
 
-            // 1. Prepare the buffer with the initial filename
-            auto file_buffer = std::array<wchar_t, 1024>{};
-            std::fill_n(file_buffer.data(), file_buffer.size(), 0);
-            if (!wname.empty()) {
-                wcscpy_s(file_buffer.data(), file_buffer.size(), wname.c_str());
-            }
-
-            // 2. Construct the Filter (e.g., "Project Files (*.ext)\0*.ext\0All Files\0*.*\0\0")
-            // Note: Must end with two null terminators.
-            std::wstring filter = L"Supported Files (*." + wext + L")\0*." + wext + L"\0All Files (*.*)\0*.*\0";
-
-            OPENFILENAMEW save_file_name = {};
-            save_file_name.lStructSize = sizeof(OPENFILENAMEW);
-            save_file_name.hwndOwner = plugin_window->hwnd;
-            save_file_name.lpstrFile = file_buffer.data();
-            save_file_name.nMaxFile = static_cast<DWORD>(file_buffer.size());
-            save_file_name.lpstrFilter = filter.c_str();
-            save_file_name.lpstrTitle = wtitle.c_str();
-            save_file_name.lpstrInitialDir = wdefault_path.empty() ? nullptr : wdefault_path.c_str();
-            
-            // 3. Set the default extension (automatically appended if user doesn't type one)
-            save_file_name.lpstrDefExt = wext.c_str();
-
-            // 4. Flags: Added OFN_OVERWRITEPROMPT for safety
-            save_file_name.Flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_OVERWRITEPROMPT | OFN_EXPLORER;
-
-            const auto result = GetSaveFileNameW(&save_file_name);
-            
-            if (result) {
-                const auto selected_path = wstring_to_string(std::wstring{save_file_name.lpstrFile});
-                tasks.on_background([=, on_save = std::move(on_save)]() {
-                    on_save(selected_path);
-                });
-            }
-            else {
-                tasks.on_background([on_save = std::move(on_save)]() {
-                    on_save(std::nullopt);
-                });
-            }
-
-            SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); 
+        // 1. Prepare the buffer with the initial filename
+        auto file_buffer = std::array<wchar_t, 1024>{};
+        std::fill_n(file_buffer.data(), file_buffer.size(), 0);
+        if (!wname.empty()) {
+            wcscpy_s(file_buffer.data(), file_buffer.size(), wname.c_str());
         }
+
+        // 2. Construct the Filter (e.g., "Project Files (*.ext)\0*.ext\0All Files\0*.*\0\0")
+        // Note: Must end with two null terminators.
+        std::wstring filter = L"Supported Files (*." + wext + L")\0*." + wext + L"\0All Files (*.*)\0*.*\0";
+
+        OPENFILENAMEW save_file_name = {};
+        save_file_name.lStructSize = sizeof(OPENFILENAMEW);
+        save_file_name.hwndOwner = owner;
+        save_file_name.lpstrFile = file_buffer.data();
+        save_file_name.nMaxFile = static_cast<DWORD>(file_buffer.size());
+        save_file_name.lpstrFilter = filter.c_str();
+        save_file_name.lpstrTitle = wtitle.c_str();
+        save_file_name.lpstrInitialDir = wdefault_path.empty() ? nullptr : wdefault_path.c_str();
+        
+        // 3. Set the default extension (automatically appended if user doesn't type one)
+        save_file_name.lpstrDefExt = wext.c_str();
+
+        // 4. Flags: Added OFN_OVERWRITEPROMPT for safety
+        save_file_name.Flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_OVERWRITEPROMPT | OFN_EXPLORER;
+
+        const auto result = GetSaveFileNameW(&save_file_name);
+        
+        if (result) {
+            const auto selected_path = wstring_to_string(std::wstring{save_file_name.lpstrFile});
+            ctx.tasks.on_background([=, on_save = std::move(on_save)]() {
+                on_save(selected_path);
+            });
+        }
+        else {
+            ctx.tasks.on_background([on_save = std::move(on_save)]() {
+                on_save(std::nullopt);
+            });
+        }
+
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); 
     });
 }
 
@@ -833,32 +855,44 @@ static auto run_dir_dialog(HWND owner, const std::wstring& wtitle) -> std::optio
     return selected_path;
 }
 
-auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void
+auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Dialog_context ctx) -> void
 {
-    tasks.on_background([=, on_open=std::move(on_open)]() {
-        if (const auto plugin_window = find_plugin_window()) {
-            const auto selected_path = run_file_dialog(plugin_window->hwnd, string_to_wstring(title), string_to_wstring(default_path));
-            tasks.on_background([=, on_open=std::move(on_open)]() {
-                on_open(selected_path);
-            });
+    dispatch_to_ui(ctx, [=, on_open=std::move(on_open)]() {
+        auto* owner = owner_window(ctx.window);
+        const auto selected_path = run_file_dialog(owner, string_to_wstring(title), string_to_wstring(default_path));
+        ctx.tasks.on_background([=, on_open=std::move(on_open)]() {
+            on_open(selected_path);
+        });
 
-            SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
-        }
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
     });
 }
 
-auto Platform_dialogs::choose_dir(const std::string& title, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_choose, Task_manager::Actor tasks) -> void
+auto Platform_dialogs::choose_dir(const std::string& title, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_choose, Dialog_context ctx) -> void
 {
-    tasks.on_background([=, on_choose=std::move(on_choose)]() {
-        if (const auto plugin_window = find_plugin_window()) {
-            const auto selected_path = run_dir_dialog(plugin_window->hwnd, string_to_wstring(title));
-            tasks.on_background([=, on_choose=std::move(on_choose)]() {
-                on_choose(selected_path);
-            });
+    dispatch_to_ui(ctx, [=, on_choose=std::move(on_choose)]() {
+        auto* owner = owner_window(ctx.window);
+        const auto selected_path = run_dir_dialog(owner, string_to_wstring(title));
+        ctx.tasks.on_background([=, on_choose=std::move(on_choose)]() {
+            on_choose(selected_path);
+        });
 
-            SendMessageW(plugin_window->hwnd, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
-        }
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
     });
+}
+
+auto run_queued_dialog(LPARAM lparam) -> void
+{
+    const auto request = std::unique_ptr<std::function<void()>>{reinterpret_cast<std::function<void()>*>(lparam)};
+    if (request && *request) (*request)();
+}
+
+auto discard_queued_dialogs(HWND hwnd) -> void
+{
+    auto message = MSG{};
+    while (PeekMessageW(&message, hwnd, WM_TINY_RUN_DIALOG, WM_TINY_RUN_DIALOG, PM_REMOVE)) {
+        delete reinterpret_cast<std::function<void()>*>(message.lParam);
+    }
 }
 
 } // namespace tiny

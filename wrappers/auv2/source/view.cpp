@@ -19,7 +19,7 @@ auto View::create_view() -> void*
     _platform_view = Platform_views::make_autoreleasing(delegate, on_autorelease);
 
     _platform_view->on_create();
-    _deps.editor->on_gui_create();
+    gui_create(_deps.editor, Gui_info{.window = _platform_view->token()});
 
     _deps.tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
     _platform_view->on_show();

@@ -6,18 +6,23 @@
 
 namespace tiny::plugin {
 
-auto Editor::on_gui_create() -> void
+auto Editor::on_gui_create(Gui_info info) -> void
 {
+    // Names the window this editor just got. Passed to every dialog below so
+    // they hang off *our* window rather than whatever the host has key.
+    _window = info.window;
 }
 
-auto Editor::on_gui_show() -> void
+auto Editor::_make_gestures() -> void
 {
     using namespace params;
 
+    // Left click: a single prompt, parented to our own window.
     _click = std::make_unique<Click_recognizer>(Gesture_callbacks<Click_info>{
-        .on_started = [this](const Click_info& info) {
+        .on_started = [this](const Click_info&) {
             // Providing an execution context makes sure the dialog result is handled on the main thread.
             Platform_dialogs::text_input("Gain", "Enter a value between 0 and 1. This prompt is deliberately long so that the dialog must word-wrap rather than stretch to fit the entire message on a single line — useful for verifying the Windows auto-wrap behavior matches macOS and iOS.", [this](std::string text) {
+                if (text.empty()) return; // Cancelled — the callback still fires.
                 const auto addr = enum_raw(Address::Gain);
                 const auto& param_spec = User_params::param_spec(addr);
                 if (const auto value = Host_formatter::to_value(text, param_spec.semantics)) {
@@ -26,12 +31,34 @@ auto Editor::on_gui_show() -> void
                     _edit.actions.push(Set_param{addr, knob});
                     _edit.actions.push(Action_end{addr});
                 }
-            }, _tasks);
+            }, {_tasks, _window});
         },
         .on_updated = [](const Click_info&) {},
         .on_ended = [](const Click_info&) {},
         .on_cancelled = []() {}
     }, Click_recognizer::Desc{/* single, left click */});
+
+    // Right click: two dialogs back to back. The second is requested from the
+    // first's callback, so it arrives while the first sheet is still on screen —
+    // the case that used to swallow the second dialog entirely.
+    _chain = std::make_unique<Click_recognizer>(Gesture_callbacks<Click_info>{
+        .on_started = [this](const Click_info&) {
+            Platform_dialogs::confirm("Chained dialogs", "Say OK and a second dialog should follow immediately.", [this](bool confirmed) {
+                Platform_dialogs::message(
+                    confirmed ? "Second dialog" : "Cancelled",
+                    confirmed ? "If you can read this, the sheet queued behind the first one instead of being dropped."
+                              : "Cancel answers too — it no longer drops the callback.",
+                    []() {}, {_tasks, _window});
+            }, {_tasks, _window});
+        },
+        .on_updated = [](const Click_info&) {},
+        .on_ended = [](const Click_info&) {},
+        .on_cancelled = []() {}
+    }, Click_recognizer::Desc{.button = Pointer_button::right});
+}
+
+auto Editor::on_gui_show() -> void
+{
 }
 
 auto Editor::on_gui_draw(Plugin_state& state) -> void
@@ -44,6 +71,8 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
         _frame = frame;
         if (_click)
             _click->set_frame(_frame);
+        if (_chain)
+            _chain->set_frame(_frame);
     }
 
     const auto& param_values = state.processor_state.params;
@@ -51,6 +80,8 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     _value = param_values[addr];
     if (_click)
         _click->process_events(view_context.interaction.events);
+    if (_chain)
+        _chain->process_events(view_context.interaction.events);
 
     // Draw.
     auto* canvas = view_context.canvas;
@@ -89,6 +120,12 @@ auto Editor::on_gui_hide() -> void
 
 auto Editor::on_gui_destroy() -> void
 {
+    // Deliberately does *not* clear `_window`. The registry is the authority on
+    // liveness — `~Platform_view` retires the token, so a stale one already
+    // resolves to nothing. Clearing here would add nothing and can actively
+    // hurt: AUv2 runs this teardown from the view's `dealloc`, i.e. whenever the
+    // autorelease pool drains, which can be *after* the next `on_gui_create` has
+    // handed us a live token.
 }
 
 } // namespace tiny::plugin
