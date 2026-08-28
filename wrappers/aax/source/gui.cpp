@@ -39,11 +39,6 @@ auto Gui::CreateViewContainer() -> void
     auto* view = GetViewContainer();
     auto* params = dynamic_cast<Parameters*>(GetEffectParameters());
 
-    // Workaround for now, dump the latest exports into the queue so we get correct values on display.
-    if (params) {
-        params->dump_meters();
-    }
-
     // We have to make our own UI connection.
     _receiver = Ui_receiver{
         .get_param = [params](auto id) {
@@ -56,8 +51,8 @@ auto Gui::CreateViewContainer() -> void
             }
             return double{};
         },
-        .pop_meter = [params](auto& e) -> bool {
-            return params ? params->pop_meter(e) : false;
+        .read_meters = [params](std::span<meters::Sample> out) {
+            if (params) params->read_meters(out);
         },
         .action_handler = [this, view, params](auto& action) {
             std::visit(Inline_visitor{

@@ -1174,7 +1174,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     );
 
     // Create the context.
-    auto context = process::Dsp_context{.meters = _meters};
+    auto context = process::Dsp_context{.meters = _meters.scratch()};
     context.render_mode = render_mode; // Resolved above, where the transition is detected.
 
     auto do_process = [this, &context, &host_data](size_t num_frames, size_t offset) {
@@ -1297,19 +1297,13 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     const auto num_channels = static_cast<size_t>(min_channels);
     _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, frame_count);
 
-    // Send exports. Not during an offline bounce — editor's almost always closed then anyway.
-    for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
-        if (context.render_mode != process::Render_mode::Offline && context.meters[i] != _last_meters[i]) {
-            // Send an output event.
-            const auto value = context.meters[i];
-            _meter_queue.push(Set_meter{.address = i, .value = value});
-
-            // Cache for next time.
-            _last_meters[i] = value;
-        }
-
-        _meters[i] = 0; // Reset for peak meters.
-    }
+    // Send exports. Suppressed during an offline bounce (Live corrupts its heap
+    // ingesting them); the publisher still resets peaks so nothing hoards a spike.
+    const auto offline = (context.render_mode == process::Render_mode::Offline);
+    _meters.publish(offline, [this](uint32_t address, float value) {
+        _mailbox.post(address, value);
+        return true; // A slot array has no capacity to refuse.
+    });
 
     // Did the processor propose a new (unreported) latency?
     const auto reported = _reported_latency.load(std::memory_order_relaxed);

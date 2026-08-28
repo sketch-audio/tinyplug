@@ -12,6 +12,9 @@
 #include "tinyplug/change_list.hpp"
 
 #include "processor.hpp"
+#include <tinyplug/meter_mailbox.hpp>
+#include <tinyplug/meter_publisher.hpp>
+
 #include "models/meters.hpp"
 #include "models/params.hpp"
 #include "editor.hpp"
@@ -187,8 +190,7 @@ private:
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
 
-    std::array<float, num_meters> _meters{}; // For processor to write.
-    std::array<double, num_meters> _last_meters{};
+    meters::Publisher<User_meters> _meters{}; // Owns the scratch the DSP writes.
 
     Clump_map _clumps{};
 
@@ -205,13 +207,11 @@ private:
     // 
     using To_processor_queue = Lock_free_queue<process::Tagged_event, queue_size, Queue_concurrency::mpsc>; // I believe SetParameter can happen from a variety of threads.
 
-    static constexpr auto meter_size = 25 * num_meters + 1; // Approx number of 32 sample buffers between UI updates at 60fps (25).
-    using Meter_queue = Lock_free_queue<Set_meter, meter_size>;
 
     Change_list<process::Event::Set> _changes{}; // Plain space, to the audio thread.
     To_processor_queue _to_processor{};
 
-    Meter_queue _meter_queue{};
+    meters::Mailbox<User_meters> _mailbox{};
 
     // Render
     std::vector<process::Tagged_event> _events{}; // Some fixed size thing.
@@ -294,8 +294,8 @@ private:
                 const auto knob = Value_helper::host_to_knob(host, param.semantics);
                 return knob;
             },
-            .pop_meter = [this](auto& event) {
-                return _meter_queue.pop(event);
+            .read_meters = [this](std::span<meters::Sample> out) {
+                _mailbox.read(out);
             },
             .action_handler = [this](auto& action) {
                 std::visit(Inline_visitor{

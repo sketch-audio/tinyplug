@@ -6,6 +6,8 @@
 #include <span>
 #include <variant>
 
+#include "meter_mailbox.hpp"
+
 namespace tiny {
 
 // MARK: - edit events
@@ -17,13 +19,6 @@ struct Set_param {
     uint32_t address{};
     double value{}; // Knob space.
 };
-
-struct Set_meter {
-    uint32_t address{};
-    double value{};
-};
-
-using Ui_event = std::variant<Set_param, Set_meter>;
 
 struct Action_start { uint32_t address{}; };
 struct Action_end { uint32_t address{}; };
@@ -65,10 +60,17 @@ using Host_event = std::variant<Host_preset_loaded, Dark_mode_changed>;
 
 struct Ui_receiver {
     using Get_param = std::function<double(uint32_t)>;
-    using Pop_meter = std::function<bool(Set_meter&)>;
     using Action_handler = std::function<void(const User_action&)>;
+
+    // Fill one sample per meter address from the mailbox. Replaces the old
+    // pop-until-empty drain: a slot array has nothing to run dry, so a reader that
+    // skipped a thousand blocks gets the same answer shape as one that skipped none.
+    // That is also why there is no resync hook — the mailbox is always current, so a
+    // newly attached editor simply reads it.
+    using Read_meters = std::function<void(std::span<meters::Sample>)>;
+
     Get_param get_param = [](auto) { return 0; };
-    Pop_meter pop_meter = [](auto&) { return false; };
+    Read_meters read_meters = [](auto) {};
     Action_handler action_handler = [](auto&) {};
 };
 

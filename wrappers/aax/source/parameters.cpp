@@ -339,8 +339,7 @@ AAX_Result Parameters::SetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSi
             auto meter = Ring_meter{};
             std::memcpy(&meter, payload, sizeof(meter));
             if (meter.address < num_meters) {
-                _last_meters[meter.address] = meter.value;
-                _meter_queue.push(Set_meter{.address = meter.address, .value = meter.value});
+                _mailbox.post(meter.address, static_cast<float>(meter.value));
             }
             break;
         }

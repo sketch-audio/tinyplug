@@ -52,7 +52,9 @@ private:
 
     std::unique_ptr<Platform_view> _platform_view{nullptr};
 
-    std::array<view::Meter_state, num_meters> _ui_meters{};
+    // Plain values now: the mailbox coalesces on the way in, so the editor no
+    // longer reconstructs per-frame peak/latest/one-shot state of its own.
+    std::array<double, num_meters> _ui_meters{};
 
     using enum params::Space;
     std::array<double, num_params> _ui_params{tiny::params::make_defaults<double, User_params>(Knob)};

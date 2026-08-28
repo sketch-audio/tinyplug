@@ -268,10 +268,8 @@ static auto presets_path() -> std::filesystem::path
             const auto knob = Value_helper::host_to_knob(host, spec.semantics);
             return knob;
         },
-        .pop_meter = [self_](Set_meter& meter) {
-            auto s = self_;
-            if (!s) return false;
-            return s->_kernel.pop_meter(meter);
+        .read_meters = [self_](std::span<meters::Sample> out) {
+            if (auto s = self_) s->_kernel.read_meters(out);
         },
         .action_handler = [self_](const User_action& action) {
             auto s = self_;

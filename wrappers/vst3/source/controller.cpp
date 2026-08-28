@@ -645,9 +645,7 @@ Steinberg::tresult PLUGIN_API Controller::setParamNormalized(Steinberg::Vst::Par
         // Convert back to plain for UI.
         const auto& spec = User_meters::spec(id);
         const auto plain = norm_to_plain(value, spec.range);
-        _meter_queue.push(Set_meter{.address = id, .value = plain});
-
-        _last_meters[id] = plain; // Cache plain because we might dump to UI.
+        _mailbox.post(id, static_cast<float>(plain));
     }
     // Is it a latency change?
     else if (tag == latency_param_id) {
@@ -676,8 +674,8 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
             .get_param = [this](auto id) {
                 return getParamNormalized(id);
             },
-            .pop_meter = [this](auto& e) {
-                return _meter_queue.pop(e);
+            .read_meters = [this](std::span<meters::Sample> out) {
+                _mailbox.read(out);
             },
             .action_handler = [this](auto& a) {
                 std::visit(Inline_visitor{
@@ -698,12 +696,6 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
             }, a);
             }
         };
-
-        // A workaround for now, push all exports into the queue.
-        // This is so we can get correct values on first appearance.
-        enumerate<uint32_t>(_last_meters, [this](auto i, const auto& e) {
-            _meter_queue.push(Set_meter{.address = i, .value = e});
-        });
 
         return new View{{
             .controller = this,

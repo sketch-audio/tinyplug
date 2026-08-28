@@ -154,7 +154,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     };
 
     // Create the context.
-    auto context = process::Dsp_context{.meters = _meters, .propose_latency = {}};
+    auto context = process::Dsp_context{.meters = _meters.scratch(), .propose_latency = {}};
     context.render_mode = _offline.load(std::memory_order_relaxed) ? process::Render_mode::Offline : process::Render_mode::Realtime;
 
     // We need to resync on render mode edge.
@@ -286,16 +286,14 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     const auto num_channels = static_cast<size_t>(min_channels);
     _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, frame_count);
 
-    // Send exports. Not during an offline bounce — editor's almost always closed then anyway.
-    for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
-        if (context.render_mode != process::Render_mode::Offline && context.meters[i] != _last_meters[i]) {
-            // Send export and cache.
-            const auto value = context.meters[i];
-            _meter_queue.push(Set_meter{.address = i, .value = value});
-            _last_meters[i] = value;
-        }
-        _meters[i] = 0; // Reset for peak meters.
-    }
+    // Send exports. Quiet during an offline bounce, and quiet on a flush block
+    // (frames_count == 0) which ran no audio and so has measured nothing — the
+    // publisher still resets peaks either way, so neither can hoard a spike.
+    const auto offline = (context.render_mode == process::Render_mode::Offline);
+    _meters.publish(offline || !renders_audio, [this](uint32_t address, float value) {
+        _mailbox.post(address, value);
+        return true; // A slot array has no capacity to refuse.
+    });
 
     // Did the processor propose a new (unreported) latency?
     const auto reported = _reported_latency.load(std::memory_order_relaxed);
@@ -1136,8 +1134,8 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
             const auto knob_value = Value_helper::host_to_knob(host_value, param.semantics);
             return knob_value;
         },
-        .pop_meter = [this](auto& event) {
-            return _meter_queue.pop(event);
+        .read_meters = [this](std::span<meters::Sample> out) {
+            _mailbox.read(out);
         },
         .action_handler = [this](auto& action) {
             this->_handle_user_action(action);

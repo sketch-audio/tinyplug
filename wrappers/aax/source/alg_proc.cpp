@@ -365,7 +365,7 @@ auto render_instance(Alg_context* ctx) -> void
         .sbuffers = {st->sbuffers.begin(), Plug_info::wants_sidechain ? max_schannels : 0},
         .obuffers = {st->obuffers.begin(), channels},
         .num_frames = num_frames,
-        .meters = st->meters
+        .meters = st->meters.scratch()
     };
     // Latched at the last reset, never mid-render. The kernel therefore only ever sees
     // this change across a reset — a point at which it has already been cleared and
@@ -386,24 +386,19 @@ auto render_instance(Alg_context* ctx) -> void
     }
     st->bypass.process({st->ibuffers.begin(), channels}, {st->obuffers.begin(), channels}, num_frames);
 
-    // Meters out. Only changes are sent; the accumulator resets each callback so
-    // peak meters report the maximum over the buffer. Not during an offline bounce —
-    // editor's almost always closed then anyway.
-    for (auto i = size_t{}; i < num_meters; ++i) {
-        const auto value = static_cast<double>(context.meters[i]);
-        if (context.render_mode != process::Render_mode::Offline && value != st->last_meters[i] && ctx->returns != nullptr) {
-            const auto sent = ctx->returns->push_value(Ring_kind::Meter, Ring_meter{
-                .address = static_cast<uint32_t>(i),
-                .pad = 0,
-                .value = value
-            });
-            // Only advance the shadow on a successful send, so an update dropped by a
-            // full ring is retried on the next callback rather than lost until the
-            // meter happens to move again.
-            if (sent) st->last_meters[i] = value;
-        }
-        st->meters[i] = 0;
-    }
+    // Meters out. Suppressed during an offline bounce; the publisher still resets
+    // peaks so a bounce cannot hoard a spike. A ring that refuses the value leaves
+    // the shadow alone, so the update is retried rather than lost until the meter
+    // happens to move again.
+    const auto offline = (context.render_mode == process::Render_mode::Offline);
+    st->meters.publish(offline, [ctx](uint32_t address, float value) {
+        if (ctx->returns == nullptr) return false;
+        return ctx->returns->push_value(Ring_kind::Meter, Ring_meter{
+            .address = address,
+            .pad = 0,
+            .value = static_cast<double>(value)
+        });
+    });
 
     // Latency proposal out. The data model turns this into SetSignalLatency, the host
     // answers with a notification, and the accepted value comes back in Runtime_packet.

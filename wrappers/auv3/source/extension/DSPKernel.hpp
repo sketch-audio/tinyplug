@@ -10,6 +10,9 @@
 #import <span>
 
 #include "processor.hpp"
+#include <tinyplug/meter_mailbox.hpp>
+#include <tinyplug/meter_publisher.hpp>
+
 #include "models/meters.hpp"
 #include "models/params.hpp"
 #include "plug_info.hpp"
@@ -206,7 +209,7 @@ public:
             }
         }
 
-        auto context = tiny::process::Dsp_context{.meters = _meters, .propose_latency = {}};
+        auto context = tiny::process::Dsp_context{.meters = _meters.scratch(), .propose_latency = {}};
         context.musical_context = resolve_musical_context(frameCount);
         context.render_mode = _offline.load(std::memory_order_relaxed)
             ? tiny::process::Render_mode::Offline
@@ -246,15 +249,13 @@ public:
         
         _bypass.process(inputBuffers, outputBuffers, frameCount);
         
-        // Send exports. Not during an offline bounce — editor's almost always closed then anyway.
-        for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
-            if (context.render_mode != tiny::process::Render_mode::Offline && context.meters[i] != _last_meters[i]) {
-                const auto value = context.meters[i];
-                _meter_queue.push(tiny::Set_meter{.address = i, .value = value});
-                _last_meters[i] = value;
-            }
-            _meters[i] = 0; // Reset for peak meters.
-        }
+        // Send exports. Suppressed during an offline bounce; the publisher still
+        // resets peaks so a bounce cannot hoard a spike.
+        const auto offline = (context.render_mode == tiny::process::Render_mode::Offline);
+        _meters.publish(offline, [this](uint32_t address, float value) {
+            _mailbox.post(address, value);
+            return true; // A slot array has no capacity to refuse.
+        });
 
         // Has the kernel proposed a new latency? Only act if it actually differs from
         // what we last told the host — otherwise a kernel that re-proposes the same
@@ -352,9 +353,9 @@ public:
         return _processor->tail_samps() / mSampleRate;
     }
     
-    auto pop_meter(tiny::Set_meter& meter) -> bool
+    auto read_meters(std::span<tiny::meters::Sample> out) -> void
     {
-        return _meter_queue.pop(meter);
+        _mailbox.read(out);
     }
     
     auto onHostUpdated(AUParameterAddress /*address*/, AUValue /*value*/) -> void
@@ -389,7 +390,7 @@ private:
     std::array<const float*, max_ichannels> _ibuffers{};
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
-    std::array<float, num_meters> _meters{};
+    tiny::meters::Publisher<User_meters> _meters{}; // Owns the scratch the DSP writes.
 
     static constexpr auto queue_size = []() {
         const auto state = 4 * num_params;
@@ -409,16 +410,13 @@ private:
     bool _was_skipped{}; // process()-thread only. Detects the can_skip -> processing edge.
     std::optional<tiny::process::Render_mode> _last_render_mode{}; // process()-thread only. Detects the realtime <-> offline edge.
 
-    static constexpr auto meter_size = 25 * num_meters + 1;
-    using Meter_queue = tiny::Lock_free_queue<tiny::Set_meter, meter_size>;
-    Meter_queue _meter_queue{};
+    tiny::meters::Mailbox<User_meters> _mailbox{};
     
     // Values in host space.
     using Host_value = std::atomic<float>;
     using Host_values = std::array<Host_value, num_params>;
     Host_values _hostvalues{tiny::params::make_defaults<Host_value, User_params>(tiny::params::Space::Host)};
     
-    std::array<float, num_meters> _last_meters{};
     
     std::unique_ptr<tiny::process::Processor> _processor = std::make_unique<tiny::process::Processor>();
 

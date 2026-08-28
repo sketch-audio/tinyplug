@@ -10,6 +10,9 @@
 #include "clap/helpers/host-proxy.hxx"
 
 #include "processor.hpp"
+#include <tinyplug/meter_mailbox.hpp>
+#include <tinyplug/meter_publisher.hpp>
+
 #include "models/meters.hpp"
 #include "models/params.hpp"
 #include "plug_info.hpp"
@@ -164,7 +167,7 @@ private:
     std::array<const float*, max_ichannels> _ibuffers{};
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
-    std::array<float, num_meters> _meters{};
+    meters::Publisher<User_meters> _meters{}; // Owns the scratch the DSP writes.
 
     // USER
     std::unique_ptr<process::Processor> _processor = std::make_unique<process::Processor>();
@@ -228,19 +231,16 @@ private:
     using enum params::Space;
     Host_values _hostvalues{tiny::params::make_defaults<Host_value, User_params>(Host)};
 
-    std::array<double, num_meters> _last_meters{};
 
     static constexpr auto queue_size = 4 * num_params + 1; // State only
-    static constexpr auto meter_size = 25 * num_meters + 1;
 
     using From_flush_queue = Lock_free_queue<process::Event::Any, queue_size>; //
     using From_ui_queue = Lock_free_queue<User_action, queue_size>;
-    using Meter_queue = Lock_free_queue<Set_meter, meter_size>;
 
     From_flush_queue _from_flush{};
     From_ui_queue _from_ui{};
 
-    Meter_queue _meter_queue{};
+    meters::Mailbox<User_meters> _mailbox{};
 
     // Resync mechanism. Currently only a fallback in case we overflow our queue in release.
     std::atomic<bool> _needs_clear{false}; // Set by `reset`, consumed at the top of `process`.

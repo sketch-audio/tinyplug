@@ -12,6 +12,8 @@
 
 #include "plug_info.hpp"
 
+#include <tinyplug/meter_publisher.hpp>
+
 #include "models/meters.hpp"
 #include "models/params.hpp"
 #include "processor.hpp"
@@ -222,8 +224,7 @@ struct Alg_state {
     std::array<double, num_coefs> shadow{};
     std::array<uint64_t, num_segments> shadow_seq{};
 
-    std::array<float, num_meters> meters{};
-    std::array<double, num_meters> last_meters{};
+    meters::Publisher<User_meters> meters{}; // Owns the scratch the DSP writes.
 
     std::array<const float*, max_ichannels> ibuffers{};
     std::array<const float*, max_schannels> sbuffers{};

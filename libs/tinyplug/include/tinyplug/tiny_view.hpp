@@ -18,19 +18,6 @@
 
 class SkCanvas; // Skia canvas
 
-namespace tiny::view {
-
-// Per-meter UI accumulation state. run_frame uses this to turn a stream of
-// Set_meter events into a drawable value according to the meter's Policy.
-struct Meter_state {
-    double value{};       // Current value.
-    bool updated{};       // Updated the peak/stream value this frame?
-    bool trigged{};       // Received a trig this frame?
-    bool last_is_zero{};  // Was the last value (in a peak stream) zero?
-};
-
-} // namespace tiny::view
-
 namespace tiny {
 
 // MARK: - helpers
@@ -324,50 +311,26 @@ inline auto run_frame(
 {
     _tasks.bind_main(std::this_thread::get_id());
 
-    // TODO: consider replacing pop_meter with a sync_ui_values that pushes all current values at once before presenting.
-    auto meter = Set_meter{};
-    while (_receiver.pop_meter(meter)) {
-        const auto addr = meter.address;
-        const auto value = meter.value;
+    // Read the meter mailbox: one pass, one sample per address. The old drain loop
+    // had to re-derive per-frame coalescing (max for a peak, latest for a level, a
+    // one-frame flag for an event) from a stream of individual values; the mailbox
+    // combines on the way in, so all that bookkeeping — and the `Meter_state` it
+    // lived in — is gone.
+    auto samples = std::array<meters::Sample, std::tuple_size_v<A1>>{};
+    _receiver.read_meters(samples);
 
-        auto& ui_meter = _ui_meters[addr];
-        const auto type = _meter_specs[addr].policy;
-        
-        using enum meters::Policy;
-        switch (type) {
-            case Peak: {
-                if (!ui_meter.updated) {
-                    ui_meter.value = 0; // Reset on first update in frame where we receive an event.
-                }
-                ui_meter.value = std::max(ui_meter.value, value);
-                ui_meter.last_is_zero = (value == 0.f);
-                ui_meter.updated = true;
-                break;
-            }
-            case Stream: {
-                ui_meter.value = value;
-                ui_meter.updated = true;
-                break;
-            }
-            case Trig: {
-                ui_meter.value = 1;
-                ui_meter.trigged = true;
-                break;
-            }
-            default:
-                break;
-        }
+    for (auto i = size_t{}; i < samples.size(); ++i) {
+        // A level and a peak are both just "the value"; the mailbox already decided
+        // what that means for each. An event shows its magnitude on the frames it
+        // actually fired, and nothing on the others.
+        _ui_meters[i] = (_meter_specs[i].policy == meters::Policy::Trig)
+            ? (samples[i].triggers > 0 ? static_cast<double>(samples[i].value) : 0.)
+            : static_cast<double>(samples[i].value);
     }
-
-    // Adapt tagged meters to values.
-    auto meter_arr = std::vector<double>{};
-    meter_arr.resize(_meter_specs.size());
-    const auto value_tx = _ui_meters | std::views::transform(&view::Meter_state::value);
-    std::ranges::copy(value_tx, meter_arr.begin());
 
     // Create view context.
     auto state = Plugin_state{
-        .processor_state = {_ui_params, meter_arr},
+        .processor_state = {_ui_params, _ui_meters},
         .view_context = view_context,
     };
     _actions.clear(); // Actually clear before we draw.
@@ -397,19 +360,6 @@ inline auto run_frame(
     }
 
     _actions.process_observers(_ui_params); // Use manifested state.
-
-    // Reset meters for next frame.
-    for (auto& ui_meter : _ui_meters) {
-        ui_meter.updated = false;
-        if (ui_meter.trigged) {
-            ui_meter.value = 0;
-            ui_meter.trigged = false;
-        }
-        if (ui_meter.last_is_zero) {
-            ui_meter.value = 0;
-            ui_meter.last_is_zero = false;
-        }
-    }
 }
 
 } // namespace view_impl

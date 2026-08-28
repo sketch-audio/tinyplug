@@ -10,6 +10,8 @@
 
 #include "plug_info.hpp"
 #include "processor.hpp"
+#include <tinyplug/meter_publisher.hpp>
+
 #include "models/meters.hpp"
 #include "models/params.hpp"
 
@@ -100,7 +102,7 @@ private:
     std::array<const float*, max_ichannels> _ibuffers{};
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
-    std::array<float, num_meters> _meters{};
+    meters::Publisher<User_meters> _meters{}; // Owns the scratch the DSP writes.
 
     static constexpr auto queue_size = 4 * num_params + 1; // This is just for state load.
     using State_queue = Overwrite_queue<process::Event::Set, queue_size>;
@@ -113,7 +115,6 @@ private:
     // FYI: VST3 host values are knob space.
     std::array<Host_value, num_params> _host_values{tiny::params::make_defaults<Host_value, User_params>(Knob)};
 
-    std::array<double, num_meters> _last_meters{};
 
     std::vector<process::Tagged_event> _events{}; // Some fixed size thing.
 

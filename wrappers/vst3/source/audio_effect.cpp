@@ -387,9 +387,10 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         }
     };
 
-    // Create the context.
-    _meters.fill(0);
-    auto context = Dsp_context{.meters = _meters};
+    // Create the context. The scratch is NOT blanket-cleared here: what survives a
+    // block is per-policy and the publisher decides it at the end (levels persist,
+    // peaks and events do not).
+    auto context = Dsp_context{.meters = _meters.scratch()};
 
     // kPrefetch (sampler pre-roll / variable-rate playback) is not a bounce → realtime.
     context.render_mode = (data.processMode == Steinberg::Vst::kOffline) ? Render_mode::Offline : Render_mode::Realtime;
@@ -568,30 +569,27 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         );
     }
 
-    auto add_output_event = [&](int32_t id, double value) {
+    auto add_output_event = [&](int32_t id, double value) -> bool {
         auto event_index = Steinberg::int32{};
-        if (!data.outputParameterChanges) return;
+        if (!data.outputParameterChanges) return false;
         auto* queue = data.outputParameterChanges->addParameterData(static_cast<uint32_t>(id), event_index);
-        if (!queue) return;
+        if (!queue) return false;
         auto point_index = Steinberg::int32{};
-        queue->addPoint(0, value, point_index); // offset, value, index
+        return queue->addPoint(0, value, point_index) == Steinberg::kResultOk; // offset, value, index
     };
 
-    // Don't meter during flush blocks.
-    // Live can crash if we meter using output params during bounce!
-    if (renders_audio && !is_offline_bounce) {
-        for (size_t i = 0; i < num_meters; ++i) {
-            if (context.meters[i] != _last_meters[i]) {
-                // Send normalized value to UI per VST spec.
-                const auto val = context.meters[i];
-                const auto& spec = User_meters::spec(static_cast<uint32_t>(i));
-                const auto norm = plain_to_norm(val, spec.range);
-                add_output_event(export_param_offset + static_cast<int32_t>(i), norm);
-
-                _last_meters[i] = context.meters[i];
-            }
-        }
-    }
+    // Two reasons to stay quiet. Live can crash ingesting output-parameter meters
+    // during an offline bounce. And a flush block (numSamples == 0, or a buffer
+    // shape we refused) ran no audio, so it has measured nothing — publishing there
+    // would report a peak of zero, which asserts silence we never observed and
+    // reads as a one-frame drop-out in the editor.
+    _meters.publish(is_offline_bounce || !renders_audio, [&](uint32_t address, float value) {
+        // Normalized on the wire per the VST spec; note the range clamps, so a meter
+        // whose plain value can exceed its declared Range is reported at the limit.
+        const auto& spec = User_meters::spec(address);
+        const auto norm = plain_to_norm(value, spec.range);
+        return add_output_event(export_param_offset + static_cast<int32_t>(address), norm);
+    });
 
     auto notify = [&, this] {
         _change_count += 1.;
