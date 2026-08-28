@@ -3,6 +3,8 @@
 #import <UIKit/UIKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
+#include "window_registry.hpp"
+
 #if __has_feature(objc_arc)
 static_assert(false, "This is a non-ARC file");
 #endif
@@ -27,7 +29,39 @@ static_assert(false, "This is a non-ARC file");
 
 namespace tiny {
 
-auto Platform_dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, Task_manager::Actor tasks) -> void
+namespace {
+
+// The view controller a dialog should be presented from.
+//
+// Walking the responder chain up from the view that asked gets the right scene
+// and the right presented stack, and it works inside an out-of-process AUv3
+// extension where the app has no key window of its own. `keyWindow` (deprecated,
+// and nil under multi-scene) is only the last resort.
+auto top_view_controller(Window_token token) -> UIViewController*
+{
+    auto* native = Window_registry::resolve(token);
+    if (!native) native = Window_registry::sole();
+
+    UIViewController* controller = nil;
+    for (UIResponder* responder = static_cast<UIView*>(native); responder != nil; responder = responder.nextResponder) {
+        if ([responder isKindOfClass:[UIViewController class]]) {
+            controller = static_cast<UIViewController*>(responder);
+            break;
+        }
+    }
+
+    if (!controller) controller = static_cast<UIView*>(native).window.rootViewController;
+    if (!controller) controller = [UIApplication sharedApplication].keyWindow.rootViewController;
+
+    while (controller.presentedViewController) {
+        controller = controller.presentedViewController;
+    }
+    return controller;
+}
+
+} // namespace
+
+auto Platform_dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, Dialog_context ctx) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -39,22 +73,15 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
                                                                 preferredStyle:UIAlertControllerStyleAlert];
         UIAlertAction* okAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
                                                          handler:^(UIAlertAction* action) {
-            tasks.on_main(on_done);
+            ctx.tasks.on_main(on_done);
         }];
         [alert addAction:okAction];
         
-        // Find the topmost view controller
-        UIViewController* rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
-        UIViewController* topViewController = rootViewController;
-        while (topViewController.presentedViewController) {
-            topViewController = topViewController.presentedViewController;
-        }
-        
-        [topViewController presentViewController:alert animated:YES completion:nil];
+        [top_view_controller(ctx.window) presentViewController:alert animated:YES completion:nil];
     });
 }
 
-auto Platform_dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_confirm, Task_manager::Actor tasks) -> void
+auto Platform_dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_confirm, Dialog_context ctx) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -66,31 +93,24 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
                                                                 preferredStyle:UIAlertControllerStyleAlert];
         UIAlertAction* yesAction = [UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault
                                                           handler:^(UIAlertAction* action) {
-            tasks.on_main([on_confirm=std::move(on_confirm)] {
+            ctx.tasks.on_main([on_confirm=std::move(on_confirm)] {
                 on_confirm(true);
             });
         }];
         UIAlertAction* noAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
                                                          handler:^(UIAlertAction* action) {
-            tasks.on_main([on_confirm=std::move(on_confirm)] {
+            ctx.tasks.on_main([on_confirm=std::move(on_confirm)] {
                 on_confirm(false);
             });
         }];
         [alert addAction:yesAction];
         [alert addAction:noAction];
         
-        // Find the topmost view controller
-        UIViewController* rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
-        UIViewController* topViewController = rootViewController;
-        while (topViewController.presentedViewController) {
-            topViewController = topViewController.presentedViewController;
-        }
-        
-        [topViewController presentViewController:alert animated:YES completion:nil];
+        [top_view_controller(ctx.window) presentViewController:alert animated:YES completion:nil];
     });
 }
 
-auto Platform_dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Task_manager::Actor tasks) -> void
+auto Platform_dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Dialog_context ctx) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -107,29 +127,25 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
                                                          handler:^(UIAlertAction* action) {
             UITextField* textField = alert.textFields.firstObject;
             const auto text = std::string{[textField.text UTF8String]};
-            tasks.on_main([on_text=std::move(on_text), text] {
+            ctx.tasks.on_main([on_text=std::move(on_text), text] {
                 on_text(text);
             });
         }];
         UIAlertAction* cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel
                                                              handler:^(UIAlertAction* action) {
-            //...
+            // Answer with nothing rather than dropping the callback.
+            ctx.tasks.on_main([on_text=std::move(on_text)] {
+                on_text(std::string{});
+            });
         }];
         [alert addAction:okAction];
         [alert addAction:cancelAction];
         
-        // Find the topmost view controller
-        UIViewController* rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
-        UIViewController* topViewController = rootViewController;
-        while (topViewController.presentedViewController) {
-            topViewController = topViewController.presentedViewController;
-        }
-        
-        [topViewController presentViewController:alert animated:YES completion:nil];
+        [top_view_controller(ctx.window) presentViewController:alert animated:YES completion:nil];
     });
 }
 
-auto Platform_dialogs::open_url(const std::string& url, Task_manager::Actor /*tasks*/) -> void
+auto Platform_dialogs::open_url(const std::string& url, Dialog_context /*ctx*/) -> void
 {
     // Copy to locals.
     const auto url_copy = url;
@@ -141,14 +157,14 @@ auto Platform_dialogs::open_url(const std::string& url, Task_manager::Actor /*ta
     }
 }
 
-auto Platform_dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Task_manager::Actor tasks) -> void {
+auto Platform_dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Dialog_context ctx) -> void {
     
     //const auto title_copy = title;
     //const auto default_path_copy = default_path;
     const auto name_copy = name;
     const auto extension_copy = extension;
 
-    tasks.on_background([=, on_save = std::move(on_save)]() mutable {
+    ctx.tasks.on_background([=, on_save = std::move(on_save)]() mutable {
         NSString* ns_name = [NSString stringWithUTF8String:name_copy.c_str()];
         NSString* ns_ext = [NSString stringWithUTF8String:extension_copy.c_str()];
         NSString* tempFilename = [NSString stringWithFormat:@"%@.%@", ns_name, ns_ext];
@@ -171,9 +187,7 @@ auto Platform_dialogs::save_file(const std::string& title, const std::string& de
             };
 
             picker.delegate = helper;
-            UIViewController* topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
-            while (topVC.presentedViewController) topVC = topVC.presentedViewController;
-            [topVC presentViewController:picker animated:YES completion:nil];
+            [top_view_controller(ctx.window) presentViewController:picker animated:YES completion:nil];
         });
     });
 }
@@ -182,7 +196,7 @@ auto Platform_dialogs::save_file(const std::string& title, const std::string& de
 
 // Shared by `open_file`/`choose_dir` -- the document picker only differs in
 // which content type it's restricted to (any item vs. folders only).
-static auto present_document_picker(NSString* content_type, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void
+static auto present_document_picker(NSString* content_type, std::function<void(std::optional<std::string>)> on_open, Dialog_context ctx) -> void
 {
     dispatch_async(dispatch_get_main_queue(), ^{
         UIDocumentPickerViewController* documentPicker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[content_type]
@@ -205,18 +219,18 @@ static auto present_document_picker(NSString* content_type, std::function<void(s
                     
                     const auto temp_str = std::string{[temp UTF8String]};
 
-                    tasks.on_background([=, on_open=std::move(on_open)] {
+                    ctx.tasks.on_background([=, on_open=std::move(on_open)] {
                         on_open(temp_str);
                         [[NSFileManager defaultManager] removeItemAtPath:[NSString stringWithUTF8String:temp_str.c_str()] error:nil];
                     });
                 }
                 else {
-                    tasks.on_background([on_open=std::move(on_open)] {
+                    ctx.tasks.on_background([on_open=std::move(on_open)] {
                         on_open(std::nullopt);
                     });
                 }
             } else {
-                tasks.on_background([on_open=std::move(on_open)] {
+                ctx.tasks.on_background([on_open=std::move(on_open)] {
                     on_open(std::nullopt);
                 });
             }
@@ -225,25 +239,18 @@ static auto present_document_picker(NSString* content_type, std::function<void(s
         };
         documentPicker.delegate = helper;
         
-        // Find the topmost view controller
-        UIViewController* rootViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
-        UIViewController* topViewController = rootViewController;
-        while (topViewController.presentedViewController) {
-            topViewController = topViewController.presentedViewController;
-        }
-        
-        [topViewController presentViewController:documentPicker animated:YES completion:nil];
+        [top_view_controller(ctx.window) presentViewController:documentPicker animated:YES completion:nil];
     });
 }
 
-auto Platform_dialogs::open_file(const std::string& /*title*/, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_open, Task_manager::Actor tasks) -> void
+auto Platform_dialogs::open_file(const std::string& /*title*/, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_open, Dialog_context ctx) -> void
 {
-    present_document_picker(UTTypeItem.identifier, std::move(on_open), tasks);
+    present_document_picker(UTTypeItem.identifier, std::move(on_open), ctx);
 }
 
-auto Platform_dialogs::choose_dir(const std::string& /*title*/, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_choose, Task_manager::Actor tasks) -> void
+auto Platform_dialogs::choose_dir(const std::string& /*title*/, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_choose, Dialog_context ctx) -> void
 {
-    present_document_picker(UTTypeFolder.identifier, std::move(on_choose), tasks);
+    present_document_picker(UTTypeFolder.identifier, std::move(on_choose), ctx);
 }
 
 } // namespace tiny

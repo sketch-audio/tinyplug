@@ -48,10 +48,17 @@ struct Platform_view {
     
     auto native_handle() -> void* { return _view; }
     auto get_size() -> Rect_size { return _delegate->get_size(); }
+
+    // Names this view for as long as it exists. Thread it to `Platform_dialogs`
+    // so a dialog hangs off the window that asked for it. Retired in the
+    // destructor, after which resolving it yields nothing.
+    auto token() const -> Window_token { return _token; }
+
 private:
     const bool _owns_view{true};
     std::shared_ptr<View_delegate> _delegate;
     void* _view{nullptr};
+    Window_token _token{};
 
 #if TINY_PLATFORM_WINDOWS
     Platform_binder _binder{};

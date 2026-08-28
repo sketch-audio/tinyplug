@@ -1,5 +1,7 @@
 #include <tiny_platform/platform_view.hpp>
 
+#include "window_registry.hpp"
+
 #include <chrono>
 #include <unordered_map>
 #include <unordered_set>
@@ -366,10 +368,13 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
     _delegate->assign_context(std::move(context));
 
     _view = view;
+    _token = Window_registry::add(_view); // Names this window for Platform_dialogs.
 }
 
 Platform_view::~Platform_view() 
 {
+    Window_registry::remove(_token);
+
     if (_owns_view) {
         [(UIView*)_view removeFromSuperview];
         [(UIView*)_view release];

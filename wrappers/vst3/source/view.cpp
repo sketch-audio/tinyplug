@@ -38,7 +38,7 @@ Steinberg::tresult PLUGIN_API View::attached(void* parent, Steinberg::FIDString 
     // Create the platform view and notify the editor.
     _platform_view = Platform_views::make_owning(delegate);
     _platform_view->on_create();
-    _deps.editor->on_gui_create();
+    gui_create(_deps.editor, Gui_info{.window = _platform_view->token()});
 
     _platform_view->receive_parent(parent);
 

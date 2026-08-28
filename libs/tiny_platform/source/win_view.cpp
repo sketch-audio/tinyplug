@@ -1,5 +1,7 @@
 #include <tiny_platform/platform_view.hpp>
 
+#include "window_registry.hpp"
+
 #include <algorithm>
 #include <random>
 #include <ranges>
@@ -497,10 +499,13 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
     _delegate->assign_context(std::move(context));
 
     _view = window;
+    _token = Window_registry::add(_view); // Names this window for Platform_dialogs.
 }
 
 Platform_view::~Platform_view()
 {
+    Window_registry::remove(_token);
+
     // Stop vsync thread before we destroy the window (don't want to call InvalidateRect on a destroyed window).
     _vsync_loop.reset();
 

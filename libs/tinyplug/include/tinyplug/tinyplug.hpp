@@ -15,6 +15,7 @@
 #include "host_formatter.hpp"
 #include "task_manager.hpp"
 #include "value_helper.hpp"
+#include "window_token.hpp"
 
 // Must come last: User_worker discovery via __has_include("worker.hpp").
 // The plug-in's plug_worker.h may freely include any tinyplug type above.
