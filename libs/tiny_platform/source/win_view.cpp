@@ -417,6 +417,14 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             SetCursor(LoadCursor(nullptr, IDC_ARROW));
             return 0;
         }
+
+        // Opened here rather than where it was requested: see WM_TINY_RUN_DIALOG.
+        // We are outside BeginPaint/EndPaint at this point, so the nested modal
+        // loop can dispatch repaints normally and the editor keeps drawing.
+        case WM_TINY_RUN_DIALOG: {
+            run_queued_dialog(lparam);
+            return 0;
+        }
         
         // Add other message handlers as needed
         
@@ -505,6 +513,7 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
 Platform_view::~Platform_view()
 {
     Window_registry::remove(_token);
+    discard_queued_dialogs(static_cast<HWND>(_view)); // Posted but not yet dispatched.
 
     // Stop vsync thread before we destroy the window (don't want to call InvalidateRect on a destroyed window).
     _vsync_loop.reset();

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -51,18 +52,64 @@ static auto wstring_to_string(const std::wstring& wstr) -> std::string
     return str;
 }
 
-// The window a dialog should be owned by: the view that asked (via its token),
-// else the only view this binary has open, else none.
+// The plug-in view that asked (via its token), else the only view this binary
+// has open, else none. Messages meant for *us* — the cursor reset — go here.
 //
 // nullptr is a usable answer — every dialog below still opens, just unowned —
 // which is the point: the old class-name scan of the whole desktop returned the
 // *first* matching window (wrong instance with two editors open), and every call
 // site silently skipped the dialog *and* its callback when the scan missed.
-inline auto owner_window(Window_token token) -> HWND
+inline auto view_window(Window_token token) -> HWND
 {
     auto* native = Window_registry::resolve(token);
     if (!native) native = Window_registry::sole();
     return static_cast<HWND>(native);
+}
+
+// The window a dialog should be *owned* by, which is not the same window.
+//
+// Our view is a WS_CHILD re-parented into the host's frame, and a dialog owner
+// has to be top-level. Hand the dialog manager a child and it disables that
+// child instead of the host frame: the dialog is not actually modal to the host,
+// and the owner/owned activation pair is malformed. Cubase responds to that by
+// hiding the plug-in window. GA_ROOT walks up to the host's real frame window.
+inline auto owner_window(Window_token token) -> HWND
+{
+    auto* view = view_window(token);
+    if (!view) return nullptr;
+
+    // Before the host parents us, GA_ROOT is the view itself — already top-level.
+    return GetAncestor(view, GA_ROOT);
+}
+
+// Hands `job` to the UI thread that owns the view, to be run from its window
+// proc (see WM_TINY_RUN_DIALOG). Three reasons this is not just a thread hop:
+//
+//  - off the paint stack, so the modal's nested message loop can repaint us;
+//  - on the thread that owns the window, because a Win32 owner/owned pair
+//    across threads attaches the two input queues and wrecks activation;
+//  - deferred, so a dialog chained from another dialog's callback (which is
+//    drained during the draw) also lands outside WM_PAINT.
+//
+// With no window to post to we fall back to a worker thread — unowned and
+// cross-thread, i.e. the old behaviour, but shown. Note it must not run inline:
+// the caller is typically already inside WM_PAINT, which is the case that
+// freezes the editor for as long as the modal is up.
+inline auto dispatch_to_ui(Dialog_context ctx, std::function<void()> job) -> void
+{
+    auto* view = view_window(ctx.window);
+
+    if (view) {
+        auto request = std::make_unique<std::function<void()>>(std::move(job));
+        if (PostMessageW(view, WM_TINY_RUN_DIALOG, 0, reinterpret_cast<LPARAM>(request.get()))) {
+            (void)request.release(); // The handler owns it now.
+            return;
+        }
+        // Post failed — the window is on its way out. Fall through.
+        job = std::move(*request);
+    }
+
+    ctx.tasks.on_background(std::move(job));
 }
 
 // Handle owner draw buttons.
@@ -282,7 +329,7 @@ inline auto align_dword(LPWORD lpIn) -> LPWORD
 
 auto Platform_dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, Dialog_context ctx) -> void
 {
-    ctx.tasks.on_background([=, on_done=std::move(on_done)]() {
+    dispatch_to_ui(ctx, [=, on_done=std::move(on_done)]() {
         auto* owner = owner_window(ctx.window);
         // calculate message size
         const auto font = Font_info{.name = "Segoe UI", .size = 9};
@@ -388,7 +435,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
 
         ctx.tasks.on_main(on_done);
 
-        if (owner) SendMessageW(owner, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
     });
 }
 
@@ -396,7 +443,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
 
 auto Platform_dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_done, Dialog_context ctx) -> void
 {
-    ctx.tasks.on_background([=, on_done=std::move(on_done)]() {
+    dispatch_to_ui(ctx, [=, on_done=std::move(on_done)]() {
         auto* owner = owner_window(ctx.window);
         
         // calculate message size
@@ -526,7 +573,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
             on_done(ret == IDOK);
         });
 
-        if (owner) SendMessageW(owner, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
     });
 }
 
@@ -534,7 +581,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
 
 auto Platform_dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Dialog_context ctx) -> void
 {
-    ctx.tasks.on_background([=, on_text=std::move(on_text)]() {
+    dispatch_to_ui(ctx, [=, on_text=std::move(on_text)]() {
         auto* owner = owner_window(ctx.window);
         // calculate message size
         const auto font = Font_info{.name = "Segoe UI", .size = 9};
@@ -695,23 +742,24 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
             on_text(text);
         });
 
-        if (owner) SendMessageW(owner, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
     });
 }
 
 auto Platform_dialogs::open_url(const std::string& url, Dialog_context ctx) -> void
 {
+    // Stays on a worker: ShellExecuteW can block while a browser cold-starts,
+    // and it owns no window, so none of the reasons above apply.
     ctx.tasks.on_background([=]() {
-        auto* owner = owner_window(ctx.window);
         const auto wurl = string_to_wstring(url);
         ShellExecuteW(nullptr, L"open", wurl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-        if (owner) SendMessageW(owner, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
     });
 }
 
 auto Platform_dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Dialog_context ctx) -> void
 {
-    ctx.tasks.on_background([=, on_save = std::move(on_save)]() {
+    dispatch_to_ui(ctx, [=, on_save = std::move(on_save)]() {
         auto* owner = owner_window(ctx.window);
         auto wtitle = string_to_wstring(title);
         auto wdefault_path = string_to_wstring(default_path);
@@ -758,7 +806,7 @@ auto Platform_dialogs::save_file(const std::string& title, const std::string& de
             });
         }
 
-        if (owner) SendMessageW(owner, WM_TINY_SETCURSOR, 0, 0); 
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); 
     });
 }
 
@@ -809,28 +857,42 @@ static auto run_dir_dialog(HWND owner, const std::wstring& wtitle) -> std::optio
 
 auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Dialog_context ctx) -> void
 {
-    ctx.tasks.on_background([=, on_open=std::move(on_open)]() {
+    dispatch_to_ui(ctx, [=, on_open=std::move(on_open)]() {
         auto* owner = owner_window(ctx.window);
         const auto selected_path = run_file_dialog(owner, string_to_wstring(title), string_to_wstring(default_path));
         ctx.tasks.on_background([=, on_open=std::move(on_open)]() {
             on_open(selected_path);
         });
 
-        if (owner) SendMessageW(owner, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
     });
 }
 
 auto Platform_dialogs::choose_dir(const std::string& title, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_choose, Dialog_context ctx) -> void
 {
-    ctx.tasks.on_background([=, on_choose=std::move(on_choose)]() {
+    dispatch_to_ui(ctx, [=, on_choose=std::move(on_choose)]() {
         auto* owner = owner_window(ctx.window);
         const auto selected_path = run_dir_dialog(owner, string_to_wstring(title));
         ctx.tasks.on_background([=, on_choose=std::move(on_choose)]() {
             on_choose(selected_path);
         });
 
-        if (owner) SendMessageW(owner, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
+        if (auto* view = view_window(ctx.window)) SendMessageW(view, WM_TINY_SETCURSOR, 0, 0); // Reset cursor.
     });
+}
+
+auto run_queued_dialog(LPARAM lparam) -> void
+{
+    const auto request = std::unique_ptr<std::function<void()>>{reinterpret_cast<std::function<void()>*>(lparam)};
+    if (request && *request) (*request)();
+}
+
+auto discard_queued_dialogs(HWND hwnd) -> void
+{
+    auto message = MSG{};
+    while (PeekMessageW(&message, hwnd, WM_TINY_RUN_DIALOG, WM_TINY_RUN_DIALOG, PM_REMOVE)) {
+        delete reinterpret_cast<std::function<void()>*>(message.lParam);
+    }
 }
 
 } // namespace tiny
