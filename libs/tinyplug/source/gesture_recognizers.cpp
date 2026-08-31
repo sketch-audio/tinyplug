@@ -306,6 +306,9 @@ auto Drag_recognizer::process_events(Event_list& events) -> void
             [&](const Pointer_move& move) {
                 if (_fpos) {
                     if (!_initiated) {
+                        // Below the slop this is still a click's wobble, not a drag —
+                        // don't start, and don't consume.
+                        if (!past_slop(*_fpos, move.pos)) return;
                         _callbacks.on_started({*_fpos, move.pos});
                         _initiated = true;
                     }
@@ -324,6 +327,14 @@ auto Drag_recognizer::process_events(Event_list& events) -> void
             [](const auto&) {}
         }, event.event);
     }
+}
+
+auto Drag_recognizer::past_slop(Coords fpos, Coords tpos) const -> bool
+{
+    if (_start_slop <= 0.) return true;
+    const auto dx = tpos.x - fpos.x;
+    const auto dy = tpos.y - fpos.y;
+    return (dx * dx + dy * dy) >= (_start_slop * _start_slop);
 }
 
 auto Drag_recognizer::reset() -> void

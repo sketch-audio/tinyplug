@@ -168,8 +168,13 @@ public:
         Coords tpos{};
     };
 
-    explicit Drag_recognizer(const Gesture_callbacks<Info>& callbacks, bool greedy = false, bool cancels_on_frame_change = true)
-        : _callbacks{callbacks}, _greedy{greedy}, _cancels_on_frame_change{cancels_on_frame_change} {}
+    // `start_slop` is the pointer travel, in points, a press must exceed before the
+    // drag begins. 0 (the default) keeps the pixel-0 tracking drag-primary controls
+    // want; click-primary controls set it so a wobble during a click is not a drag.
+    explicit Drag_recognizer(const Gesture_callbacks<Info>& callbacks, bool greedy = false,
+                             bool cancels_on_frame_change = true, double start_slop = 0.)
+        : _callbacks{callbacks}, _greedy{greedy}, _cancels_on_frame_change{cancels_on_frame_change},
+          _start_slop{start_slop} {}
 
     auto set_frame(const Frame& frame) -> void override;
     auto process_events(Event_list& events) -> void override;
@@ -179,6 +184,7 @@ private:
     Gesture_callbacks<Info> _callbacks{};
     bool _greedy{};
     bool _cancels_on_frame_change{};
+    double _start_slop{};
 
     Frame _frame{};
 
@@ -186,6 +192,7 @@ private:
     std::optional<uintptr_t> _tag{};
     bool _initiated{};
 
+    auto past_slop(Coords fpos, Coords tpos) const -> bool;
     auto reset() -> void;
     
 };
