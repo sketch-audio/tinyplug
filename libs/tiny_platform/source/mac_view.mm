@@ -138,6 +138,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 
     _delegate->draw(_interaction, time_now);
     _interaction.scroll_deltas = tiny::Coords{}; // Consume deltas
+    _interaction.precise_scroll = false;
 }
 
 // MARK: - notifications
@@ -307,9 +308,12 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 }
 
 - (void)scrollWheel:(NSEvent *)event {
-    const auto deltas = tiny::Coords{event.scrollingDeltaX, event.scrollingDeltaY};
-    _interaction.scroll_deltas = deltas;
+    // Accumulate: several wheel events can land between two draws, and the whole
+    // frame's travel matters when the deltas edit a parameter.
+    _interaction.scroll_deltas.x += event.scrollingDeltaX;
+    _interaction.scroll_deltas.y += event.scrollingDeltaY;
     _interaction.inertial_scroll = (event.momentumPhase != NSEventPhaseNone);
+    _interaction.precise_scroll = event.hasPreciseScrollingDeltas;
     //[super scrollWheel:event];
 }
 

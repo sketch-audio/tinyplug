@@ -200,6 +200,34 @@ inline auto resolve_modifiers() -> Modifier_keys
     };
 }
 
+// MARK: - scroll
+
+// Windows exposes no "is this a precision device" flag, the way AppKit's
+// `hasPreciseScrollingDeltas` does. The one usable signal is the delta itself: a
+// wheel only ever reports whole notches, while a precision touchpad reports
+// sub-notch deltas continuously as the finger moves.
+//
+// So sub-notch deltas are treated as travel — converted to points and marked
+// precise, the same unit the macOS path delivers — while whole notches keep the
+// detent scale the scroll views were already tuned against.
+//
+// `touch_points_per_notch` is the one number here that cannot be derived: Windows
+// gives no physical scale for a touchpad delta. Tune it by feel.
+struct Wheel_delta {
+    float units{};
+    bool precise{};
+};
+
+auto resolve_wheel_delta(SHORT raw) -> Wheel_delta
+{
+    constexpr auto notch_units = 20.f;             // a notch's worth of list scrolling
+    constexpr auto touch_points_per_notch = 40.f;  // finger travel one notch spans
+
+    const auto precise = (raw > -WHEEL_DELTA && raw < WHEEL_DELTA);
+    const auto scale = precise ? touch_points_per_notch : notch_units;
+    return {static_cast<float>(raw) * scale / static_cast<float>(WHEEL_DELTA), precise};
+}
+
 // MARK: - window callback
 
 LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
@@ -237,6 +265,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
 
                     delegate->draw(binder->interaction, time_now); // Delegate window context handles everything.
                     binder->interaction.scroll_deltas = {};
+                    binder->interaction.precise_scroll = false;
                 }
 
 #if !WIN_GRAPHICS_GPU
@@ -376,15 +405,19 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             return 0;
         }
 
+        // Accumulate: several wheel messages can land between two paints, and the
+        // whole frame's travel matters when the deltas edit a parameter.
         case WM_MOUSEWHEEL: {
-            const auto delta = GET_WHEEL_DELTA_WPARAM(wparam) * 20.f / WHEEL_DELTA;
-            binder->interaction.scroll_deltas.y = delta;
+            const auto delta = resolve_wheel_delta(GET_WHEEL_DELTA_WPARAM(wparam));
+            binder->interaction.scroll_deltas.y += delta.units;
+            if (delta.precise) binder->interaction.precise_scroll = true;
             return 0;
         }
 
         case WM_MOUSEHWHEEL: {
-            const auto delta = GET_WHEEL_DELTA_WPARAM(wparam) * 20.f / WHEEL_DELTA;
-            binder->interaction.scroll_deltas.x = delta;
+            const auto delta = resolve_wheel_delta(GET_WHEEL_DELTA_WPARAM(wparam));
+            binder->interaction.scroll_deltas.x += delta.units;
+            if (delta.precise) binder->interaction.precise_scroll = true;
             return 0;
         }
 

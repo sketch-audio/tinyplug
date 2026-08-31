@@ -224,6 +224,7 @@ struct User_interaction {
     Event_list events{};
     Coords scroll_deltas{};
     bool inertial_scroll{};
+    bool precise_scroll{}; // Trackpad/precision device: deltas are points of pointer travel.
     Modifier_keys modifier_keys{};
     Coords pointer_abs{}; // Pointer absolute position, useful for live resize.
     //bool operator==(const User_interaction&) const = default;
