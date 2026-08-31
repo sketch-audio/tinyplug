@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <format>
 #include <span>
+#include <type_traits>
+#include <variant>
 
 namespace tiny {
 
