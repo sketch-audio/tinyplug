@@ -636,13 +636,11 @@ static auto presets_path() -> std::filesystem::path
         AudioBufferList *sidechainAudioBufferList = nil;
         
 #if TINY_WANTS_SIDECHAIN
-        // Sidechain
         {
             AUAudioUnitStatus err = sidechain->pullInput(&pullFlags, timestamp, frameCount, 1, pullInputBlock);
-            
-            if (err != 0) { return err; }
+
+            if (err == 0) { sidechainAudioBufferList = sidechain->mutableAudioBufferList; }
         }
-        sidechainAudioBufferList = sidechain->mutableAudioBufferList;
 #endif
         
         /*

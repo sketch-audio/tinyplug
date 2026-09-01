@@ -51,7 +51,7 @@ public:
             if (sidechainBufferList != nil) {
                 num_schannels = sidechainBufferList->mNumberBuffers;
                 for (int channel = 0; channel < num_schannels; ++channel) {
-                    mSidechainBuffers[channel] = (const float*)inBufferListPtr->mBuffers[channel].mData  + frameOffset;
+                    mSidechainBuffers[channel] = (const float*)sidechainBufferList->mBuffers[channel].mData  + frameOffset;
                 }
             }
             
