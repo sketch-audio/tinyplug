@@ -2,6 +2,11 @@
 
 #include "include/core/SkCanvas.h"
 
+#include <algorithm>
+#include <cmath>
+#include <string>
+#include <string_view>
+
 namespace tiny::plugin {
 
 namespace {
@@ -23,6 +28,72 @@ auto fill(SkCanvas& canvas, float x, float y, float w, float h, SkColor color) -
     paint.setStyle(SkPaint::kFill_Style);
     paint.setAntiAlias(true);
     canvas.drawRect(SkRect::MakeXYWH(x, y, w, h), paint);
+}
+
+// A 3x5 block glyph per character, drawn as rects. Enough for a dBFS readout and
+// nothing more — the examples still have no font, and this deliberately does not
+// give them one. Rows are top to bottom, three bits each.
+struct Glyph { char ch; std::array<uint8_t, 5> rows; };
+constexpr auto glyphs = std::array<Glyph, 17>{{
+    {'0', {0b111, 0b101, 0b101, 0b101, 0b111}},
+    {'1', {0b010, 0b110, 0b010, 0b010, 0b111}},
+    {'2', {0b111, 0b001, 0b111, 0b100, 0b111}},
+    {'3', {0b111, 0b001, 0b111, 0b001, 0b111}},
+    {'4', {0b101, 0b101, 0b111, 0b001, 0b001}},
+    {'5', {0b111, 0b100, 0b111, 0b001, 0b111}},
+    {'6', {0b111, 0b100, 0b111, 0b101, 0b111}},
+    {'7', {0b111, 0b001, 0b001, 0b001, 0b001}},
+    {'8', {0b111, 0b101, 0b111, 0b101, 0b111}},
+    {'9', {0b111, 0b101, 0b111, 0b001, 0b111}},
+    {'-', {0b000, 0b000, 0b111, 0b000, 0b000}},
+    {'.', {0b000, 0b000, 0b000, 0b000, 0b010}},
+    {'I', {0b111, 0b010, 0b010, 0b010, 0b111}},
+    {'N', {0b101, 0b111, 0b111, 0b111, 0b101}},
+    {'F', {0b111, 0b100, 0b111, 0b100, 0b100}},
+    {'d', {0b001, 0b001, 0b111, 0b101, 0b111}},
+    {'B', {0b110, 0b101, 0b110, 0b101, 0b110}},
+}};
+
+// Returns the width drawn, so callers can right-align without measuring twice.
+auto draw_text(SkCanvas& canvas, float x, float y, float px, std::string_view text, SkColor color) -> float
+{
+    auto pen = x;
+    for (const auto ch : text) {
+        const auto it = std::find_if(glyphs.begin(), glyphs.end(),
+                                     [ch](const Glyph& g) { return g.ch == ch; });
+        if (it == glyphs.end()) { pen += px * 2.f; continue; } // Unknown: a space.
+        for (auto row = 0; row < 5; ++row) {
+            for (auto col = 0; col < 3; ++col) {
+                if ((it->rows[static_cast<size_t>(row)] >> (2 - col)) & 1) {
+                    fill(canvas, pen + static_cast<float>(col) * px,
+                         y + static_cast<float>(row) * px, px, px, color);
+                }
+            }
+        }
+        pen += px * 4.f; // Three columns plus one of tracking.
+    }
+    return pen - x;
+}
+
+// Peak as dBFS to two decimals, which is the resolution a host meter's own readout
+// tends to show, so the two can be compared digit for digit.
+auto peak_db_text(double plain) -> std::string
+{
+    if (!(plain > 0.)) return "-INF dB";
+    const auto db = 20. * std::log10(plain);
+    if (db <= -99.99) return "-INF dB";
+
+    // Manual, to avoid dragging <format>/printf into an example editor.
+    const auto hundredths = std::lround(std::abs(db) * 100.);
+    auto out = std::string{};
+    if (db < 0. && hundredths != 0) out += '-';
+    out += std::to_string(hundredths / 100);
+    out += '.';
+    const auto frac = hundredths % 100;
+    if (frac < 10) out += '0';
+    out += std::to_string(frac);
+    out += " dB";
+    return out;
 }
 
 } // namespace
@@ -55,11 +126,34 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     const auto meters = state.processor_state.meters;
     if (meters.size() < num_meters) return;
 
-    const auto pad = 16.f * scale;
-    const auto row_h = 52.f * scale;
-    const auto bar_h = 26.f * scale;
-    const auto swatch = 26.f * scale;
+    // Logical first, scaled second: the canvas is in physical pixels but pointer
+    // positions are logical, so the hit frame below has to be built from these.
+    constexpr auto pad_l = 16.f;
+    constexpr auto row_h_l = 52.f;
+    constexpr auto bar_h_l = 26.f;
+    constexpr auto swatch_l = 26.f;
+
+    const auto pad = pad_l * scale;
+    const auto row_h = row_h_l * scale;
+    const auto bar_h = bar_h_l * scale;
+    const auto swatch = swatch_l * scale;
     const auto track = _dark ? SkColorSetRGB(44, 44, 52) : SkColorSetRGB(216, 216, 224);
+
+    // --- Row 1's latch. Click anywhere in its strip to clear the hold. ---
+    const auto peak_strip = Frame{
+        .x = pad_l,
+        .y = pad_l,
+        .w = static_cast<double>(view_context.logical_size.w) - 2. * pad_l,
+        .h = row_h_l
+    };
+    for (const auto& event : view_context.interaction.events.events) {
+        if (const auto* down = std::get_if<Pointer_down>(&event.event)) {
+            if (down->button == Pointer_button::left && peak_strip.contains(down->pos)) {
+                _peak_hold = 0.;
+            }
+        }
+    }
+    _peak_hold = std::max(_peak_hold, meters[enum_raw(Meter::peak_in)]);
 
     // --- The four level rows. Each bar is the value normalized against the
     // meter's own declared Range, so every row reads 0..1 on screen. ---
@@ -77,6 +171,19 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
         const auto bar_w = w - bar_x - pad;
         fill(*canvas, bar_x, y, bar_w, bar_h, track);
         fill(*canvas, bar_x, y, bar_w * clamped, bar_h, row_colors[static_cast<size_t>(row)]);
+
+        // Row 1 only: a hold marker on the bar, and the latched peak as dBFS in the
+        // gap beneath it. The bar itself stays instantaneous, so the two together
+        // show both what is arriving now and the highest thing that ever did.
+        if (address == enum_raw(Meter::peak_in)) {
+            const auto hold_norm = span > 0. ? (_peak_hold - range.min_val) / span : 0.;
+            const auto hold_x = bar_x + bar_w * static_cast<float>(std::clamp(hold_norm, 0., 1.));
+            fill(*canvas, std::min(hold_x, bar_x + bar_w - 2.f * scale), y,
+                 2.f * scale, bar_h, row_colors[0]);
+
+            draw_text(*canvas, bar_x, y + bar_h + 4.f * scale, 3.f * scale,
+                      peak_db_text(_peak_hold), row_colors[0]);
+        }
     }
 
     // --- The trigger row. ---

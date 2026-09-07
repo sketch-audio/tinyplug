@@ -3,8 +3,10 @@
 One meter per policy, driven by a signal you can predict from outside the plug-in,
 so a host can be checked against expected behaviour rather than "looks about right".
 
-There is no text rendering in tinyplug's examples, so rows are identified by
-position and colour, top to bottom:
+There is no font in tinyplug's examples, so rows are identified by position and
+colour, top to bottom. Row 1 additionally carries a **latched dBFS readout** drawn as
+block digits under its bar, so its reading can be held against the host's own peak
+meter instead of eyeballed:
 
 | Row | Colour | Meter | Policy | What it does |
 |-----|--------|-------|--------|--------------|
@@ -31,6 +33,27 @@ to zero when the audio stops, the per-block scratch is being blanket-cleared aga
 **Row 1 (red) — a peak decays and survives a stall.** It should track the input
 and fall to zero on silence. It should also reach zero when the host bypasses the
 plug-in, since no audio is being processed.
+
+The row now shows two things at once, and they answer different questions.
+
+- **The bar is instantaneous** — the raw value delivered this frame, no hold, no
+  decay. This is the one that must fall to nothing when the audio stops. Ballistics
+  here would hide exactly the behaviour the row exists to check.
+- **The readout is latched**, and so is the thin marker on the bar: both hold the
+  highest value seen since the last reset, and **clicking anywhere in row 1's strip
+  clears them**. `20*log10(peak)` to two decimals, reading `-INF dB` at or below
+  -99.99 dB.
+
+That mirrors Ableton's own meter, which latches a peak number you click to reset — so
+the level check is: play a passage, let both latch, compare the two numbers digit for
+digit, then click both to clear. Ours is the peak of the max-abs sample per block, so
+it should match a host peak meter closely; a systematic offset means a conversion is
+wrong somewhere on the wire, not a ballistics difference.
+
+The decay check is separate and belongs to the bar: stop the audio and the bar must
+empty. If it stalls partway while the latched number keeps its value, that is the VST3
+transport — the host owns that wire, and if it coalesces or dedupes what the processor
+writes, the falling edge never arrives.
 
 **Row 5 (purple) — trigger semantics.** The processor emits magnitudes 1,2,3…8
 and repeats, one per second. The eight history steps are drawn oldest-left, with

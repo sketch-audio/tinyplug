@@ -29,9 +29,28 @@ namespace tiny::meters {
 // Only `Stream` is deduplicated, and only because a constant should not spend a slot
 // every block. `Peak` deliberately is not: downstream is a mailbox the reader *clears*
 // when it looks, so an unchanged peak still has to be restated or a steady signal
-// would read as silence. Silence is instead announced once, on the falling edge, and
-// then we go quiet — which keeps an idle plug-in idle without leaving the reader
-// holding a value the signal no longer has.
+// would read as silence.
+//
+// **Zero is not an exception to that.** It used to be — silence was announced once on
+// the falling edge and then the publisher went quiet, to keep an idle plug-in idle.
+// That is where the meters stuck. The mailbox combines a `Peak` with `max`, so a
+// single zero sharing a read interval with the audio before it is simply absorbed;
+// after that nothing was ever posted again, and a reader that holds its last value
+// when nothing arrives — which it must, or a slow transport flickers — held a level
+// the signal no longer had, until audio resumed. One block per draw is the only ratio
+// at which the announcement survives, and no host runs there.
+//
+// So a peak is restated every block, silent ones included, and the reader's rule means
+// exactly what it says again: "nothing arrived" is a slow transport, never a producer
+// that decided to stop talking.
+//
+// What that costs is idle traffic, and only for `Peak` — a constant `Stream` is still
+// deduplicated to nothing and a `Trig` at zero still sends nothing. The busy case does
+// not move at all: a peak was always restated every block while the signal was up. Only
+// silence got more expensive, by one send per `Peak` address per block: a CAS on
+// AUv2/AUv3/CLAP, a 24-byte ring push on AAX, whose ring is already sized for
+// continuous per-block production. VST3 and CLAP suppress the whole publish on a flush
+// block, so a genuinely idle plug-in there still sends nothing at all.
 template<typename User_meters>
 class Publisher {
 public:
@@ -79,8 +98,8 @@ public:
 private:
 
     std::array<float, num_meters> _scratch{}; // Written by the DSP each block.
-    std::array<float, num_meters> _shadow{};  // Last value delivered (Stream), or
-                                              // last peak sent, to spot the edge to zero.
+    std::array<float, num_meters> _shadow{};  // Last value delivered. Stream only —
+                                              // Peak and Trig are never deduplicated.
     std::array<float, num_meters> _pending{}; // Peak maxima not yet delivered.
 
     template<typename Send>
@@ -101,16 +120,9 @@ private:
         auto& pending = _pending[address];
         pending = std::max(pending, _scratch[address]);
 
-        // Silence is announced once, on the falling edge, and then we go quiet. The
-        // reader holds its last delivered value when nothing arrives — that is what
-        // stops a slow transport from flickering — so it needs to be told the signal
-        // actually stopped. `_shadow` doubles as "was the last thing we sent a zero".
-        if (pending == 0.f && _shadow[address] == 0.f) return;
-
-        if (send(address, pending)) {
-            _shadow[address] = pending;
-            pending = 0.f;
-        }
+        // Every block, including the silent ones. `_shadow` is not consulted at all
+        // here — see the note on restatement above for why zero is not a special case.
+        if (send(address, pending)) pending = 0.f;
     }
 
     template<typename Send>

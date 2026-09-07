@@ -28,8 +28,8 @@ harness later without rewriting the assertions.
 
 ## meter_mailbox_test.cpp
 
-`Publisher` + `Mailbox` end to end — the editor-facing transport. 18 checks, one of them concurrent. The three
-that encode non-obvious behaviour, both of which were real bugs first:
+`Publisher` + `Mailbox` end to end — the editor-facing transport. 26 checks, one of them concurrent. The four
+that encode non-obvious behaviour, all of which were real bugs first:
 
 - **a steady signal keeps reading.** `Peak` must not be deduplicated: the reader
   clears the slot when it looks, so an unchanged peak still has to be restated or a
@@ -47,5 +47,19 @@ that encode non-obvious behaviour, both of which were real bugs first:
   fails reliably against the two-atomic version — the race is observable, not
   theoretical.
 
+- **a peak reaches zero when the audio stops, at every blocks-per-draw ratio.** The
+  publisher used to announce silence once and then go quiet; at more than one block per
+  draw that announcement shares a read interval with the audio before it and `max`
+  absorbs it, after which nothing is posted again and the meter holds a level the
+  signal no longer has. `Rig::blocks_per_draw` exists for this: at 1 — which every
+  other check here uses — the bug cannot occur, and hosts run at 5-20.
+
 Also covered: a constant reaching a newly attached editor after 5000 unread blocks
-with no resync mechanism at all, and a peak surviving 2000 unread blocks.
+with no resync mechanism at all, a peak surviving 2000 unread blocks, and a stop-start
+inside one read interval not reading as a stop.
+
+Check 14 is a **known limitation**, not a passing behaviour: a producer that stops
+posting without ever reaching its falling edge holds its last peak forever, because
+absence is not observable from the reader's side. It is asserted so that changing it
+is deliberate — see "Falling edges" and the watch list in
+`plans/meter-pipeline.md`.

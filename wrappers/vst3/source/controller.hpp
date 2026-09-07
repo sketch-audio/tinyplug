@@ -136,6 +136,11 @@ protected:
     // a view created at any point simply reads it. That is what removed the separate
     // `_last_meters` shadow and the dump-on-createView that used to replay it.
     meters::Mailbox<User_meters> _mailbox{};
+
+    // The most recent value the host has handed us per address, re-posted once per
+    // editor frame for `Peak` addresses. See `read_meters` in the .cpp — this is the
+    // one place VST3 has to compensate for a transport it does not own.
+    std::array<std::atomic<float>, num_meters> _last_meter{};
     Change_list<Set_param> _state_queue{}; // Knob space, to the editor.
 
     std::unordered_set<uint32_t> _gestured{};

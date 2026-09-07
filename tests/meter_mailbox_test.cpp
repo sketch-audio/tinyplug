@@ -35,10 +35,20 @@ static void check(bool ok, const std::string& what) {
 }
 
 // One process block: DSP writes the scratch, publisher posts into the mailbox.
+//
+// `blocks_per_draw` is load-bearing, not a knob. Most checks here drive one block per
+// draw, which is the one ratio at which a post can never share a read interval with
+// another — and so the one ratio at which coalescing bugs are invisible. Every host
+// runs at 5-20, and AAX forwards a whole 30 ms burst at once.
 struct Rig {
     Pub pub; Box box;
     std::array<Sample, 3> out{};
     bool wire = true;   // false = transport refuses (VST3 null queue / full AAX ring)
+    int blocks_per_draw = 1;
+    void frame(float level, float peak, float trig) {
+        for (auto b = 0; b < blocks_per_draw; ++b) block(level, peak, trig);
+        draw();
+    }
     void block(float level, float peak, float trig) {
         if (level >= 0) pub.scratch()[LEVEL] = level;
         if (peak  >= 0) pub.scratch()[PEAK]  = peak;
@@ -186,6 +196,59 @@ int main() {
         }
         check(lost == 0, "concurrent: a posted peak is never dropped by the reader ("
                          + std::to_string(trials) + " trials)");
+    }
+
+    // --- 12. The falling edge survives coalescing. --------------------------
+    // The publisher announces silence exactly once. At more than one block per draw
+    // that announcement shares a read interval with the audio before it, and `max`
+    // absorbs it — after which nothing is ever posted again and the meter holds a
+    // level the signal no longer has, for as long as the session stays quiet.
+    {
+        for (const auto per_draw : {1, 2, 5, 20, 64}) {
+            Rig r;
+            r.blocks_per_draw = per_draw;
+            for (auto f = 0; f < 3; ++f) r.frame(-1, 0.6f, 0);
+
+            // Audio stops part-way through a frame, which is the general case.
+            r.block(-1, 0.6f, 0);
+            for (auto b = 1; b < per_draw; ++b) r.block(-1, 0.f, 0);
+            r.draw();
+
+            auto settled = -1;
+            for (auto f = 0; f < 200 && settled < 0; ++f) {
+                r.frame(-1, 0.f, 0);
+                if (r.out[PEAK].value == 0.f) settled = f;
+            }
+            check(settled == 0, "falling edge: zero on the next draw at "
+                  + std::to_string(per_draw) + " blocks/draw (settled=" + std::to_string(settled) + ")");
+        }
+    }
+
+    // --- 13. A signal that restarts inside one interval is not silence. -----
+    // `ended` describes the most recent post, so a stop-start that never reaches the
+    // reader must not read as a stop.
+    {
+        Rig r;
+        r.block(-1, 0.5f, 0); r.block(-1, 0.f, 0); r.block(-1, 0.8f, 0);
+        r.draw();
+        check(r.out[PEAK].value == 0.8f, "restart: a stop-start within one interval is not a falling edge");
+        r.draw();
+        check(r.out[PEAK].value == 0.8f, "restart: ... and the next draw still holds");
+    }
+
+    // --- 14. KNOWN LIMITATION: a producer that stops posting holds forever. -
+    // Not a bug to fix here — a record of where the in-band mechanism ends, so that
+    // changing it is deliberate. `ended` needs the producer to get one more block in
+    // which to say zero; a host that stops calling `process` mid-signal never gives it
+    // one, and absence is not observable from this side. If a host ever demonstrates
+    // this, the fix is a hold timeout in `read` and this check inverts.
+    // See "Falling edges" in plans/meter-pipeline.md.
+    {
+        Rig r;
+        r.block(-1, 0.7f, 0); r.draw();
+        for (auto f = 0; f < 100; ++f) r.draw();   // Producer gone. No posts at all.
+        check(r.out[PEAK].value == 0.7f, "KNOWN LIMITATION: a producer that stops without "
+                                         "reaching its falling edge holds its last peak");
     }
     std::printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASS", failures, failures==1?"":"s");
     return failures ? 1 : 0;

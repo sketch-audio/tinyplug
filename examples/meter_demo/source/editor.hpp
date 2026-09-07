@@ -48,6 +48,11 @@ private:
     Time_point _last_time{};
     bool _has_time{};
 
+    // Latched maximum of row 1, in plain space. Held until clicked, so the reading
+    // can be left to settle and then compared against the host's own peak meter
+    // without having to catch both at the same instant.
+    double _peak_hold{};
+
     auto _draw_row(Plugin_state& state, int index, Meter address, const char* label) -> void;
 
 };
