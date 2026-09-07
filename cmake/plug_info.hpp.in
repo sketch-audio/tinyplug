@@ -39,7 +39,7 @@ struct Plug_info {
     struct Aax {
         static constexpr auto manufacturer_id = uint32_t{'@TINY_MANUFACTURER_CODE@'};
         static constexpr auto product_id = uint32_t{'@TINY_PLUGIN_CODE@'};
-        static constexpr auto plugin_id = uint32_t{}; // One plug-in per product.
+        static constexpr auto plugin_id = uint32_t{@TINY_AAX_PLUGIN_ID_EXPR@}; // Type ID. 0 = legacy; no page table can name it.
     };
 
     struct Auv2 {

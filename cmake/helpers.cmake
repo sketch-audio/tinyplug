@@ -123,6 +123,19 @@ function(configure_plug_info plugin_target output)
         TINY_CLAP_FEATURE_COUNT TINY_CLAP_FEATURE_VALUES
     )
 
+    # AAX plug-in Type ID: the four-character code a page table's `plugID` must match.
+    # Defaults to the plug-in code so a new product gets a working page table for free.
+    # A Type ID is frozen once a product ships -- changing it orphans the plug-in in saved
+    # Pro Tools sessions -- so products that shipped with the old hardcoded 0 opt out via
+    # TINY_AAX_LEGACY_PLUGIN_ID and keep it. Nothing else can name a 0 Type ID, which is
+    # why legacy products cannot carry a page table (see make_aax_plugin.cmake).
+    read_property(${plugin_target} TINY_AAX_LEGACY_PLUGIN_ID)
+    if (TINY_AAX_LEGACY_PLUGIN_ID STREQUAL "true")
+        set(TINY_AAX_PLUGIN_ID_EXPR "")
+    else()
+        set(TINY_AAX_PLUGIN_ID_EXPR "'${TINY_PLUGIN_CODE}'")
+    endif()
+
     # Generate the VST3 UID arrays.
     prepare_vst3_uid_array(
         ${TINY_FRAMEWORK_CODE} ${TINY_MANUFACTURER_CODE} ${TINY_PLUGIN_CODE} "ctrl"

@@ -158,11 +158,29 @@ def generate(manifest_path: str, output_path: str) -> None:
     man_code = fourcc_str(manifest["manufacturer_code"])
     prod_code = fourcc_str(manifest["product_code"])
     plug_id_int = manifest["plugin_id"]
-    # plugin_id = 0 → null FOURCC → empty string in XML
-    plug_id_str = "" if plug_id_int == 0 else chr((plug_id_int >> 24) & 0xFF) + \
-                                               chr((plug_id_int >> 16) & 0xFF) + \
-                                               chr((plug_id_int >>  8) & 0xFF) + \
-                                               chr( plug_id_int        & 0xFF)
+
+    # A page table binds to the effect by its Type ID, and AAX only accepts that id as four
+    # literal characters -- no numeric, hex or base64 form is parsed. Zero would need four
+    # NUL bytes, which XML cannot carry at all, so a 0 Type ID is simply unnameable here.
+    # Emitting plugID="" instead used to look fine and silently cost every parameter its
+    # place in Pro Tools' automation menu, so refuse to write the file.
+    if plug_id_int == 0:
+        raise SystemExit(
+            "plugin_id is 0, which no page table can reference. Remove "
+            "TINY_AAX_LEGACY_PLUGIN_ID from this product to get a real Type ID (note that "
+            "changing a shipped Type ID orphans the plug-in in saved sessions), or drop "
+            "TINY_AAX_PAGE_TABLE_PATH and ship no page table."
+        )
+
+    def fourcc_of(v: int) -> str:
+        return (chr((v >> 24) & 0xFF) + chr((v >> 16) & 0xFF)
+                + chr((v >> 8) & 0xFF) + chr(v & 0xFF))
+
+    # describe.cpp registers one ProcessProc per stem format, the mono one at plugin_id + 1.
+    # Each is a distinct plug-in Type and needs its own entry or it resolves no page table.
+    plug_ids = [fourcc_of(plug_id_int)]
+    if manifest.get("can_process_mono"):
+        plug_ids.append(fourcc_of(plug_id_int + 1))
     plugin_name = manifest["plugin_name"]
     company_name = manifest["company_name"]
     base_file_name = manifest["base_file_name"]
@@ -177,12 +195,13 @@ def generate(manifest_path: str, output_path: str) -> None:
     layouts_el = ET.SubElement(root, "PageTableLayouts")
     layout_name = "StandardLayout"
 
-    plugin_el = ET.SubElement(layouts_el, "Plugin",
-                               manID=man_code, prodID=prod_code, plugID=plug_id_str)
-    desc = ET.SubElement(plugin_el, "Desc")
-    desc.text = f"{plugin_name} {company_name}"
-    ET.SubElement(plugin_el, "Layout").text = layout_name
-    plugin_el.append(ET.Comment(f"manID='{man_code}' prodID='{prod_code}' plugID='{plug_id_str}'"))
+    for pid in plug_ids:
+        plugin_el = ET.SubElement(layouts_el, "Plugin",
+                                   manID=man_code, prodID=prod_code, plugID=pid)
+        desc = ET.SubElement(plugin_el, "Desc")
+        desc.text = f"{plugin_name} {company_name}"
+        ET.SubElement(plugin_el, "Layout").text = layout_name
+        plugin_el.append(ET.Comment(f"manID='{man_code}' prodID='{prod_code}' plugID='{pid}'"))
 
     pt_layout = ET.SubElement(layouts_el, "PTLayout", name=layout_name)
 
@@ -218,11 +237,12 @@ def generate(manifest_path: str, output_path: str) -> None:
     editor = ET.SubElement(root, "Editor", vers="1.3.7.1")
     plugin_list = ET.SubElement(editor, "PluginList")
     rtas = ET.SubElement(plugin_list, "RTAS")
-    plugin_id_el = ET.SubElement(rtas, "PluginID",
-                                  manID=man_code, prodID=prod_code, plugID=plug_id_str)
-    menu_str = ET.SubElement(plugin_id_el, "MenuStr")
-    menu_str.text = f"AAX Native: {plugin_name}"
-    plugin_id_el.append(ET.Comment(f"manID='{man_code}' prodID='{prod_code}' plugID='{plug_id_str}'"))
+    for pid in plug_ids:
+        plugin_id_el = ET.SubElement(rtas, "PluginID",
+                                      manID=man_code, prodID=prod_code, plugID=pid)
+        menu_str = ET.SubElement(plugin_id_el, "MenuStr")
+        menu_str.text = f"AAX Native: {plugin_name}"
+        plugin_id_el.append(ET.Comment(f"manID='{man_code}' prodID='{prod_code}' plugID='{pid}'"))
 
     disc_ctrls = ET.SubElement(editor, "DiscCtrls")
     ET.SubElement(disc_ctrls, "CtrlID").text = "MasterBypassID"

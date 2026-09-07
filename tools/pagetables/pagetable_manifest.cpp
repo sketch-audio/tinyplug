@@ -48,6 +48,7 @@ auto main() -> int
         {"manufacturer_code", fourcc(Plug_info::Aax::manufacturer_id)},
         {"product_code",      fourcc(Plug_info::Aax::product_id)},
         {"plugin_id",         static_cast<int>(Plug_info::Aax::plugin_id)},
+        {"can_process_mono",  Plug_info::can_process_mono},
         {"base_file_name",    std::string{Plug_info::base_file_name}},
         {"plugin_name",       std::string{Plug_info::plugin_name}},
         {"company_name",      std::string{Plug_info::company_name}},

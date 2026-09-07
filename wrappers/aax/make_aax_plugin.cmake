@@ -7,6 +7,18 @@ function(make_aax_plugin USER_TARGET)
 
     read_property(${USER_TARGET} TINY_AAX_CATEGORIES)
     read_property(${USER_TARGET} TINY_AAX_PAGE_TABLE_PATH)
+
+    # A page table binds to the effect by its Type ID, so it can never resolve against the
+    # legacy 0. Shipping both silently yields a plug-in whose parameters are absent from
+    # Pro Tools' automation menu -- fail the build instead of hiding it.
+    read_property(${USER_TARGET} TINY_AAX_LEGACY_PLUGIN_ID)
+    if(TINY_AAX_PAGE_TABLE_PATH AND TINY_AAX_LEGACY_PLUGIN_ID STREQUAL "true")
+        message(FATAL_ERROR
+            "${USER_TARGET}: TINY_AAX_PAGE_TABLE_PATH cannot be combined with "
+            "TINY_AAX_LEGACY_PLUGIN_ID -- a page table cannot name the legacy 0 Type ID, "
+            "so Pro Tools would show no automation parameters. Drop the page table, or "
+            "drop the legacy flag and accept that saved sessions lose the plug-in.")
+    endif()
     # Configure header categories.hpp.in
     configure_file(
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/categories.hpp.in
