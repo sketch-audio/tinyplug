@@ -173,7 +173,10 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         }
     }
 
-    NSTrackingAreaOptions options = NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveInKeyWindow;
+    NSTrackingAreaOptions options = NSTrackingMouseEnteredAndExited
+                                  | NSTrackingMouseMoved
+                                  | NSTrackingActiveAlways
+                                  | NSTrackingInVisibleRect;
     NSTrackingArea *area = [[NSTrackingArea alloc] initWithRect:self.bounds
                                                         options:options
                                                           owner:self
