@@ -295,13 +295,16 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
         return true; // A slot array has no capacity to refuse.
     });
 
-    // Did the processor propose a new (unreported) latency?
+    // Did the processor propose a new (unreported) latency? Quiet during an offline
+    // bounce for the same reason the meters are: `request_restart` makes the host
+    // deactivate and reactivate mid-render, and a bounce cannot usefully renegotiate
+    // delay compensation. The pending value survives for the next `latencyGet`.
     const auto reported = _reported_latency.load(std::memory_order_relaxed);
     if (const auto proposed = context.propose_latency; proposed.has_value() && *proposed != reported) {
         // Set pending latency, mark reported, and request a restart.
         _pending_latency.store(*proposed, std::memory_order_release);
         _reported_latency.store(*proposed, std::memory_order_relaxed);
-        _host->request_restart(_host);
+        if (!offline) _host->request_restart(_host);
     }
 
     const auto tail = _processor->tail_samps();
