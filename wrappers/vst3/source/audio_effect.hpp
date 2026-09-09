@@ -11,6 +11,7 @@
 #include "plug_info.hpp"
 #include "processor.hpp"
 #include <tinyplug/meter_publisher.hpp>
+#include <tinyplug/relay.hpp>
 
 #include "models/meters.hpp"
 #include "models/params.hpp"
@@ -32,11 +33,12 @@ public:
         _setup_worker();
 #endif
     }
-    ~Audio_effect() SMTG_OVERRIDE = default;
 
-#if TINY_HAS_WORKER
+    // Last-resort relay stop. `setActive(false)` and `terminate()` are the real doors;
+    // this one only matters for a host that skips both.
+    ~Audio_effect() SMTG_OVERRIDE { _relay.reset(); }
+
     Steinberg::tresult PLUGIN_API notify(Steinberg::Vst::IMessage* message) SMTG_OVERRIDE;
-#endif
 
     // Create function
     static Steinberg::FUnknown* createInstance(void* /*context*/)
@@ -123,7 +125,6 @@ private:
     // Latency
     std::atomic<uint32_t> _latency{};
     std::atomic<uint32_t> _reported_latency{}; // Don't feedback latency changes.
-    std::atomic<bool> _needs_report{false}; // We have to report configure-time latency through process.
     std::atomic<bool> _did_peek{false}; // Fallback for non-conforming hosts.
     bool _was_moving{};
 
@@ -136,11 +137,20 @@ private:
     // Communicates the accepted latency from `setActive` to `process`.
     Latency_flag _accepted_latency{};
 
-    static constexpr auto max_change_count = 65536.; // !!!
-    double _change_count{};
-
     // Set by `setProcessing`, consumed at the top of `process`.
     std::atomic<bool> _needs_clear{false};
+
+    // Peer link. Not worker-gated: the latency relay sends through `_to_ctrl`, so a
+    // plug-in with no worker still needs a sender. The router carries only worker
+    // replies today, but stays unconditional so `notify` compiles either way.
+    vst3::Message_router _router{};
+    vst3::Message_sender _to_ctrl{this};
+
+    // Defers a process-time latency proposal off the audio thread. Scoped to the
+    // active window (`setActive`), so no timer exists while the plug-in is idle.
+    std::optional<Relay> _relay{};
+
+    auto _send_latency(uint32_t latency) -> void;
 
     Host_bypass _bypass{};
 
@@ -163,9 +173,6 @@ private:
 
     Worker_outbound_q _worker_outbound{};
     Worker_to_proc_inbox_q _worker_to_proc_inbox{};
-
-    vst3::Message_router _router{};
-    vst3::Message_sender _to_ctrl{this};
 
     // Last so its destructor (which joins the shuttle thread) runs first.
     vst3::Outbound_message_shuttle _shuttle{};

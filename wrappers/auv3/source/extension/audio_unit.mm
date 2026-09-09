@@ -120,25 +120,12 @@ static auto presets_path() -> std::filesystem::path
         }
     });
 
-    // Latency notifications can't be posted from the render thread, and can't be posted
-    // from the view either — the editor may never be opened. The render thread posts; the
-    // relay delivers on main. Scoped to the AU, not to render resources, so a proposal made
-    // in the last block before `deallocateRenderResources` still reaches the host.
-    __weak Auv3_AUAudioUnit* weak_self = self;
-    _kernel.start_relay(tiny::Relay::Spec{
-        .execute = [weak_self]() {
-            Auv3_AUAudioUnit* strong_self = weak_self;
-            if (strong_self == nil) return;
-            [strong_self updateReportedLatency];
-        },
-        .interval = 0.1, // Seconds.
-    });
-
     return self;
 }
 
 - (void)dealloc {
-    // Before anything else: a delivery must not observe a half-torn-down AU.
+    // Backstop. Unlike AUBase, AUAudioUnit does not guarantee `deallocateRenderResources`
+    // runs before this, and a delivery must not observe a half-torn-down AU.
     _kernel.stop_relay();
 }
 
@@ -555,8 +542,22 @@ static auto presets_path() -> std::filesystem::path
     _kernel.initialize(inputChannelCount, outputChannelCount, _outputBus.format.sampleRate);
     _processHelper = std::make_unique<AUProcessHelper>(_kernel, inputChannelCount, outputChannelCount);
 
+    // Latency notifications can't be posted from the render thread, and can't be posted
+    // from the view either — the editor may never be opened. The render thread posts; the
+    // relay delivers on main. Scoped to the render-resource window, which is the only time
+    // anything can post: `propose_latency` is only read in the render path.
+    __weak Auv3_AUAudioUnit* weak_self = self;
+    _kernel.start_relay(tiny::Relay::Spec{
+        .execute = [weak_self]() {
+            Auv3_AUAudioUnit* strong_self = weak_self;
+            if (strong_self == nil) return;
+            [strong_self updateReportedLatency];
+        },
+        .interval = 0.1, // Seconds.
+    });
+
     // `configure` may have moved our latency. We are already on the main thread here, so
-    // notify directly rather than waiting for the relay's next tick.
+    // notify directly rather than waiting for the relay's first tick.
     [self updateReportedLatency];
 
     // Since we're immediate in the gui we might be able to get rid of these observer tokens.
@@ -580,6 +581,10 @@ static auto presets_path() -> std::filesystem::path
 // Deallocate resources allocated in allocateRenderResourcesAndReturnError:
 // Subclassers should call the superclass implementation.
 - (void)deallocateRenderResources {
+    // Stop first: no delivery may observe a kernel that is being torn down. `deInitialize`
+    // discards the outstanding proposal anyway, so nothing is lost by going quiet here.
+    _kernel.stop_relay();
+
     // Deallocate your resources.
     _kernel.deInitialize();
 

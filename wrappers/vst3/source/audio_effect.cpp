@@ -61,13 +61,24 @@ auto Audio_effect::_setup_worker() -> void
     });
 }
 
+#endif // TINY_HAS_WORKER
+
 Steinberg::tresult PLUGIN_API Audio_effect::notify(Steinberg::Vst::IMessage* message)
 {
     if (_router.dispatch(message)) return Steinberg::kResultOk;
     return Super::notify(message);
 }
 
-#endif // TINY_HAS_WORKER
+// MARK: - latency notification
+
+// Tells the controller the host's latency number went stale. Never called from the audio
+// thread: `sendMessage` allocates. Correctness may not depend on this landing — a host
+// with no connected controller gets kResultFalse and still reads the right value from
+// `getLatencySamples`.
+auto Audio_effect::_send_latency(uint32_t latency) -> void
+{
+    _to_ctrl.send_pod(k_latency_changed_id, latency);
+}
 
 auto Audio_effect::_drain_worker_to_processor() -> void
 {
@@ -114,6 +125,9 @@ Steinberg::tresult PLUGIN_API Audio_effect::terminate()
 {
     // Here the Plug-in will be de-instantiated, last possibility to remove some memory!
 
+    // Backstop: hosts skip this far less often than they skip `setActive(false)`.
+    _relay.reset();
+
     // Do not forget to call parent.
     return Steinberg::Vst::AudioEffect::terminate();
 }
@@ -143,7 +157,16 @@ Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::Proc
         .params = config_values
     });
     _latency = _processor->latency_samps();
-    _needs_report.store(true, std::memory_order_relaxed); // Defer the normal-path latency notification to `process`.
+
+    // The host re-queries `getLatencySamples` after setup ([UI-thread & Setup Done]), so a
+    // reconfigure is not a change to announce — but a host that does not re-query still
+    // needs telling, and this is the one place we can tell it with no render in flight.
+    // The exchange syncs the shadow whether or not the send lands, so a reconfigure can
+    // never be mistaken for a mid-render change and notified from `process` instead.
+    const auto latency = _latency.load(std::memory_order_relaxed);
+    if (latency != _reported_latency.exchange(latency, std::memory_order_relaxed)) {
+        _send_latency(latency);
+    }
 
     _bypass.reset(static_cast<float>(newSetup.sampleRate));
     _bypass.set_latency(_latency);
@@ -177,12 +200,26 @@ Steinberg::tresult PLUGIN_API Audio_effect::setActive(Steinberg::TBool state)
         if (pending.has_value()) {
             _accepted_latency.store(*pending, std::memory_order_release);
             _latency.store(*pending, std::memory_order_relaxed);
+            _send_latency(*pending); // Don't rely on the host having noticed the proposal.
         }
+
+        // Scoped to the active window, not to object lifetime: `setActive` is
+        // [UI-thread & Setup Done] by spec, so the "stop runs on the main thread"
+        // precondition stops being an assumption about host behaviour.
+        _relay.emplace(Relay::Spec{
+            .execute = [this]() {
+                const auto proposed = _pending_latency.load(std::memory_order_acquire);
+                if (proposed.has_value()) _send_latency(*proposed);
+            },
+            .interval = 0.05
+        });
+
 #if TINY_HAS_WORKER
         _shuttle.start(User_worker::Model::update_period);
 #endif
     }
     else {
+        _relay.reset();
 #if TINY_HAS_WORKER
         _shuttle.stop();
 #endif
@@ -393,8 +430,11 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     auto context = Dsp_context{.meters = _meters.scratch()};
 
     // kPrefetch (sampler pre-roll / variable-rate playback) is not a bounce → realtime.
-    context.render_mode = (data.processMode == Steinberg::Vst::kOffline) ? Render_mode::Offline : Render_mode::Realtime;
-    const auto is_offline_bounce = (data.processMode == Steinberg::Vst::kOffline);
+    // `ProcessSetup::processMode` is the canonical field; some hosts leave the per-block
+    // `data.processMode` at 0, so either one saying offline is enough.
+    const auto is_offline_bounce = (data.processMode == Steinberg::Vst::kOffline)
+                                || (processSetup.processMode == Steinberg::Vst::kOffline);
+    context.render_mode = is_offline_bounce ? Render_mode::Offline : Render_mode::Realtime;
 
     // A processMode transition (entering/leaving an offline bounce) is a discontinuity:
     // the audio either side is unrelated, so forget history as well as manifesting values
@@ -591,30 +631,22 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         return add_output_event(export_param_offset + static_cast<int32_t>(address), norm);
     });
 
-    auto notify = [&, this] {
-        _change_count += 1.;
-        const auto value = std::fmod(_change_count / max_change_count, 1.);
-        add_output_event(latency_param_id, value);
-    };
-
-    // Latency notifications, now only when actually changed!
+    // Latency notifications, now only when actually changed. The configure-time path is
+    // handled directly in `setupProcessing`; this is only a runtime proposal, and it goes
+    // out through the relay because `sendMessage` allocates.
+    //
+    // Silent during an offline bounce, for the same reason the meters are: a bounce cannot
+    // usefully renegotiate delay compensation, and the host's response to being told
+    // (`restartComponent(kLatencyChanged)`) interrupts playback mid-render. The pending
+    // value survives, and `getLatencySamples` still completes the handshake whenever the
+    // host next asks.
     const auto reported = _reported_latency.load(std::memory_order_relaxed);
     if (const auto proposed = context.propose_latency; proposed.has_value() && *proposed != reported) {
         // Set pending, mark reported, & notify.
         _pending_latency.store(*proposed, std::memory_order_release);
         _did_peek.store(false, std::memory_order_relaxed);
         _reported_latency.store(*proposed, std::memory_order_relaxed);
-        notify();
-    }
-
-    // Normal path latency still needs a notification.
-    if (_needs_report.exchange(false, std::memory_order_relaxed)) {
-        // Only send latency change if reset actually results in new latency.
-        const auto latency = _latency.load(std::memory_order_relaxed);
-        if (latency != _reported_latency.load(std::memory_order_relaxed)) {
-            _reported_latency.store(latency, std::memory_order_relaxed);
-            notify();
-        }
+        if (!is_offline_bounce && _relay) _relay->post();
     }
 
     return Steinberg::kResultOk;

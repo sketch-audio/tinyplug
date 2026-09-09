@@ -253,11 +253,22 @@ This has knock-on effects throughout the wrapper:
   processor's values so the controller's mirror stays in sync. A 4-word
   header (framework_code, manufacturer_code, plugin_code, count) prefixes
   each chunk; assertions verify the framework/mfr/plugin words on load.
-- **Latency changes hop through the host.** Kernel proposes via
-  `Dsp_context::propose_latency`; processor stores it into an atomic
-  `_pending_latency`, then bumps a hidden "latency" output parameter to
-  force the controller to learn that something changed. The controller
-  notices the latency-param change, calls
+- **Latency changes hop through the host, and the two paths are different.**
+  A *configure-time* change (`setupProcessing`) is sent **directly** over
+  `IMessage` (`tiny/latency/changed`) — no render is in flight there, and
+  `_reported_latency.exchange` syncs the shadow whether or not the send
+  lands, so a reconfigure can never be mistaken for a mid-render change.
+  A *runtime* proposal (`Dsp_context::propose_latency`, raised on the audio
+  thread) stores `_pending_latency` and posts a `tiny::Relay`, which sends
+  the same message off the audio thread. This replaced a hidden "latency"
+  output parameter that was bumped from `process`: Live mis-ingests output
+  parameters during an offline bounce, and `restartComponent` landing
+  mid-render truncated Ableton exports whenever the export rate differed
+  from the session rate. **Don't route latency through a parameter again.**
+  That parameter is gone from the controller's list entirely, and `0x60000000`
+  is free — it was never in any chunk we write, so only a host's own project
+  cache could still reference it, harmlessly.
+  Either way the controller calls
   `restartComponent(kLatencyChanged)`, and the host reads
   `getLatencySamples()` — **that read is the acceptance**: it consumes
   `_pending_latency`, writes `_accepted_latency`, and the next `process`
@@ -526,6 +537,15 @@ Two numbers, two meanings: `_latency` is what the host holds, `_reported_latency
 is what we last asked for. They diverge only inside the async window, which is why
 the dedupe guard cannot fold into `_latency`. Notify whenever the host's number
 became wrong — from a proposal *or* a configure — and never when it did not move.
+
+**Runtime proposals are suppressed during an offline bounce** in VST3, CLAP, AUv2 and
+AUv3 — the same gate the meters use. A bounce cannot usefully renegotiate delay
+compensation, and every format's "tell the host" mechanism interrupts the render
+(`restartComponent`, `request_restart`, `PropertyChanged`). The pending value survives, so
+the latency getter still completes the handshake at the host's next query. AAX needs no
+gate: Pro Tools never changes sample rate under a live instance. The cost of the gate is a
+proposal the kernel holds un-acked until that next query — acceptable only because the
+quality swap that raises it is pre-emptive.
 
 If you find yourself adding a special-case latency flow, you're probably
 fighting this protocol. The full contract, its known limits and the per-format

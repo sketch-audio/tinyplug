@@ -54,18 +54,11 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
     const auto str = CFStringCreateWithCString(kCFAllocatorDefault, "Output", kCFStringEncodingUTF8);
     auto defer = Deferred([str]() { CFRelease(str); });
     Outputs().GetElement(0)->SetName(str);
-
-    _relay.emplace(Relay::Spec{
-        .execute = [this]() {
-            PropertyChanged(kAudioUnitProperty_Latency, kAudioUnitScope_Global, 0);
-        },
-        .interval = 0.1, // seconds
-    });
 }
 
 Effect::~Effect()
 {
-    _relay.reset();
+    _relay.reset(); // Last resort; `Cleanup` should already have done it.
     this->_release_presets();
 }
 
@@ -101,6 +94,19 @@ OSStatus Effect::Initialize()
 
     _events.reserve(events_size);
 
+    // Scoped to the initialized window rather than object lifetime, so no timer exists
+    // while the AU is uninitialized. `Cleanup` is guaranteed to run before destruction
+    // if we ever got here (AUBase::PreDestructorInternal), so the stop cannot be skipped
+    // the way VST3's `setActive(false)` can. Note AudioUnitUninitialize carries no
+    // documented thread guarantee, so unlike VST3 this does not buy a spec-backed
+    // main-thread promise for the stop — it is the same bet the constructor was making.
+    _relay.emplace(Relay::Spec{
+        .execute = [this]() {
+            PropertyChanged(kAudioUnitProperty_Latency, kAudioUnitScope_Global, 0);
+        },
+        .interval = 0.1, // seconds
+    });
+
 #if TINY_HAS_WORKER
     _worker_runner.start(sample_rate);
 #endif
@@ -116,6 +122,8 @@ OSStatus Effect::Initialize()
 
 void Effect::Cleanup()
 {
+    _relay.reset();
+
     // Resolve outstanding handshake, defer to next configure.
     _pending_latency.store(std::nullopt, std::memory_order_relaxed);
     _accepted_latency.store(std::nullopt, std::memory_order_relaxed);
@@ -1305,13 +1313,16 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         return true; // A slot array has no capacity to refuse.
     });
 
-    // Did the processor propose a new (unreported) latency?
+    // Did the processor propose a new (unreported) latency? Quiet during an offline
+    // bounce for the same reason the meters are: a bounce cannot usefully renegotiate
+    // delay compensation, and the host recomputing it mid-render interrupts playback.
+    // The pending value survives for the next `GetLatency`.
     const auto reported = _reported_latency.load(std::memory_order_relaxed);
     if (const auto proposed = context.propose_latency; proposed.has_value() && *proposed != reported) {
         // Set pending latency, mark reported, and post to the relay.
         _pending_latency.store(*proposed, std::memory_order_release);
         _reported_latency.store(*proposed, std::memory_order_relaxed);
-        _relay->post();
+        if (!offline && _relay) _relay->post();
     }
 
     return noErr;

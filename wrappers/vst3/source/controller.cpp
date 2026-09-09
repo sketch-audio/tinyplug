@@ -1,5 +1,7 @@
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
+#include <span>
 
 #include "pluginterfaces/base/ibstream.h"
 #include "public.sdk/source/vst/utility/stringconvert.h"
@@ -49,13 +51,29 @@ auto Controller::_setup_worker() -> void
     });
 }
 
+#endif // TINY_HAS_WORKER
+
+// MARK: - router
+
+// Registered for every plug-in, worker or not.
+auto Controller::_setup_router() -> void
+{
+    // The processor tells us its latency moved; we are the half that holds an
+    // IComponentHandler. This arrives on the message thread, never mid-render — which is
+    // the whole point of routing it here instead of through an output parameter.
+    _router.register_handler(k_latency_changed_id, [this](std::span<const std::byte> bytes, uint32_t) {
+        if (bytes.size() != sizeof(uint32_t)) return;
+        if (auto* handler = getComponentHandler()) {
+            handler->restartComponent(Steinberg::Vst::kLatencyChanged);
+        }
+    });
+}
+
 Steinberg::tresult PLUGIN_API Controller::notify(Steinberg::Vst::IMessage* message)
 {
     if (_router.dispatch(message)) return Steinberg::kResultOk;
     return Super::notify(message);
 }
-
-#endif // TINY_HAS_WORKER
 
 auto Controller::_drain_worker_to_editor() -> void
 {
@@ -181,18 +199,6 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
         };
         parameters.addParameter(export_info);
     }
-
-    // Add the latency parameter.
-    auto latency_info = Steinberg::Vst::ParameterInfo{
-        .id = latency_param_id,
-        .title = u"Latency",
-        .shortTitle = u"Latency",
-        .stepCount = 0,
-        .defaultNormalizedValue = 0,
-        .unitId = Steinberg::Vst::kRootUnitId,
-        .flags = Steinberg::Vst::ParameterInfo::kIsReadOnly
-    };
-    parameters.addParameter(latency_info);
 
     // Add the bypass parameter.
     auto bypass_info = Steinberg::Vst::ParameterInfo{
@@ -648,12 +654,9 @@ Steinberg::tresult PLUGIN_API Controller::setParamNormalized(Steinberg::Vst::Par
         _last_meter[id].store(static_cast<float>(plain), std::memory_order_relaxed);
         _mailbox.post(id, static_cast<float>(plain));
     }
-    // Is it a latency change?
-    else if (tag == latency_param_id) {
-        if (auto* handler = getComponentHandler()) {
-            handler->restartComponent(Steinberg::Vst::kLatencyChanged);
-        }
-    }
+    // Latency no longer arrives here — it comes over IMessage (k_latency_changed_id), so
+    // it can never land mid-render. The parameter stays declared because it is in the
+    // cached parameter list of every saved session; we simply never write to it.
 
     return result;
 }

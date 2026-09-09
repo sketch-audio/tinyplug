@@ -18,6 +18,7 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
     source/action_queue.cpp
     source/gesture_recognizers.cpp
     source/notification_queue.cpp
+    source/relay.cpp
     source/serial_queue.cpp
     source/state_adapter.cpp
     source/task_launcher.cpp
@@ -37,6 +38,7 @@ target_sources(${TINY_SHARED_LIB} PRIVATE
     include/tinyplug/value_helper.hpp
     include/tinyplug/tiny_processor.hpp
     include/tinyplug/lock_free_queue.hpp
+    include/tinyplug/relay.hpp
     include/tinyplug/tiny_log.hpp
     include/tinyplug/tiny_utils.hpp
     include/tinyplug/tiny_view.hpp

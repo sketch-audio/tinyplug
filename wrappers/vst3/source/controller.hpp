@@ -29,15 +29,14 @@ public:
             .undo_redo = _undo_history.actor(),
             .tasks = _tasks.actor(),
         });
+        _setup_router();
 #if TINY_HAS_WORKER
         _setup_worker();
 #endif
     }
     ~Controller() SMTG_OVERRIDE = default;
 
-#if TINY_HAS_WORKER
     Steinberg::tresult PLUGIN_API notify(Steinberg::Vst::IMessage* message) SMTG_OVERRIDE;
-#endif
 
     // Create function
     static Steinberg::FUnknown* createInstance(void* /*context*/)
@@ -154,6 +153,13 @@ protected:
     std::vector<Set_param> _host_load_changes{};
     std::array<double, num_params> _host_load_after{};
 
+    // Peer link. Not worker-gated: the processor's latency notification arrives through
+    // the router, so a plug-in with no worker still needs one.
+    vst3::Message_router _router{};
+    vst3::Message_sender _to_proc{this};
+
+    auto _setup_router() -> void;
+
 #if TINY_HAS_WORKER
     // Worker channel. The worker lives on the controller side and uses the
     // editor's Task_manager. Editor↔worker is direct in-process; processor↔
@@ -175,9 +181,6 @@ protected:
         },
         _tasks.actor()
     };
-
-    vst3::Message_router _router{};
-    vst3::Message_sender _to_proc{this};
 
     // Last so its destructor (which joins the worker thread) runs first.
     Worker_runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};

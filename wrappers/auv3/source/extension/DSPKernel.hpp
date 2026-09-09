@@ -20,7 +20,7 @@
 #include <tiny_dsp/host_bypass.hpp>
 #include <tinyplug/denormal_guard.hpp>
 
-#include "relay.hpp"
+#include <tinyplug/relay.hpp>
 
 /*
  DSPKernel
@@ -259,7 +259,11 @@ public:
 
         // Has the kernel proposed a new latency? Only act if it actually differs from
         // what we last told the host — otherwise a kernel that re-proposes the same
-        // value every block would restart the handshake every block.
+        // value every block would restart the handshake every block. And stay quiet
+        // during an offline bounce for the same reason the meters do: a bounce cannot
+        // usefully renegotiate delay compensation, and the host recomputing it
+        // mid-render interrupts playback. The pending value survives for the next
+        // `latency` query.
         if (const auto proposed_latency = context.propose_latency) {
             const auto reported = _reported_latency.load(std::memory_order_relaxed);
             if (*proposed_latency != reported) {
@@ -267,7 +271,7 @@ public:
                 // the relay's own acquire is the matching half. Don't weaken either.
                 _pending_latency.store(*proposed_latency, std::memory_order_release);
                 _reported_latency.store(*proposed_latency, std::memory_order_relaxed);
-                if (_relay) _relay->post();
+                if (!offline && _relay) _relay->post();
             }
         }
 
@@ -314,9 +318,11 @@ public:
     }
     
     // tiny
-    // Scoped to the AU's lifetime, not to render resources: a proposal made in the last
-    // block before `deallocateRenderResources` still has to reach the host. Started from
-    // `-initWithComponentDescription:` and stopped first in `-dealloc`, matching AUv2.
+    // Scoped to the render-resource window, matching AUv2's Initialize/Cleanup: started in
+    // `-allocateRenderResourcesAndReturnError:`, stopped in `-deallocateRenderResources`
+    // with `-dealloc` as the backstop. Nothing can post outside that window — only the
+    // render path reads `propose_latency` — and `deInitialize` clears any proposal, so a
+    // wider scope would have nothing left to deliver.
     auto start_relay(tiny::Relay::Spec spec) -> void
     {
         _relay.emplace(std::move(spec));

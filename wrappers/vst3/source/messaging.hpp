@@ -22,10 +22,15 @@ namespace tiny::vst3 {
 // Reserved message-ID namespace.
 //   tiny/worker/inbound       — controller → processor
 //   tiny/worker/to_editor     — processor → controller
+//   tiny/latency/changed      — processor → controller
 //   tiny/tables/<addr>        — future (controller → processor)
 //   tiny/blocks/<addr>        — future (processor → controller)
 //   tiny/<plugin>/<custom>    — reserved for plug-in-specific traffic
 // All IDs should start with "tiny/" to avoid collisions with host-defined IDs.
+
+// Payload is the new latency in samples (uint32_t). Not worker traffic, so it lives
+// outside TINY_HAS_WORKER — every plug-in needs it.
+inline constexpr auto k_latency_changed_id = "tiny/latency/changed";
 
 // MARK: - router
 

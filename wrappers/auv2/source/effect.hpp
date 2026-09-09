@@ -21,7 +21,7 @@
 #include "plug_info.hpp"
 
 #include "adapters.hpp"
-#include "relay.hpp"
+#include <tinyplug/relay.hpp>
 #include "view.hpp"
 
 #include "preset_list.hpp" // Generated.
