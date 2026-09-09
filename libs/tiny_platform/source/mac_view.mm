@@ -176,6 +176,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     NSTrackingAreaOptions options = NSTrackingMouseEnteredAndExited
                                   | NSTrackingMouseMoved
                                   | NSTrackingActiveAlways
+                                  | NSTrackingCursorUpdate // So `cursorUpdate:` below gets called.
                                   | NSTrackingInVisibleRect;
     NSTrackingArea *area = [[NSTrackingArea alloc] initWithRect:self.bounds
                                                         options:options
@@ -183,6 +184,13 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
                                                        userInfo:nil];
     
     [self addTrackingArea:area];
+}
+
+// Cursor rects are per-window, and ours is the host's: contributing none leaves the host's
+// own rects (Live's timeline magnifier, its splitters) showing through our view. Claim the
+// cursor for our whole area instead. Author-settable cursors would cache a value here.
+- (void)cursorUpdate:(NSEvent *)event {
+    [[NSCursor arrowCursor] set];
 }
 
 - (void)viewDidChangeBackingProperties {
