@@ -179,6 +179,16 @@ auto configure_instance(const Alg_context* context, Alg_state& st, double sample
     // Tell the host through the normal proposal path: the data model turns this into
     // SetSignalLatency on the next Direct Data wakeup and the accepted value comes back in
     // the Runtime_packet. Silent when nothing moved — see the note above.
+    //
+    // AAX needs no offline gate (unlike the other four), but *not* because delivery here is
+    // synchronous — it isn't: the ring entry waits for the next Direct Data wakeup, "roughly
+    // every 30 ms and not guaranteed to be regular", the same async hop VST3 has. It is safe
+    // because Pro Tools never changes the sample rate under a live instance (session rate is
+    // fixed, and Bounce to Disk renders at session rate then converts), so the trigger the
+    // other formats have does not exist; and because PT answers SetSignalLatency by adjusting
+    // its own compensation rather than restarting the component. If the trigger did exist the
+    // window would cost a few samples of PDC offset, self-correcting at the next reset — not
+    // a cut.
     if (latency != st.reported_latency) {
         if (auto* returns = context->returns) {
             const auto sent = returns->push_value(Ring_kind::Propose_latency, Ring_latency{
