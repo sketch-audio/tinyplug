@@ -1,12 +1,23 @@
 #include <tiny_platform/window_context.hpp>
 
+#include "ios_config.hpp"
+
 #import <UIKit/UIKit.h>
-#import <Metal/Metal.h>
-#import <QuartzCore/CAMetalLayer.h>
 
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSurface.h"
+
+#if __has_feature(objc_arc)
+static_assert(false, "This is a non-ARC file");
+#endif
+
+#if IOS_GRAPHICS_GPU
+
+// MARK: - Metal backend (default)
+
+#import <Metal/Metal.h>
+#import <QuartzCore/CAMetalLayer.h>
 
 #include "include/gpu/ganesh/GrBackendSurface.h"
 #include "include/gpu/ganesh/GrDirectContext.h"
@@ -15,10 +26,6 @@
 #include "include/gpu/ganesh/mtl/GrMtlBackendSurface.h"
 #include "include/gpu/ganesh/mtl/GrMtlDirectContext.h"
 #include "include/gpu/ganesh/mtl/GrMtlTypes.h"
-
-#if __has_feature(objc_arc)
-static_assert(false, "This is a non-ARC file");
-#endif
 
 @interface MetalView : UIView
 @end
@@ -212,3 +219,144 @@ auto Window_context::on_resized() -> void
 }
 
 } // namespace tiny
+
+#else
+
+// MARK: - Raster backend
+//
+// Skia rasterises on the CPU into bitmaps we own and CoreAnimation composites the result:
+// no Metal device, command queue, drawable pool or GPU watchdog. Kept behind the flag as
+// the fallback if the Metal path proves unsafe again.
+
+#include <algorithm>
+
+#include "include/core/SkBitmap.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+
+namespace tiny {
+
+struct Window_context::Impl {
+
+    // Two buffers: CoreAnimation may still be reading the image we handed it last frame,
+    // so never draw into the one that is currently on screen.
+    static constexpr auto num_buffers = size_t{2};
+
+    SkBitmap bitmaps[num_buffers]{};
+    sk_sp<SkSurface> surfaces[num_buffers]{};
+    size_t buffer{};
+
+    void* view{}; // UIView*
+    int width{};
+    int height{};
+
+    auto resize(int w, int h) -> void
+    {
+        width = w;
+        height = h;
+
+        if (w <= 0 || h <= 0) {
+            for (auto& surface : surfaces) surface.reset();
+            for (auto& bitmap : bitmaps) bitmap.reset();
+            return;
+        }
+
+        // Explicitly BGRA to match the CGBitmapInfo in `end_draw`. N32 resolves to RGBA
+        // in this Skia build, which swaps red and blue.
+        const auto info = SkImageInfo::Make(w, h, kBGRA_8888_SkColorType, kPremul_SkAlphaType);
+        for (auto i = size_t{}; i < num_buffers; ++i) {
+            bitmaps[i].allocPixels(info);
+            surfaces[i] = SkSurfaces::WrapPixels(info, bitmaps[i].getPixels(), bitmaps[i].rowBytes());
+        }
+    }
+};
+
+Window_context::Window_context() : _impl{std::make_unique<Impl>()} {}
+Window_context::~Window_context() = default;
+
+auto Window_context::setup(const Setup& setup) -> void
+{
+    auto* view = static_cast<UIView*>(setup.native_handle);
+    _impl->view = view;
+    view.layer.contentsGravity = kCAGravityResize;
+
+    this->on_resized();
+}
+
+auto Window_context::teardown() -> void
+{
+    for (auto& surface : _impl->surfaces) surface.reset();
+    for (auto& bitmap : _impl->bitmaps) bitmap.reset();
+
+    if (auto* view = static_cast<UIView*>(_impl->view)) view.layer.contents = nil;
+    _impl->view = nullptr;
+}
+
+// Metal-only concept; the raster path owns its own pixels.
+auto Window_context::set_drawable(void* /*drawable*/) -> void
+{
+}
+
+auto Window_context::begin_draw() -> void
+{
+}
+
+auto Window_context::get_canvas() -> Canvas
+{
+    auto& surface = _impl->surfaces[_impl->buffer];
+    if (!surface) return Canvas{nullptr};
+
+    auto* canvas = surface->getCanvas();
+    canvas->resetMatrix();
+    canvas->clear(SK_ColorBLACK);
+    return Canvas{canvas};
+}
+
+auto Window_context::end_draw() -> void
+{
+    auto& bitmap = _impl->bitmaps[_impl->buffer];
+    auto* view = static_cast<UIView*>(_impl->view);
+    if (!view || !bitmap.getPixels() || _impl->width <= 0 || _impl->height <= 0) return;
+
+    const auto row_bytes = bitmap.rowBytes();
+    const auto length = row_bytes * static_cast<size_t>(_impl->height);
+
+    // The provider borrows our pixels rather than copying them — hence the second buffer.
+    auto provider = CGDataProviderCreateWithData(nullptr, bitmap.getPixels(), length, nullptr);
+    auto space = CGColorSpaceCreateDeviceRGB();
+
+    const auto layout = static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little) | kCGImageAlphaPremultipliedFirst;
+    auto image = CGImageCreate(static_cast<size_t>(_impl->width), static_cast<size_t>(_impl->height),
+                               8, 32, row_bytes, space, layout, provider,
+                               nullptr, false, kCGRenderingIntentDefault);
+
+    view.layer.contents = (id)image;
+
+    CGImageRelease(image);
+    CGColorSpaceRelease(space);
+    CGDataProviderRelease(provider);
+
+    _impl->buffer = (_impl->buffer + 1) % Impl::num_buffers;
+}
+
+auto Window_context::on_resized() -> void
+{
+    auto* view = static_cast<UIView*>(_impl->view);
+    if (!view) return;
+
+    const auto s = view.window.screen.scale ?: [UIScreen mainScreen].scale;
+    const auto scale = std::max(s, 1.0);
+
+    const auto logical = view.bounds.size;
+    const auto w = static_cast<int>(logical.width * scale);
+    const auto h = static_cast<int>(logical.height * scale);
+
+    view.layer.contentsScale = scale;
+    _impl->resize(w, h);
+
+    _size = {static_cast<int32_t>(w), static_cast<int32_t>(h)};
+}
+
+} // namespace tiny
+
+#endif // IOS_GRAPHICS_GPU

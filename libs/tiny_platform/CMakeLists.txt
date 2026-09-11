@@ -9,6 +9,17 @@ add_library(${TINY_PLATFORM_LIB} STATIC)
 
 if(APPLE)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        # 1 = Metal/Skia Ganesh (default). 0 = Skia CPU raster composited by CoreAnimation,
+        # kept as the escape hatch: CAMetalDisplayLink (iOS 17+) has been implicated in GPU
+        # command-buffer timeouts that freeze the editor until it is reloaded.
+        if(NOT DEFINED IOS_GRAPHICS_GPU)
+            set(IOS_GRAPHICS_GPU "1")
+        endif()
+        configure_file(
+            ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ios_config.hpp.in
+            ${CMAKE_CURRENT_BINARY_DIR}/ios_config.hpp
+        )
+        target_include_directories(${TINY_PLATFORM_LIB} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
         set(PLATFORM_SOURCES
             source/ios_context.mm
             source/ios_dialogs.mm

@@ -1,0 +1,5 @@
+#pragma once
+
+#ifndef IOS_GRAPHICS_GPU
+#define IOS_GRAPHICS_GPU @IOS_GRAPHICS_GPU@
+#endif

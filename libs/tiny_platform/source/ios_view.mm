@@ -11,9 +11,33 @@
 
 #include <tiny_platform/window_context.hpp>
 
+#include "ios_config.hpp"
+
 #if __has_feature(objc_arc)
 static_assert(false, "This is a non-ARC file");
 #endif
+
+namespace tiny {
+
+// A plug-in editor gains nothing from ProMotion's 120 Hz — the extra frames are pure
+// render load. Applies to both backends.
+inline constexpr auto max_fps = 60;
+
+// Back off as the device heats; a throttled GPU cannot deliver the frames anyway. Unity
+// pair the same policy with CAMetalDisplayLink — the freeze they traced began once the
+// device reached a critical thermal state.
+inline auto fps_for_thermal(NSProcessInfoThermalState state) -> int
+{
+    switch (state) {
+        case NSProcessInfoThermalStateNominal:  return max_fps;
+        case NSProcessInfoThermalStateFair:     return max_fps;
+        case NSProcessInfoThermalStateSerious:  return 30;
+        case NSProcessInfoThermalStateCritical: return 20;
+        default:                                return max_fps;
+    }
+}
+
+}
 
 @interface IosView : UIView {
     std::shared_ptr<tiny::View_delegate> _delegate;
@@ -21,6 +45,8 @@ static_assert(false, "This is a non-ARC file");
 - (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate;
 - (void)startDisplayLink; // Raw mechanism; overridden by IosMetalView.
 - (void)stopDisplayLink;
+- (int)targetFps;
+- (void)applyFrameRate;   // Retunes the live link; overridden by IosMetalView.
 - (void)resumeDisplayLink; // Visibility entry points — these track `_link_wanted`.
 - (void)suspendDisplayLink;
 @end
@@ -78,11 +104,26 @@ static_assert(false, "This is a non-ARC file");
                                           NSExtensionHostWillEnterForegroundNotification]) {
             [center addObserver:self selector:@selector(appWillEnterForeground:) name:name object:nil];
         }
+        [center addObserver:self selector:@selector(thermalStateChanged:)
+                       name:NSProcessInfoThermalStateDidChangeNotification object:nil];
     }
     return self;
 }
 
 // MARK: - App lifecycle
+
+- (int)targetFps {
+    return tiny::fps_for_thermal([[NSProcessInfo processInfo] thermalState]);
+}
+
+- (void)applyFrameRate {
+    if (!_displayLink) return;
+    _displayLink.preferredFramesPerSecond = [self targetFps];
+}
+
+- (void)thermalStateChanged:(NSNotification *)note {
+    [self applyFrameRate];
+}
 
 - (void)appDidEnterBackground:(NSNotification *)note {
     [self stopDisplayLink]; // Keeps `_link_wanted` — the editor is still on screen.
@@ -112,6 +153,7 @@ static_assert(false, "This is a non-ARC file");
     [self stopDisplayLink];
     _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onDisplayLink:)];
     [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    [self applyFrameRate];
 }
 
 - (void)stopDisplayLink {
@@ -328,9 +370,12 @@ API_AVAILABLE(ios(17.0))
     
     auto metal_view = [[self subviews] firstObject]; // Assume the context set us up?
     if (!metal_view) return;
+
     _metalDisplayLink = [[CAMetalDisplayLink alloc] initWithMetalLayer:(CAMetalLayer*)metal_view.layer];
     _metalDisplayLink.delegate = self;
+
     [_metalDisplayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    [self applyFrameRate];
 }
 
 - (void)stopDisplayLink {
@@ -339,6 +384,12 @@ API_AVAILABLE(ios(17.0))
         [_metalDisplayLink release]; // ??
         _metalDisplayLink = nil;
     }
+}
+
+- (void)applyFrameRate {
+    if (!_metalDisplayLink) return;
+    const auto fps = static_cast<float>([self targetFps]);
+    _metalDisplayLink.preferredFrameRateRange = CAFrameRateRangeMake(fps, fps, fps);
 }
 
 - (void)metalDisplayLink:(CAMetalDisplayLink *)link needsUpdate:(CAMetalDisplayLinkUpdate *)update {
@@ -357,11 +408,16 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
 {
     UIView* view;
     
+#if IOS_GRAPHICS_GPU
     if (@available(iOS 17, *)) {
         view = [[IosMetalView alloc] initWithDelegate:delegate];
     } else {
         view = [[IosView alloc] initWithDelegate:delegate];
     }
+#else
+    // Raster backend: a plain CADisplayLink driving CPU rasterisation. No CAMetalDisplayLink.
+    view = [[IosView alloc] initWithDelegate:delegate];
+#endif
 
     auto context = std::make_unique<Window_context>();
     context->setup({.native_handle = static_cast<void*>(view)});
