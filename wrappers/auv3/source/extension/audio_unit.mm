@@ -1045,8 +1045,10 @@ static auto presets_path() -> std::filesystem::path
     }
     
     if (currentPreset.number >= 0) {
-        // Factory preset.
-        const auto bundle_resources = Platform_paths::format_readable({/*bundle id*/});
+        // Factory preset. The files are bundled into the AUv3 appex, so resolve against
+        // its identifier — `format_readable` looks the bundle up by id.
+        const auto bundle_id = std::string{Plug_info::base_identifier} + ".auv3";
+        const auto bundle_resources = Platform_paths::format_readable(bundle_id);
         const auto filename = std::string{[currentPreset.name UTF8String]} + "." + Plug_info::Presets::extension;
         
         const auto path = bundle_resources / filename;
