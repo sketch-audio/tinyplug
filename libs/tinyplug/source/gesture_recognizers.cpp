@@ -164,7 +164,14 @@ auto Dwell_recognizer::process_events(Event_list& events) -> void
                 }
             },
             [&](const Pointer_up&) {
-                //
+#if TINY_PLATFORM_IOS
+                // On touch there is no pointer once the finger lifts, so nothing can be
+                // hovering. `pointer_origins` is erased when the up is pushed but the list
+                // is snapshotted at consume, so any move sharing a frame with the up reads
+                // as "nothing down" and arms the timer — the tooltip then lands seconds
+                // after the gesture ended. Same reason `Over_recognizer` ends hover here.
+                _over_t = std::nullopt;
+#endif
             },
             [&](const Pointer_move& move) {
                 if (pointer_is_down(event.pointer_tag)) { // Held pointer: dragging, not hovering.
