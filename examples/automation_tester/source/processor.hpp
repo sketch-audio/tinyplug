@@ -3,7 +3,6 @@
 #include <array>
 
 #include <tinyplug/tinyplug.hpp>
-#include "models/meters.hpp"
 #include "models/params.hpp"
 
 #include "dsp/linear_ramper.hpp"

@@ -127,6 +127,7 @@ protected:
         },
     }};
 
+#if TINY_HAS_METERS
     // The mailbox *is* the cache: it retains every level the host has delivered, so
     // a view created at any point simply reads it. That is what removed the separate
     // `_last_meters` shadow and the dump-on-createView that used to replay it.
@@ -136,6 +137,7 @@ protected:
     // editor frame for `Peak` addresses. See `read_meters` in the .cpp — this is the
     // one place VST3 has to compensate for a transport it does not own.
     std::array<std::atomic<float>, num_meters> _last_meter{};
+#endif
     Change_list<Set_param> _state_queue{}; // Knob space, to the editor.
 
     std::unordered_set<uint32_t> _gestured{};

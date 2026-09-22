@@ -375,8 +375,10 @@ auto render_instance(Alg_context* ctx) -> void
         .sbuffers = {st->sbuffers.begin(), Plug_info::wants_sidechain ? max_schannels : 0},
         .obuffers = {st->obuffers.begin(), channels},
         .num_frames = num_frames,
-        .meters = st->meters.scratch()
     };
+#if TINY_HAS_METERS
+    context.meters = st->meters.scratch();
+#endif
     // Latched at the last reset, never mid-render. The kernel therefore only ever sees
     // this change across a reset — a point at which it has already been cleared and
     // snapped — so a late-arriving flag can no longer wipe history under flowing audio.
@@ -396,6 +398,7 @@ auto render_instance(Alg_context* ctx) -> void
     }
     st->bypass.process({st->ibuffers.begin(), channels}, {st->obuffers.begin(), channels}, num_frames);
 
+#if TINY_HAS_METERS
     // Meters out. Suppressed during an offline bounce; the publisher still resets
     // peaks so a bounce cannot hoard a spike. A ring that refuses the value leaves
     // the shadow alone, so the update is retried rather than lost until the meter
@@ -409,6 +412,7 @@ auto render_instance(Alg_context* ctx) -> void
             .value = static_cast<double>(value)
         });
     });
+#endif
 
     // Latency proposal out. The data model turns this into SetSignalLatency, the host
     // answers with a notification, and the accepted value comes back in Runtime_packet.

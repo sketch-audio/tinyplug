@@ -426,7 +426,10 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     // Create the context. The scratch is NOT blanket-cleared here: what survives a
     // block is per-policy and the publisher decides it at the end (levels persist,
     // peaks and events do not).
-    auto context = Dsp_context{.meters = _meters.scratch()};
+    auto context = Dsp_context{};
+#if TINY_HAS_METERS
+    context.meters = _meters.scratch();
+#endif
 
     // kPrefetch (sampler pre-roll / variable-rate playback) is not a bounce → realtime.
     // `ProcessSetup::processMode` is the canonical field; some hosts leave the per-block
@@ -608,6 +611,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         );
     }
 
+#if TINY_HAS_METERS
     auto add_output_event = [&](int32_t id, double value) -> bool {
         auto event_index = Steinberg::int32{};
         if (!data.outputParameterChanges) return false;
@@ -629,6 +633,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         const auto norm = plain_to_norm(value, spec.range);
         return add_output_event(export_param_offset + static_cast<int32_t>(address), norm);
     });
+#endif
 
     // Latency notifications, now only when actually changed. The configure-time path is
     // handled directly in `setupProcessing`; this is only a runtime proposal, and it goes

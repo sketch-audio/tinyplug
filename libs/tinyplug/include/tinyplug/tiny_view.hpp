@@ -63,16 +63,18 @@ inline auto run_frame(
     // one-frame flag for an event) from a stream of individual values; the mailbox
     // combines on the way in, so all that bookkeeping — and the `Meter_state` it
     // lived in — is gone.
-    auto samples = std::array<meters::Sample, std::tuple_size_v<A1>>{};
-    _receiver.read_meters(samples);
+    if constexpr (has_meters) {
+        auto samples = std::array<meters::Sample, std::tuple_size_v<A1>>{};
+        _receiver.read_meters(samples);
 
-    for (auto i = size_t{}; i < samples.size(); ++i) {
-        // A level and a peak are both just "the value"; the mailbox already decided
-        // what that means for each. An event shows its magnitude on the frames it
-        // actually fired, and nothing on the others.
-        _ui_meters[i] = (_meter_specs[i].policy == meters::Policy::Trig)
-            ? (samples[i].triggers > 0 ? static_cast<double>(samples[i].value) : 0.)
-            : static_cast<double>(samples[i].value);
+        for (auto i = size_t{}; i < samples.size(); ++i) {
+            // A level and a peak are both just "the value"; the mailbox already decided
+            // what that means for each. An event shows its magnitude on the frames it
+            // actually fired, and nothing on the others.
+            _ui_meters[i] = (_meter_specs[i].policy == meters::Policy::Trig)
+                ? (samples[i].triggers > 0 ? static_cast<double>(samples[i].value) : 0.)
+                : static_cast<double>(samples[i].value);
+        }
     }
 
     // Create view context.

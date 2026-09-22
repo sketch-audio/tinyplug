@@ -48,7 +48,6 @@ add_property(${PLUGIN_TARGET} TINY_VST3_SUBCATEGORIES "Fx")
 target_sources(${PLUGIN_TARGET} PRIVATE
     source/dsp/linear_ramper.hpp
     source/models/params.hpp
-    source/models/meters.hpp
     source/editor.cpp
     source/editor.hpp
     source/processor.cpp

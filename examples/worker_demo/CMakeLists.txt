@@ -36,7 +36,6 @@ add_property(${PLUGIN_TARGET} TINY_VST3_SUBCATEGORIES "Fx")
 # ---
 
 target_sources(${PLUGIN_TARGET} PRIVATE
-    source/models/meters.hpp
     source/models/params.hpp
     source/models/work.hpp
     source/editor.cpp

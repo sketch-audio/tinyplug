@@ -335,12 +335,14 @@ AAX_Result Parameters::SetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSi
 
     switch (static_cast<Ring_kind>(block.kind)) {
         case Ring_kind::Meter: {
+#if TINY_HAS_METERS
             if (block.payload_bytes != sizeof(Ring_meter)) break;
             auto meter = Ring_meter{};
             std::memcpy(&meter, payload, sizeof(meter));
             if (meter.address < num_meters) {
                 _mailbox.post(meter.address, static_cast<float>(meter.value));
             }
+#endif
             break;
         }
         case Ring_kind::Propose_latency: {

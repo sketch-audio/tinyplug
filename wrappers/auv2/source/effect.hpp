@@ -185,7 +185,9 @@ private:
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
 
+#if TINY_HAS_METERS
     meters::Publisher<User_meters> _meters{}; // Owns the scratch the DSP writes.
+#endif
 
     Clump_map _clumps{};
 
@@ -206,7 +208,9 @@ private:
     Change_list<process::Event::Set> _changes{}; // Plain space, to the audio thread.
     To_processor_queue _to_processor{};
 
+#if TINY_HAS_METERS
     meters::Mailbox<User_meters> _mailbox{};
+#endif
 
     // Render
     std::vector<process::Tagged_event> _events{}; // Some fixed size thing.
@@ -289,9 +293,11 @@ private:
                 const auto knob = Value_helper::host_to_knob(host, param.semantics);
                 return knob;
             },
+#if TINY_HAS_METERS
             .read_meters = [this](std::span<meters::Sample> out) {
                 _mailbox.read(out);
             },
+#endif
             .action_handler = [this](auto& action) {
                 std::visit(Inline_visitor{
                     [&](const Action_start& a) {

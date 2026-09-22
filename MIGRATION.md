@@ -1,15 +1,20 @@
-# Migrating a plug-in to the model layer
+# Migration guide
 
-Hand-off guide for porting a downstream repo from the previous release (`release/0.4`) to the
-core/interface split on `main`. Follow it top to bottom; the *why* is in
-[model-layer.md](model-layer.md).
+How to port a downstream plug-in across breaking framework changes. Each section covers one
+change, newest last, and says which release it breaks from. Work through them in order.
 
-Every change below breaks the build, so nothing changes behaviour silently. If it builds, it
+Every change here breaks the build, so nothing changes behaviour silently. If it builds, it
 is almost certainly right.
 
 ---
 
-## 0. What changed, in one screen
+## Model layer
+
+Breaks from `release/0.4`. Splits the framework into a model-free core and a header-only,
+model-aware interface, and generates model discovery from CMake. The *why* is in
+[plans/model-layer.md](plans/model-layer.md).
+
+### 0. What changed, in one screen
 
 ```
 BEFORE                                         AFTER
@@ -24,7 +29,7 @@ Worker::Model { From_processor ... }           models::Work in source/models/wor
 Worker_reply_actor<Worker>                     Worker_replies
 ```
 
-Six changes, in the order to make them:
+Seven changes, in the order to make them:
 
 1. CMake: link `${TINY_PLUG_LIB}` and call the two generators.
 2. Include paths: model-free headers moved to `<tiny_core/...>`.
@@ -33,10 +38,9 @@ Six changes, in the order to make them:
 5. The worker's channel shape moves out of the class into `models/work.hpp`, and the class
    moves to `tiny::work`.
 6. Drop the local `User_params` / `User_meters` aliases (optional, but they are now provided).
+7. Meters are optional. Delete an empty `models/meters.hpp`.
 
----
-
-## 1. CMake
+### 1. CMake
 
 ```cmake
 # BEFORE
@@ -66,9 +70,11 @@ generated header on the target's PUBLIC include path.
 | `source/worker.hpp` | with `models/work.hpp` | `work::None`, `TINY_HAS_WORKER 0` |
 
 Adding or removing one of these files re-runs configure on the next build (the discovery
-globs are `CONFIGURE_DEPENDS`), so you don't need to re-run cmake by hand.
+globs are `CONFIGURE_DEPENDS`), so you don't need to re-run cmake by hand. **Xcode is the
+exception:** building a single target with `cmake --build --target X` doesn't run
+`ZERO_CHECK`. Build `ZERO_CHECK` (or re-run the preset) after adding or removing a model.
 
-## 2. Include paths
+### 2. Include paths
 
 Everything that doesn't depend on your models moved to `libs/tiny_core`. Replace the prefix:
 
@@ -93,7 +99,7 @@ still reaches everything. Two headers were split, and the core halves are new:
 If you included `tiny_view.hpp` or `tiny_events.hpp` only for those types, include the core
 header instead.
 
-## 3. Model headers include core only
+### 3. Model headers include core only
 
 `source/models/*.hpp` are included by the generated `<tiny_models.hpp>`, which the framework
 includes **before** its own model-aware headers. A model that includes
@@ -110,7 +116,7 @@ Your processor, editor and worker headers keep including `<tinyplug/tinyplug.hpp
 brings in your models for you. Explicit `#include "models/params.hpp"` lines there are
 harmless, but you no longer need them.
 
-## 4. The editor moves to `tiny::edit`
+### 4. The editor moves to `tiny::edit`
 
 ```cpp
 // BEFORE                               // AFTER
@@ -123,7 +129,7 @@ Framework types are still in `tiny`, so they resolve unqualified inside `tiny::e
 they did inside `tiny::plugin`. Rename the namespace in `editor.hpp` and `editor.cpp` and
 you're done.
 
-## 5. The worker's channel shape moves out of the class
+### 5. The worker's channel shape moves out of the class
 
 The four channel variants and the tuning constants were nested in `Worker::Model`. That put
 them in a header that needs the framework, so the framework could only read them through the
@@ -180,7 +186,7 @@ Everywhere else:
 The two files are paired. `worker.hpp` without `models/work.hpp`, or the reverse, is a
 configure error.
 
-## 6. Aliases you get for free
+### 6. Aliases you get for free
 
 The generated headers declare these in `tiny`, so you can delete your local copies:
 
@@ -199,9 +205,27 @@ inline constexpr bool has_editor, has_worker;
 A redeclaration as a class member (`using User_params = params::Infos<models::Params>;`) is
 still legal, because it names the same type. Delete it anyway.
 
----
+### 7. Meters are optional
 
-## Traps
+A plug-in without `models/meters.hpp` carries no meter machinery at all: no publisher,
+mailbox, output parameters (VST3) or Direct Data traffic (AAX). If your meter model declares
+only `Num_meters`, delete the file and remove it from your `target_sources`.
+
+Keeping an empty model still works, but the machinery stays compiled in.
+
+Without a meter model, two fields don't exist:
+
+| Field | Absent when `TINY_HAS_METERS == 0` |
+|---|---|
+| `process::Dsp_context::meters` | the processor has nowhere to write, and nothing to write |
+| `Ui_receiver::read_meters` | wrapper-internal; only matters if you build your own `Ui_receiver` |
+
+`Plugin_state::processor_state.meters` is still there, as an empty span, because
+`Processor_state` lives in core and can't depend on your models. Code shared between
+plug-ins with and without meters can guard itself with `#if TINY_HAS_METERS` or, inside a
+template, `if constexpr (has_meters)`.
+
+### Traps
 
 - **A model header that includes `<tinyplug/tinyplug.hpp>`.** While the model only uses
   core types, this is a harmless cycle. Once it reaches for an interface type you get
@@ -214,7 +238,7 @@ still legal, because it names the same type. Delete it anyway.
   checks it. A processor that was never asserted and doesn't quite match the concept now
   fails to compile, with the diagnostic in the generated header.
 
-## Verifying
+### Verifying
 
 Build every format for the plug-in. There is no runtime behaviour change. The only
 generated-code difference is that `action_queue` and `undo_history` are now inlined into

@@ -207,7 +207,10 @@ public:
             }
         }
 
-        auto context = tiny::process::Dsp_context{.meters = _meters.scratch(), .propose_latency = {}};
+        auto context = tiny::process::Dsp_context{.propose_latency = {}};
+#if TINY_HAS_METERS
+        context.meters = _meters.scratch();
+#endif
         context.musical_context = resolve_musical_context(frameCount);
         context.render_mode = _offline.load(std::memory_order_relaxed)
             ? tiny::process::Render_mode::Offline
@@ -250,10 +253,12 @@ public:
         // Send exports. Suppressed during an offline bounce; the publisher still
         // resets peaks so a bounce cannot hoard a spike.
         const auto offline = (context.render_mode == tiny::process::Render_mode::Offline);
+#if TINY_HAS_METERS
         _meters.publish(offline, [this](uint32_t address, float value) {
             _mailbox.post(address, value);
             return true; // A slot array has no capacity to refuse.
         });
+#endif
 
         // Has the kernel proposed a new latency? Only act if it actually differs from
         // what we last told the host — otherwise a kernel that re-proposes the same
@@ -357,10 +362,12 @@ public:
         return _processor->tail_samps() / mSampleRate;
     }
     
+#if TINY_HAS_METERS
     auto read_meters(std::span<tiny::meters::Sample> out) -> void
     {
         _mailbox.read(out);
     }
+#endif
     
     auto onHostUpdated(AUParameterAddress /*address*/, AUValue /*value*/) -> void
     {
@@ -394,7 +401,9 @@ private:
     std::array<const float*, max_ichannels> _ibuffers{};
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
+#if TINY_HAS_METERS
     tiny::meters::Publisher<User_meters> _meters{}; // Owns the scratch the DSP writes.
+#endif
 
     static constexpr auto queue_size = []() {
         const auto state = 4 * num_params;
@@ -414,7 +423,9 @@ private:
     bool _was_skipped{}; // process()-thread only. Detects the can_skip -> processing edge.
     std::optional<tiny::process::Render_mode> _last_render_mode{}; // process()-thread only. Detects the realtime <-> offline edge.
 
+#if TINY_HAS_METERS
     tiny::meters::Mailbox<User_meters> _mailbox{};
+#endif
     
     // Values in host space.
     using Host_value = std::atomic<float>;

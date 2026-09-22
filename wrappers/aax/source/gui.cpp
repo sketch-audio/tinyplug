@@ -51,9 +51,11 @@ auto Gui::CreateViewContainer() -> void
             }
             return double{};
         },
+#if TINY_HAS_METERS
         .read_meters = [params](std::span<meters::Sample> out) {
             if (params) params->read_meters(out);
         },
+#endif
         .action_handler = [this, view, params](auto& action) {
             std::visit(Inline_visitor{
                 [&](const Action_start& a) {

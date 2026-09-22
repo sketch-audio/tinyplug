@@ -186,6 +186,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
         parameters.addParameter(param_info);
     }
 
+#if TINY_HAS_METERS
     for (auto i = decltype(num_meters){}; i < num_meters; ++i) {
         auto export_info = Steinberg::Vst::ParameterInfo{
             .id = static_cast<Steinberg::Vst::ParamID>(i + export_param_offset),
@@ -198,6 +199,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
         };
         parameters.addParameter(export_info);
     }
+#endif
 
     // Add the bypass parameter.
     auto bypass_info = Steinberg::Vst::ParameterInfo{
@@ -643,6 +645,7 @@ Steinberg::tresult PLUGIN_API Controller::setParamNormalized(Steinberg::Vst::Par
     if (tag < num_params) {
         _state_queue.push(Set_param{.address = tag, .value = value});
     }
+#if TINY_HAS_METERS
     // Is it a meter?
     else if (tag >= export_param_offset && tag < export_param_offset + num_meters) {
         const auto id = tag - export_param_offset;
@@ -653,6 +656,7 @@ Steinberg::tresult PLUGIN_API Controller::setParamNormalized(Steinberg::Vst::Par
         _last_meter[id].store(static_cast<float>(plain), std::memory_order_relaxed);
         _mailbox.post(id, static_cast<float>(plain));
     }
+#endif
     // Latency no longer arrives here — it comes over IMessage (k_latency_changed_id), so
     // it can never land mid-render. The parameter stays declared because it is in the
     // cached parameter list of every saved session; we simply never write to it.
@@ -677,6 +681,7 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
             .get_param = [this](auto id) {
                 return getParamNormalized(id);
             },
+#if TINY_HAS_METERS
             .read_meters = [this](std::span<meters::Sample> out) {
                 // VST3 is the one format where the meter wire is host-owned, and the
                 // spec promises nothing about it: `outputParameterChanges` is
@@ -706,6 +711,7 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
                 }
                 _mailbox.read(out);
             },
+#endif
             .action_handler = [this](auto& a) {
                 std::visit(Inline_visitor{
                     [this](const Action_start& s) {

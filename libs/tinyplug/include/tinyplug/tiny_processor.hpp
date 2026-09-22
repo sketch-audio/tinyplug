@@ -74,7 +74,9 @@ struct Dsp_context {
     std::span<const float*> sbuffers{};
     std::span<float*> obuffers{};
     size_t num_frames{};
+#if TINY_HAS_METERS
     std::span<float> meters{};
+#endif
     std::optional<uint32_t> propose_latency{}; // samples.
     Render_mode render_mode{Render_mode::Realtime};
 };

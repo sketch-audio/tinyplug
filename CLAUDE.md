@@ -129,9 +129,11 @@ A plug-in declares models in `source/models/{params,meters,work}.hpp` and classe
 `TINY_HAS_*` + `has_*`) and `<tiny_plugin.hpp>` (`plugin::Resolved`,
 `User_processor`/`User_editor`/`User_worker`) from
 [tiny_models.hpp.in](cmake/tiny_models.hpp.in) / [tiny_plugin.hpp.in](cmake/tiny_plugin.hpp.in).
-An absent model resolves to a zero-entry `<ns>::None`, never a monostate. Design:
+An absent model resolves to a zero-entry `<ns>::None`, never a monostate. Adding or removing a model file
+re-globs on the next build (`CONFIGURE_DEPENDS`), except for single-target Xcode builds, which
+skip `ZERO_CHECK`. Build `ZERO_CHECK` first there. Design:
 [model-layer.md](plans/model-layer.md); client porting guide:
-[model-layer-migration.md](plans/model-layer-migration.md).
+[MIGRATION.md](MIGRATION.md).
 
 - **Why tinyplug is header-only.** A compiled-once library sees no models, so any TU there
   that included a model-aware header would compile a different layout than the plug-in — a
@@ -141,6 +143,10 @@ An absent model resolves to a zero-entry `<ns>::None`, never a monostate. Design
   `<tiny_plugin.hpp>` is for wrappers — it includes the user's own class headers.
 - **Gate with both.** `#if TINY_HAS_*` removes members and fields; `if constexpr (has_*)`
   gates code, and only discards inside a template.
+- **Meters are gated end to end.** Without `models/meters.hpp`, every wrapper compiles out its
+  publisher, mailbox, transport (VST3 output params, AAX ring traffic) and the
+  `Dsp_context::meters` / `Ui_receiver::read_meters` fields. `Processor_state::meters` stays,
+  empty — it is core. A new meter path must sit behind `TINY_HAS_METERS` too.
 
 ## Parameter permanence
 

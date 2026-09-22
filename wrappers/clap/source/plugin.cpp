@@ -154,7 +154,10 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     };
 
     // Create the context.
-    auto context = process::Dsp_context{.meters = _meters.scratch(), .propose_latency = {}};
+    auto context = process::Dsp_context{.propose_latency = {}};
+#if TINY_HAS_METERS
+    context.meters = _meters.scratch();
+#endif
     context.render_mode = _offline.load(std::memory_order_relaxed) ? process::Render_mode::Offline : process::Render_mode::Realtime;
 
     // We need to resync on render mode edge.
@@ -290,10 +293,12 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // (frames_count == 0) which ran no audio and so has measured nothing — the
     // publisher still resets peaks either way, so neither can hoard a spike.
     const auto offline = (context.render_mode == process::Render_mode::Offline);
+#if TINY_HAS_METERS
     _meters.publish(offline || !renders_audio, [this](uint32_t address, float value) {
         _mailbox.post(address, value);
         return true; // A slot array has no capacity to refuse.
     });
+#endif
 
     // Did the processor propose a new (unreported) latency? Quiet during an offline
     // bounce for the same reason the meters are: `request_restart` makes the host
@@ -1137,9 +1142,11 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
             const auto knob_value = Value_helper::host_to_knob(host_value, param.semantics);
             return knob_value;
         },
+#if TINY_HAS_METERS
         .read_meters = [this](std::span<meters::Sample> out) {
             _mailbox.read(out);
         },
+#endif
         .action_handler = [this](auto& action) {
             this->_handle_user_action(action);
         }

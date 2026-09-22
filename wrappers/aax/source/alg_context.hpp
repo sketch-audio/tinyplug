@@ -220,7 +220,9 @@ struct Alg_state {
     std::array<double, num_coefs> shadow{};
     std::array<uint64_t, num_segments> shadow_seq{};
 
+#if TINY_HAS_METERS
     meters::Publisher<User_meters> meters{}; // Owns the scratch the DSP writes.
+#endif
 
     std::array<const float*, max_ichannels> ibuffers{};
     std::array<const float*, max_schannels> sbuffers{};

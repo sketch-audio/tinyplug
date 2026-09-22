@@ -163,7 +163,9 @@ private:
     std::array<const float*, max_ichannels> _ibuffers{};
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
+#if TINY_HAS_METERS
     meters::Publisher<User_meters> _meters{}; // Owns the scratch the DSP writes.
+#endif
 
     // USER
     std::unique_ptr<User_processor> _processor = std::make_unique<User_processor>();
@@ -236,7 +238,9 @@ private:
     From_flush_queue _from_flush{};
     From_ui_queue _from_ui{};
 
+#if TINY_HAS_METERS
     meters::Mailbox<User_meters> _mailbox{};
+#endif
 
     // Resync mechanism. Currently only a fallback in case we overflow our queue in release.
     std::atomic<bool> _needs_clear{false}; // Set by `reset`, consumed at the top of `process`.

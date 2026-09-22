@@ -9,6 +9,8 @@
 #include <tiny_core/meter_mailbox.hpp>
 #include <tiny_core/tiny_notifications.hpp>
 
+#include <tiny_models.hpp>
+
 namespace tiny {
 
 // MARK: - edit events
@@ -26,15 +28,19 @@ struct Ui_receiver {
     using Get_param = std::function<double(uint32_t)>;
     using Action_handler = std::function<void(const User_action&)>;
 
+#if TINY_HAS_METERS
     // Fill one sample per meter address from the mailbox. Replaces the old
     // pop-until-empty drain: a slot array has nothing to run dry, so a reader that
     // skipped a thousand blocks gets the same answer shape as one that skipped none.
     // That is also why there is no resync hook — the mailbox is always current, so a
     // newly attached editor simply reads it.
     using Read_meters = std::function<void(std::span<meters::Sample>)>;
+#endif
 
     Get_param get_param = [](auto) { return 0; };
+#if TINY_HAS_METERS
     Read_meters read_meters = [](auto) {};
+#endif
     Action_handler action_handler = [](auto&) {};
 };
 

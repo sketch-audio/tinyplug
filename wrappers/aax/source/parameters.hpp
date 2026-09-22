@@ -77,10 +77,12 @@ public:
 	AAX_Result SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iChunk) AAX_OVERRIDE;
 	AAX_Result CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_CBoolean* oIsEqual) const AAX_OVERRIDE;
 
+#if TINY_HAS_METERS
     auto read_meters(std::span<meters::Sample> out) -> void
     {
         _mailbox.read(out);
     }
+#endif
 
     auto get_editor() -> User_editor*
     {
@@ -180,9 +182,11 @@ private:
     Runtime_packet _runtime{.latency_seq = 0, .accepted_latency = 0, .offline = 0, .recording = 0, .delay_comp = 1, .pad = 0};
     std::atomic<bool> _runtime_dirty{true};
 
+#if TINY_HAS_METERS
     // Meters in. The mailbox is the cache: retains every level the ring has delivered, so a
     // view created at any point simply reads it. Replaced `_last_meters` + dump.
     meters::Mailbox<User_meters> _mailbox{};
+#endif
 
     // Latency. The kernel proposes from the algorithm; the host owns the accepted
     // value and hands it back through a notification.
