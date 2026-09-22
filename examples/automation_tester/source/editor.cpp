@@ -2,7 +2,7 @@
 
 #include "include/core/SkCanvas.h"
 
-namespace tiny::plugin {
+namespace tiny::edit {
 
 auto Editor::on_gui_create(Gui_info) -> void
 {
@@ -62,4 +62,4 @@ auto Editor::on_gui_destroy() -> void
 {
 }
 
-} // namespace tiny::plugin
+} // namespace tiny::edit

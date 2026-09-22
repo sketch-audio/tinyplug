@@ -7,8 +7,9 @@
 #include <span>
 #include <variant>
 
-#include "tiny_events.hpp"
-#include "tiny_utils.hpp"
+#include <tiny_core/tiny_utils.hpp>
+
+#include <tiny_models.hpp>
 
 namespace tiny::process {
 

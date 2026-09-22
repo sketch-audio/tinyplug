@@ -1,9 +1,9 @@
-#include "tinyplug/gesture_recognizers.hpp"
+#include "tiny_core/gesture_recognizers.hpp"
 
 #include <chrono>
 #include <variant>
 
-#include "tinyplug/platform_defs.hpp" // TINY_PLATFORM_* (used below)
+#include "tiny_core/platform_defs.hpp" // TINY_PLATFORM_* (used below)
 
 namespace tiny {
 

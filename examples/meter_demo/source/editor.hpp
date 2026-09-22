@@ -4,11 +4,11 @@
 #include <array>
 #include <cstdint>
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 #include "models/meters.hpp"
 #include "models/params.hpp"
 
-namespace tiny::plugin {
+namespace tiny::edit {
 
 class Editor {
 public:
@@ -31,7 +31,6 @@ public:
 
 private:
 
-    using User_meters = meters::Infos<models::Meters>;
     using Meter = models::Meters::Address;
     static constexpr auto num_meters = User_meters::num_meters;
 
@@ -57,4 +56,4 @@ private:
 
 };
 
-} // namespace tiny::plugin
+} // namespace tiny::edit

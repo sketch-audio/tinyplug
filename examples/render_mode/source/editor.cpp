@@ -2,7 +2,7 @@
 
 #include "include/core/SkCanvas.h"
 
-namespace tiny::plugin {
+namespace tiny::edit {
 
 auto Editor::on_gui_draw(Plugin_state& state) -> void
 {
@@ -29,4 +29,4 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     canvas->drawRect(SkRect::MakeXYWH(0, 0, static_cast<float>(rsize.w), static_cast<float>(rsize.h)), paint);
 }
 
-} // namespace tiny::plugin
+} // namespace tiny::edit

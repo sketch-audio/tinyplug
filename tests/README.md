@@ -6,7 +6,7 @@ so it builds and runs with one command:
 
 ```sh
 clang++ -std=c++20 -Wall -Wextra -Wconversion -Wshadow \
-    -I libs/tinyplug/include tests/meter_publisher_test.cpp -o /tmp/t && /tmp/t
+    -I libs/tiny_core/include tests/meter_publisher_test.cpp -o /tmp/t && /tmp/t
 ```
 
 They print one line per check and exit non-zero on failure, so they drop into a

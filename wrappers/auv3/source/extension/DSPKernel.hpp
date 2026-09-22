@@ -9,18 +9,16 @@
 #import <vector>
 #import <span>
 
-#include "processor.hpp"
-#include <tinyplug/meter_mailbox.hpp>
-#include <tinyplug/meter_publisher.hpp>
+#include <tiny_plugin.hpp>
+#include <tiny_core/meter_mailbox.hpp>
+#include <tiny_core/meter_publisher.hpp>
 
-#include "models/meters.hpp"
-#include "models/params.hpp"
 #include "plug_info.hpp"
 
 #include <tiny_dsp/host_bypass.hpp>
-#include <tinyplug/denormal_guard.hpp>
+#include <tiny_core/denormal_guard.hpp>
 
-#include <tinyplug/relay.hpp>
+#include <tiny_core/relay.hpp>
 
 /*
  DSPKernel
@@ -381,9 +379,9 @@ private:
     
 //    bool mBypassed = false;
     AUAudioFrameCount mMaxFramesToRender = 1024;
-    
-    using User_params = tiny::params::Infos<tiny::models::Params>;
-    using User_meters = tiny::meters::Infos<tiny::models::Meters>;
+
+    using User_params = tiny::User_params;
+    using User_meters = tiny::User_meters;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
@@ -424,7 +422,7 @@ private:
     Host_values _hostvalues{tiny::params::make_defaults<Host_value, User_params>(tiny::params::Space::Host)};
     
     
-    std::unique_ptr<tiny::process::Processor> _processor = std::make_unique<tiny::process::Processor>();
+    std::unique_ptr<tiny::User_processor> _processor = std::make_unique<tiny::User_processor>();
 
     // Latency
     std::atomic<uint32_t> _latency{};
@@ -454,10 +452,10 @@ private:
 public:
 
     // Worker channel.
-    using Worker_from_proc_q = tiny::Lock_free_queue<typename tiny::User_worker::Model::From_processor, tiny::User_worker::Model::inbound_capacity, tiny::Queue_concurrency::spsc>;
-    using Worker_from_edit_q = tiny::Lock_free_queue<typename tiny::User_worker::Model::From_editor,    tiny::User_worker::Model::inbound_capacity, tiny::Queue_concurrency::spsc>;
-    using Worker_to_proc_q   = tiny::Lock_free_queue<typename tiny::User_worker::Model::To_processor,   tiny::User_worker::Model::outbound_capacity>;
-    using Worker_to_edit_q   = tiny::Lock_free_queue<typename tiny::User_worker::Model::To_editor,     tiny::User_worker::Model::outbound_capacity>;
+    using Worker_from_proc_q = tiny::Lock_free_queue<typename tiny::User_work::From_processor, tiny::User_work::inbound_capacity, tiny::Queue_concurrency::spsc>;
+    using Worker_from_edit_q = tiny::Lock_free_queue<typename tiny::User_work::From_editor,    tiny::User_work::inbound_capacity, tiny::Queue_concurrency::spsc>;
+    using Worker_to_proc_q   = tiny::Lock_free_queue<typename tiny::User_work::To_processor,   tiny::User_work::outbound_capacity>;
+    using Worker_to_edit_q   = tiny::Lock_free_queue<typename tiny::User_work::To_editor,     tiny::User_work::outbound_capacity>;
 
     Worker_from_proc_q _worker_from_proc{};
     Worker_from_edit_q _worker_from_edit{};

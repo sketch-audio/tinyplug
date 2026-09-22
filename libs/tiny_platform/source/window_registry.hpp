@@ -1,6 +1,6 @@
 #pragma once
 
-#include <tinyplug/window_token.hpp>
+#include <tiny_core/window_token.hpp>
 
 namespace tiny {
 

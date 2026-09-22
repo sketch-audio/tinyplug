@@ -2,12 +2,10 @@
 
 #include <memory>
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 #include <tiny_platform/platform_view.hpp>
 
-#include "models/meters.hpp"
-#include "models/params.hpp"
-#include "editor.hpp"
+#include <tiny_plugin.hpp>
 
 #include "adapters.hpp"
 
@@ -17,14 +15,14 @@ class View {
 public:
 
     struct Deps {
-        plugin::Editor* editor{};
+        User_editor* editor{};
         Ui_receiver receiver{};
         Task_manager* tasks{};
         Undo_history* undo_history{}; // Owned by the Effect (survives the view).
         Action_queue* actions{};      // Owned by the Effect (survives the view).
         // Size to open at, read lazily at create_view time (the view is built at Effect
         // construction, before state restore, so the size cache is primed later).
-        std::function<Rect_size()> initial_size{[]() { return plugin::Editor::preferred_size(); }};
+        std::function<Rect_size()> initial_size{[]() { return User_editor::preferred_size(); }};
         // Called after an editor-initiated resize so the Effect's size cache stays current
         // (the AUv2 resize policy resizes the platform view directly, with no host echo).
         std::function<void(uint32_t, uint32_t)> on_resized{};
@@ -42,8 +40,6 @@ private:
     auto on_draw(View_context& view_context) -> void;
     auto on_notify(const Dark_mode_changed& notification) -> void;
 
-    using User_params = params::Infos<models::Params>;
-    using User_meters = meters::Infos<models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;

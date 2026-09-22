@@ -8,7 +8,7 @@
 // implementation header (and the only one that pulls in Skia). Platform sources
 // include it directly; consumers outside the platform library should not need it.
 
-#include <tinyplug/platform_defs.hpp>
+#include <tiny_core/platform_defs.hpp>
 #include <tiny_platform/view_delegate.hpp>
 #include <tiny_platform/platform_view.hpp>
 #include <tiny_platform/platform_dialogs.hpp>

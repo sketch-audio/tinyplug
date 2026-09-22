@@ -12,19 +12,15 @@
 
 #include "plug_info.hpp"
 
-#include <tinyplug/meter_publisher.hpp>
+#include <tiny_core/meter_publisher.hpp>
 
-#include "models/meters.hpp"
-#include "models/params.hpp"
-#include "processor.hpp"
+#include <tiny_plugin.hpp>
 
 #include <tinyplug/tinyplug.hpp>
 #include <tiny_dsp/host_bypass.hpp>
 
 namespace tiny::aax {
 
-using User_params = params::Infos<models::Params>;
-using User_meters = meters::Infos<models::Meters>;
 
 inline constexpr auto num_params = User_params::num_params;
 inline constexpr auto num_meters = User_meters::num_meters;
@@ -216,7 +212,7 @@ static_assert(sizeof(Return_block) == 8);
 // ResetFieldData: that runs on the host and its block is copied into the algorithm's
 // memory pool, which would require this type to be trivially relocatable.
 struct Alg_state {
-    process::Processor processor{};
+    User_processor processor{};
     Host_bypass bypass{};
 
     // Shadow of the last coefficient state, for diffing. Seeded so that the first

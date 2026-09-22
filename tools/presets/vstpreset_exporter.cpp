@@ -5,7 +5,7 @@
 #include <iomanip>
 #include <sstream>
 
-#include <tinyplug/tinyplug.hpp>
+#include <tiny_models.hpp> // Core + this plug-in's models; tools need nothing model-aware.
 #include <nlohmann/json.hpp>
 
 // VST3 SDK Headers
@@ -13,8 +13,6 @@
 #include "public.sdk/source/vst/utility/memoryibstream.h"
 #include "base/source/fstreamer.h"
 
-// User model.
-#include "models/params.hpp"
 #include "plug_info.hpp"
 
 #ifndef PRESET_DIR
@@ -33,7 +31,6 @@ auto main() -> int
         return 1;
     }
 
-    using User_params = params::Infos<models::Params>;
     const auto defaults = params::make_defaults<double, User_params>(params::Space::Knob);
 
     // State adapter to convert between JSON and parameter values.

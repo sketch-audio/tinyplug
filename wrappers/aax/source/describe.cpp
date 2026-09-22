@@ -10,7 +10,7 @@
 #include "AAX_Assert.h"
 
 #include "plug_info.hpp"
-#include "models/params.hpp"
+#include <tiny_plugin.hpp>
 
 #include "categories.hpp"
 #include "alg_context.hpp"

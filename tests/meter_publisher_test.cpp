@@ -1,5 +1,5 @@
 // Scratch validation of meters::Publisher semantics. Not a shipped test.
-#include <tinyplug/meter_publisher.hpp>
+#include <tiny_core/meter_publisher.hpp>
 #include <cstdio>
 #include <vector>
 #include <string>

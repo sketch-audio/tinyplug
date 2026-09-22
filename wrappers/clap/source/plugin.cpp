@@ -1151,7 +1151,7 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
         .tasks = &_tasks,
         .undo_history = &_undo_history,
         .actions = &_actions,
-        .initial_size = _last_size.value_or(plugin::Editor::preferred_size()),
+        .initial_size = _last_size.value_or(User_editor::preferred_size()),
         .request_resize = [this](uint32_t w, uint32_t h) {
             auto* gui_ext = static_cast<const clap_host_gui_t*>(_host->get_extension(_host, CLAP_EXT_GUI));
             if (gui_ext && gui_ext->request_resize) gui_ext->request_resize(_host, w, h);

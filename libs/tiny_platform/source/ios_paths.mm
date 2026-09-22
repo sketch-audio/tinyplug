@@ -3,7 +3,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <Foundation/Foundation.h>
 
-#include "tinyplug/tinyplug.hpp"
+#include <tiny_core/tiny_core.hpp>
 
 #include <array>
 #include <climits>

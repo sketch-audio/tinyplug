@@ -2,7 +2,7 @@
 
 #include <array>
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 #include "models/meters.hpp"
 #include "models/params.hpp"
 
@@ -40,7 +40,7 @@ public:
             }
         }
         // Push a tick to the worker once per process call (low frequency, just to exercise the path).
-        _worker.push(plugin::Tick{.sample_pos = context.musical_context.sample_pos});
+        _worker.push(models::Tick{.sample_pos = context.musical_context.sample_pos});
     }
 
     auto latency_samps() const -> uint32_t { return 0; }
@@ -50,10 +50,10 @@ public:
     auto bind_worker(Worker_processor_actor a) -> void { _worker = a; }
 
     // Optional opt-in: receive replies from the worker.
-    auto handle_worker_reply(const plugin::Worker::Model::To_processor& r) -> void
+    auto handle_worker_reply(const User_work::To_processor& r) -> void
     {
         std::visit([this](const auto& a) {
-            if constexpr (std::is_same_v<std::remove_cvref_t<decltype(a)>, plugin::Set_counter>) {
+            if constexpr (std::is_same_v<std::remove_cvref_t<decltype(a)>, models::Set_counter>) {
                 _last_count = a.count;
             }
         }, r);
@@ -61,7 +61,6 @@ public:
 
 private:
 
-    using User_params = params::Infos<models::Params>;
     using Address = models::Params::Address;
     static constexpr auto num_params = User_params::num_params;
 

@@ -4,7 +4,7 @@
 
 #include <tiny_platform/platform_dialogs.hpp>
 
-namespace tiny::plugin {
+namespace tiny::edit {
 
 auto Editor::on_gui_create(Gui_info info) -> void
 {
@@ -128,4 +128,4 @@ auto Editor::on_gui_destroy() -> void
     // handed us a live token.
 }
 
-} // namespace tiny::plugin
+} // namespace tiny::edit

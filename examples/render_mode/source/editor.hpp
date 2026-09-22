@@ -1,9 +1,9 @@
 #pragma once
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 #include "models/meters.hpp"
 
-namespace tiny::plugin {
+namespace tiny::edit {
 
 class Editor {
 public:
@@ -29,4 +29,4 @@ private:
     using Meter = models::Meters::Address;
 };
 
-} // namespace tiny::plugin
+} // namespace tiny::edit

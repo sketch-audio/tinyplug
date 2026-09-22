@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-namespace tiny::plugin {
+namespace tiny::edit {
 
 namespace {
 
@@ -224,4 +224,4 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     }
 }
 
-} // namespace tiny::plugin
+} // namespace tiny::edit

@@ -1,6 +1,6 @@
 // Scratch validation of Publisher + Mailbox end to end. Not a shipped test.
-#include <tinyplug/meter_publisher.hpp>
-#include <tinyplug/meter_mailbox.hpp>
+#include <tiny_core/meter_publisher.hpp>
+#include <tiny_core/meter_mailbox.hpp>
 #include <cstdio>
 #include <string>
 #include <vector>

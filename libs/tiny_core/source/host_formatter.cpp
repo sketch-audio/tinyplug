@@ -1,11 +1,11 @@
-#include "tinyplug/host_formatter.hpp"
+#include "tiny_core/host_formatter.hpp"
 
 #include <cerrno>
 #include <cmath>
 #include <iomanip>
 #include <sstream>
 
-#include "tinyplug/value_helper.hpp"
+#include "tiny_core/value_helper.hpp"
 
 namespace tiny {
 

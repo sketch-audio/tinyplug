@@ -355,7 +355,7 @@ AAX_Result Parameters::SetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSi
         }
         case Ring_kind::Worker_from_processor: {
 #if TINY_HAS_WORKER
-            using From_processor = typename User_worker::Model::From_processor;
+            using From_processor = typename User_work::From_processor;
             if constexpr (!std::is_same_v<From_processor, std::monostate>) {
                 if (block.payload_bytes != sizeof(From_processor)) break;
                 auto msg = From_processor{};
@@ -383,7 +383,7 @@ AAX_Result Parameters::GetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSi
     if (oDataWritten != nullptr) *oDataWritten = 0;
 
 #if TINY_HAS_WORKER
-    using To_processor = typename User_worker::Model::To_processor;
+    using To_processor = typename User_work::To_processor;
     if constexpr (!std::is_same_v<To_processor, std::monostate>) {
         if (oData == nullptr || inDataSize < sizeof(To_processor)) return AAX_ERROR_INVALID_ARGUMENT;
 

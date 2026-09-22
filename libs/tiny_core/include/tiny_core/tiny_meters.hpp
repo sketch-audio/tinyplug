@@ -51,6 +51,13 @@ concept Model = requires(typename T::Address a) {
     { T::make_spec(a) } -> std::same_as<Spec>;
 };
 
+// The model a plug-in without `models/meters.hpp` resolves to: zero entries, not a monostate,
+// so every `Infos` path still compiles. `TINY_HAS_METERS` gates the plumbing out entirely.
+struct None {
+    enum class Address : uint32_t { Num_meters };
+    static constexpr auto make_spec(Address) -> Spec { return {}; }
+};
+
 template<Model User_model>
 class Infos {
 public:

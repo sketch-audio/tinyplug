@@ -4,10 +4,10 @@
 #include <memory>
 #include <optional>
 
-#include <tinyplug/platform_defs.hpp>
+#include <tiny_core/platform_defs.hpp>
 #include <tiny_platform/view_delegate.hpp>
 
-#include <tinyplug/tinyplug.hpp>
+#include <tiny_core/tiny_core.hpp>
 
 namespace tiny {
 

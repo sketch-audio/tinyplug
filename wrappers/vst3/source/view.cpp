@@ -27,7 +27,7 @@ Steinberg::tresult PLUGIN_API View::attached(void* parent, Steinberg::FIDString 
     if (!_deps.controller || !_deps.editor) return Steinberg::kResultFalse;
 
     const auto initial_size = _deps.controller->get_last_size()
-        .value_or(plugin::Editor::preferred_size());
+        .value_or(User_editor::preferred_size());
 
     auto delegate = std::make_shared<View_delegate>(
         initial_size,
@@ -69,7 +69,7 @@ Steinberg::tresult PLUGIN_API View::removed()
 Steinberg::tresult PLUGIN_API View::getSize(Steinberg::ViewRect* size)
 {
     const auto initial_size = _deps.controller->get_last_size()
-        .value_or(plugin::Editor::preferred_size());
+        .value_or(User_editor::preferred_size());
 
     const auto platform_size = _platform_view ? _platform_view->get_size() : initial_size;
     *size = {0, 0, platform_size.w, platform_size.h};

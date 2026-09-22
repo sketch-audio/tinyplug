@@ -41,7 +41,7 @@ static auto presets_path() -> std::filesystem::path
     // C++ members need to be ivars; they would be copied on access if they were properties.
     bool _parameterTreeSetup;
     DSPKernel _kernel;
-    std::shared_ptr<tiny::plugin::Editor> _editor;
+    std::shared_ptr<tiny::User_editor> _editor;
     // Undo history and action queue live on the AU (plug-in lifetime), not in the
     // view, so the editor's Edit_context (built once at construction) stays valid
     // across window open/close and host preset loads are captured with the window closed.
@@ -83,7 +83,6 @@ static auto presets_path() -> std::filesystem::path
     _factory_presets = [temp copy];
     
     using namespace params;
-    using User_params = Infos<models::Params>;
     //const auto num_params = User_params::num_params;
     
     using Provider = State_adapter::Provider;
@@ -182,7 +181,7 @@ static auto presets_path() -> std::filesystem::path
     
     if (_parameterTreeSetup == false) {
         // Build the tree
-        const auto tree = params::Infos<models::Params>::param_tree();
+        const auto tree = User_params::param_tree();
         
         // Traverse the tree, creating parameters and groups along the way.
         auto make_node = [&](auto&& self_, const params::Node& node) -> AUParameterNode* {
@@ -250,7 +249,7 @@ static auto presets_path() -> std::filesystem::path
         .get_param = [self_](uint32_t addr) {
             auto s = self_;
             if (!s) return double{};
-            const auto& spec = params::Infos<models::Params>::param_spec(addr);
+            const auto& spec = User_params::param_spec(addr);
             const auto host = s->_kernel.getParameter(addr);
             const auto knob = Value_helper::host_to_knob(host, spec.semantics);
             return knob;
@@ -270,7 +269,7 @@ static auto presets_path() -> std::filesystem::path
                     [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeTouch];
                 },
                 [&](const Set_param& a) {
-                    const auto& param = params::Infos<models::Params>::param_spec(a.address);
+                    const auto& param = User_params::param_spec(a.address);
                     const auto host_value = Value_helper::knob_to_host(a.value, param.semantics);
                     auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
                     auto it = s->_observerTokens.find(auparam.address);
@@ -290,7 +289,7 @@ static auto presets_path() -> std::filesystem::path
     };
 }
 
-- (void)setEditor:(std::shared_ptr<tiny::plugin::Editor>)editor {
+- (void)setEditor:(std::shared_ptr<tiny::User_editor>)editor {
     _editor = editor;
 }
 
@@ -428,14 +427,14 @@ static auto presets_path() -> std::filesystem::path
     // A function to provide string representations of parameter values.
     _parameterTree.implementorStringFromValueCallback = ^(AUParameter *param, const AUValue *__nullable valuePtr) {
         AUValue value = valuePtr == nil ? param.value : *valuePtr;
-        const auto& spec = params::Infos<models::Params>::param_spec(static_cast<uint32_t>(param.address));
+        const auto& spec = User_params::param_spec(static_cast<uint32_t>(param.address));
         const auto str_value = Host_formatter::to_string(value, spec.semantics);
         return [NSString stringWithUTF8String:str_value.c_str()];
     };
     
     _parameterTree.implementorValueFromStringCallback = ^(AUParameter *param, NSString *string) {
         const auto addr = static_cast<uint32_t>(param.address);
-        const auto& spec = params::Infos<models::Params>::param_spec(addr);
+        const auto& spec = User_params::param_spec(addr);
         const auto str = std::string{[string UTF8String]};
         
         if (const auto plain = Host_formatter::to_value(str, spec.semantics)) {
@@ -700,7 +699,6 @@ static auto presets_path() -> std::filesystem::path
         [data appendBytes:&value length: sizeof(value)];
     };
     
-    using User_params = params::Infos<models::Params>;
     
     for (auto i = 0; i < num_params; ++i) {
         const auto value = maybe_values[i];
@@ -788,7 +786,6 @@ static auto presets_path() -> std::filesystem::path
     NSMutableDictionary<NSString *,id> *state = [[super fullState] mutableCopy]; // auto would deduce as `id`
     
     // Store number of parameters (the parameter values are in the base implementation).
-    using User_params = params::Infos<tiny::models::Params>;
     auto numParamsEntry = [NSNumber numberWithInt:static_cast<int32_t>(User_params::num_params)];
     [state setObject:numParamsEntry forKey:@(State_rules::Auv3::num_params)];
     
@@ -806,7 +803,6 @@ static auto presets_path() -> std::filesystem::path
 
     if (fullState == nil) return;
 
-    using User_params = tiny::params::Infos<tiny::models::Params>;
     const auto num_params = static_cast<int32_t>(User_params::num_params);
 
     // Snapshot all current param values in knob space (mirrors makeReceiver's get_param).

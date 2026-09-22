@@ -1,6 +1,6 @@
-#include "tinyplug/tiny_log.hpp"
+#include "tiny_core/tiny_log.hpp"
 
-#include "tinyplug/platform_defs.hpp"
+#include "tiny_core/platform_defs.hpp"
 
 #include <algorithm>
 #include <array>

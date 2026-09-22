@@ -4,10 +4,9 @@
 
 #include "pluginterfaces/base/funknown.h"
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 
-#include "models/meters.hpp"
-#include "models/params.hpp"
+#include <tiny_plugin.hpp>
 #include "plug_info.hpp"
 
 namespace tiny {

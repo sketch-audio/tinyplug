@@ -65,7 +65,9 @@ include(wrappers/wrappers.cmake)
 include(tools/presets/make_preset_exporters.cmake)
 include(tools/pagetables/make_pagetable.cmake)
 
-# Core library.
+# Framework. tiny_core is model-free and compiled once; tinyplug is the header-only,
+# model-aware half and only ever compiles inside a plug-in target.
+add_subdirectory(libs/tiny_core)
 add_subdirectory(libs/tinyplug)
 
 # Optional, self-contained libraries (each its own CMakeLists, own include root).
@@ -80,7 +82,8 @@ endif()
 
 # Forward SDK variables to parent scope only if this is NOT the top-level project.
 if(NOT CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
-    set(TINY_SHARED_LIB ${TINY_SHARED_LIB} PARENT_SCOPE)
+    set(TINY_CORE_LIB ${TINY_CORE_LIB} PARENT_SCOPE)
+    set(TINY_PLUG_LIB ${TINY_PLUG_LIB} PARENT_SCOPE)
     set(TINY_PLATFORM_LIB ${TINY_PLATFORM_LIB} PARENT_SCOPE)
     set(TINY_DSP_LIB ${TINY_DSP_LIB} PARENT_SCOPE)
 endif()

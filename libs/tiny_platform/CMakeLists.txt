@@ -1,7 +1,7 @@
 # ============================================================================
 # tiny_platform — native view, dialogs, paths, window context. Carries the Skia
 # dependency and the OS frameworks. Depends on the core library; the core does
-# NOT depend on it (OS detection lives in core's <tinyplug/platform_defs.hpp>).
+# NOT depend on it (OS detection lives in core's <tiny_core/platform_defs.hpp>).
 # ============================================================================
 
 set(TINY_PLATFORM_LIB tiny_platform)
@@ -76,7 +76,7 @@ target_include_directories(${TINY_PLATFORM_LIB} PUBLIC ${CMAKE_CURRENT_SOURCE_DI
 # PRIVATE; the static-lib link still propagates to the final module to resolve
 # symbols, but Skia's headers don't leak to consumers. The editor links Skia
 # directly (it draws). Frameworks stay PUBLIC so the final module resolves them.
-target_link_libraries(${TINY_PLATFORM_LIB} PUBLIC ${TINY_SHARED_LIB})
+target_link_libraries(${TINY_PLATFORM_LIB} PUBLIC ${TINY_CORE_LIB})
 target_link_libraries(${TINY_PLATFORM_LIB} PRIVATE tiny::skia)
 if(APPLE)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")

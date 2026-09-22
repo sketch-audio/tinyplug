@@ -100,7 +100,7 @@ auto Direct_data::_push_worker_replies([[maybe_unused]] AAX_IPrivateDataAccess* 
     auto* params = EffectParameters();
     if (params == nullptr) return;
 
-    using To_processor = typename User_worker::Model::To_processor;
+    using To_processor = typename User_work::To_processor;
     if constexpr (std::is_same_v<To_processor, std::monostate>) {
         return;
     }

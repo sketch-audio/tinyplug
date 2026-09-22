@@ -5,7 +5,7 @@ namespace tiny::auv3 {
 auto View::create_view() -> void*
 {
     auto delegate = std::make_shared<View_delegate>(
-        plugin::Editor::preferred_size(),
+        User_editor::preferred_size(),
         [this](auto& context) { this->on_draw(context); },
         [this](const auto& notification) { this->on_notify(notification); } 
     );

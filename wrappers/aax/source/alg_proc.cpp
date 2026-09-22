@@ -7,7 +7,7 @@
 #include <new>
 #include <span>
 
-#include <tinyplug/denormal_guard.hpp>
+#include <tiny_core/denormal_guard.hpp>
 
 #include "AAX_ITransport.h"
 
@@ -64,7 +64,7 @@ auto drain_inbound([[maybe_unused]] const Alg_context* ctx, [[maybe_unused]] Alg
 #if TINY_HAS_WORKER
     if (ctx->inbound == nullptr) return;
 
-    using To_processor = typename User_worker::Model::To_processor;
+    using To_processor = typename User_work::To_processor;
 
     ctx->inbound->drain([&st](Ring_kind kind, const void* payload, uint32_t bytes) {
         if (kind != Ring_kind::Worker_to_processor) return;

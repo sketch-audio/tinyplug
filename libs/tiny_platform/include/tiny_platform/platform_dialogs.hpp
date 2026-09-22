@@ -4,8 +4,8 @@
 #include <optional>
 #include <string>
 
-#include <tinyplug/task_manager.hpp>
-#include <tinyplug/window_token.hpp>
+#include <tiny_core/task_manager.hpp>
+#include <tiny_core/window_token.hpp>
 
 namespace tiny {
 

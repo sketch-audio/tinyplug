@@ -4,26 +4,24 @@
 
 #include "clap/clap.h"
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 #include <tiny_platform/platform_view.hpp>
 
-#include "editor.hpp"
-#include "models/meters.hpp"
-#include "models/params.hpp"
+#include <tiny_plugin.hpp>
 
 namespace tiny::clap {
 
-// The CLAP view adapts the view lifecycle to the user's `plugin::Editor`.
+// The CLAP view adapts the view lifecycle to the user's `User_editor`.
 class View {
 public:
 
     struct Deps {
-        plugin::Editor* editor{};
+        User_editor* editor{};
         Ui_receiver receiver{};
         Task_manager* tasks{};
         Undo_history* undo_history{}; // Owned by the plug-in (survives the view).
         Action_queue* actions{};      // Owned by the plug-in (survives the view).
-        Rect_size initial_size{plugin::Editor::preferred_size()}; // Size to open at (primed from persisted state).
+        Rect_size initial_size{User_editor::preferred_size()}; // Size to open at (primed from persisted state).
         std::function<void(uint32_t, uint32_t)> request_resize{}; // Editor-initiated resize → ask host.
 #if TINY_HAS_WORKER
         std::function<void()> drain_worker_to_editor{};
@@ -53,8 +51,6 @@ private:
     auto on_draw(View_context& view_context) -> void;
     auto on_notify(const Dark_mode_changed& notification) -> void;
 
-    using User_params = params::Infos<models::Params>;
-    using User_meters = meters::Infos<models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;

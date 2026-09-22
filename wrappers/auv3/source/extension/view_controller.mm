@@ -5,7 +5,7 @@
 #import "audio_unit.h"
 
 #include "view.hpp"
-#include "editor.hpp"
+#include <tiny_plugin.hpp>
 
 #if !__has_feature(objc_arc)
 static_assert(false, "ARC must be enabled for this file");
@@ -22,13 +22,13 @@ static_assert(false, "ARC must be enabled for this file");
 
 @implementation Auv3_AUViewController {
     std::unique_ptr<tiny::auv3::View> _view_adapter;
-    std::shared_ptr<tiny::plugin::Editor> _editor;
+    std::shared_ptr<tiny::User_editor> _editor;
     tiny::Task_manager _tasks;
 }
 
 // TODO: - Get this into the plist for AUM.
 - (CGSize)preferredContentSize {
-    const auto size = tiny::plugin::Editor::preferred_size();
+    const auto size = tiny::User_editor::preferred_size();
     return CGSizeMake(size.w, size.h);
 }
 
@@ -46,7 +46,7 @@ static_assert(false, "ARC must be enabled for this file");
     Auv3_AUAudioUnit* auv3 = (Auv3_AUAudioUnit*)au;
     [auv3 setupParameterTree];
     if (!_editor) {
-        _editor = std::make_shared<tiny::plugin::Editor>(tiny::Edit_context{
+        _editor = std::make_shared<tiny::User_editor>(tiny::Edit_context{
             .actions = [auv3 actions]->actor(),
             .format = tiny::Format::Auv3,
             .state_adapter = [auv3 stateAdapter]->actor(),

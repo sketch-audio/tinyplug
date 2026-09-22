@@ -8,20 +8,17 @@
 #include <AudioUnitSDK/AUBase.h>
 #include <AudioToolbox/AudioToolbox.h>
 
-#include "tinyplug/tinyplug.hpp"
-#include "tinyplug/change_list.hpp"
+#include <tinyplug/tinyplug.hpp>
+#include "tiny_core/change_list.hpp"
 
-#include "processor.hpp"
-#include <tinyplug/meter_mailbox.hpp>
-#include <tinyplug/meter_publisher.hpp>
+#include <tiny_plugin.hpp>
+#include <tiny_core/meter_mailbox.hpp>
+#include <tiny_core/meter_publisher.hpp>
 
-#include "models/meters.hpp"
-#include "models/params.hpp"
-#include "editor.hpp"
 #include "plug_info.hpp"
 
 #include "adapters.hpp"
-#include <tinyplug/relay.hpp>
+#include <tiny_core/relay.hpp>
 #include "view.hpp"
 
 #include "preset_list.hpp" // Generated.
@@ -148,7 +145,7 @@ private:
 
     std::vector<AUChannelInfo> cinfo{};
 
-    std::optional<plugin::Editor> _editor{};
+    std::optional<User_editor> _editor{};
     Task_manager _tasks{};
 
     // Framework-owned editor window-size cache (Effect lifetime, survives view
@@ -156,8 +153,6 @@ private:
     // initial_size provider; updated on every editor-initiated resize.
     std::optional<Rect_size> _last_size{};
 
-    using User_params = params::Infos<models::Params>;
-    using User_meters = meters::Infos<models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
@@ -216,7 +211,7 @@ private:
     // Render
     std::vector<process::Tagged_event> _events{}; // Some fixed size thing.
 
-    std::unique_ptr<process::Processor> _processor = std::make_unique<process::Processor>();
+    std::unique_ptr<User_processor> _processor = std::make_unique<User_processor>();
 
     // Latency
     uint32_t _latency{};
@@ -250,10 +245,10 @@ private:
 
 #if TINY_HAS_WORKER
     // Worker channel.
-    using Worker_from_proc_q = Lock_free_queue<typename User_worker::Model::From_processor, User_worker::Model::inbound_capacity, Queue_concurrency::spsc>;
-    using Worker_from_edit_q = Lock_free_queue<typename User_worker::Model::From_editor,    User_worker::Model::inbound_capacity, Queue_concurrency::spsc>;
-    using Worker_to_proc_q   = Lock_free_queue<typename User_worker::Model::To_processor,   User_worker::Model::outbound_capacity>;
-    using Worker_to_edit_q   = Lock_free_queue<typename User_worker::Model::To_editor,     User_worker::Model::outbound_capacity>;
+    using Worker_from_proc_q = Lock_free_queue<typename User_work::From_processor, User_work::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_from_edit_q = Lock_free_queue<typename User_work::From_editor,    User_work::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_to_proc_q   = Lock_free_queue<typename User_work::To_processor,   User_work::outbound_capacity>;
+    using Worker_to_edit_q   = Lock_free_queue<typename User_work::To_editor,     User_work::outbound_capacity>;
 
     Worker_from_proc_q _worker_from_proc{};
     Worker_from_edit_q _worker_from_edit{};
@@ -342,7 +337,7 @@ private:
         .tasks = &_tasks,
         .undo_history = &_undo_history,
         .actions = &_actions,
-        .initial_size = [this]() { return _last_size.value_or(plugin::Editor::preferred_size()); },
+        .initial_size = [this]() { return _last_size.value_or(User_editor::preferred_size()); },
         .on_resized = [this](uint32_t w, uint32_t h) {
             _last_size = Rect_size{static_cast<int32_t>(w), static_cast<int32_t>(h)};
         },

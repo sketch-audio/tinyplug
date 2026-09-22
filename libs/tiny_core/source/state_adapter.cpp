@@ -1,6 +1,6 @@
-#include "tinyplug/state_adapter.hpp"
+#include "tiny_core/state_adapter.hpp"
 
-#include "tinyplug/value_helper.hpp"
+#include "tiny_core/value_helper.hpp"
 
 namespace tiny {
 

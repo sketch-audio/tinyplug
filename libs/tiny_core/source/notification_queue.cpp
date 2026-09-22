@@ -1,4 +1,4 @@
-#include "tinyplug/notification_queue.hpp"
+#include "tiny_core/notification_queue.hpp"
 
 namespace tiny {
 

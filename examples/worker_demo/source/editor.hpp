@@ -1,9 +1,9 @@
 #pragma once
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 #include "models/params.hpp"
 
-namespace tiny::plugin {
+namespace tiny::edit {
 
 class Editor {
 public:
@@ -27,10 +27,10 @@ public:
     // Optional opt-in.
     auto bind_worker(Worker_editor_actor a) -> void { _worker = a; }
 
-    auto on_worker_reply(const Worker::Model::To_editor& r) -> void
+    auto on_worker_reply(const User_work::To_editor& r) -> void
     {
         std::visit([this](const auto& a) {
-            if constexpr (std::is_same_v<std::remove_cvref_t<decltype(a)>, Session_path>) {
+            if constexpr (std::is_same_v<std::remove_cvref_t<decltype(a)>, models::Session_path>) {
                 _last_path = a.path;
             }
         }, r);
@@ -38,7 +38,6 @@ public:
 
 private:
 
-    using User_params = params::Infos<models::Params>;
     using Address = models::Params::Address;
 
     Edit_context _edit{};
@@ -49,4 +48,4 @@ private:
 
 };
 
-} // namespace tiny::plugin
+} // namespace tiny::edit

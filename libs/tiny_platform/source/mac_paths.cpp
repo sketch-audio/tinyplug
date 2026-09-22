@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 
-#include "tinyplug/tinyplug.hpp"
+#include <tiny_core/tiny_core.hpp>
 
 namespace tiny {
 

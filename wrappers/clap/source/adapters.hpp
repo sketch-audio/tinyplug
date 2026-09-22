@@ -4,7 +4,7 @@
 #include <vector>
 #include <string>
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 
 namespace tiny {
 

@@ -2,12 +2,10 @@
 
 #include <memory>
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 #include <tiny_platform/platform_view.hpp>
 
-#include "models/meters.hpp"
-#include "models/params.hpp"
-#include "editor.hpp"
+#include <tiny_plugin.hpp>
 
 namespace tiny::auv3 {
 
@@ -15,7 +13,7 @@ class View {
 public:
     
     struct Deps {
-        plugin::Editor* editor{};
+        User_editor* editor{};
         Ui_receiver receiver{};
         Task_manager* tasks{};
         Undo_history* undo_history{}; // Owned by the AU (survives the view).
@@ -58,8 +56,6 @@ private:
     auto on_draw(View_context& view_context) -> void;
     auto on_notify(const Dark_mode_changed& notification) -> void;
 
-    using User_params = params::Infos<models::Params>;
-    using User_meters = meters::Infos<models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;

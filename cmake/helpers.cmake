@@ -153,6 +153,82 @@ function(configure_plug_info plugin_target output)
     )
 endfunction()
 
+# MARK: - model discovery
+#
+# Presence of a file is the declaration: the functions below look for the plug-in's
+# optional headers and generate the headers the framework includes, resolving each
+# absent one to a zero-entry fallback. The globs are CONFIGURE_DEPENDS so adding or
+# removing a model re-runs configure on the next build.
+
+macro(_tiny_optional NAME REL FALLBACK TYPE)
+    if(EXISTS ${_tiny_src}/${REL})
+        set(TINY_${NAME}_INCLUDE "#include \"${REL}\"")
+        set(TINY_${NAME}_TYPE "${TYPE}")
+        set(TINY_HAS_${NAME} 1)
+    else()
+        set(TINY_${NAME}_INCLUDE "// #include \"${REL}\" (absent)")
+        set(TINY_${NAME}_TYPE "${FALLBACK}")
+        set(TINY_HAS_${NAME} 0)
+    endif()
+endmacro()
+
+macro(_tiny_source_dir)
+    cmake_parse_arguments(_tiny_arg "" "SOURCE_DIR" "" ${ARGN})
+    if(_tiny_arg_SOURCE_DIR)
+        set(_tiny_src ${_tiny_arg_SOURCE_DIR})
+    else()
+        set(_tiny_src ${CMAKE_CURRENT_SOURCE_DIR}/source)
+    endif()
+endmacro()
+
+# Generate <tiny_models.hpp> from `<source>/models/{params,meters,work}.hpp`.
+# `SOURCE_DIR` defaults to `${CMAKE_CURRENT_SOURCE_DIR}/source`.
+function(configure_models target)
+    _tiny_source_dir(${ARGN})
+    file(GLOB _tiny_models CONFIGURE_DEPENDS ${_tiny_src}/models/*.hpp)
+
+    _tiny_optional(PARAMS models/params.hpp params::None models::Params)
+    _tiny_optional(METERS models/meters.hpp meters::None models::Meters)
+    _tiny_optional(WORK   models/work.hpp   work::None   models::Work)
+
+    if(NOT TINY_HAS_PARAMS)
+        message(FATAL_ERROR "[tiny] ${target}: models/params.hpp is required (zero-parameter plug-ins are not supported yet).")
+    endif()
+
+    set(TINY_MODELS_DIR ${_tiny_src}/models)
+    set(dest ${CMAKE_CURRENT_BINARY_DIR}/generated)
+    configure_file(${CMAKE_CURRENT_FUNCTION_LIST_DIR}/tiny_models.hpp.in ${dest}/tiny_models.hpp @ONLY)
+    target_include_directories(${target} PUBLIC ${dest})
+endfunction()
+
+# Generate <tiny_plugin.hpp> from `<source>/{processor,editor,worker}.hpp`.
+# `SOURCE_DIR` defaults to `${CMAKE_CURRENT_SOURCE_DIR}/source`.
+function(configure_plugin target)
+    _tiny_source_dir(${ARGN})
+    file(GLOB _tiny_headers CONFIGURE_DEPENDS ${_tiny_src}/*.hpp)
+
+    _tiny_optional(EDITOR editor.hpp edit::None edit::Editor)
+    _tiny_optional(WORKER worker.hpp work::None work::Worker)
+
+    if(NOT EXISTS ${_tiny_src}/processor.hpp)
+        message(FATAL_ERROR "[tiny] ${target}: processor.hpp is required.")
+    endif()
+    if(NOT TINY_HAS_EDITOR)
+        message(FATAL_ERROR "[tiny] ${target}: editor.hpp is required (headless plug-ins are not supported yet).")
+    endif()
+    if(TINY_HAS_WORKER AND NOT EXISTS ${_tiny_src}/models/work.hpp)
+        message(FATAL_ERROR "[tiny] ${target}: worker.hpp needs models/work.hpp to declare its channels.")
+    endif()
+    if(NOT TINY_HAS_WORKER AND EXISTS ${_tiny_src}/models/work.hpp)
+        message(FATAL_ERROR "[tiny] ${target}: models/work.hpp needs a worker.hpp to handle its channels.")
+    endif()
+
+    set(TINY_PLUGIN_DIR ${_tiny_src})
+    set(dest ${CMAKE_CURRENT_BINARY_DIR}/generated)
+    configure_file(${CMAKE_CURRENT_FUNCTION_LIST_DIR}/tiny_plugin.hpp.in ${dest}/tiny_plugin.hpp @ONLY)
+    target_include_directories(${target} PUBLIC ${dest})
+endfunction()
+
 # Generate build number for AUv2 and AUv3 target plists.
 function(derive_build_number version_string out_var)
     # Split version string into major, minor, patch

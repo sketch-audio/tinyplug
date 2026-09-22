@@ -1,16 +1,13 @@
 #include <iostream>
 
-#include <tinyplug/tinyplug.hpp>
+#include <tiny_models.hpp> // Core + this plug-in's models; tools need nothing model-aware.
 #include <nlohmann/json.hpp>
 
-// User model.
-#include "models/params.hpp"
 #include "plug_info.hpp"
 
 auto main() -> int
 {
     using namespace tiny;
-    using User_params = params::Infos<models::Params>;
     const auto& specs = User_params::param_specs(params::Param_order::Presentation);
 
     auto params = nlohmann::json::array();

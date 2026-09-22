@@ -1,56 +1,19 @@
 #pragma once
 
-#include <array>
-#include <chrono>
-#include <cstdint>
-#include <variant>
+#include <algorithm>
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 
-namespace tiny::plugin {
+namespace tiny::work {
 
-// Minimal worker demo. Exercises every leg of the channel symmetrically:
-//   From_processor: Tick (sample-position snapshot)
-//   From_editor:    Set_session (UUID string)
-//   To_processor:   Set_counter (round-trip example)
-//   To_editor:      Session_path (string the worker would derive)
-
-struct Tick {
-    int64_t sample_pos{};
-};
-
-struct Set_session {
-    std::array<char, 64> uuid{};
-};
-
-struct Set_counter {
-    uint64_t count{};
-};
-
-struct Session_path {
-    std::array<char, 128> path{};
-};
-
+// Replies to each channel of `models::Work` (see models/work.hpp).
 class Worker {
 public:
 
-    // The channel shape: the four typed message variants plus capacity/period
-    // tuning. The framework reads these via `Worker::Model::*`.
-    struct Model {
-        using From_processor = std::variant<Tick>;
-        using From_editor    = std::variant<Set_session>;
-        using To_processor   = std::variant<Set_counter>;
-        using To_editor      = std::variant<Session_path>;
+    using From_processor = User_work::From_processor;
+    using From_editor    = User_work::From_editor;
 
-        static constexpr auto inbound_capacity  = size_t{64};
-        static constexpr auto outbound_capacity = size_t{16};
-        static constexpr auto update_period = std::chrono::milliseconds{16};
-    };
-
-    using From_processor = Model::From_processor;
-    using From_editor    = Model::From_editor;
-
-    explicit Worker(Worker_reply_actor<Worker> reply, Task_manager::Actor tasks)
+    explicit Worker(Worker_replies reply, Task_manager::Actor tasks)
         : _reply{reply}, _tasks{tasks} {}
 
     auto on_start(double /*sample_rate*/) -> void {}
@@ -59,9 +22,9 @@ public:
     auto handle_from_processor(const From_processor& m) -> void
     {
         std::visit(Inline_visitor{
-            [this](const Tick&) {
+            [this](const models::Tick&) {
                 ++_count;
-                _reply.to_processor(Set_counter{.count = _count});
+                _reply.to_processor(models::Set_counter{.count = _count});
             }
         }, m);
     }
@@ -69,8 +32,8 @@ public:
     auto handle_from_editor(const From_editor& m) -> void
     {
         std::visit(Inline_visitor{
-            [this](const Set_session& s) {
-                auto path = Session_path{};
+            [this](const models::Set_session& s) {
+                auto path = models::Session_path{};
                 const auto* src = s.uuid.data();
                 std::copy_n(src, std::min(s.uuid.size(), path.path.size()), path.path.begin());
                 _reply.to_editor(path);
@@ -80,10 +43,10 @@ public:
 
 private:
 
-    Worker_reply_actor<Worker> _reply{};
+    Worker_replies _reply{};
     Task_manager::Actor _tasks{};
     uint64_t _count{};
 
 };
 
-} // namespace tiny::plugin
+} // namespace tiny::work

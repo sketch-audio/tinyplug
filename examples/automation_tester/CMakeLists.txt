@@ -62,13 +62,15 @@ configure_plug_info(
     ${PLUGIN_TARGET}
     ${CMAKE_CURRENT_BINARY_DIR}/plug_info.hpp
 )
+configure_models(${PLUGIN_TARGET}) # <tiny_models.hpp> from source/models/
+configure_plugin(${PLUGIN_TARGET}) # <tiny_plugin.hpp> from source/
 # ---
 
 target_include_directories(${PLUGIN_TARGET} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/source
     ${CMAKE_CURRENT_BINARY_DIR} # for plug_info.hpp
 )
-target_link_libraries(${PLUGIN_TARGET} PUBLIC ${TINY_SHARED_LIB}) # plugin headers expose core types
+target_link_libraries(${PLUGIN_TARGET} PUBLIC ${TINY_PLUG_LIB}) # plugin headers expose framework types
 target_link_libraries(${PLUGIN_TARGET} PRIVATE ${TINY_PLATFORM_LIB}) # editor may use platform services (dialogs/paths)
 target_link_libraries(${PLUGIN_TARGET} PRIVATE tiny::skia) # editor draws with Skia
 

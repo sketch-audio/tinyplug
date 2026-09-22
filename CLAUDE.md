@@ -11,11 +11,14 @@ processor/editor pair into AAX, AUv2, AUv3, CLAP, and VST3 binaries. The
 user writes format-agnostic code; per-format wrappers under [formats/](formats/)
 translate the host's API into framework events and back.
 
-- Repo layout. All three libraries are peers under [libs/](libs/), each with its own `CMakeLists.txt`
+- Repo layout. The libraries are peers under [libs/](libs/), each with its own `CMakeLists.txt`
   and an isolated `include/<name>/` PUBLIC root (you only see a lib's headers if you link it):
-  - [libs/tinyplug/](libs/tinyplug/) — core framework. Public headers in
-    `include/tinyplug/` (`<tinyplug/...>`, umbrella `<tinyplug/tinyplug.hpp>`), impls
-    in `source/`. OS-detection macros live in `<tinyplug/platform_defs.hpp>`.
+  - [libs/tiny_core/](libs/tiny_core/) — the model-free half of the framework, `STATIC`,
+    compiled once. Headers `<tiny_core/...>`, umbrella `<tiny_core/tiny_core.hpp>`, impls in
+    `source/`. OS-detection macros live in `<tiny_core/platform_defs.hpp>`. **Nothing here may
+    name a user model type** — see "Model layer".
+  - [libs/tinyplug/](libs/tinyplug/) — the model-aware half, `INTERFACE` (header-only):
+    events, actions, undo, processor, edit, view, worker. Umbrella `<tinyplug/tinyplug.hpp>`.
   - [libs/tiny_platform/](libs/tiny_platform/) — native window/dialogs/paths/Skia
     (macOS/iOS/Windows). Headers `<tiny_platform/...>`, sources in `source/`, config
     templates in `cmake/`. Static lib; links core PUBLIC, Skia PRIVATE.
@@ -67,18 +70,17 @@ cmake --build build
 The plug-in author implements two classes plus a few static models. Concepts
 live alongside each interface — find them by searching for `concept Some_*`.
 
-- **`Processor`** ([libs/tinyplug/include/tinyplug/tiny_processor.hpp](libs/tinyplug/include/tinyplug/tiny_processor.hpp))
+- **`Processor`** ([tiny_processor.hpp](libs/tinyplug/include/tinyplug/tiny_processor.hpp))
   — the whole process side lives in **`tiny::process`**, *including the user's class*, so
   a processor file writes the vocabulary unqualified:
   `configure(const Config&)`, `reset(const Reset::Any&)`, `handle(const Event::Any&)`,
   `process(Dsp_context&)`, `latency_samps()`, `tail_samps()`. The concept is
   `Some_plug_processor`.
 
-  The namespaces are being split by **side**, not by author: `tiny::process` (done),
-  `tiny::edit` and `tiny::work` to follow. `tiny::plugin` is what remains shared — today
-  the user's `Editor` (until `edit` lands) and the `Worker` plus its message types, which
-  both sides address. A processor reaching a worker type writes `plugin::Tick`; see
-  [worker_demo](examples/worker_demo/).
+  The user's classes live by **side**: `process::Processor`, `edit::Editor`,
+  `work::Worker`. Framework vocabulary is mostly still in `tiny` and resolves unqualified
+  from all three. Worker message types are part of the work model, so a processor reaching
+  one writes `models::Tick`; see [worker_demo](examples/worker_demo/).
   Two axes, and the split is what to remember: **`configure` allocates** (sample rate
   plus the parameter values to come up holding, plain space) and is the only tier
   permitted to; **`reset` never does**. `Reset::Any` is a closed sum of block-boundary
@@ -104,20 +106,41 @@ live alongside each interface — find them by searching for `concept Some_*`.
   *Everything in `process::Event::Any` carries a frame offset*, which is what makes the
   `Tagged_event` sort meaningful. Anything the host says at a block boundary is a
   `Reset::Any`, not an event. Keep that line intact when adding MIDI.
-- **`params::Model`** ([libs/tinyplug/include/tinyplug/tiny_params.hpp](libs/tinyplug/include/tinyplug/tiny_params.hpp)) —
+- **`params::Model`** ([tiny_params.hpp](libs/tiny_core/include/tiny_core/tiny_params.hpp)) —
   enumerates `Address` and provides `build_tree()` returning a
   `params::Node` tree (groups + specs). The framework flattens the tree to an
   indexable array but preserves structure where the format supports it
   (AUv2 clumps, VST3 units, AAX page tables, CLAP modules, AUv3 parameter
   groups). A model may additionally satisfy `params::Au_ordered` by declaring
   `au_order() -> std::vector<Address>` — see "Parameter permanence" below.
-- **`Meter_model`** ([shared/tinyplug/tiny_meters.h](shared/tinyplug/tiny_meters.h)) —
-  same shape as params, but with `Meter_policy::{peak,stream,trig}` for how
-  the editor consumes updates.
-- **`Plug_worker`** ([shared/tinyplug/tiny_worker.h](shared/tinyplug/tiny_worker.h)) —
-  optional. If the plug-in source dir contains `plug_worker.h` it is
-  discovered via `__has_include` and `TINY_HAS_WORKER` is defined. Otherwise
-  `No_worker` (monostate) collapses every worker member to nothing.
+- **`meters::Model`** ([tiny_meters.hpp](libs/tiny_core/include/tiny_core/tiny_meters.hpp)) —
+  `Address` + `make_spec`, with `meters::Policy::{Peak,Stream,Trig}` for how
+  the editor consumes updates. Optional.
+- **`work::Model`** ([tiny_work.hpp](libs/tiny_core/include/tiny_core/tiny_work.hpp)) — the
+  worker's four channel variants plus tuning, declared as `models::Work` in
+  `models/work.hpp`. Optional, and paired with `worker.hpp` (the `work::Worker` class).
+
+## Model layer
+
+A plug-in declares models in `source/models/{params,meters,work}.hpp` and classes in
+`source/{processor,editor,worker}.hpp`. Discovery is **file presence, resolved by CMake**:
+`configure_models()` / `configure_plugin()` ([helpers.cmake](cmake/helpers.cmake)) generate
+`<tiny_models.hpp>` (`models::Resolved`, `User_params`/`User_meters`/`User_work`,
+`TINY_HAS_*` + `has_*`) and `<tiny_plugin.hpp>` (`plugin::Resolved`,
+`User_processor`/`User_editor`/`User_worker`) from
+[tiny_models.hpp.in](cmake/tiny_models.hpp.in) / [tiny_plugin.hpp.in](cmake/tiny_plugin.hpp.in).
+An absent model resolves to a zero-entry `<ns>::None`, never a monostate. Design:
+[model-layer.md](plans/model-layer.md); client porting guide:
+[model-layer-migration.md](plans/model-layer-migration.md).
+
+- **Why tinyplug is header-only.** A compiled-once library sees no models, so any TU there
+  that included a model-aware header would compile a different layout than the plug-in — a
+  silent ODR violation. Don't add a `.cpp` to `libs/tinyplug`; put model-free code in core.
+- **Include direction.** Models include `<tiny_core/tiny_core.hpp>` only. `<tinyplug/tinyplug.hpp>`
+  includes the generated `<tiny_models.hpp>` first, so user code never orders includes.
+  `<tiny_plugin.hpp>` is for wrappers — it includes the user's own class headers.
+- **Gate with both.** `#if TINY_HAS_*` removes members and fields; `if constexpr (has_*)`
+  gates code, and only discards inside a template.
 
 ## Parameter permanence
 
@@ -209,8 +232,8 @@ through it; if you change frame semantics, change them here.
 ## Worker channel
 
 `User_worker` runs on its own thread (`Worker_runner` in
-[tiny_worker.h](shared/tinyplug/tiny_worker.h)), polled at
-`User::poll_interval`. The four typed channels — `From_processor`,
+[tiny_worker.hpp](libs/tinyplug/include/tinyplug/tiny_worker.hpp)), polled at
+`User_work::update_period`. The four typed channels — `From_processor`,
 `From_editor`, `To_processor`, `To_editor` — are independent variants of
 trivially-copyable alternatives. Per-format wiring:
 
@@ -221,9 +244,9 @@ trivially-copyable alternatives. Per-format wiring:
   in `run_frame`.
 - **VST3** is the odd one (see next section).
 
-If `plug_worker.h` is absent the user worker types collapse to
-`std::monostate`, every worker queue member is `#if TINY_HAS_WORKER`-gated
-out, and `if constexpr (has_worker)` skips runtime work. Reply handlers on
+If `worker.hpp` is absent the channel types collapse to `std::monostate`
+(`work::None`), every worker queue member is `#if TINY_HAS_WORKER`-gated
+out, and `if constexpr (has_work)` skips runtime work. Reply handlers on
 the user's processor/editor are detected by concept
 (`Receives_worker_reply_to_processor` / `Receives_worker_reply_to_editor`)
 inside `try_drain_worker_to_*` *templates* — they have to be templates so
@@ -503,7 +526,7 @@ pushed in `setComponentState` and the `notify` is dispatched at the end of
 `setState` (guarded by a pending flag), where the editor state has also arrived
 and the step is still open. `notify` also delivers window events
 (`Dark_mode_changed`) — it is the editor's single notification entry point
-([tiny_events.hpp](libs/tinyplug/include/tinyplug/tiny_events.hpp):
+([tiny_notifications.hpp](libs/tiny_core/include/tiny_core/tiny_notifications.hpp):
 `Host_event = variant<Host_preset_loaded, Dark_mode_changed>`). Limitations:
 **params only** (not the editor `State_map`); a host single-param edit /
 automation is **not** surfaced (only full-state loads — source attribution is a
@@ -574,9 +597,9 @@ TINY_PLATFORM_WINDOWS`; selection at compile time only.
 
 ## Logging and lifecycle probing
 
-[tiny_log.hpp](libs/tinyplug/include/tinyplug/tiny_log.hpp) /
-[tiny_log.cpp](libs/tinyplug/source/tiny_log.cpp) is a realtime-safe logging layer;
-[lifecycle_probe.hpp](libs/tinyplug/include/tinyplug/lifecycle_probe.hpp) is a fixed
+[tiny_log.hpp](libs/tiny_core/include/tiny_core/tiny_log.hpp) /
+[tiny_log.cpp](libs/tiny_core/source/tiny_log.cpp) is a realtime-safe logging layer;
+[lifecycle_probe.hpp](libs/tiny_core/include/tiny_core/lifecycle_probe.hpp) is a fixed
 vocabulary for the processor lifecycle and the latency handshake layered on top.
 
 **The wrappers carry no probes right now.** They were instrumented while the latency
@@ -594,7 +617,7 @@ trace and a Logic trace of the same plug-in differ only where the formats genuin
   threads that is never reclaimed, and a logger gets called from whatever threads the
   host happens to own.
 - **Compiled out by default.** The CMake option `TINY_LOG` is ON for Debug and OFF
-  otherwise, and sets `TINY_LOG_ENABLED` **PUBLIC** on `tiny_shared_lib`. With it off
+  otherwise, and sets `TINY_LOG_ENABLED` **PUBLIC** on `tiny_core`. With it off
   every macro is `((void)0)` (arguments unevaluated) and every `log::Probe` method is an
   empty inline.
 - **Multi-process by design.** An AUv3 extension, a distributable VST3's two halves and

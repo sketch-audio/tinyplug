@@ -7,7 +7,7 @@
 #include "clap/helpers/preset-discovery-provider.hh"
 #include "clap/helpers/preset-discovery-provider.hxx"
 
-#include <tinyplug/platform_defs.hpp>
+#include <tiny_core/platform_defs.hpp>
 #include <tiny_platform/platform_paths.hpp>
 #include "plug_info.hpp"
 

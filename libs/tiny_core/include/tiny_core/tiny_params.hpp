@@ -301,6 +301,13 @@ concept Au_ordered = Model<T> && requires {
     { T::au_order() } -> std::same_as<std::vector<typename T::Address>>;
 };
 
+// The model a plug-in without `models/params.hpp` resolves to: zero entries, not a monostate,
+// so every `Infos` path still compiles. Plug-ins must declare params for now; see model-layer.md.
+struct None {
+    enum class Address : uint32_t { Num_params };
+    static auto build_tree() -> Node { return Group{}; }
+};
+
 // MARK: - params impl
 
 namespace impl {

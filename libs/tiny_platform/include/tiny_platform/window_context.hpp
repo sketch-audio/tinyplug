@@ -2,7 +2,7 @@
 
 #include <memory>
 
-#include <tinyplug/tinyplug.hpp>
+#include <tiny_core/tiny_core.hpp>
 
 class SkCanvas; // Skia canvas; the platform Impl owns the surface it comes from.
 

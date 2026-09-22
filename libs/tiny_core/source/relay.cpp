@@ -1,11 +1,11 @@
-#include <tinyplug/relay.hpp>
+#include <tiny_core/relay.hpp>
 
 #include <algorithm>
 #include <cstdint>
 #include <utility> // std::move
 
-#include <tinyplug/platform_defs.hpp>
-#include <tinyplug/tiny_log.hpp>
+#include <tiny_core/platform_defs.hpp>
+#include <tiny_core/tiny_log.hpp>
 
 #if TINY_PLATFORM_APPLE
     #include <dispatch/dispatch.h>

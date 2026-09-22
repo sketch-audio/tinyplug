@@ -2,17 +2,15 @@
 
 #include "public.sdk/source/vst/vsteditcontroller.h"
 
-#include <tinyplug/meter_mailbox.hpp>
+#include <tiny_core/meter_mailbox.hpp>
 
-#include "models/meters.hpp"
-#include "models/params.hpp"
-#include "editor.hpp"
+#include <tiny_plugin.hpp>
 
 #include "messaging.hpp"
 #include "view.hpp"
 
-#include "tinyplug/change_list.hpp"
-#include "tinyplug/task_manager.hpp"
+#include "tiny_core/change_list.hpp"
+#include "tiny_core/task_manager.hpp"
 
 namespace tiny::vst3 {
 
@@ -86,11 +84,9 @@ public:
 
 protected:
 
-    std::optional<plugin::Editor> _editor{};
+    std::optional<User_editor> _editor{};
     Task_manager _tasks{};
 
-    using User_params = params::Infos<models::Params>;
-    using User_meters = meters::Infos<models::Meters>;
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 
@@ -164,10 +160,10 @@ protected:
     // Worker channel. The worker lives on the controller side and uses the
     // editor's Task_manager. Editor↔worker is direct in-process; processor↔
     // worker crosses the IPC boundary (shuttle + IMessage in both directions).
-    using Worker_from_proc_q = Lock_free_queue<typename User_worker::Model::From_processor, User_worker::Model::inbound_capacity, Queue_concurrency::spsc>;
-    using Worker_from_edit_q = Lock_free_queue<typename User_worker::Model::From_editor,    User_worker::Model::inbound_capacity, Queue_concurrency::spsc>;
-    using Worker_to_proc_q   = Lock_free_queue<typename User_worker::Model::To_processor,   User_worker::Model::outbound_capacity>;
-    using Worker_to_edit_q   = Lock_free_queue<typename User_worker::Model::To_editor,     User_worker::Model::outbound_capacity>;
+    using Worker_from_proc_q = Lock_free_queue<typename User_work::From_processor, User_work::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_from_edit_q = Lock_free_queue<typename User_work::From_editor,    User_work::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_to_proc_q   = Lock_free_queue<typename User_work::To_processor,   User_work::outbound_capacity>;
+    using Worker_to_edit_q   = Lock_free_queue<typename User_work::To_editor,     User_work::outbound_capacity>;
 
     Worker_from_proc_q _worker_from_proc{};
     Worker_from_edit_q _worker_from_edit{};

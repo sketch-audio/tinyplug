@@ -7,8 +7,6 @@
 #include <span>
 #include <unordered_map>
 
-#include "tiny_events.hpp"
-
 namespace tiny {
 
 // Coalesces parameter updates, keyed by address, for consumption on another thread.

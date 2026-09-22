@@ -1,9 +1,9 @@
 #pragma once
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 #include "models/params.hpp"
 
-namespace tiny::plugin {
+namespace tiny::edit {
 
 class Editor {
 public:
@@ -25,7 +25,6 @@ public:
 
 private:
 
-    using User_params = params::Infos<models::Params>;
     using Address = models::Params::Address;
 
     Frame _frame{};
@@ -38,4 +37,4 @@ private:
 
 };
 
-} // namespace tiny::plugin
+} // namespace tiny::edit

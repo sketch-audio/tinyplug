@@ -4,7 +4,7 @@
 #include <memory>
 #include <optional>
 
-#include "tiny_view.hpp"
+#include "tiny_input.hpp"
 
 namespace tiny {
 

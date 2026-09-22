@@ -3,7 +3,7 @@
 #include <AudioUnitSDK/ComponentBase.h>
 #include <AudioUnitSDK/AUUtility.h> // Serialize
 
-#include <tinyplug/denormal_guard.hpp>
+#include <tiny_core/denormal_guard.hpp>
 
 namespace tiny::auv2 {
 

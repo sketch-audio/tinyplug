@@ -1,58 +1,28 @@
-include(FetchContent)
-FetchContent_Declare(
-    nlohmann_json
-    URL https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.zip
-    URL_HASH SHA256=34660b5e9a407195d55e8da705ed26cc6d175ce5a6b1fb957e701fb4d5b04022
-)
-FetchContent_MakeAvailable(nlohmann_json)
-
 # ============================================================================
-# Core library — format-agnostic framework (params, events, state, tasks, view
-# loop). Pure C++: no Skia, no native frameworks. Only forward-declares SkCanvas.
+# tinyplug — the model-aware half of the framework. Header-only on purpose: it has
+# no translation units of its own, so its headers only ever compile inside a plug-in
+# target, where the generated <tiny_models.hpp> / <tiny_plugin.hpp> are on the path.
+# A compiled-once library here would see no models and silently disagree with the
+# plug-in about the layout of every model-dependent type.
 # ============================================================================
 
-set(TINY_SHARED_LIB tiny_shared_lib)
-add_library(${TINY_SHARED_LIB} STATIC)
+set(TINY_PLUG_LIB tinyplug)
+add_library(${TINY_PLUG_LIB} INTERFACE)
 
-target_sources(${TINY_SHARED_LIB} PRIVATE
-    source/action_queue.cpp
-    source/gesture_recognizers.cpp
-    source/notification_queue.cpp
-    source/relay.cpp
-    source/serial_queue.cpp
-    source/state_adapter.cpp
-    source/task_launcher.cpp
-    source/task_manager.cpp
-    source/undo_history.cpp
-    source/host_formatter.cpp
-    source/tiny_log.cpp
-    source/value_helper.cpp
-)
-
-target_sources(${TINY_SHARED_LIB} PRIVATE
-    include/tinyplug/platform_defs.hpp
-    include/tinyplug/lifecycle_probe.hpp
+target_sources(${TINY_PLUG_LIB} INTERFACE FILE_SET HEADERS BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include FILES
+    include/tinyplug/action_queue.hpp
+    include/tinyplug/tiny_edit.hpp
     include/tinyplug/tiny_events.hpp
-    include/tinyplug/tiny_meters.hpp
-    include/tinyplug/tiny_params.hpp
-    include/tinyplug/value_helper.hpp
     include/tinyplug/tiny_processor.hpp
-    include/tinyplug/lock_free_queue.hpp
-    include/tinyplug/relay.hpp
-    include/tinyplug/tiny_log.hpp
-    include/tinyplug/tiny_utils.hpp
     include/tinyplug/tiny_view.hpp
     include/tinyplug/tiny_worker.hpp
     include/tinyplug/tinyplug.hpp
+    include/tinyplug/undo_history.hpp
 )
 
 # Public include root → consumers write <tinyplug/...>.
-target_include_directories(${TINY_SHARED_LIB} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(${TINY_SHARED_LIB} PUBLIC nlohmann_json::nlohmann_json)
-
-# Logging / lifecycle probing. PUBLIC: the wrappers link this lib and their probe call
-# sites have to agree with the library about whether the layer exists at all.
-target_compile_definitions(${TINY_SHARED_LIB} PUBLIC TINY_LOG_ENABLED=$<BOOL:${TINY_LOG}>)
+target_include_directories(${TINY_PLUG_LIB} INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(${TINY_PLUG_LIB} INTERFACE ${TINY_CORE_LIB})
 
 # Forward to parent scope.
-set(TINY_SHARED_LIB ${TINY_SHARED_LIB} PARENT_SCOPE)
+set(TINY_PLUG_LIB ${TINY_PLUG_LIB} PARENT_SCOPE)

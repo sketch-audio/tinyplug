@@ -9,9 +9,9 @@
 
 #include <AudioUnitSDK/AUScopeElement.h>
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 
-#include "models/params.hpp"
+#include <tiny_plugin.hpp>
 
 namespace tiny {
 

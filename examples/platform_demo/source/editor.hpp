@@ -1,9 +1,9 @@
 #pragma once
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 #include "models/params.hpp"
 
-namespace tiny::plugin {
+namespace tiny::edit {
 
 class Editor {
 public:
@@ -32,7 +32,6 @@ private:
     // change" guard would never push a frame down and every click would miss.
     auto _make_gestures() -> void;
 
-    using User_params = params::Infos<models::Params>;
     using Address = models::Params::Address;
 
     Task_manager::Actor _tasks{};
@@ -49,4 +48,4 @@ private:
 
 };
 
-} // namespace tiny::plugin
+} // namespace tiny::edit

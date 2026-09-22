@@ -9,12 +9,10 @@
 #include "public.sdk/source/vst/vstaudioeffect.h"
 
 #include "plug_info.hpp"
-#include "processor.hpp"
-#include <tinyplug/meter_publisher.hpp>
-#include <tinyplug/relay.hpp>
+#include <tiny_plugin.hpp>
+#include <tiny_core/meter_publisher.hpp>
+#include <tiny_core/relay.hpp>
 
-#include "models/meters.hpp"
-#include "models/params.hpp"
 
 #include <tiny_dsp/host_bypass.hpp>
 
@@ -82,8 +80,6 @@ public:
     Steinberg::uint32 PLUGIN_API getProcessContextRequirements() SMTG_OVERRIDE;
 
 private:
-    using User_params = params::Infos<models::Params>;
-    using User_meters = meters::Infos<models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
@@ -120,7 +116,7 @@ private:
 
     std::vector<process::Tagged_event> _events{}; // Some fixed size thing.
 
-    std::unique_ptr<process::Processor> _processor = std::make_unique<process::Processor>();
+    std::unique_ptr<User_processor> _processor = std::make_unique<User_processor>();
 
     // Latency
     std::atomic<uint32_t> _latency{};
@@ -168,8 +164,8 @@ private:
     // a non-realtime shuttle thread drains it and forwards each message to
     // the controller via IMessage. Replies from the worker come back via
     // IMessage and land in _worker_to_proc_inbox.
-    using Worker_outbound_q = Lock_free_queue<typename User_worker::Model::From_processor, User_worker::Model::inbound_capacity, Queue_concurrency::spsc>;
-    using Worker_to_proc_inbox_q = Lock_free_queue<typename User_worker::Model::To_processor, User_worker::Model::outbound_capacity>;
+    using Worker_outbound_q = Lock_free_queue<typename User_work::From_processor, User_work::inbound_capacity, Queue_concurrency::spsc>;
+    using Worker_to_proc_inbox_q = Lock_free_queue<typename User_work::To_processor, User_work::outbound_capacity>;
 
     Worker_outbound_q _worker_outbound{};
     Worker_to_proc_inbox_q _worker_to_proc_inbox{};

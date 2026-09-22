@@ -1,4 +1,4 @@
-#include "tinyplug/serial_queue.hpp"
+#include "tiny_core/serial_queue.hpp"
 
 namespace tiny {
 

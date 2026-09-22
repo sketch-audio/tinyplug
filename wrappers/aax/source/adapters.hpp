@@ -16,7 +16,7 @@
 #include "AAX_CParameterManager.h"
 #include "AAX_IParameter.h"
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 
 namespace tiny {
 

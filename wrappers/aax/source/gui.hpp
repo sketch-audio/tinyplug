@@ -7,7 +7,7 @@
 #include "AAX_VController.h"
 
 #include <tiny_platform/platform_view.hpp>
-#include "editor.hpp"
+#include <tiny_plugin.hpp>
 
 #include "adapters.hpp"
 #include "parameters.hpp"
@@ -33,13 +33,11 @@ private:
     auto on_draw(View_context& view_context) -> void;
     auto on_notify(const Dark_mode_changed& notification) -> void;
 
-    using User_params = params::Infos<models::Params>;
-    using User_meters = meters::Infos<models::Meters>;
 
     static constexpr auto num_params = User_params::num_params;
     static constexpr auto num_meters = User_meters::num_meters;
 
-    plugin::Editor* _editor{};
+    User_editor* _editor{};
     Ui_receiver _receiver{};
     Task_manager* _tasks{};
     Parameters* _params{};

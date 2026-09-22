@@ -14,7 +14,7 @@ auto Gui::CreateViewContents() -> void
     _params = params;
     _actions = params->actions();
 
-    const auto initial_size = _params->get_last_size().value_or(plugin::Editor::preferred_size());
+    const auto initial_size = _params->get_last_size().value_or(User_editor::preferred_size());
 
     auto delegate = std::make_shared<View_delegate>(
         initial_size, // Primed from persisted state so the window opens pre-sized.
@@ -119,8 +119,8 @@ void Gui::DeleteViewContainer()
 
 AAX_Result Gui::GetViewSize(AAX_Point* view_size) const
 {
-    const auto fallback = _params ? _params->get_last_size().value_or(plugin::Editor::preferred_size())
-                                  : plugin::Editor::preferred_size();
+    const auto fallback = _params ? _params->get_last_size().value_or(User_editor::preferred_size())
+                                  : User_editor::preferred_size();
     const auto size = _platform_view ? _platform_view->get_size() : fallback;
     view_size->horz = static_cast<float>(size.w);
     view_size->vert = static_cast<float>(size.h);

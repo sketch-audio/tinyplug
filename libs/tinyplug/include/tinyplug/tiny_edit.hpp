@@ -1,8 +1,9 @@
 #pragma once
 
+#include <tiny_core/state_adapter.hpp>
+#include <tiny_core/task_manager.hpp>
+
 #include "action_queue.hpp"
-#include "state_adapter.hpp"
-#include "task_manager.hpp"
 #include "undo_history.hpp"
 
 namespace tiny {
@@ -21,3 +22,10 @@ struct Edit_context {
 };
 
 } // namespace tiny
+
+namespace tiny::edit {
+
+// Reserved fallback for a plug-in without `editor.hpp`. Headless is not supported yet.
+struct None {};
+
+} // namespace tiny::edit

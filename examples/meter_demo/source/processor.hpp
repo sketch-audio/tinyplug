@@ -2,7 +2,7 @@
 
 #include <array>
 
-#include "tinyplug/tinyplug.hpp"
+#include <tinyplug/tinyplug.hpp>
 #include "models/meters.hpp"
 #include "models/params.hpp"
 
@@ -23,7 +23,6 @@ public:
 
 private:
 
-    using User_params = params::Infos<models::Params>;
     using Address = models::Params::Address;
     using Meter = models::Meters::Address;
     static constexpr auto num_params = User_params::num_params;
