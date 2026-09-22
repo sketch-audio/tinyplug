@@ -10,12 +10,6 @@
 
 namespace tiny {
 
-// Read-only access to some param (and export) values.
-struct Processor_state {
-    std::span<const double> params{};
-    std::span<const double> meters{};
-};
-
 template<typename F>
 struct Deferred {
     F fn;

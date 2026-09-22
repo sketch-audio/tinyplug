@@ -30,6 +30,7 @@ target_sources(${TINY_CORE_LIB} PRIVATE
 
 target_sources(${TINY_CORE_LIB} PRIVATE
     include/tiny_core/change_list.hpp
+    include/tiny_core/data_port.hpp
     include/tiny_core/denormal_guard.hpp
     include/tiny_core/gesture_recognizers.hpp
     include/tiny_core/host_formatter.hpp
@@ -43,6 +44,7 @@ target_sources(${TINY_CORE_LIB} PRIVATE
     include/tiny_core/state_rules.hpp
     include/tiny_core/task_launcher.hpp
     include/tiny_core/task_manager.hpp
+    include/tiny_core/tiny_blocks.hpp
     include/tiny_core/tiny_core.hpp
     include/tiny_core/tiny_input.hpp
     include/tiny_core/tiny_log.hpp

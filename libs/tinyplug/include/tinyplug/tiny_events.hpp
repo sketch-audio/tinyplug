@@ -6,6 +6,7 @@
 #include <span>
 #include <variant>
 
+#include <tiny_core/tiny_blocks.hpp>
 #include <tiny_core/tiny_meters.hpp>
 #include <tiny_core/tiny_notifications.hpp>
 
@@ -24,6 +25,17 @@ struct Request_resize { uint32_t width{}; uint32_t height{}; };
 
 using User_action = std::variant<Action_start, Set_param, Action_end, Request_resize>;
 
+// What the editor reads from the processor side each draw.
+struct Processor_state {
+    std::span<const double> params{};
+#if TINY_HAS_METERS
+    std::span<const double> meters{};
+#endif
+#if TINY_HAS_BLOCKS
+    blocks::View<models::Resolved::Blocks> blocks{};
+#endif
+};
+
 struct Ui_receiver {
     using Get_param = std::function<double(uint32_t)>;
     using Action_handler = std::function<void(const User_action&)>;
@@ -33,9 +45,17 @@ struct Ui_receiver {
     using Read_meters = std::function<void(std::span<float>)>;
 #endif
 
+#if TINY_HAS_BLOCKS
+    // Refreshes the editor's retained frames, marking this draw's arrivals fresh.
+    using Read_blocks = std::function<void(blocks::Frames<models::Resolved::Blocks>&)>;
+#endif
+
     Get_param get_param = [](auto) { return 0; };
 #if TINY_HAS_METERS
     Read_meters read_meters = [](auto) {};
+#endif
+#if TINY_HAS_BLOCKS
+    Read_blocks read_blocks = [](auto&) {};
 #endif
     Action_handler action_handler = [](auto&) {};
 };

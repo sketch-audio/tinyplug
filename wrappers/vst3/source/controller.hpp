@@ -130,6 +130,10 @@ protected:
     // The host owns the meter wire (output parameters), and delivers on the UI thread.
     meters::Mailbox<tiny::models::Resolved::Meters, meters::Transport::Host> _mailbox{};
 #endif
+#if TINY_HAS_BLOCKS
+    // Lock-free: `notify` may run on whatever thread the processor's relay sent from.
+    blocks::Mailbox<models::Resolved::Blocks> _block_mailbox{};
+#endif
     Change_list<Set_param> _state_queue{}; // Knob space, to the editor.
 
     std::unordered_set<uint32_t> _gestured{};

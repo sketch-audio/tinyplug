@@ -67,6 +67,7 @@ private:
     // Plain values now: the mailbox coalesces on the way in, so the editor no
     // longer reconstructs per-frame peak/latest/one-shot state of its own.
     std::array<double, num_meters> _ui_meters{};
+    blocks::Frames<models::Resolved::Blocks> _ui_blocks{}; // Retained between draws.
 
     using enum params::Space;
     std::array<double, num_params> _ui_params{tiny::params::make_defaults<double, User_params>(Knob)};

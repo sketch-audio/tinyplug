@@ -83,6 +83,12 @@ public:
         _mailbox.read(out);
     }
 #endif
+#if TINY_HAS_BLOCKS
+    auto read_blocks(blocks::Frames<models::Resolved::Blocks>& out) -> void
+    {
+        _block_mailbox.read(out);
+    }
+#endif
 
     auto get_editor() -> User_editor*
     {
@@ -186,6 +192,10 @@ private:
     // Meters in. The mailbox is the cache: retains every level the ring has delivered, so a
     // view created at any point simply reads it. Replaced `_last_meters` + dump.
     meters::Mailbox<tiny::models::Resolved::Meters> _mailbox{};
+#endif
+#if TINY_HAS_BLOCKS
+    // Blocks in, posted from the Direct Data thread and read by the GUI.
+    blocks::Mailbox<models::Resolved::Blocks> _block_mailbox{};
 #endif
 
     // Latency. The kernel proposes from the algorithm; the host owns the accepted

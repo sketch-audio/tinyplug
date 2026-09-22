@@ -301,3 +301,72 @@ zero otherwise. Internally the mailbox now clears the value on read instead of c
 triggers, so the per-frame trigger count that `meters::Sample::triggers` exposed is gone.
 Several triggers within one frame read as the latest one.
 
+
+---
+
+## Blocks
+
+Adds `blocks::Model`: typed, trivially copyable frames from processor to editor, for
+spectra, scopes and similar. Latest wins. Opt-in: a plug-in without
+`source/models/blocks.hpp` is unaffected, apart from the two breaks below. Design in
+[plans/block-output.md](plans/block-output.md). [examples/block_demo](examples/block_demo/)
+is the reference.
+
+### Breaks
+
+- **`Processor_state` moved** from `<tiny_core/tiny_utils.hpp>` to `<tinyplug/tiny_events.hpp>`,
+  because it now names model types. If you include the umbrella you won't notice.
+- **`Processor_state::meters` exists only with a meter model**, like
+  `Dsp_context::meters`. Code that reads it in a meter-free plug-in must go.
+- **`view_impl::run_frame` takes the editor's retained frames** after `_ui_meters`
+  (`blocks::Frames<models::Resolved::Blocks>&`). Only a custom wrapper calls it.
+
+### Adding blocks
+
+```cpp
+// source/models/blocks.hpp — core only
+struct Spectrum_frame { std::array<float, 1024> db{}; std::uint32_t used{}; };
+struct Scope_frame    { std::array<float, 512> samples{}; };
+
+struct Blocks {
+    using Types = std::variant<Spectrum_frame, Scope_frame>;   // each trivially copyable
+    enum class Address : std::uint32_t { Spectrum, Scope, Num_blocks };
+    static constexpr auto num_blocks = enum_raw(Address::Num_blocks);
+
+    static constexpr auto make_spec(std::uint32_t a) -> blocks::Spec  // must be constexpr
+    {
+        switch (static_cast<Address>(a)) {
+            case Address::Spectrum: return {blocks::kind_of<Spectrum_frame, Types>};
+            case Address::Scope:    return {blocks::kind_of<Scope_frame, Types>};
+            case Address::Num_blocks:
+            default:                return {};
+        }
+    }
+};
+```
+
+Processor, through `Dsp_context::blocks`:
+
+```cpp
+auto& frame = context.blocks.write<Address::Spectrum>(); // Spectrum_frame&
+// ... fill it ...
+context.blocks.publish<Address::Spectrum>();              // sent at the end of this block
+```
+
+The staging frame persists between publishes. It's copied out at the **end** of the
+block, so don't overwrite it after publishing in the same block. Keep your own buffer if
+you might (block_demo's scope does). A write without a publish sends nothing. Nothing is
+sent during an offline bounce.
+
+Editor, through `Plugin_state::processor_state.blocks`:
+
+```cpp
+const auto& frames = state.processor_state.blocks;
+draw(frames.latest<Address::Spectrum>());                  // always answers
+if (const auto* f = frames.fresh<Address::Scope>()) ...    // null unless new this draw
+```
+
+Before the first publish, `latest` returns a value-initialised frame.
+
+Per format, frames arrive at up to the draw rate in CLAP, AUv2 and AUv3, up to 60/s in
+VST3 (one `IMessage` per changed address), and ~33/s in AAX (Direct Data).

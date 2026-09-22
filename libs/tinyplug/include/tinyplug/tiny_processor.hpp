@@ -77,6 +77,9 @@ struct Dsp_context {
 #if TINY_HAS_METERS
     std::span<float> meters{};
 #endif
+#if TINY_HAS_BLOCKS
+    blocks::Writer<models::Resolved::Blocks> blocks{};
+#endif
     std::optional<uint32_t> propose_latency{}; // samples.
     Render_mode render_mode{Render_mode::Realtime};
 };

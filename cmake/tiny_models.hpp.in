@@ -12,6 +12,9 @@
 @TINY_METERS_INCLUDE@
 #define TINY_HAS_METERS @TINY_HAS_METERS@
 
+@TINY_BLOCKS_INCLUDE@
+#define TINY_HAS_BLOCKS @TINY_HAS_BLOCKS@
+
 #define TINY_HAS_STATE 0
 
 @TINY_WORK_INCLUDE@
@@ -22,6 +25,7 @@ namespace tiny::models {
 struct Resolved {
     using Params = @TINY_PARAMS_TYPE@;
     using Meters = @TINY_METERS_TYPE@;
+    using Blocks = @TINY_BLOCKS_TYPE@;
     using State = state::None;
     using Work = @TINY_WORK_TYPE@;
 };
@@ -32,14 +36,17 @@ namespace tiny {
 
 static_assert(params::Model<models::Resolved::Params>, "models::Params must satisfy params::Model.");
 static_assert(meters::Model<models::Resolved::Meters>, "models::Meters must satisfy meters::Model.");
+static_assert(blocks::Model<models::Resolved::Blocks>, "models::Blocks must satisfy blocks::Model.");
 static_assert(work::Model<models::Resolved::Work>, "models::Work must satisfy work::Model.");
 
 using User_params = params::Infos<models::Resolved::Params>;
 using User_meters = meters::Infos<models::Resolved::Meters>;
+using User_blocks = blocks::Infos<models::Resolved::Blocks>;
 using User_work = models::Resolved::Work;
 
 inline constexpr bool has_params = TINY_HAS_PARAMS;
 inline constexpr bool has_meters = TINY_HAS_METERS;
+inline constexpr bool has_blocks = TINY_HAS_BLOCKS;
 inline constexpr bool has_state = TINY_HAS_STATE;
 inline constexpr bool has_work = TINY_HAS_WORK;
 

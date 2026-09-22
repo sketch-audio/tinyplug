@@ -34,6 +34,7 @@ auto View::on_draw(View_context& view_context) -> void
         _deps.receiver,
         _ui_params,
         _ui_meters,
+        _ui_blocks,
         view_context,
         _deps.editor,
         *_deps.actions,

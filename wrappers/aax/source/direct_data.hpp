@@ -33,11 +33,18 @@ private:
 
     auto _drain_returns(AAX_IPrivateDataAccess* access) -> void;
     auto _push_worker_replies(AAX_IPrivateDataAccess* access) -> void;
+    auto _read_blocks(AAX_IPrivateDataAccess* access) -> void;
 
     // Bounds how much we lift out of the return ring per wakeup. A partial entry at
     // the tail is simply left for the next pass.
     static constexpr auto scratch_bytes = size_t{8192};
     std::array<unsigned char, scratch_bytes> _scratch{};
+
+#if TINY_HAS_BLOCKS
+    // Per address, the `seq` last forwarded. Differs from the store's whenever a new frame waits.
+    std::array<uint64_t, num_blocks> _block_seen{};
+    alignas(16) std::array<unsigned char, sizeof(Block_header) + max_block_bytes> _block_scratch{};
+#endif
 
 };
 

@@ -62,6 +62,11 @@ auto describe_algorithm(AAX_IComponentDescriptor* desc, bool stereo) -> void
     err = desc->AddPrivateData(field_state, static_cast<int32_t>(sizeof(Alg_state)), AAX_ePrivateDataOptions_External);
     err = desc->AddPrivateData(field_returns, static_cast<int32_t>(sizeof(Return_ring)), AAX_ePrivateDataOptions_External);
     err = desc->AddPrivateData(field_inbound, static_cast<int32_t>(sizeof(Inbound_ring)), AAX_ePrivateDataOptions_External);
+#if TINY_HAS_BLOCKS
+    blocks::for_each_address<models::Resolved::Blocks>([&](auto i) {
+        err = desc->AddPrivateData(block_field(i), static_cast<int32_t>(sizeof(Block_store_at<decltype(i)::value>)), AAX_ePrivateDataOptions_External);
+    });
+#endif
 
     auto* const properties = desc->NewPropertyMap();
     if (!properties) {

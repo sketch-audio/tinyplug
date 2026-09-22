@@ -33,7 +33,13 @@ public:
 
     // Last-resort relay stop. `setActive(false)` and `terminate()` are the real doors;
     // this one only matters for a host that skips both.
-    ~Audio_effect() SMTG_OVERRIDE { _relay.reset(); }
+    ~Audio_effect() SMTG_OVERRIDE
+    {
+        _relay.reset();
+#if TINY_HAS_BLOCKS
+        _block_relay.reset();
+#endif
+    }
 
     Steinberg::tresult PLUGIN_API notify(Steinberg::Vst::IMessage* message) SMTG_OVERRIDE;
 
@@ -148,6 +154,17 @@ private:
     std::optional<Relay> _relay{};
 
     auto _send_latency(uint32_t latency) -> void;
+
+#if TINY_HAS_BLOCKS
+    // Blocks leave through an outbox the audio thread posts into and a relay drains, one
+    // IMessage per fresh frame. Latest wins, so a slow relay costs frames, never the audio thread.
+    blocks::Publisher<models::Resolved::Blocks> _blocks{};
+    blocks::Mailbox<models::Resolved::Blocks> _block_outbox{};
+    blocks::Frames<models::Resolved::Blocks> _block_scratch{}; // Relay thread only.
+    std::optional<Relay> _block_relay{};
+
+    auto _send_blocks() -> void;
+#endif
 
     Host_bypass _bypass{};
 

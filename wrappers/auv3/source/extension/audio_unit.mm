@@ -259,6 +259,11 @@ static auto presets_path() -> std::filesystem::path
             if (auto s = self_) s->_kernel.read_meters(out);
         },
 #endif
+#if TINY_HAS_BLOCKS
+        .read_blocks = [self_](blocks::Frames<models::Resolved::Blocks>& out) {
+            if (auto s = self_) s->_kernel.read_blocks(out);
+        },
+#endif
         .action_handler = [self_](const User_action& action) {
             auto s = self_;
             if (!s) return;

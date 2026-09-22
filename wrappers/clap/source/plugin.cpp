@@ -158,6 +158,9 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
 #if TINY_HAS_METERS
     context.meters = _meters.scratch();
 #endif
+#if TINY_HAS_BLOCKS
+    context.blocks = blocks::Writer{&_blocks};
+#endif
     context.render_mode = _offline.load(std::memory_order_relaxed) ? process::Render_mode::Offline : process::Render_mode::Realtime;
 
     // We need to resync on render mode edge.
@@ -297,6 +300,11 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     _meters.publish(offline || !renders_audio, [this](uint32_t address, float value) {
         _mailbox.post(address, value);
         return true; // A slot array has no capacity to refuse.
+    });
+#endif
+#if TINY_HAS_BLOCKS
+    _blocks.transmit(offline, [this](auto address, const auto& frame) {
+        return _block_mailbox.post(address, frame);
     });
 #endif
 
@@ -1145,6 +1153,11 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
 #if TINY_HAS_METERS
         .read_meters = [this](std::span<float> out) {
             _mailbox.read(out);
+        },
+#endif
+#if TINY_HAS_BLOCKS
+        .read_blocks = [this](blocks::Frames<models::Resolved::Blocks>& out) {
+            _block_mailbox.read(out);
         },
 #endif
         .action_handler = [this](auto& action) {

@@ -164,6 +164,9 @@ private:
 #if TINY_HAS_METERS
     meters::Publisher<tiny::models::Resolved::Meters> _meters{}; // Owns the scratch the DSP writes.
 #endif
+#if TINY_HAS_BLOCKS
+    blocks::Publisher<models::Resolved::Blocks> _blocks{}; // Staging frames the DSP writes.
+#endif
 
     // USER
     std::unique_ptr<User_processor> _processor = std::make_unique<User_processor>();
@@ -238,6 +241,9 @@ private:
 
 #if TINY_HAS_METERS
     meters::Mailbox<tiny::models::Resolved::Meters> _mailbox{};
+#endif
+#if TINY_HAS_BLOCKS
+    blocks::Mailbox<models::Resolved::Blocks> _block_mailbox{};
 #endif
 
     // Resync mechanism. Currently only a fallback in case we overflow our queue in release.

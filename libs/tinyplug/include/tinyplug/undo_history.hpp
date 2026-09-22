@@ -8,7 +8,7 @@
 #include <vector>
 
 #include <tiny_core/tiny_params.hpp> // params::Spec
-#include <tiny_core/tiny_utils.hpp> // Inline_visitor, Processor_state
+#include <tiny_core/tiny_utils.hpp> // Inline_visitor
 
 #include "action_queue.hpp"
 #include "tiny_events.hpp" // User_action

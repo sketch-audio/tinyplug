@@ -186,6 +186,9 @@ private:
 #if TINY_HAS_METERS
     meters::Publisher<tiny::models::Resolved::Meters> _meters{}; // Owns the scratch the DSP writes.
 #endif
+#if TINY_HAS_BLOCKS
+    blocks::Publisher<models::Resolved::Blocks> _blocks{}; // Staging frames the DSP writes.
+#endif
 
     Clump_map _clumps{};
 
@@ -208,6 +211,9 @@ private:
 
 #if TINY_HAS_METERS
     meters::Mailbox<tiny::models::Resolved::Meters> _mailbox{};
+#endif
+#if TINY_HAS_BLOCKS
+    blocks::Mailbox<models::Resolved::Blocks> _block_mailbox{};
 #endif
 
     // Render
@@ -294,6 +300,11 @@ private:
 #if TINY_HAS_METERS
             .read_meters = [this](std::span<float> out) {
                 _mailbox.read(out);
+            },
+#endif
+#if TINY_HAS_BLOCKS
+            .read_blocks = [this](blocks::Frames<models::Resolved::Blocks>& out) {
+                _block_mailbox.read(out);
             },
 #endif
             .action_handler = [this](auto& action) {

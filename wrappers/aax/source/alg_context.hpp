@@ -1,13 +1,16 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
+#include <utility>
 
 #include "AAX.h"
 #include "AAX_IMIDINode.h"
 
+#include "block_store.hpp"
 #include "byte_ring.hpp"
 
 #include "plug_info.hpp"
@@ -23,6 +26,7 @@ namespace tiny::aax {
 
 inline constexpr auto num_params = User_params::num_params;
 inline constexpr auto num_meters = User_meters::num_meters;
+inline constexpr auto num_blocks = User_blocks::num_blocks;
 
 // The Pro Tools master bypass rides along as a pseudo-parameter one past the end of
 // the user's address space, so it packs into the coefficient segments like any other
@@ -137,6 +141,10 @@ struct Alg_context {
     struct Inbound_ring* inbound;     // AddPrivateData — data model -> algorithm
 
     const Coef_segment* coefs[num_segments];   // AddDataInPort × num_segments
+
+#if TINY_HAS_BLOCKS
+    void* blocks[num_blocks];                  // AddPrivateData × num_blocks — Block_store_at<I>
+#endif
 };
 
 #include AAX_ALIGN_FILE_BEGIN
@@ -161,12 +169,33 @@ enum : AAX_CFieldIndex {
     field_returns = AAX_FIELD_INDEX(Alg_context, returns),
     field_inbound = AAX_FIELD_INDEX(Alg_context, inbound),
     field_coefs_base = AAX_FIELD_INDEX(Alg_context, coefs),
+#if TINY_HAS_BLOCKS
+    field_blocks_base = AAX_FIELD_INDEX(Alg_context, blocks),
+#endif
 };
 
 inline constexpr auto coef_field(size_t segment) -> AAX_CFieldIndex
 {
     return field_coefs_base + static_cast<AAX_CFieldIndex>(segment);
 }
+
+// MARK: - blocks
+
+#if TINY_HAS_BLOCKS
+inline constexpr auto block_field(uint32_t address) -> AAX_CFieldIndex
+{
+    return field_blocks_base + static_cast<AAX_CFieldIndex>(address);
+}
+
+template<uint32_t I>
+using Block_store_at = Block_store<blocks::Frame_at<models::Resolved::Blocks, I>>;
+
+// Sizes Direct Data's staging buffer: the largest frame across all addresses.
+inline constexpr auto max_block_bytes = []<uint32_t... I>(std::integer_sequence<uint32_t, I...>) {
+    static_assert((block_store_layout_ok<blocks::Frame_at<models::Resolved::Blocks, I>> && ...));
+    return std::max({size_t{0}, sizeof(blocks::Frame_at<models::Resolved::Blocks, I>)...});
+}(std::make_integer_sequence<uint32_t, num_blocks>{});
+#endif
 
 // MARK: - rings
 
@@ -196,6 +225,16 @@ inline constexpr auto custom_data_return = AAX_CTypeID{'tRTN'};
 // Data model -> algorithm: one pending worker reply, pulled by Direct Data.
 inline constexpr auto custom_data_worker_reply = AAX_CTypeID{'tWKR'};
 
+// Algorithm -> data model: one block frame, read out of its store by Direct Data.
+inline constexpr auto custom_data_block = AAX_CTypeID{'tBLK'};
+
+// Header for a `custom_data_block`; `frame_bytes` of frame follow it.
+struct Block_header {
+    uint32_t address{};
+    uint32_t frame_bytes{};
+};
+static_assert(sizeof(Block_header) == 8);
+
 // Header for a `custom_data_return` block; `payload_bytes` of payload follow it.
 struct Return_block {
     uint32_t kind{};
@@ -221,6 +260,9 @@ struct Alg_state {
 
 #if TINY_HAS_METERS
     meters::Publisher<tiny::models::Resolved::Meters> meters{}; // Owns the scratch the DSP writes.
+#endif
+#if TINY_HAS_BLOCKS
+    blocks::Publisher<models::Resolved::Blocks> blocks{}; // Staging frames the DSP writes.
 #endif
 
     std::array<const float*, max_ichannels> ibuffers{};

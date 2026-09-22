@@ -26,6 +26,7 @@ AAX_Result Direct_data::TimerWakeup_PrivateDataAccess(AAX_IPrivateDataAccess* pr
 
     _drain_returns(private_data);
     _push_worker_replies(private_data);
+    _read_blocks(private_data);
 
     return AAX_SUCCESS;
 }
@@ -149,6 +150,44 @@ auto Direct_data::_push_worker_replies([[maybe_unused]] AAX_IPrivateDataAccess* 
             access->WritePortDirect(field_inbound, Inbound_ring::offset_write_pos, sizeof(write_pos), &write_pos);
         }
     }
+#endif
+}
+
+// MARK: - blocks
+
+auto Direct_data::_read_blocks([[maybe_unused]] AAX_IPrivateDataAccess* access) -> void
+{
+#if TINY_HAS_BLOCKS
+    auto* params = EffectParameters();
+    if (params == nullptr) return;
+
+    blocks::for_each_address<models::Resolved::Blocks>([&](auto i) {
+        using Store = Block_store_at<decltype(i)::value>;
+        const auto field = block_field(i);
+
+        auto before = uint64_t{};
+        if (access->ReadPortDirect(field, Store::offset_seq, sizeof(before), &before) != AAX_SUCCESS) return;
+
+        // A reset wipes the store back to "nothing published"; the data model keeps what it has.
+        if (before == 0) {
+            _block_seen[i] = 0;
+            return;
+        }
+        if (before == _block_seen[i]) return;
+
+        auto* frame = _block_scratch.data() + sizeof(Block_header);
+        if (access->ReadPortDirect(field, Store::offset_front(before), Store::frame_bytes, frame) != AAX_SUCCESS) return;
+
+        // A publish during the copy may have torn it. Leave it for the next wakeup.
+        auto after = uint64_t{};
+        if (access->ReadPortDirect(field, Store::offset_seq, sizeof(after), &after) != AAX_SUCCESS) return;
+        if (after != before) return;
+
+        const auto header = Block_header{.address = decltype(i)::value, .frame_bytes = Store::frame_bytes};
+        std::memcpy(_block_scratch.data(), &header, sizeof(header));
+        params->SetCustomData(custom_data_block, static_cast<uint32_t>(sizeof(header) + Store::frame_bytes), _block_scratch.data());
+        _block_seen[i] = before;
+    });
 #endif
 }
 

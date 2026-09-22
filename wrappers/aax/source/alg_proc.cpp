@@ -230,6 +230,11 @@ auto construct_instance(const Alg_context* context, Alg_state* st, double sample
     if (adding_new) {
         if (context->returns != nullptr) new (static_cast<void*>(context->returns)) Return_ring{};
         if (context->inbound != nullptr) new (static_cast<void*>(context->inbound)) Inbound_ring{};
+#if TINY_HAS_BLOCKS
+        blocks::for_each_address<models::Resolved::Blocks>([&](auto i) {
+            if (auto* store = context->blocks[i]) new (store) Block_store_at<decltype(i)::value>{};
+        });
+#endif
     }
 
     configure_instance(context, *st, sample_rate);
@@ -379,6 +384,9 @@ auto render_instance(Alg_context* ctx) -> void
 #if TINY_HAS_METERS
     context.meters = st->meters.scratch();
 #endif
+#if TINY_HAS_BLOCKS
+    context.blocks = blocks::Writer{&st->blocks};
+#endif
     // Latched at the last reset, never mid-render. The kernel therefore only ever sees
     // this change across a reset — a point at which it has already been cleared and
     // snapped — so a late-arriving flag can no longer wipe history under flowing audio.
@@ -411,6 +419,16 @@ auto render_instance(Alg_context* ctx) -> void
             .pad = 0,
             .value = static_cast<double>(value)
         });
+    });
+#endif
+
+#if TINY_HAS_BLOCKS
+    // Blocks out, each into its own store. Latest wins; Direct Data reads whatever is newest.
+    st->blocks.transmit(context.render_mode == process::Render_mode::Offline, [ctx](auto i, const auto& frame) {
+        auto* store = static_cast<Block_store_at<decltype(i)::value>*>(ctx->blocks[i]);
+        if (store == nullptr) return false;
+        store->publish(frame);
+        return true;
     });
 #endif
 

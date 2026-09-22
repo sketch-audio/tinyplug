@@ -1,14 +1,25 @@
 # Plan: Block output — processor → editor frame transport
 
-> Status: **design, revised.** Split out of the former `block-table-io.md`; the
-> "Table" (editor → processor) half of that doc lives in
-> [buffer-system.md](buffer-system.md).
+> Status: **implemented** (2026-09-22). Reference: [examples/block_demo](../examples/block_demo/),
+> porting notes in [MIGRATION.md](../MIGRATION.md) "Blocks". Where the build departs from
+> this document:
 >
-> **Sequenced after [model-layer.md](model-layer.md) M5 + M7.** The typed design
-> below needs `Dsp_context` and `Processor_state` to name `models::Blocks`, which
-> is exactly the ODR hazard the core/interface split exists to remove: today
-> `tiny_processor.hpp` is compiled into `libtinyplug.a` with one layout and into
-> every wrapper with another. Do not start this before the split lands.
+> - **In-process and VST3 use `Data_port`**, not the two-slot `seq` store. The seq store's
+>   copy is a formal data race whenever the producer laps the reader; `Data_port` is a
+>   proper handoff and TSan-clean. Cost: one extra frame copy per publish, because the
+>   processor fills a staging frame in the `Publisher`. The seq store survives **only in
+>   AAX** ([block_store.hpp](../wrappers/aax/source/block_store.hpp)), where the reader is
+>   `ReadPortDirect` and cannot take part in a handoff.
+> - **One mailbox type, no `Transport` split.** The VST3 controller's `notify` may run on
+>   the relay's thread, so the controller side needs the lock-free mailbox too.
+> - **One VST3 message ID**, `tiny/blocks`, with the address in the tag. The relay runs
+>   at 60 Hz.
+> - **Everything lives in `tiny_blocks.hpp`** (plus `data_port.hpp`), following the
+>   meters layout. `blocks::None` rather than `No_blocks`. The editor gets a `View`
+>   onto wrapper-owned `Frames`; `Processor_state` moved into the interface to hold it.
+> - Open decisions: no `Float_frame`, no missed count on `fresh`, and no frame-size
+>   `static_assert` — neither `IMessage::setBinary` nor `AddPrivateData` documents a
+>   ceiling below `int32_t`.
 
 ## What changed in this revision
 

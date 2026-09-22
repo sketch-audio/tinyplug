@@ -79,6 +79,18 @@ auto Audio_effect::_send_latency(uint32_t latency) -> void
     _to_ctrl.send_pod(k_latency_changed_id, latency);
 }
 
+#if TINY_HAS_BLOCKS
+auto Audio_effect::_send_blocks() -> void
+{
+    _block_outbox.read(_block_scratch);
+    blocks::for_each_address<models::Resolved::Blocks>([this](auto i) {
+        if (const auto* frame = _block_scratch.fresh<decltype(i)::value>()) {
+            _to_ctrl.send_pod(k_blocks_id, *frame, decltype(i)::value);
+        }
+    });
+}
+#endif
+
 auto Audio_effect::_drain_worker_to_processor() -> void
 {
 #if TINY_HAS_WORKER
@@ -126,6 +138,9 @@ Steinberg::tresult PLUGIN_API Audio_effect::terminate()
 
     // Backstop: hosts skip this far less often than they skip `setActive(false)`.
     _relay.reset();
+#if TINY_HAS_BLOCKS
+    _block_relay.reset();
+#endif
 
     // Do not forget to call parent.
     return Steinberg::Vst::AudioEffect::terminate();
@@ -212,6 +227,12 @@ Steinberg::tresult PLUGIN_API Audio_effect::setActive(Steinberg::TBool state)
             },
             .interval = 0.05
         });
+#if TINY_HAS_BLOCKS
+        _block_relay.emplace(Relay::Spec{
+            .execute = [this]() { _send_blocks(); },
+            .interval = 1. / 60.
+        });
+#endif
 
 #if TINY_HAS_WORKER
         _shuttle.start(User_work::update_period);
@@ -219,6 +240,9 @@ Steinberg::tresult PLUGIN_API Audio_effect::setActive(Steinberg::TBool state)
     }
     else {
         _relay.reset();
+#if TINY_HAS_BLOCKS
+        _block_relay.reset();
+#endif
 #if TINY_HAS_WORKER
         _shuttle.stop();
 #endif
@@ -430,6 +454,9 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
 #if TINY_HAS_METERS
     context.meters = _meters.scratch();
 #endif
+#if TINY_HAS_BLOCKS
+    context.blocks = blocks::Writer{&_blocks};
+#endif
 
     // kPrefetch (sampler pre-roll / variable-rate playback) is not a bounce → realtime.
     // `ProcessSetup::processMode` is the canonical field; some hosts leave the per-block
@@ -633,6 +660,14 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         const auto norm = plain_to_norm(value, spec.range);
         return add_output_event(export_param_offset + static_cast<int32_t>(address), norm);
     });
+#endif
+#if TINY_HAS_BLOCKS
+    auto posted_blocks = false;
+    _blocks.transmit(is_offline_bounce, [&](auto address, const auto& frame) {
+        posted_blocks = true;
+        return _block_outbox.post(address, frame);
+    });
+    if (posted_blocks && _block_relay) _block_relay->post();
 #endif
 
     // Latency notifications, now only when actually changed. The configure-time path is

@@ -1186,6 +1186,9 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 #if TINY_HAS_METERS
     context.meters = _meters.scratch();
 #endif
+#if TINY_HAS_BLOCKS
+    context.blocks = blocks::Writer{&_blocks};
+#endif
     context.render_mode = render_mode; // Resolved above, where the transition is detected.
 
     auto do_process = [this, &context, &host_data](size_t num_frames, size_t offset) {
@@ -1315,6 +1318,11 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     _meters.publish(offline, [this](uint32_t address, float value) {
         _mailbox.post(address, value);
         return true; // A slot array has no capacity to refuse.
+    });
+#endif
+#if TINY_HAS_BLOCKS
+    _blocks.transmit(offline, [this](auto address, const auto& frame) {
+        return _block_mailbox.post(address, frame);
     });
 #endif
 

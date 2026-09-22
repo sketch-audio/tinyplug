@@ -322,6 +322,24 @@ AAX_Result Parameters::TimerWakeup()
 
 AAX_Result Parameters::SetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSize, const void* iData)
 {
+#if TINY_HAS_BLOCKS
+    if (iDataBlockID == custom_data_block && iData != nullptr) {
+        if (inDataSize < sizeof(Block_header)) return AAX_ERROR_INVALID_ARGUMENT;
+        auto header = Block_header{};
+        std::memcpy(&header, iData, sizeof(header));
+        if (inDataSize - sizeof(header) < header.frame_bytes) return AAX_ERROR_INVALID_ARGUMENT;
+
+        const auto* bytes = static_cast<const unsigned char*>(iData) + sizeof(header);
+        blocks::for_each_address<models::Resolved::Blocks>([&](auto i) {
+            using Frame = blocks::Frame_at<models::Resolved::Blocks, decltype(i)::value>;
+            if (header.address != decltype(i)::value || header.frame_bytes != sizeof(Frame)) return;
+            auto frame = Frame{};
+            std::memcpy(&frame, bytes, sizeof(Frame));
+            _block_mailbox.post(i, frame);
+        });
+        return AAX_SUCCESS;
+    }
+#endif
     if (iDataBlockID != custom_data_return || iData == nullptr) {
         return Super::SetCustomData(iDataBlockID, inDataSize, iData);
     }

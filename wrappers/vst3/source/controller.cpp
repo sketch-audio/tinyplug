@@ -66,6 +66,19 @@ auto Controller::_setup_router() -> void
             handler->restartComponent(Steinberg::Vst::kLatencyChanged);
         }
     });
+
+#if TINY_HAS_BLOCKS
+    // A frame whose size disagrees with this build's type is dropped, never reinterpreted.
+    _router.register_handler(k_blocks_id, [this](std::span<const std::byte> bytes, uint32_t address) {
+        blocks::for_each_address<models::Resolved::Blocks>([&](auto i) {
+            using Frame = blocks::Frame_at<models::Resolved::Blocks, decltype(i)::value>;
+            if (address != decltype(i)::value || bytes.size() != sizeof(Frame)) return;
+            auto frame = Frame{};
+            std::memcpy(&frame, bytes.data(), sizeof(Frame));
+            _block_mailbox.post(i, frame);
+        });
+    });
+#endif
 }
 
 Steinberg::tresult PLUGIN_API Controller::notify(Steinberg::Vst::IMessage* message)
@@ -683,6 +696,11 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
 #if TINY_HAS_METERS
             .read_meters = [this](std::span<float> out) {
                 _mailbox.read(out);
+            },
+#endif
+#if TINY_HAS_BLOCKS
+            .read_blocks = [this](blocks::Frames<models::Resolved::Blocks>& out) {
+                _block_mailbox.read(out);
             },
 #endif
             .action_handler = [this](auto& a) {

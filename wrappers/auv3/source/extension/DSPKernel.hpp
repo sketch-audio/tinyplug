@@ -209,6 +209,9 @@ public:
 #if TINY_HAS_METERS
         context.meters = _meters.scratch();
 #endif
+#if TINY_HAS_BLOCKS
+        context.blocks = tiny::blocks::Writer{&_blocks};
+#endif
         context.musical_context = resolve_musical_context(frameCount);
         context.render_mode = _offline.load(std::memory_order_relaxed)
             ? tiny::process::Render_mode::Offline
@@ -255,6 +258,11 @@ public:
         _meters.publish(offline, [this](uint32_t address, float value) {
             _mailbox.post(address, value);
             return true; // A slot array has no capacity to refuse.
+        });
+#endif
+#if TINY_HAS_BLOCKS
+        _blocks.transmit(offline, [this](auto address, const auto& frame) {
+            return _block_mailbox.post(address, frame);
         });
 #endif
 
@@ -366,6 +374,12 @@ public:
         _mailbox.read(out);
     }
 #endif
+#if TINY_HAS_BLOCKS
+    auto read_blocks(tiny::blocks::Frames<tiny::models::Resolved::Blocks>& out) -> void
+    {
+        _block_mailbox.read(out);
+    }
+#endif
     
     auto onHostUpdated(AUParameterAddress /*address*/, AUValue /*value*/) -> void
     {
@@ -402,6 +416,9 @@ private:
 #if TINY_HAS_METERS
     tiny::meters::Publisher<tiny::models::Resolved::Meters> _meters{}; // Owns the scratch the DSP writes.
 #endif
+#if TINY_HAS_BLOCKS
+    tiny::blocks::Publisher<tiny::models::Resolved::Blocks> _blocks{}; // Staging frames the DSP writes.
+#endif
 
     static constexpr auto queue_size = []() {
         const auto state = 4 * num_params;
@@ -423,6 +440,9 @@ private:
 
 #if TINY_HAS_METERS
     tiny::meters::Mailbox<tiny::models::Resolved::Meters> _mailbox{};
+#endif
+#if TINY_HAS_BLOCKS
+    tiny::blocks::Mailbox<tiny::models::Resolved::Blocks> _block_mailbox{};
 #endif
     
     // Values in host space.

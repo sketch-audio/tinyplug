@@ -181,7 +181,7 @@ macro(_tiny_source_dir)
     endif()
 endmacro()
 
-# Generate <tiny_models.hpp> from `<source>/models/{params,meters,work}.hpp`.
+# Generate <tiny_models.hpp> from `<source>/models/{params,meters,blocks,work}.hpp`.
 # `SOURCE_DIR` defaults to `${CMAKE_CURRENT_SOURCE_DIR}/source`.
 function(configure_models target)
     _tiny_source_dir(${ARGN})
@@ -189,6 +189,7 @@ function(configure_models target)
 
     _tiny_optional(PARAMS models/params.hpp params::None models::Params)
     _tiny_optional(METERS models/meters.hpp meters::None models::Meters)
+    _tiny_optional(BLOCKS models/blocks.hpp blocks::None models::Blocks)
     _tiny_optional(WORK   models/work.hpp   work::None   models::Work)
 
     if(NOT TINY_HAS_PARAMS)

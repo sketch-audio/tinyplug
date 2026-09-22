@@ -56,6 +56,11 @@ auto Gui::CreateViewContainer() -> void
             if (params) params->read_meters(out);
         },
 #endif
+#if TINY_HAS_BLOCKS
+        .read_blocks = [params](blocks::Frames<models::Resolved::Blocks>& out) {
+            if (params) params->read_blocks(out);
+        },
+#endif
         .action_handler = [this, view, params](auto& action) {
             std::visit(Inline_visitor{
                 [&](const Action_start& a) {
@@ -157,6 +162,7 @@ auto Gui::on_draw(View_context& view_context) -> void
         _receiver,
         _ui_params,
         _ui_meters,
+        _ui_blocks,
         view_context,
         _editor,
         *_actions,

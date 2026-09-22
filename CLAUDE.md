@@ -120,13 +120,21 @@ live alongside each interface — find them by searching for `concept Some_*`.
   `Mailbox<M, Transport>`: `Framework` is lock-free for transports we own, while `Host`
   has no atomics and restates a dropped peak, for VST3, where the host delivers meters on
   the UI thread. Optional.
+- **`blocks::Model`** ([tiny_blocks.hpp](libs/tiny_core/include/tiny_core/tiny_blocks.hpp)) —
+  typed frames, processor → editor, latest wins. `Types` is a variant of trivially copyable
+  frame types; `num_blocks` + a **constexpr** `make_spec(uint32_t)` whose `kind` picks each
+  address's frame type at compile time. `Publisher` stages frames (processor writes through
+  `Dsp_context::blocks`, a `Writer`), `Mailbox` is one lock-free `Data_port` per address,
+  `Frames` is the editor's retained copy and `View` is what `Processor_state::blocks` hands
+  it (`latest<A>()` / `fresh<A>()`). There is no `Host` mailbox for blocks: the VST3
+  controller's `notify` can run on the relay's thread. Optional.
 - **`work::Model`** ([tiny_work.hpp](libs/tiny_core/include/tiny_core/tiny_work.hpp)) — the
   worker's four channel variants plus tuning, declared as `models::Work` in
   `models/work.hpp`. Optional, and paired with `worker.hpp` (the `work::Worker` class).
 
 ## Model layer
 
-A plug-in declares models in `source/models/{params,meters,work}.hpp` and classes in
+A plug-in declares models in `source/models/{params,meters,blocks,work}.hpp` and classes in
 `source/{processor,editor,worker}.hpp`. Discovery is **file presence, resolved by CMake**:
 `configure_models()` / `configure_plugin()` ([helpers.cmake](cmake/helpers.cmake)) generate
 `<tiny_models.hpp>` (`models::Resolved`, `User_params`/`User_meters`/`User_work`,
@@ -312,6 +320,11 @@ This has knock-on effects throughout the wrapper:
   pending forever while the host compensated for a latency the kernel had
   not applied. This matches AUv2's `GetLatency`. Don't simplify the rest of
   it — it's how the state machine survives `kDistributable`.
+- **Blocks travel as `IMessage`s** (`tiny/blocks`, tag = address). `process` posts into
+  an outbox `blocks::Mailbox`; a 60 Hz `Relay` (scoped to `setActive`, like the latency
+  relay) reads it and sends each fresh frame; the controller checks the size and posts into
+  its own lock-free mailbox. Not output parameters (too large) and not
+  `IDataExchangeHandler` (rejected earlier — see `messaging.hpp`).
 - **Meters travel as output parameter changes.** There is no direct
   processor→controller channel for streaming data, so meters are written
   into `data.outputParameterChanges` at the end of `process` using
@@ -381,6 +394,12 @@ the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two
   of a VST3 `IMessage`. The wakeup is **~30 ms and not guaranteed regular**, so
   nothing may assume a rate. The producer never overwrites unread data (a full
   push drops), which is what lets the remote consumer read without a seqlock retry.
+- **Blocks bypass the ring.** Each address has its own private-data field (`blocks[I]` in
+  `Alg_context`, a `Block_store`: `seq` + two slots, [block_store.hpp](wrappers/aax/source/block_store.hpp)).
+  The algorithm fills the back slot and bumps `seq`; Direct Data reads `seq`, copies the
+  front slot, re-reads `seq` and forwards only if it didn't move, via `SetCustomData`
+  (`'tBLK'`). `seq == 0` means nothing published since the store was constructed — hold,
+  never forward zeros.
 - Direct Data reaches the data model through `Get/SetCustomData` — the SDK's
   documented inter-module hook — never by casting `AAX_IEffectParameters*`.
 - **Automation timing is host-managed.** Packets posted inside

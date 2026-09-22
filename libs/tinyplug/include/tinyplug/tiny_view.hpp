@@ -43,11 +43,12 @@ namespace view_impl {
 
 // MARK: - run_frame
 
-template<typename S, typename A0, typename A1, typename C, typename V, typename A, typename U, typename T, typename F>
+template<typename S, typename A0, typename A1, typename B, typename C, typename V, typename A, typename U, typename T, typename F>
 inline auto run_frame(
     const S& _receiver,
     A0& _ui_params, 
     A1& _ui_meters, 
+    B& _ui_blocks,
     const C& view_context, 
     V* _custom_view,
     A& _actions,
@@ -65,10 +66,17 @@ inline auto run_frame(
     }
 
     // Create view context.
-    auto state = Plugin_state{
-        .processor_state = {_ui_params, _ui_meters},
-        .view_context = view_context,
-    };
+    auto state = Plugin_state{.view_context = view_context};
+    state.processor_state.params = _ui_params;
+#if TINY_HAS_METERS
+    state.processor_state.meters = _ui_meters;
+#endif
+#if TINY_HAS_BLOCKS
+    _receiver.read_blocks(_ui_blocks);
+    state.processor_state.blocks = decltype(state.processor_state.blocks){&_ui_blocks};
+#else
+    (void)_ui_blocks;
+#endif
     _actions.clear(); // Actually clear before we draw.
 
     // Tell the user view to draw.
