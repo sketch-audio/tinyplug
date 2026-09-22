@@ -7,7 +7,6 @@
 #include "gesture_recognizers.hpp"
 #include "host_formatter.hpp"
 #include "lock_free_queue.hpp"
-#include "meter_mailbox.hpp"
 #include "platform_defs.hpp"
 #include "state_adapter.hpp"
 #include "task_manager.hpp"

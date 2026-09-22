@@ -10,8 +10,6 @@
 #import <span>
 
 #include <tiny_plugin.hpp>
-#include <tiny_core/meter_mailbox.hpp>
-#include <tiny_core/meter_publisher.hpp>
 
 #include "plug_info.hpp"
 
@@ -363,7 +361,7 @@ public:
     }
     
 #if TINY_HAS_METERS
-    auto read_meters(std::span<tiny::meters::Sample> out) -> void
+    auto read_meters(std::span<float> out) -> void
     {
         _mailbox.read(out);
     }
@@ -402,7 +400,7 @@ private:
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
 #if TINY_HAS_METERS
-    tiny::meters::Publisher<User_meters> _meters{}; // Owns the scratch the DSP writes.
+    tiny::meters::Publisher<tiny::models::Resolved::Meters> _meters{}; // Owns the scratch the DSP writes.
 #endif
 
     static constexpr auto queue_size = []() {
@@ -424,7 +422,7 @@ private:
     std::optional<tiny::process::Render_mode> _last_render_mode{}; // process()-thread only. Detects the realtime <-> offline edge.
 
 #if TINY_HAS_METERS
-    tiny::meters::Mailbox<User_meters> _mailbox{};
+    tiny::meters::Mailbox<tiny::models::Resolved::Meters> _mailbox{};
 #endif
     
     // Values in host space.

@@ -10,12 +10,13 @@ struct Meters {
         Latency_actual = 0,
         Num_meters
     };
+    static constexpr auto num_meters = enum_raw(Address::Num_meters);
 
     // Return the spec for a meter address.
-    static auto make_spec(Address address) -> meters::Spec
+    static auto make_spec(std::uint32_t address) -> meters::Spec
     {
         using namespace meters;
-        switch (address) {
+        switch (static_cast<Address>(address)) {
             case Address::Latency_actual:
                 return {
                     .range = Range{0, 1},

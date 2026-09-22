@@ -1143,7 +1143,7 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
             return knob_value;
         },
 #if TINY_HAS_METERS
-        .read_meters = [this](std::span<meters::Sample> out) {
+        .read_meters = [this](std::span<float> out) {
             _mailbox.read(out);
         },
 #endif

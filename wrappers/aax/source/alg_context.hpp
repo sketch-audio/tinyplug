@@ -12,7 +12,6 @@
 
 #include "plug_info.hpp"
 
-#include <tiny_core/meter_publisher.hpp>
 
 #include <tiny_plugin.hpp>
 
@@ -221,7 +220,7 @@ struct Alg_state {
     std::array<uint64_t, num_segments> shadow_seq{};
 
 #if TINY_HAS_METERS
-    meters::Publisher<User_meters> meters{}; // Owns the scratch the DSP writes.
+    meters::Publisher<tiny::models::Resolved::Meters> meters{}; // Owns the scratch the DSP writes.
 #endif
 
     std::array<const float*, max_ichannels> ibuffers{};

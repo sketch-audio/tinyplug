@@ -52,7 +52,7 @@ auto Gui::CreateViewContainer() -> void
             return double{};
         },
 #if TINY_HAS_METERS
-        .read_meters = [params](std::span<meters::Sample> out) {
+        .read_meters = [params](std::span<float> out) {
             if (params) params->read_meters(out);
         },
 #endif
@@ -154,7 +154,6 @@ auto Gui::on_draw(View_context& view_context) -> void
 #endif
 
     view_impl::run_frame(
-        User_meters::specs(),
         _receiver,
         _ui_params,
         _ui_meters,

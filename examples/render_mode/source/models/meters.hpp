@@ -10,10 +10,11 @@ struct Meters {
         Offline = 0, // 1 while the host renders offline (bounce), else 0.
         Num_meters
     };
+    static constexpr auto num_meters = enum_raw(Address::Num_meters);
 
     // Return the spec for a meter address. Only one meter (Offline); Stream
     // so the editor always sees the latest reported render mode.
-    static auto make_spec(Address) -> meters::Spec
+    static auto make_spec(std::uint32_t) -> meters::Spec
     {
         return {.range = {.min_val = 0, .max_val = 1}, .policy = meters::Policy::Stream};
     }

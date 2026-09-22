@@ -10,7 +10,6 @@
 
 #include "plug_info.hpp"
 #include <tiny_plugin.hpp>
-#include <tiny_core/meter_publisher.hpp>
 #include <tiny_core/relay.hpp>
 
 
@@ -101,7 +100,7 @@ private:
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
 #if TINY_HAS_METERS
-    meters::Publisher<User_meters> _meters{}; // Owns the scratch the DSP writes.
+    meters::Publisher<tiny::models::Resolved::Meters> _meters{}; // Owns the scratch the DSP writes.
 #endif
 
     static constexpr auto queue_size = 4 * num_params + 1; // This is just for state load.

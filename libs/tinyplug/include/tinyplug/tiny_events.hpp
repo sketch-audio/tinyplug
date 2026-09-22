@@ -6,7 +6,7 @@
 #include <span>
 #include <variant>
 
-#include <tiny_core/meter_mailbox.hpp>
+#include <tiny_core/tiny_meters.hpp>
 #include <tiny_core/tiny_notifications.hpp>
 
 #include <tiny_models.hpp>
@@ -29,12 +29,8 @@ struct Ui_receiver {
     using Action_handler = std::function<void(const User_action&)>;
 
 #if TINY_HAS_METERS
-    // Fill one sample per meter address from the mailbox. Replaces the old
-    // pop-until-empty drain: a slot array has nothing to run dry, so a reader that
-    // skipped a thousand blocks gets the same answer shape as one that skipped none.
-    // That is also why there is no resync hook — the mailbox is always current, so a
-    // newly attached editor simply reads it.
-    using Read_meters = std::function<void(std::span<meters::Sample>)>;
+    // Fills one display value per meter address.
+    using Read_meters = std::function<void(std::span<float>)>;
 #endif
 
     Get_param get_param = [](auto) { return 0; };

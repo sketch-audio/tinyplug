@@ -35,8 +35,6 @@ target_sources(${TINY_CORE_LIB} PRIVATE
     include/tiny_core/host_formatter.hpp
     include/tiny_core/lifecycle_probe.hpp
     include/tiny_core/lock_free_queue.hpp
-    include/tiny_core/meter_mailbox.hpp
-    include/tiny_core/meter_publisher.hpp
     include/tiny_core/notification_queue.hpp
     include/tiny_core/platform_defs.hpp
     include/tiny_core/relay.hpp

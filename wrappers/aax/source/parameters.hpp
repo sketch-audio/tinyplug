@@ -78,7 +78,7 @@ public:
 	AAX_Result CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_CBoolean* oIsEqual) const AAX_OVERRIDE;
 
 #if TINY_HAS_METERS
-    auto read_meters(std::span<meters::Sample> out) -> void
+    auto read_meters(std::span<float> out) -> void
     {
         _mailbox.read(out);
     }
@@ -185,7 +185,7 @@ private:
 #if TINY_HAS_METERS
     // Meters in. The mailbox is the cache: retains every level the ring has delivered, so a
     // view created at any point simply reads it. Replaced `_last_meters` + dump.
-    meters::Mailbox<User_meters> _mailbox{};
+    meters::Mailbox<tiny::models::Resolved::Meters> _mailbox{};
 #endif
 
     // Latency. The kernel proposes from the algorithm; the host owns the accepted

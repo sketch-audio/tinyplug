@@ -114,8 +114,12 @@ live alongside each interface — find them by searching for `concept Some_*`.
   groups). A model may additionally satisfy `params::Au_ordered` by declaring
   `au_order() -> std::vector<Address>` — see "Parameter permanence" below.
 - **`meters::Model`** ([tiny_meters.hpp](libs/tiny_core/include/tiny_core/tiny_meters.hpp)) —
-  `Address` + `make_spec`, with `meters::Policy::{Peak,Stream,Trig}` for how
-  the editor consumes updates. Optional.
+  `num_meters` + `make_spec(uint32_t)`; addresses are `0..<num_meters`, and any enum
+  naming them is the model's own business. `meters::Policy::{Stream,Peak,Trig}` sets how
+  the editor consumes updates. The same header holds `Publisher` (processor side) and
+  `Mailbox<M, Transport>`: `Framework` is lock-free for transports we own, while `Host`
+  has no atomics and restates a dropped peak, for VST3, where the host delivers meters on
+  the UI thread. Optional.
 - **`work::Model`** ([tiny_work.hpp](libs/tiny_core/include/tiny_core/tiny_work.hpp)) — the
   worker's four channel variants plus tuning, declared as `models::Work` in
   `models/work.hpp`. Optional, and paired with `worker.hpp` (the `work::Worker` class).
@@ -224,15 +228,15 @@ a detemplated farbot port). Common topology:
 - **Editor → host → processor**: `User_action` from the editor goes via
   the host's gesture/edit API; the processor receives the resulting
   parameter changes alongside automation.
-- **Processor → editor**: meter updates pushed onto a `Set_meter` queue;
-  the view drains in `run_frame` per `Meter_policy`.
+- **Processor → editor**: `meters::Publisher` posts into a `meters::Mailbox`; the view
+  reads one display value per meter in `run_frame`.
 - **State load → processor**: a `Lock_free_queue<Set_param>` (the
   "state queue") so chunk loads can publish into the audio thread without
   allocating.
 
-The `view_impl::run_frame` template in [tiny_view.h](shared/tinyplug/tiny_view.h)
-is the canonical UI loop: drain meters → call user's `on_gui_draw` → observe
-actions for undo → dispatch actions → reset meter state. All wrappers route
+The `view_impl::run_frame` template in [tiny_view.hpp](libs/tinyplug/include/tinyplug/tiny_view.hpp)
+is the canonical UI loop: read meters → call user's `on_gui_draw` → observe
+actions for undo → dispatch actions. All wrappers route
 through it; if you change frame semantics, change them here.
 
 ## Worker channel

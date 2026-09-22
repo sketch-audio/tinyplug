@@ -10,8 +10,6 @@
 #include "clap/helpers/host-proxy.hxx"
 
 #include <tiny_plugin.hpp>
-#include <tiny_core/meter_mailbox.hpp>
-#include <tiny_core/meter_publisher.hpp>
 
 #include "plug_info.hpp"
 
@@ -164,7 +162,7 @@ private:
     std::array<const float*, max_schannels> _sbuffers{};
     std::array<float*, max_ochannels> _obuffers{};
 #if TINY_HAS_METERS
-    meters::Publisher<User_meters> _meters{}; // Owns the scratch the DSP writes.
+    meters::Publisher<tiny::models::Resolved::Meters> _meters{}; // Owns the scratch the DSP writes.
 #endif
 
     // USER
@@ -239,7 +237,7 @@ private:
     From_ui_queue _from_ui{};
 
 #if TINY_HAS_METERS
-    meters::Mailbox<User_meters> _mailbox{};
+    meters::Mailbox<tiny::models::Resolved::Meters> _mailbox{};
 #endif
 
     // Resync mechanism. Currently only a fallback in case we overflow our queue in release.

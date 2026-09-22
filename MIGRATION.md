@@ -243,3 +243,61 @@ template, `if constexpr (has_meters)`.
 Build every format for the plug-in. There is no runtime behaviour change. The only
 generated-code difference is that `action_queue` and `undo_history` are now inlined into
 each plug-in instead of linked from the static library.
+
+---
+
+## Meter model
+
+Breaks from the model layer. The meter model no longer needs an `Address` enum, and the
+publisher and mailbox move into `<tiny_core/tiny_meters.hpp>`.
+
+### 1. Declare `num_meters`, take a raw address
+
+```cpp
+// BEFORE                                          // AFTER
+struct Meters {                                    struct Meters {
+    enum class Address : uint32_t {                    enum class Address : uint32_t { // optional, yours
+        Peak_in,                                           Peak_in,
+        Num_meters                                         Num_meters
+    };                                                 };
+                                                       static constexpr auto num_meters = enum_raw(Address::Num_meters);
+
+    static auto make_spec(Address a)                   static auto make_spec(std::uint32_t a)
+        -> meters::Spec;                                   -> meters::Spec; // switch (static_cast<Address>(a))
+};                                                 };
+```
+
+Addresses are `0..<num_meters`. The framework no longer reads your enum, but deriving the
+count from it, as above, keeps the two in step. (`std::uint32_t{Address::Num_meters}`
+doesn't compile, because a scoped enum won't brace-convert. Use `enum_raw`.) If you switch on the cast
+address, end with `case Address::Num_meters: default: return {};`. The value is a raw
+integer, and the wrappers build with both `-Wswitch-enum` and `-Wswitch-default`.
+
+### 2. `User_meters` is unchanged
+
+`User_meters` is still `meters::Infos<Model>`, and `num_meters`, `spec(i)` and `specs()`
+behave as before. `Infos` caches the specs once. `Publisher` and `Mailbox` are now
+templated on the model itself rather than on `Infos`, which only matters if you
+instantiate them yourself: write `meters::Publisher<models::Resolved::Meters>`.
+
+`make_spec` is called directly on the audio thread every block, so keep it a cheap,
+side-effect-free switch. No allocation, no strings built on the fly.
+
+### 3. Headers and policy order
+
+`<tiny_core/meter_mailbox.hpp>` and `<tiny_core/meter_publisher.hpp>` are gone. Include
+`<tiny_core/tiny_meters.hpp>`, or just the core umbrella. `meters::Sample` is gone too:
+`Mailbox::read` fills a `std::span<float>` with display-ready values.
+
+`meters::Policy` is now `{Stream, Peak, Trig}` (it was `{Peak, Stream, Trig}`). If you
+stored a policy as an integer anywhere, remap it. The framework never persists one.
+
+`Spec` and `Range` no longer define `operator==`.
+
+### Trig semantics
+
+What an editor sees is unchanged: a `Trig` shows its magnitude on the frame it fired and
+zero otherwise. Internally the mailbox now clears the value on read instead of counting
+triggers, so the per-frame trigger count that `meters::Sample::triggers` exposed is gone.
+Several triggers within one frame read as the latest one.
+

@@ -2,7 +2,6 @@
 
 #include "public.sdk/source/vst/vsteditcontroller.h"
 
-#include <tiny_core/meter_mailbox.hpp>
 
 #include <tiny_plugin.hpp>
 
@@ -128,15 +127,8 @@ protected:
     }};
 
 #if TINY_HAS_METERS
-    // The mailbox *is* the cache: it retains every level the host has delivered, so
-    // a view created at any point simply reads it. That is what removed the separate
-    // `_last_meters` shadow and the dump-on-createView that used to replay it.
-    meters::Mailbox<User_meters> _mailbox{};
-
-    // The most recent value the host has handed us per address, re-posted once per
-    // editor frame for `Peak` addresses. See `read_meters` in the .cpp — this is the
-    // one place VST3 has to compensate for a transport it does not own.
-    std::array<std::atomic<float>, num_meters> _last_meter{};
+    // The host owns the meter wire (output parameters), and delivers on the UI thread.
+    meters::Mailbox<tiny::models::Resolved::Meters, meters::Transport::Host> _mailbox{};
 #endif
     Change_list<Set_param> _state_queue{}; // Knob space, to the editor.
 

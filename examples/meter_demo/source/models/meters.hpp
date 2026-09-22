@@ -18,11 +18,12 @@ struct Meters {
         trig_pulse,     // Trig   — one event per second, magnitude counts up 1..8.
         Num_meters
     };
+    static constexpr auto num_meters = enum_raw(Address::Num_meters);
 
-    static auto make_spec(Address address) -> meters::Spec
+    static auto make_spec(std::uint32_t address) -> meters::Spec
     {
         using namespace meters;
-        switch (address) {
+        switch (static_cast<Address>(address)) {
             case Address::peak_in:
                 return {.range = Range{0, 1}, .policy = Policy::Peak};
             case Address::stream_lfo:

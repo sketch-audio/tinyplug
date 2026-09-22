@@ -255,7 +255,7 @@ static auto presets_path() -> std::filesystem::path
             return knob;
         },
 #if TINY_HAS_METERS
-        .read_meters = [self_](std::span<meters::Sample> out) {
+        .read_meters = [self_](std::span<float> out) {
             if (auto s = self_) s->_kernel.read_meters(out);
         },
 #endif

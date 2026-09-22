@@ -653,7 +653,6 @@ Steinberg::tresult PLUGIN_API Controller::setParamNormalized(Steinberg::Vst::Par
         // Convert back to plain for UI.
         const auto& spec = User_meters::spec(id);
         const auto plain = norm_to_plain(value, spec.range);
-        _last_meter[id].store(static_cast<float>(plain), std::memory_order_relaxed);
         _mailbox.post(id, static_cast<float>(plain));
     }
 #endif
@@ -682,33 +681,7 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
                 return getParamNormalized(id);
             },
 #if TINY_HAS_METERS
-            .read_meters = [this](std::span<meters::Sample> out) {
-                // VST3 is the one format where the meter wire is host-owned, and the
-                // spec promises nothing about it: `outputParameterChanges` is
-                // documented "optional", with no guarantee that every point reaches
-                // the controller. Hosts dedupe, coalesce, or sample at their own rate.
-                //
-                // `Peak` needs a value every read or it stalls — the reader takes and
-                // clears the slot, and holds its last value when the count has not
-                // advanced, so a falling edge that gets absorbed into `max` by the
-                // audio beside it is never restated and the meter freezes at a level
-                // the signal no longer has. The processor does restate every block;
-                // the wire is what drops the repeats.
-                //
-                // So re-post what the host last gave us. That turns edge delivery back
-                // into the stream `Peak` is defined against, and makes a delivered zero
-                // terminal the way it is in the SDK's own AGain — whose controller
-                // simply *stores* the value, which is why it cannot show this bug.
-                // Anything that did arrive since the last frame still maxes on top, so
-                // we keep what AGain gives up: transients between frames, and peaks
-                // accumulated while the editor was closed.
-                //
-                // `Peak` only. Re-posting a `Trig` would fabricate triggers, and a
-                // `Stream` is already retained by the mailbox.
-                for (auto i = uint32_t{}; i < num_meters; ++i) {
-                    if (User_meters::spec(i).policy != meters::Policy::Peak) continue;
-                    _mailbox.post(i, _last_meter[i].load(std::memory_order_relaxed));
-                }
+            .read_meters = [this](std::span<float> out) {
                 _mailbox.read(out);
             },
 #endif
