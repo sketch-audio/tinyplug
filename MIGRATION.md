@@ -370,3 +370,126 @@ Before the first publish, `latest` returns a value-initialised frame.
 
 Per format, frames arrive at up to the draw rate in CLAP, AUv2 and AUv3, up to 60/s in
 VST3 (one `IMessage` per changed address), and ~33/s in AAX (Direct Data).
+
+---
+
+## State
+
+Adds `state::Model`: one trivially copyable struct, declared in `source/models/state.hpp`,
+that the editor and (optionally) the processor both edit, synchronized in every format
+and undoable alongside parameters. Opt-in; a plug-in without it is unaffected.
+[examples/state_demo](examples/state_demo/) is the reference. The document is saved with
+the session and in presets in every format (design:
+[plans/state-persistence.md](plans/state-persistence.md)).
+
+### Breaks
+
+Only for code that builds its own `Ui_receiver` or drives `Undo_history` directly:
+
+- `Ui_receiver` gains `sync_state` (with a state model), after `action_handler`.
+- `Undo_history` steps can now hold a document change. `perform_actions` commits any
+  uncommitted document edit before it undoes or redoes, and state steps are capped by a
+  byte budget (`set_state_budget`, 16 MB default), evicting the oldest steps first.
+- `State_adapter::Save_model` gains `state_record`, and `State_adapter` gains `state_record(json)`.
+- Editor state keys starting with `tinyplug-` are reserved: they assert in debug builds and
+  are dropped when a session is saved.
+
+### Declaring a document
+
+```cpp
+// source/models/state.hpp — core only
+struct State {
+    static constexpr auto writers = state::Writers::Editor;   // or Processor, Both
+    std::array<std::uint8_t, 16> level{};
+};
+static_assert(state::Model<State>);
+static_assert(state::byte_comparable<State>); // recommended: no padding, no floats
+```
+
+Requirements: trivially copyable, default constructible, `alignof <= 8`, no pointers
+or handles, since it crosses a process boundary in VST3. Keep it under 64 KB, a soft limit:
+every cost scales with `sizeof(State)`, not with how much changed. Every undo step holds two
+copies, so depth is about `set_state_budget / (2 × size)`: 128 steps at 64 KB. In the
+distributed formats every edit carries two copies, and while the processor writes, every
+snapshot carries one, up to 60 a second. Past 64 KB it still works, but undo gets shallower
+and the traffic heavier; size capacity to what's used (pooled lists rather than per-slot
+maximums). Session size is separate: it's whatever `save` writes.
+
+`writers` decides what exists:
+
+| `writers` | Editor | Processor |
+|---|---|---|
+| `Editor` | `edit` | `get` only |
+| `Processor` | undo/redo only | `get`, `mutate` |
+| `Both` | `edit` | `get`, `mutate` |
+
+### Editor
+
+Through `Edit_context::state`:
+
+```cpp
+const auto& doc = _edit.state.view();                          // draw from this
+_edit.state.edit([col, level](State& s) { s.level[col] = level; });
+_edit.state.commit();                                          // gesture end: one undo step
+```
+
+The lambda is **kept and re-run** if the processor refused it or a snapshot arrived
+while it was outstanding. So capture by value, and read anything you need from the
+`State&` it's given, not from a copy taken beforehand. `edit`'s second argument is the
+policy for a processor that also writes (`Retry` by default; `Merge`, `Overwrite`); it
+has no effect under `Writers::Editor`.
+
+`commit` waits until the edit is confirmed, then records the step. Call it at gesture
+end and at other natural boundaries. Undo and redo go through the existing
+`_edit.undo_redo`, so parameter steps and document steps share one history.
+
+Under `Both` or `Processor`, anything the processor wrote since the last step becomes a
+step of its own at the next commit point, so a recording pass is undoable. A write that
+lands while an undo is still being sent survives it. The same applies to anything the
+processor computes and keeps: a learned profile or calibration is undoable too, and an undo
+after it takes the result back.
+
+### Processor
+
+Through `Dsp_context::state`, valid for this block only:
+
+```cpp
+const auto& doc = context.state.get();
+context.state.mutate().recorded[i] = note; // Processor / Both only
+```
+
+An editor edit lands at the start of a block, never in the middle of one.
+
+### Persistence
+
+Sessions and presets store the document as a record the framework wraps around your
+payload. Declare the payload with a `save`/`load` pair, and own its versioning:
+
+```cpp
+static auto save(state::Writer out, const State& value) -> bool
+{
+    return out.write(std::uint32_t{2}) && out.write(value.level) && out.write(value.swing);
+}
+
+static auto load(state::Reader in, State& value) -> bool
+{
+    auto version = std::uint32_t{};
+    if (!in.read(version) || version > 2) return false;   // from a newer build: keep the default
+    if (!in.read(value.level)) return false;
+    return version < 2 || in.read(value.swing);           // v1 sessions: swing keeps its default
+}
+```
+
+- `load` fills a default `State`; only a `true` return is used. Anything else, including a
+  session saved before the document existed, loads the default.
+- `write`/`read` take trivially copyable values (scalars, enums, `std::array`s, plain
+  structs) and store them little-endian. A nested struct's layout becomes part of the format.
+- Declare both or neither. With neither, the whole struct is stored raw and loads only while
+  `sizeof(State)` is unchanged. Add the pair later and branch on `in.raw()` to read those.
+- Debug builds check every save by loading it and saving again; a field missed or read out
+  of order asserts the first time state is saved.
+- **Whatever `load` accepts is permanent.** Once a version has shipped, keep reading it.
+
+A host load (session, preset) is one undo step covering its params and the document. An
+editor-side preset browser loads the record as an ordinary edit, through
+`_edit.state.load_record(_edit.state_adapter.state_record(json))`.

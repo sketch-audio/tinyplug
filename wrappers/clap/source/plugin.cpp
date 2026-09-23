@@ -155,6 +155,10 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
 
     // Create the context.
     auto context = process::Dsp_context{.propose_latency = {}};
+#if TINY_HAS_STATE
+    auto state_block = _state.begin_block(); // Applies a staged edit now; publishes when process returns.
+    context.state = state::Access_for<models::Resolved::State>{&state_block};
+#endif
 #if TINY_HAS_METERS
     context.meters = _meters.scratch();
 #endif
@@ -402,6 +406,7 @@ bool Plugin::stateSave(const clap_ostream* stream) noexcept
     if (!stream) return false;
 
     auto edit_state = _editor->save_state();
+    drop_reserved_keys(edit_state);
 
     // Inject the framework-owned editor window size (from our own cache) so the window
     // reopens pre-sized. The app editor never emits these keys.
@@ -537,14 +542,35 @@ bool Plugin::stateSave(const clap_ostream* stream) noexcept
         return false;
     }
 
+#if TINY_HAS_STATE
+    // -- Write the state record, last so older builds stop before it --
+    auto doc = models::Resolved::State{};
+    _state.snapshot(doc);
+    const auto record = state::encode_record(doc);
+
+    auto sent = size_t{};
+    const auto* ptr = reinterpret_cast<const char*>(record.data());
+    while (sent < record.size()) {
+        const auto n = stream->write(stream, ptr + sent, record.size() - sent);
+        if (n <= 0) return false;
+        sent += static_cast<size_t>(n);
+    }
+#endif
+
     return true;
 }
 
 // MARK: - load state
 
-auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void
+auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
+                           [[maybe_unused]] std::span<const std::byte> record) -> void
 {
     using namespace params;
+
+#if TINY_HAS_STATE
+    const auto doc = state::decode_record_or_default<models::Resolved::State>(record);
+    _state.on_session_load(doc);
+#endif
 
     // Snapshot for host-load undo capture (knob space, pre-load).
     const auto before = _snapshot_knob_params();
@@ -601,6 +627,9 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_
     const auto after = _snapshot_knob_params();
     auto changes = std::vector<Set_param>{};
     _undo_history.push_host_load(before, after, changes);
+#if TINY_HAS_STATE
+    _state_link.load(doc); // Into the same step.
+#endif
 
     auto add_param = [this](uint32_t addr, double knob) {
         if (addr >= num_params) return;
@@ -787,7 +816,8 @@ auto Plugin::_read_state_chunk(const clap_istream* stream) -> bool
 
     // Try to read the host bypass value.
     auto bypass_value = float{};
-    if (read_value(bypass_value)) {
+    const auto has_bypass = read_value(bypass_value);
+    if (has_bypass) {
         const auto bypass = bypass_value >= 0.5f;
         _bypass.set_bypassed(bypass);
     }
@@ -795,7 +825,23 @@ auto Plugin::_read_state_chunk(const clap_istream* stream) -> bool
         //_bypass.set_bypassed(false);
     }
 
-    this->_update_state(stored_values, edit_state);
+    // The state record follows the bypass; a session without one loads the default document.
+    auto record = std::vector<std::byte>{};
+#if TINY_HAS_STATE
+    if (has_bypass) {
+        record = state::read_record([&](std::byte* out, size_t size) {
+            auto got = size_t{};
+            while (got < size) {
+                const auto n = stream->read(stream, out + got, size - got);
+                if (n <= 0) return false;
+                got += static_cast<size_t>(n);
+            }
+            return true;
+        });
+    }
+#endif
+
+    this->_update_state(stored_values, edit_state, record);
 
     return true;
 }
@@ -824,7 +870,8 @@ bool Plugin::presetLoadFromLocation(uint32_t location_kind, const char* location
         }
         const auto params = _state_adapter.param_values(json);
         const auto editor_state = _state_adapter.editor_state(json);
-        this->_update_state(params, editor_state);
+        const auto record = _state_adapter.state_record(json);
+        this->_update_state(params, editor_state, record);
 
         // Tell the host
         if (auto* preset_ext = (const clap_host_preset_load_t*)_host->get_extension(_host, CLAP_EXT_PRESET_LOAD); preset_ext) {
@@ -1162,7 +1209,10 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
 #endif
         .action_handler = [this](auto& action) {
             this->_handle_user_action(action);
-        }
+        },
+#if TINY_HAS_STATE
+        .sync_state = [this]() { _state_link.sync(); },
+#endif
     };
 
     _view = std::make_unique<View>(View::Deps{

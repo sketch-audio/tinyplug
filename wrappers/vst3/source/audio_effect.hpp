@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <vector>
 
@@ -29,6 +30,9 @@ public:
 #if TINY_HAS_WORKER
         _setup_worker();
 #endif
+#if TINY_HAS_STATE
+        _setup_state();
+#endif
     }
 
     // Last-resort relay stop. `setActive(false)` and `terminate()` are the real doors;
@@ -38,6 +42,9 @@ public:
         _relay.reset();
 #if TINY_HAS_BLOCKS
         _block_relay.reset();
+#endif
+#if TINY_HAS_STATE
+        _state_relay.reset();
 #endif
     }
 
@@ -192,6 +199,18 @@ private:
     vst3::Outbound_message_shuttle _shuttle{};
 
     auto _setup_worker() -> void;
+#endif
+
+#if TINY_HAS_STATE
+    // The processor's copy of the document. Edits arrive over IMessage; where the processor
+    // writes too, a relay sends snapshots back whenever a block published a change.
+    state::Processor_for<models::Resolved::State> _state{};
+    std::optional<Relay> _state_relay{};
+
+    // The processor side has one reader: the relay's pump, getState and setState take turns.
+    std::mutex _state_mutex{};
+
+    auto _setup_state() -> void;
 #endif
 
     auto _drain_worker_to_processor() -> void;

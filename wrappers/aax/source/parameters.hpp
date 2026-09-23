@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <charconv>
+#include <mutex>
 #include <optional>
 
 #include "AAX_CEffectParameters.h"
@@ -36,7 +37,13 @@ public:
             .state_adapter = _state_adapter.actor(),
             .undo_redo = _undo_history.actor(),
             .tasks = _tasks.actor(),
+#if TINY_HAS_STATE
+            .state = _state_link.actor(),
+#endif
         });
+#if TINY_HAS_STATE
+        _setup_state();
+#endif
 
 #if TINY_HAS_WORKER
         try_bind_worker(*_editor, Worker_editor_actor{
@@ -87,6 +94,15 @@ public:
     auto read_blocks(blocks::Frames<models::Resolved::Blocks>& out) -> void
     {
         _block_mailbox.read(out);
+    }
+#endif
+
+#if TINY_HAS_STATE
+    // [GUI] Once per frame, from the view: take in snapshots, send edits, close a waiting step.
+    auto sync_state() -> void
+    {
+        const auto lock = std::lock_guard{_state_mutex};
+        _state_link.sync();
     }
 #endif
 
@@ -157,6 +173,31 @@ private:
     Undo_history _undo_history{};
     Action_queue _actions{};
 
+#if TINY_HAS_STATE
+    // The editor's half of the document. `_state_mutex` guards the link between the GUI and
+    // ResetFieldData, which seeds a rebuilt algorithm from it. The outbox holds one patch
+    // until Direct Data pulls it; while it is full the editor keeps folding edits into the next.
+    state::Editor_link<State_model> _state_link{};
+    state::Snapshot_inbox<State_model> _state_inbox{};
+    mutable std::mutex _state_mutex{};
+
+    mutable std::mutex _state_out_mutex{};
+    mutable std::array<unsigned char, state_edit_bytes> _state_out{};
+    mutable State_edit_header _state_out_header{};
+    mutable bool _state_out_full{};
+
+    auto _setup_state() -> void;
+
+    // The document as the editor holds it; the algorithm's copy trails it by a Direct Data wakeup.
+    auto _state_record() const -> std::vector<std::byte>
+    {
+        const auto lock = std::lock_guard{_state_mutex};
+        return state::encode_record(_state_link.view());
+    }
+
+    auto _load_state(std::span<const std::byte> record) -> void;
+#endif
+
     // Snapshot all current param values in knob space (AAX normalized == knob).
     // Defined in the .cpp where the AAX parameter manager / adapters are visible.
     auto _snapshot_knob_params() -> std::array<double, num_params>;
@@ -176,7 +217,10 @@ private:
                 .version = 1,
                 .param_tree = &User_params::param_tree(),
                 .param_values = std::vector<double>(knob.begin(), knob.end()),
-                .editor_state = _editor ? _editor->save_state() : State_map{}
+                .editor_state = _editor ? _editor->save_state() : State_map{},
+#if TINY_HAS_STATE
+                .state_record = _state_record(),
+#endif
             };
         },
     }};

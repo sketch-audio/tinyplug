@@ -59,6 +59,10 @@ inline auto run_frame(
 {
     _tasks.bind_main(std::this_thread::get_id());
 
+#if TINY_HAS_STATE
+    _receiver.sync_state();
+#endif
+
     if constexpr (has_meters) {
         auto values = std::array<float, std::tuple_size_v<A1>>{};
         _receiver.read_meters(values);
@@ -104,6 +108,10 @@ inline auto run_frame(
     }
 
     _actions.process_observers(_ui_params); // Use manifested state.
+
+#if TINY_HAS_STATE
+    _receiver.sync_state(); // Send this frame's edits and any undo/redo replay.
+#endif
 }
 
 } // namespace view_impl

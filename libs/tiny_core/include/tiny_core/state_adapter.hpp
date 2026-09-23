@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cassert>
+#include <cstddef>
 #include <functional>
 #include <optional>
 #include <string>
@@ -70,6 +72,17 @@ namespace editor_size_state {
 
 } // namespace editor_size_state
 
+// The framework's own keys share each container with the editor's. An editor key that claims the
+// reserved prefix asserts in debug builds and is dropped in release.
+inline auto drop_reserved_keys(State_map& map) -> void
+{
+    std::erase_if(map, [](const auto& item) {
+        const auto reserved = item.first.starts_with(State_rules::reserved_prefix);
+        assert(!reserved && "Editor state keys may not start with \"tinyplug-\"; the framework owns them.");
+        return reserved;
+    });
+}
+
 // MARK: - Adapter
 
 class State_adapter {
@@ -85,6 +98,7 @@ public:
         const params::Node* param_tree{nullptr};
         std::vector<double> param_values{};
         State_map editor_state{};
+        std::vector<std::byte> state_record{}; // `state::encode_record` of the document; empty for none.
     };
 
     struct Provider {
@@ -98,12 +112,17 @@ public:
     auto param_values(const nlohmann::ordered_json& preset_state) const -> Maybe_values<double>;
     auto editor_state(const nlohmann::ordered_json& preset_state) const -> State_map;
 
+    // The document's record, for `state::decode_record`. Empty when the preset has none or it
+    // is not valid base64: either way the document loads at its default.
+    auto state_record(const nlohmann::ordered_json& preset_state) const -> std::vector<std::byte>;
+
     class Actor {
     public:
         explicit Actor(State_adapter* receiver = nullptr) : _receiver{receiver} {}
         auto preset_state(const State_map& extras) const -> nlohmann::ordered_json;
         auto param_values(const nlohmann::ordered_json& preset_state) const -> Maybe_values<double>;
         auto editor_state(const nlohmann::ordered_json& preset_state) const -> State_map;
+        auto state_record(const nlohmann::ordered_json& preset_state) const -> std::vector<std::byte>;
     private:
         State_adapter* _receiver{nullptr};
     };
@@ -116,6 +135,7 @@ private:
         static constexpr auto version = "version";
         static constexpr auto params = "params";
         static constexpr auto editor = "editor";
+        static constexpr auto state = "state";
     };
 
     Provider _provider{};

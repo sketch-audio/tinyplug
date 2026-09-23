@@ -29,6 +29,7 @@ target_sources(${TINY_CORE_LIB} PRIVATE
 )
 
 target_sources(${TINY_CORE_LIB} PRIVATE
+    include/tiny_core/base64.hpp
     include/tiny_core/change_list.hpp
     include/tiny_core/data_port.hpp
     include/tiny_core/denormal_guard.hpp
@@ -41,7 +42,10 @@ target_sources(${TINY_CORE_LIB} PRIVATE
     include/tiny_core/relay.hpp
     include/tiny_core/serial_queue.hpp
     include/tiny_core/state_adapter.hpp
+    include/tiny_core/state_merge.hpp
+    include/tiny_core/state_record.hpp
     include/tiny_core/state_rules.hpp
+    include/tiny_core/state_store.hpp
     include/tiny_core/task_launcher.hpp
     include/tiny_core/task_manager.hpp
     include/tiny_core/tiny_blocks.hpp

@@ -101,7 +101,12 @@ auto Gui::CreateViewContainer() -> void
                 },
                 [&](const auto&) {}
             }, action);
-        }
+        },
+#if TINY_HAS_STATE
+        .sync_state = [params]() {
+            if (params) params->sync_state();
+        },
+#endif
     };
 
     // Now we have the receiver.

@@ -76,6 +76,7 @@ auto main() -> int
         // Extract values.
         const auto preset_values = state_adapter.param_values(preset_json);
         const auto editor_state = state_adapter.editor_state(preset_json);
+        const auto state_record = state_adapter.state_record(preset_json); // Opaque: passed through as the wrapper stores it.
 
         // These are knob values or State_rules::no_value.
         auto state_values = std::vector<float>(preset_values.size(), State_rules::no_value);
@@ -155,6 +156,10 @@ auto main() -> int
                     break;
                 }
             }
+        }
+
+        if (!state_record.empty()) {
+            chunk_parser.AddString(State_rules::Aax::state_record, base64::encode(state_record).c_str());
         }
 
         auto chunk_size = chunk_parser.GetChunkDataSize();

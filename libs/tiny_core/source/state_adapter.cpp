@@ -1,5 +1,6 @@
 #include "tiny_core/state_adapter.hpp"
 
+#include "tiny_core/base64.hpp"
 #include "tiny_core/value_helper.hpp"
 
 namespace tiny {
@@ -77,6 +78,10 @@ auto State_adapter::preset_state(const State_map& extras) const -> nlohmann::ord
         preset_state[Keys::editor] = editor_json;
     }
 
+    if (!model.state_record.empty()) {
+        preset_state[Keys::state] = base64::encode(model.state_record);
+    }
+
     return preset_state;
 }
 
@@ -151,6 +156,15 @@ auto State_adapter::editor_state(const nlohmann::ordered_json& preset_state) con
     return state;
 }
 
+auto State_adapter::state_record(const nlohmann::ordered_json& preset_state) const -> std::vector<std::byte>
+{
+    const auto it = preset_state.find(Keys::state);
+    if (it == preset_state.end() || !it->is_string()) return {};
+
+    auto bytes = base64::decode(it->get_ref<const std::string&>());
+    return bytes ? std::move(*bytes) : std::vector<std::byte>{};
+}
+
 auto State_adapter::Actor::preset_state(const State_map& extras) const -> nlohmann::ordered_json
 {
     if (_receiver) {
@@ -173,6 +187,15 @@ auto State_adapter::Actor::editor_state(const nlohmann::ordered_json& preset_sta
 {
     if (_receiver) {
         return _receiver->editor_state(preset_state);
+    } else {
+        return {};
+    }
+}
+
+auto State_adapter::Actor::state_record(const nlohmann::ordered_json& preset_state) const -> std::vector<std::byte>
+{
+    if (_receiver) {
+        return _receiver->state_record(preset_state);
     } else {
         return {};
     }

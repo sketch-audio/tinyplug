@@ -52,6 +52,9 @@ static_assert(false, "ARC must be enabled for this file");
             .state_adapter = [auv3 stateAdapter]->actor(),
             .undo_redo = [auv3 undoHistory]->actor(),
             .tasks = _tasks.actor(),
+#if TINY_HAS_STATE
+            .state = [auv3 stateActor],
+#endif
         });
     }
     [auv3 setEditor:_editor];

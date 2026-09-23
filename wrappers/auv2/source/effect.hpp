@@ -114,7 +114,10 @@ public:
 
 private:
 
-    auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void;
+    // `record` is the document's `state::encode_record`; empty loads the default.
+    auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
+                       std::span<const std::byte> record) -> void;
+    auto _load_state_record(std::span<const std::byte> record) -> void;
 
     double _sr{48000};
 
@@ -136,7 +139,10 @@ private:
                 .version = 1,
                 .param_tree = &User_params::param_tree(),
                 .param_values = std::vector<double>(knob.begin(), knob.end()),
-                .editor_state = _editor ? _editor->save_state() : State_map{}
+                .editor_state = _editor ? _editor->save_state() : State_map{},
+#if TINY_HAS_STATE
+                .state_record = state::encode_record(_state_link.view()),
+#endif
             };
         },
     }};
@@ -160,6 +166,12 @@ private:
     // window open/close and host preset loads are captured with the window closed.
     // Declared before `_view` so its Deps can borrow pointers to them.
     Undo_history _undo_history{};
+
+#if TINY_HAS_STATE
+    // The document: the processor's copy and the editor's half, joined by direct calls.
+    state::Processor_for<models::Resolved::State> _state{};
+    state::Editor_link<models::Resolved::State> _state_link{};
+#endif
     Action_queue _actions{};
 
     // Snapshot all current param values in knob space (mirrors the receiver's get_param).
@@ -347,7 +359,10 @@ private:
                     },
                     [](const auto&) {}
                 }, action);
-            }
+            },
+#if TINY_HAS_STATE
+            .sync_state = [this]() { _state_link.sync(); },
+#endif
         },
         .tasks = &_tasks,
         .undo_history = &_undo_history,

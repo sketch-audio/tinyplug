@@ -17,7 +17,15 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
         .state_adapter = _state_adapter.actor(),
         .undo_redo = _undo_history.actor(),
         .tasks = _tasks.actor(),
+#if TINY_HAS_STATE
+        .state = _state_link.actor(),
+#endif
     });
+
+#if TINY_HAS_STATE
+    state::connect_in_process(_state_link, _state);
+    _state_link.bind(_undo_history);
+#endif
 
 #if TINY_HAS_WORKER
     try_bind_worker(*_processor, Worker_processor_actor{
@@ -587,9 +595,22 @@ OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEve
     return noErr;
 }
 
-auto Effect::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void
+// Both copies of the document, and the load's undo step: call after `push_host_load` if there is one.
+auto Effect::_load_state_record([[maybe_unused]] std::span<const std::byte> record) -> void
+{
+#if TINY_HAS_STATE
+    const auto doc = state::decode_record_or_default<models::Resolved::State>(record);
+    _state.on_session_load(doc);
+    _state_link.load(doc);
+#endif
+}
+
+auto Effect::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
+                           std::span<const std::byte> record) -> void
 {
     using namespace params;
+
+    const auto before = _snapshot_knob_params(); // For the load's undo step.
 
     // Notify kernel and view (if not an interface parameter).
     auto change_list = std::vector<process::Event::Set>{};
@@ -630,6 +651,11 @@ auto Effect::_update_state(const Maybe_values<double>& knob_values, const State_
 
     _changes.push_n(change_list); // Batch publish everything.
 
+    // One undo step for the params and the document.
+    auto changes = std::vector<Set_param>{};
+    _undo_history.push_host_load(before, _snapshot_knob_params(), changes);
+    _load_state_record(record);
+
     // Editor
     _editor->load_state(editor_state);
 }
@@ -647,6 +673,7 @@ OSStatus Effect::SaveState(CFPropertyListRef* outData)
 
     // Get the editor state.
     auto edit_state = _editor->save_state();
+    drop_reserved_keys(edit_state);
 
     // Inject the framework-owned editor window size (from our own cache) so the window
     // reopens pre-sized. The app editor never emits these keys.
@@ -717,6 +744,20 @@ OSStatus Effect::SaveState(CFPropertyListRef* outData)
         [[maybe_unused]] const auto release_editor_key = Deferred{[&]() { if (data_key) CFRelease(data_key); }};
         CFDictionarySetValue(dict, data_key, *editor_data);
     }
+
+#if TINY_HAS_STATE
+    {
+        auto doc = models::Resolved::State{};
+        _state.snapshot(doc);
+        const auto record = state::encode_record(doc);
+
+        auto state_data = ausdk::Owned<CFDataRef>::from_create(
+            CFDataCreate(nullptr, reinterpret_cast<const UInt8*>(record.data()), static_cast<CFIndex>(record.size())));
+        const auto state_key = CFStringCreateWithCString(kCFAllocatorDefault, State_rules::Auv2::state_record, kCFStringEncodingUTF8);
+        [[maybe_unused]] const auto release_state_key = Deferred{[&]() { if (state_key) CFRelease(state_key); }};
+        CFDictionarySetValue(dict, state_key, *state_data);
+    }
+#endif
 
     return result;
 }
@@ -796,100 +837,115 @@ OSStatus Effect::RestoreState(CFPropertyListRef plist)
         host_loaded = true;
     }
 
-    // --- Editor State ---
-    auto editor_val = int32_t{};
-    if (read_num(State_rules::Auv2::num_editor_items, editor_val)) {
-        const auto num_editor_items = static_cast<uint32_t>(editor_val);
-        if (num_editor_items == 0) return result; // No editor state to read.
+    // --- State document --- (a session without one loads the default)
+    {
+        const auto state_key = CFStringCreateWithCString(kCFAllocatorDefault, State_rules::Auv2::state_record, kCFStringEncodingUTF8);
+        [[maybe_unused]] const auto release_state_key = Deferred{[&]() { if (state_key) CFRelease(state_key); }};
 
-        // Get the data.
-        const auto data_key = CFStringCreateWithCString(kCFAllocatorDefault, State_rules::Auv2::editor_state_map, kCFStringEncodingUTF8);
-        [[maybe_unused]] const auto release_editor_key = Deferred{[&]() { if (data_key) CFRelease(data_key); }};
+        auto record = std::span<const std::byte>{};
+        const auto* state_data = static_cast<CFDataRef>(CFDictionaryGetValue(dict, state_key));
+        if (state_data && CFGetTypeID(state_data) == CFDataGetTypeID()) {
+            record = {reinterpret_cast<const std::byte*>(CFDataGetBytePtr(state_data)), static_cast<size_t>(CFDataGetLength(state_data))};
+        }
+        _load_state_record(record);
+    }
 
-        const auto* editor_data = static_cast<CFDataRef>(CFDictionaryGetValue(dict, data_key));
-        if (!editor_data || CFGetTypeID(editor_data) != CFDataGetTypeID()) return result;
+    // --- Editor State --- (scoped, so a missing map still reaches the notify below)
+    [&] {
+        auto editor_val = int32_t{};
+        if (read_num(State_rules::Auv2::num_editor_items, editor_val)) {
+            const auto num_editor_items = static_cast<uint32_t>(editor_val);
+            if (num_editor_items == 0) return; // No editor state to read.
 
-        auto offset = CFIndex{}; // Keep track of where we are.
+            // Get the data.
+            const auto data_key = CFStringCreateWithCString(kCFAllocatorDefault, State_rules::Auv2::editor_state_map, kCFStringEncodingUTF8);
+            [[maybe_unused]] const auto release_editor_key = Deferred{[&]() { if (data_key) CFRelease(data_key); }};
 
-        auto read_value = [&](auto& value) {
-            const auto size = static_cast<CFIndex>(sizeof(value));
-            if (offset + size <= CFDataGetLength(editor_data)) {
-                CFDataGetBytes(editor_data, CFRange{offset, size}, reinterpret_cast<UInt8*>(&value));
-                offset += size;
-                return true;
-            }
-            return false;
-        };
+            const auto* editor_data = static_cast<CFDataRef>(CFDictionaryGetValue(dict, data_key));
+            if (!editor_data || CFGetTypeID(editor_data) != CFDataGetTypeID()) return;
 
-        auto read_container = [&](auto& container) {
-            using Element = typename std::decay<decltype(container)>::type::value_type; // ...
-            auto num = uint32_t{};
-            if (read_value(num)) {
-                const auto size = static_cast<CFIndex>(sizeof(Element) * num);
+            auto offset = CFIndex{}; // Keep track of where we are.
+
+            auto read_value = [&](auto& value) {
+                const auto size = static_cast<CFIndex>(sizeof(value));
                 if (offset + size <= CFDataGetLength(editor_data)) {
-                    container.resize(num);
-                    CFDataGetBytes(editor_data, CFRange{offset, size}, reinterpret_cast<UInt8*>(container.data()));
+                    CFDataGetBytes(editor_data, CFRange{offset, size}, reinterpret_cast<UInt8*>(&value));
                     offset += size;
                     return true;
                 }
+                return false;
+            };
+
+            auto read_container = [&](auto& container) {
+                using Element = typename std::decay<decltype(container)>::type::value_type; // ...
+                auto num = uint32_t{};
+                if (read_value(num)) {
+                    const auto size = static_cast<CFIndex>(sizeof(Element) * num);
+                    if (offset + size <= CFDataGetLength(editor_data)) {
+                        container.resize(num);
+                        CFDataGetBytes(editor_data, CFRange{offset, size}, reinterpret_cast<UInt8*>(container.data()));
+                        offset += size;
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            auto edit_state = State_map{};
+            for (auto i = decltype(num_editor_items){}; i < num_editor_items; ++i) {
+                auto key = std::string{};
+                if (!read_container(key)) break;
+
+                auto tag = State_tag{};
+                if (!read_value(tag)) break;
+
+                auto value = State_item{};
+                switch (tag) {
+                    case State_tag::Bool: {
+                        auto v = bool{};
+                        if (read_value(v)) {
+                            value = v;
+                        }
+                        break;
+                    }
+                    case State_tag::Int: {
+                        auto v = int32_t{};
+                        if (read_value(v)) {
+                            value = v;
+                        }
+                        break;
+                    }
+                    case State_tag::Double: {
+                        auto v = double{};
+                        if (read_value(v)) {
+                            value = v;
+                        }
+                        break;
+                    }
+                    case State_tag::String: {
+                        auto v = std::string{};
+                        if (read_container(v)) {
+                            value = std::move(v);
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                }
+
+                edit_state.emplace(std::move(key), std::move(value));
             }
-            return false;
-        };
 
-        auto edit_state = State_map{};
-        for (auto i = decltype(num_editor_items){}; i < num_editor_items; ++i) {
-            auto key = std::string{};
-            if (!read_container(key)) break;
-
-            auto tag = State_tag{};
-            if (!read_value(tag)) break;
-
-            auto value = State_item{};
-            switch (tag) {
-                case State_tag::Bool: {
-                    auto v = bool{};
-                    if (read_value(v)) {
-                        value = v;
-                    }
-                    break;
-                }
-                case State_tag::Int: {
-                    auto v = int32_t{};
-                    if (read_value(v)) {
-                        value = v;
-                    }
-                    break;
-                }
-                case State_tag::Double: {
-                    auto v = double{};
-                    if (read_value(v)) {
-                        value = v;
-                    }
-                    break;
-                }
-                case State_tag::String: {
-                    auto v = std::string{};
-                    if (read_container(v)) {
-                        value = std::move(v);
-                    }
-                    break;
-                }
-                default:
-                    break;
+            // Prime the framework-owned size cache so create_view opens pre-sized, then strip
+            // the keys so the app editor never sees them.
+            if (const auto size = editor_size_state::extract(edit_state)) {
+                _last_size = Rect_size{size->first, size->second};
             }
+            editor_size_state::strip(edit_state);
 
-            edit_state.emplace(std::move(key), std::move(value));
+            _editor->load_state(edit_state);
         }
-
-        // Prime the framework-owned size cache so create_view opens pre-sized, then strip
-        // the keys so the app editor never sees them.
-        if (const auto size = editor_size_state::extract(edit_state)) {
-            _last_size = Rect_size{size->first, size->second};
-        }
-        editor_size_state::strip(edit_state);
-
-        _editor->load_state(edit_state);
-    }
+    }();
 
     // Notify the editor of the host load synchronously (works editor open or closed),
     // letting it fold its marker params into the load's single undo step via add_param.
@@ -985,7 +1041,8 @@ OSStatus Effect::NewFactoryPresetSet(const AUPreset& inNewFactoryPreset)
 
         const auto param_values = _state_adapter.param_values(json);
         const auto editor_state = _state_adapter.editor_state(json);
-        this->_update_state(param_values, editor_state);
+        const auto record = _state_adapter.state_record(json);
+        this->_update_state(param_values, editor_state, record);
     }
     catch (...) {
         return kAudioUnitErr_InvalidPropertyValue;
@@ -1183,6 +1240,10 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 
     // Create the context.
     auto context = process::Dsp_context{};
+#if TINY_HAS_STATE
+    auto state_block = _state.begin_block(); // Applies a staged edit now; publishes when Render returns.
+    context.state = state::Access_for<models::Resolved::State>{&state_block};
+#endif
 #if TINY_HAS_METERS
     context.meters = _meters.scratch();
 #endif

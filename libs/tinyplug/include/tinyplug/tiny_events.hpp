@@ -58,6 +58,10 @@ struct Ui_receiver {
     Read_blocks read_blocks = [](auto&) {};
 #endif
     Action_handler action_handler = [](auto&) {};
+#if TINY_HAS_STATE
+    // Once before and once after each draw: take in snapshots, send edits, close a waiting undo step.
+    std::function<void()> sync_state = []() {};
+#endif
 };
 
 } // namespace tiny

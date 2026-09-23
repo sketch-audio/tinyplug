@@ -47,6 +47,9 @@ static auto presets_path() -> std::filesystem::path
     // across window open/close and host preset loads are captured with the window closed.
     tiny::Undo_history _undo_history;
     tiny::Action_queue _actions;
+#if TINY_HAS_STATE
+    tiny::state::Editor_link<tiny::models::Resolved::State> _state_link; // The kernel holds the processor's copy.
+#endif
     BufferedInputBus _inputBus;
 #if TINY_WANTS_SIDECHAIN
     BufferedInputBus _sidechainBus;
@@ -69,6 +72,11 @@ static auto presets_path() -> std::filesystem::path
     
     [self setupAudioBuses];
     _parameterTreeSetup = false;
+
+#if TINY_HAS_STATE
+    tiny::state::connect_in_process(_state_link, _kernel.state());
+    _state_link.bind(_undo_history);
+#endif
     
     _observerTokens = {};
     
@@ -114,7 +122,10 @@ static auto presets_path() -> std::filesystem::path
                 .version = 1,
                 .param_tree = &User_params::param_tree(),
                 .param_values = values,
-                .editor_state = editor_state
+                .editor_state = editor_state,
+#if TINY_HAS_STATE
+                .state_record = state::encode_record(s->_state_link.view()),
+#endif
             };
         }
     });
@@ -235,6 +246,12 @@ static auto presets_path() -> std::filesystem::path
     return &_actions;
 }
 
+#if TINY_HAS_STATE
+- (tiny::state::Editor_actor<tiny::models::Resolved::State>)stateActor {
+    return _state_link.actor();
+}
+#endif
+
 - (tiny::State_adapter*)stateAdapter {
     return _state_adapter.get();
 }
@@ -292,7 +309,12 @@ static auto presets_path() -> std::filesystem::path
                 },
                 [](const auto&) {}
             }, action);
-        }
+        },
+#if TINY_HAS_STATE
+        .sync_state = [self_]() {
+            if (auto s = self_) s->_state_link.sync();
+        },
+#endif
     };
 }
 
@@ -722,6 +744,11 @@ static auto presets_path() -> std::filesystem::path
     [state setObject:data forKey:@(State_rules::Auv3::values_from_preset)];
 }
 
+- (void)addStateRecord:(std::span<const std::byte>)record toDictionary:(NSMutableDictionary<NSString *, id> *)state {
+    if (record.empty()) return;
+    [state setObject:[NSData dataWithBytes:record.data() length:record.size()] forKey:@(tiny::State_rules::Auv3::state_record)];
+}
+
 - (void)addEditorState:(const tiny::State_map&)edit_state toDictionary:(NSMutableDictionary<NSString *, id> *)state {
     using namespace tiny;
     
@@ -798,9 +825,16 @@ static auto presets_path() -> std::filesystem::path
     
     // Store editor state.
     if (_editor) {
-        const auto edit_state = _editor->save_state();
+        auto edit_state = _editor->save_state();
+        drop_reserved_keys(edit_state);
         [self addEditorState:edit_state toDictionary:state];
     }
+
+#if TINY_HAS_STATE
+    auto doc = models::Resolved::State{};
+    _kernel.state().snapshot(doc);
+    [self addStateRecord:state::encode_record(doc) toDictionary:state];
+#endif
 
     return [state copy];
 }
@@ -890,6 +924,20 @@ static auto presets_path() -> std::filesystem::path
     const auto host_after = snapshot_knob_params();
     auto host_changes = std::vector<Set_param>{};
     _undo_history.push_host_load(before, host_after, host_changes);
+
+#if TINY_HAS_STATE
+    // The document, into the same undo step. A state without one loads the default.
+    {
+        auto record = std::span<const std::byte>{};
+        id state_data = [fullState objectForKey:@(State_rules::Auv3::state_record)];
+        if ([state_data isKindOfClass:[NSData class]]) {
+            record = {static_cast<const std::byte*>([state_data bytes]), static_cast<size_t>([state_data length])};
+        }
+        const auto doc = state::decode_record_or_default<models::Resolved::State>(record);
+        _kernel.state().on_session_load(doc);
+        _state_link.load(doc);
+    }
+#endif
 
     id numEditItems = [fullState objectForKey:@(State_rules::Auv3::num_editor_items)];
     if ([numEditItems isKindOfClass:[NSNumber class]]) {
@@ -1028,6 +1076,7 @@ static auto presets_path() -> std::filesystem::path
             
             [self addParamValues:param_values toDictionary:dict];
             [self addEditorState:editor_state toDictionary:dict];
+            [self addStateRecord:_state_adapter->state_record(json) toDictionary:dict];
             
             return dict;
         }

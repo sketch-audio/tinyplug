@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
@@ -37,6 +38,56 @@ inline constexpr auto num_coefs = size_t{num_params} + 1;
 inline constexpr auto max_ichannels = size_t{2};
 inline constexpr auto max_schannels = size_t{1};
 inline constexpr auto max_ochannels = size_t{2};
+
+// MARK: - state
+
+#if TINY_HAS_STATE
+using State_model = models::Resolved::State;
+using State_processor = state::Processor_for<State_model>;
+inline constexpr auto state_edit_bytes = state::edit_bytes<State_model, state::writers_of<State_model>>;
+
+// Data model -> algorithm, one patch at a time. Direct Data writes a patch only while
+// `posted == taken`, then bumps `posted`; the algorithm stages it at the top of the next
+// block and sets `taken`. While it is busy the data model holds its next patch back, and
+// the editor chains everything since into the one after.
+struct State_inbox {
+    std::atomic<uint64_t> posted{};
+    std::atomic<uint64_t> taken{};
+    uint32_t bytes{};
+    uint32_t seq{};
+    alignas(8) unsigned char payload[state_edit_bytes]{};
+
+    static constexpr auto offset_posted = uint32_t{0};
+    static constexpr auto offset_meta = uint32_t{16}; // bytes, seq
+    static constexpr auto offset_payload = uint32_t{24};
+};
+static_assert(std::is_standard_layout_v<State_inbox>);
+static_assert(offsetof(State_inbox, posted) == State_inbox::offset_posted);
+static_assert(offsetof(State_inbox, bytes) == State_inbox::offset_meta);
+static_assert(offsetof(State_inbox, payload) == State_inbox::offset_payload);
+
+// Algorithm -> data model: {gen, {Ack, T}}, only where the processor writes.
+struct State_snapshot_frame {
+    uint32_t gen{};
+    uint32_t pad{};
+    std::array<std::byte, state::snapshot_bytes<State_model>> bytes{};
+};
+using State_outbox = Block_store<std::conditional_t<State_processor::processor_writes, State_snapshot_frame, uint64_t>>;
+
+// Private data does not survive a reset, so the processor's copy is re-seeded from the data
+// model: what its wire has accepted, the edit sequence that covers, and the snapshot generation.
+struct State_seed {
+    State_model value{};
+    uint32_t applied{};
+    uint32_t gen{};
+};
+
+// The data model's pending patch, as Direct Data pulls it with GetCustomData.
+struct State_edit_header {
+    uint32_t bytes{};
+    uint32_t seq{};
+};
+#endif
 
 // MARK: - coefficient segments
 
@@ -117,6 +168,9 @@ struct Runtime_packet {
 struct Reset_state {
     Runtime_packet runtime;
     Coef_segment   coefs[num_segments];
+#if TINY_HAS_STATE
+    State_seed     state;
+#endif
 };
 static_assert(std::is_trivially_copyable_v<Reset_state>);
 
@@ -145,6 +199,10 @@ struct Alg_context {
 #if TINY_HAS_BLOCKS
     void* blocks[num_blocks];                  // AddPrivateData × num_blocks — Block_store_at<I>
 #endif
+#if TINY_HAS_STATE
+    struct State_inbox* state_inbox;           // AddPrivateData — data model -> algorithm
+    void* state_outbox;                        // AddPrivateData — State_outbox, algorithm -> data model
+#endif
 };
 
 #include AAX_ALIGN_FILE_BEGIN
@@ -171,6 +229,10 @@ enum : AAX_CFieldIndex {
     field_coefs_base = AAX_FIELD_INDEX(Alg_context, coefs),
 #if TINY_HAS_BLOCKS
     field_blocks_base = AAX_FIELD_INDEX(Alg_context, blocks),
+#endif
+#if TINY_HAS_STATE
+    field_state_inbox = AAX_FIELD_INDEX(Alg_context, state_inbox),
+    field_state_outbox = AAX_FIELD_INDEX(Alg_context, state_outbox),
 #endif
 };
 
@@ -228,6 +290,12 @@ inline constexpr auto custom_data_worker_reply = AAX_CTypeID{'tWKR'};
 // Algorithm -> data model: one block frame, read out of its store by Direct Data.
 inline constexpr auto custom_data_block = AAX_CTypeID{'tBLK'};
 
+// Data model -> Direct Data: the pending state patch, [State_edit_header][payload].
+inline constexpr auto custom_data_state_edit = AAX_CTypeID{'tSTE'};
+
+// Direct Data -> data model: one state snapshot, a State_snapshot_frame.
+inline constexpr auto custom_data_state_snapshot = AAX_CTypeID{'tSTS'};
+
 // Header for a `custom_data_block`; `frame_bytes` of frame follow it.
 struct Block_header {
     uint32_t address{};
@@ -263,6 +331,10 @@ struct Alg_state {
 #endif
 #if TINY_HAS_BLOCKS
     blocks::Publisher<models::Resolved::Blocks> blocks{}; // Staging frames the DSP writes.
+#endif
+#if TINY_HAS_STATE
+    State_processor state{};
+    uint32_t state_published{}; // Edit generation last copied into the outbox.
 #endif
 
     std::array<const float*, max_ichannels> ibuffers{};

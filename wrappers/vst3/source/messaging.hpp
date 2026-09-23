@@ -25,6 +25,8 @@ namespace tiny::vst3 {
 //   tiny/latency/changed      — processor → controller
 //   tiny/tables/<addr>        — future (controller → processor)
 //   tiny/blocks               — processor → controller, tag is the block address
+//   tiny/state/edit           — controller → processor
+//   tiny/state/snapshot       — processor → controller
 //   tiny/<plugin>/<custom>    — reserved for plug-in-specific traffic
 // All IDs should start with "tiny/" to avoid collisions with host-defined IDs.
 
@@ -34,6 +36,11 @@ inline constexpr auto k_latency_changed_id = "tiny/latency/changed";
 
 // Payload is one block frame; the tag is its address.
 inline constexpr auto k_blocks_id = "tiny/blocks";
+
+// State document. Edit: controller -> processor, tag is the edit sequence. Snapshot:
+// processor -> controller, tag is the processor's edit generation.
+inline constexpr auto k_state_edit_id = "tiny/state/edit";
+inline constexpr auto k_state_snapshot_id = "tiny/state/snapshot";
 
 // MARK: - router
 

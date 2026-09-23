@@ -27,6 +27,8 @@ template<typename Frame>
 struct Block_store {
     static_assert(std::is_trivially_copyable_v<Frame>);
 
+    using Frame_type = Frame;
+
     static constexpr auto slot_align = std::max<std::size_t>(alignof(std::uint64_t), alignof(Frame));
 
     std::atomic<std::uint64_t> seq{};
@@ -43,8 +45,15 @@ struct Block_store {
 
     auto publish(const Frame& frame) -> void
     {
+        publish_with([&frame](unsigned char* slot) { std::memcpy(slot, &frame, sizeof(Frame)); });
+    }
+
+    // Fill the back slot in place, for a frame too large to stage on the audio thread's stack.
+    template<typename Fill>
+    auto publish_with(Fill&& fill) -> void
+    {
         const auto s = seq.load(std::memory_order_relaxed);
-        std::memcpy(slots + (s & 1) * sizeof(Frame), &frame, sizeof(Frame));
+        fill(slots + (s & 1) * sizeof(Frame));
         seq.store(s + 1, std::memory_order_release);
     }
 };

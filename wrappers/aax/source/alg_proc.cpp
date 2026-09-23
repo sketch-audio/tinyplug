@@ -1,8 +1,11 @@
 #include "alg_proc.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
+#include <optional>
 #include <limits>
 #include <new>
 #include <span>
@@ -223,6 +226,16 @@ auto construct_instance(const Alg_context* context, Alg_state* st, double sample
     // memory pool, which would require Alg_state to be trivially relocatable.
     st = new (static_cast<void*>(st)) Alg_state{};
 
+#if TINY_HAS_STATE
+    // A fresh Alg_state has a default document; take the data model's, and carry the edit
+    // sequence and snapshot generation over so the editor's bookkeeping lines up.
+    if (const auto* reset = context->reset_state) {
+        st->state.on_session_load(reset->state.value, reset->state.applied);
+        st->state.seed_generation(reset->state.gen);
+        st->state_published = reset->state.gen;
+    }
+#endif
+
     // The rings arrive zeroed (the default ResetFieldData), which happens to be
     // their correct initial state — but start their lifetimes properly rather
     // than reading objects that were never constructed. Only ever on a genuine add:
@@ -234,6 +247,10 @@ auto construct_instance(const Alg_context* context, Alg_state* st, double sample
         blocks::for_each_address<models::Resolved::Blocks>([&](auto i) {
             if (auto* store = context->blocks[i]) new (store) Block_store_at<decltype(i)::value>{};
         });
+#endif
+#if TINY_HAS_STATE
+        if (context->state_inbox != nullptr) new (static_cast<void*>(context->state_inbox)) State_inbox{};
+        if (context->state_outbox != nullptr) new (context->state_outbox) State_outbox{};
 #endif
     }
 
@@ -250,6 +267,25 @@ auto construct_instance(const Alg_context* context, Alg_state* st, double sample
 #endif
     st->constructed = true;
 }
+
+#if TINY_HAS_STATE
+// A template so the processor-writes branch is discarded where the processor cannot write.
+template<typename Processor>
+auto publish_state([[maybe_unused]] Processor& processor, [[maybe_unused]] uint32_t& published,
+                   [[maybe_unused]] State_outbox* outbox) -> void
+{
+    if constexpr (Processor::processor_writes) {
+        const auto gen = processor.edits();
+        if (gen == published || outbox == nullptr) return;
+        outbox->publish_with([&](unsigned char* slot) {
+            const auto header = std::array<uint32_t, 2>{gen, 0};
+            std::memcpy(slot, header.data(), sizeof(header));
+            processor.read_snapshot(reinterpret_cast<std::byte*>(slot + offsetof(State_snapshot_frame, bytes)));
+        });
+        published = gen;
+    }
+}
+#endif
 
 auto read_musical_context(const Alg_context* ctx, bool recording) -> process::Musical_context
 {
@@ -374,6 +410,19 @@ auto render_instance(Alg_context* ctx) -> void
     }
 #endif
 
+#if TINY_HAS_STATE
+    // Stage the data model's patch, if one is waiting; the block below applies it.
+    if (auto* inbox = ctx->state_inbox) {
+        const auto posted = inbox->posted.load(std::memory_order_acquire);
+        if (posted != inbox->taken.load(std::memory_order_relaxed)) {
+            st->state.on_edit({reinterpret_cast<const std::byte*>(inbox->payload), inbox->bytes}, inbox->seq);
+            inbox->taken.store(posted, std::memory_order_release);
+        }
+    }
+    auto state_block = std::optional<State_processor::Block>{};
+    state_block.emplace(&st->state);
+#endif
+
     auto context = process::Dsp_context{
         .musical_context = read_musical_context(ctx, runtime.recording != 0),
         .ibuffers = {st->ibuffers.begin(), channels},
@@ -386,6 +435,9 @@ auto render_instance(Alg_context* ctx) -> void
 #endif
 #if TINY_HAS_BLOCKS
     context.blocks = blocks::Writer{&st->blocks};
+#endif
+#if TINY_HAS_STATE
+    context.state = state::Access_for<State_model>{&*state_block};
 #endif
     // Latched at the last reset, never mid-render. The kernel therefore only ever sees
     // this change across a reset — a point at which it has already been cleared and
@@ -430,6 +482,12 @@ auto render_instance(Alg_context* ctx) -> void
         store->publish(frame);
         return true;
     });
+#endif
+
+#if TINY_HAS_STATE
+    // Publish, then copy out whatever the block changed. Direct Data reads it from the outbox.
+    state_block.reset();
+    publish_state(st->state, st->state_published, static_cast<State_outbox*>(ctx->state_outbox));
 #endif
 
     // Latency proposal out. The data model turns this into SetSignalLatency, the host

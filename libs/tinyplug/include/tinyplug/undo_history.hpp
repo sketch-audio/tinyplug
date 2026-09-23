@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <functional>
 #include <optional>
 #include <span>
 #include <unordered_map>
@@ -67,8 +69,29 @@ public:
     // begins (Action_start), on undo/redo, or at the next host load.
     auto amend_host_load(uint32_t addr, double from, double to) -> void;
 
+    // Fold a document change into the host-load step, like amend_host_load, so one undo reverts
+    // a load's params and document together. Creates the step if the load moved no params.
+    // Framework-internal: `state::Editor_link::load` calls it.
+    auto amend_host_state(const std::byte* from, const std::byte* to, std::size_t n) -> void;
+
     // Perform deferred undo/redo actions.
     auto perform_actions(Action_queue::Actor actions) -> void;
+
+    // How a state document takes part. `commit` records anything uncommitted before an undo
+    // or redo runs; `replay` applies a step's patch {base, next}, reverting only what it changed.
+    struct State_hooks {
+        std::function<bool()> commit{};
+        std::function<void(const std::byte* base, const std::byte* next, std::size_t n)> replay{};
+    };
+
+    auto bind_state(State_hooks hooks) -> void { _state_hooks = std::move(hooks); }
+
+    // One state step: the whole document before and after. Its own step, never folded into a
+    // param gesture. Clears the redo stack like any edit.
+    auto record_state(const std::byte* from, const std::byte* to, std::size_t n) -> void;
+
+    // State steps cost two copies of the document, so history is capped by bytes, oldest first.
+    auto set_state_budget(std::size_t bytes) -> void { _state_budget = bytes; trim(); }
 
     auto can_undo() const -> bool;
     auto can_redo() const -> bool;
@@ -89,8 +112,16 @@ private:
     enum class Deferred_action { Undo, Redo };
     using Active_map = std::unordered_map<uint32_t, Param_change>;
 
+    struct State_change {
+        std::vector<std::byte> from{};
+        std::vector<std::byte> to{};
+    };
+
     struct Undo_step {
         std::vector<Param_change> changes{};
+        std::optional<State_change> state{};
+
+        auto state_bytes() const -> std::size_t { return state ? state->from.size() + state->to.size() : 0; }
     };
 
     std::optional<Deferred_action> _deferred{}; // One deferred action per frame.
@@ -104,6 +135,11 @@ private:
     // extend. Reset when a normal gesture begins, on undo/redo, or at the next load.
     std::optional<size_t> _open_host_step{};
 
+    State_hooks _state_hooks{};
+    std::size_t _state_budget{16u * 1024 * 1024};
+    std::size_t _state_bytes{}; // Held by the undo stack only.
+
+    auto trim() -> void;
     auto undoable(uint32_t /*addr*/) const -> bool; // In the future we might want to filter some params.
     auto defer_undo() -> void;
     auto defer_redo() -> void;
@@ -224,8 +260,60 @@ inline auto Undo_history::amend_host_load(uint32_t addr, double from, double to)
     }
 }
 
+inline auto Undo_history::amend_host_state(const std::byte* from, const std::byte* to, std::size_t n) -> void
+{
+    if (_active != 0 || _current.has_value()) return;
+
+    if (_open_host_step && *_open_host_step < _undo_stack.size()) {
+        auto& step = _undo_stack[*_open_host_step];
+        _state_bytes -= step.state_bytes();
+        if (step.state) step.state->to.assign(to, to + n); // Coalesce repeats; keep the first `from`.
+        else step.state = State_change{{from, from + n}, {to, to + n}};
+        _state_bytes += step.state_bytes();
+    }
+    else {
+        auto step = Undo_step{};
+        step.state = State_change{{from, from + n}, {to, to + n}};
+        _state_bytes += step.state_bytes();
+        _undo_stack.push_back(std::move(step));
+        _redo_stack.clear();
+        _open_host_step = _undo_stack.size() - 1;
+    }
+    trim();
+}
+
+inline auto Undo_history::record_state(const std::byte* from, const std::byte* to, std::size_t n) -> void
+{
+    auto step = Undo_step{};
+    step.state = State_change{{from, from + n}, {to, to + n}};
+    _state_bytes += step.state_bytes();
+    _undo_stack.push_back(std::move(step));
+    _redo_stack.clear();
+    _open_host_step.reset();
+    trim();
+}
+
+inline auto Undo_history::trim() -> void
+{
+    auto evict = std::size_t{};
+    auto bytes = _state_bytes;
+    while (bytes > _state_budget && evict + 1 < _undo_stack.size()) {
+        bytes -= _undo_stack[evict].state_bytes();
+        ++evict;
+    }
+    if (evict == 0) return;
+
+    _undo_stack.erase(_undo_stack.begin(), _undo_stack.begin() + static_cast<std::ptrdiff_t>(evict));
+    _state_bytes = bytes;
+    if (_open_host_step) {
+        if (*_open_host_step < evict) _open_host_step.reset();
+        else *_open_host_step -= evict;
+    }
+}
+
 inline auto Undo_history::perform_actions(Action_queue::Actor actions) -> void
 {
+    if (_deferred && _state_hooks.commit) _state_hooks.commit(); // Anything uncommitted becomes a step first.
     if (_deferred) {
         if (*_deferred == Deferred_action::Undo) {
             apply<true>(actions);
@@ -341,7 +429,7 @@ inline auto Undo_history::apply(Action_queue::Actor actions) -> void
 
     if (stack_from.empty()) return;
 
-    const auto step = stack_from.back();
+    auto step = std::move(stack_from.back());
     stack_from.pop_back();
 
     for (const auto& change : step.changes) {
@@ -350,7 +438,17 @@ inline auto Undo_history::apply(Action_queue::Actor actions) -> void
         actions.push(Action_end{change.addr});
     }
 
-    stack_to.push_back(step);
+    if (step.state && _state_hooks.replay) {
+        // Undo reverts {to -> from}; redo re-applies {from -> to}.
+        const auto& base = is_undo ? step.state->to : step.state->from;
+        const auto& next = is_undo ? step.state->from : step.state->to;
+        _state_hooks.replay(base.data(), next.data(), base.size());
+    }
+
+    if constexpr (is_undo) _state_bytes -= step.state_bytes();
+    else _state_bytes += step.state_bytes();
+    stack_to.push_back(std::move(step));
+    if constexpr (!is_undo) trim();
 }
 
 } // namespace tiny

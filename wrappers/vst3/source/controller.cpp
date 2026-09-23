@@ -81,6 +81,19 @@ auto Controller::_setup_router() -> void
 #endif
 }
 
+#if TINY_HAS_STATE
+auto Controller::_setup_state() -> void
+{
+    _router.register_handler(k_state_snapshot_id, [this](std::span<const std::byte> bytes, uint32_t gen) {
+        state::post_snapshot<models::Resolved::State>(_state_inbox, bytes, gen);
+    });
+    state::connect_remote(_state_link, [this](std::span<const std::byte> bytes, uint32_t seq) {
+        return _to_proc.send(k_state_edit_id, bytes, seq);
+    }, _state_inbox);
+    _state_link.bind(_undo_history);
+}
+#endif
+
 Steinberg::tresult PLUGIN_API Controller::notify(Steinberg::Vst::IMessage* message)
 {
     if (_router.dispatch(message)) return Steinberg::kResultOk;
@@ -312,14 +325,24 @@ Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream*
         }
     }
 
-    // Try to read the bypass parameter
+    // Try to read the bypass parameter. A preset exporter writes `no_value`: it has no opinion.
     auto bypass_value = float{};
-    if (streamer.readFloat(bypass_value)) {
+    const auto has_bypass = streamer.readFloat(bypass_value);
+    if (has_bypass && bypass_value != State_rules::no_value) {
         setParamNormalized(bypass_param_id, bypass_value);
     }
-    else {
-        //setParamNormalized(bypass_param_id, 0.f);
+
+#if TINY_HAS_STATE
+    // The processor's chunk carries the document; this seeds the editor's half from it.
+    auto record = std::vector<std::byte>{};
+    if (has_bypass) {
+        record = state::read_record([&](std::byte* out, size_t size) {
+            auto got = Steinberg::int32{};
+            return state->read(out, static_cast<Steinberg::int32>(size), &got) == Steinberg::kResultOk
+                && static_cast<size_t>(got) == size;
+        });
     }
+#endif
 
     // Record the host load as one coalesced undo step (works editor open or closed).
     // The editor notify() fires at the end of setState (the second of VST3's two
@@ -328,6 +351,9 @@ Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream*
     _host_load_after = _snapshot_knob_params();
     _host_load_changes.clear();
     _undo_history.push_host_load(before, _host_load_after, _host_load_changes);
+#if TINY_HAS_STATE
+    _state_link.load(state::decode_record_or_default<models::Resolved::State>(record)); // Into the same step.
+#endif
     _host_load_pending = true;
 
     if (auto* handler = getComponentHandler()) {
@@ -487,6 +513,7 @@ Steinberg::tresult PLUGIN_API Controller::getState(Steinberg::IBStream* state)
     auto streamer = Steinberg::IBStreamer{state};
 
     auto edit_state = _editor->save_state();
+    drop_reserved_keys(edit_state);
 
     // Inject the framework-owned editor window size (from our own cache) so the
     // window reopens pre-sized. The app editor never emits these keys.
@@ -720,7 +747,10 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
                     },
                     [](const auto&) {}
             }, a);
-            }
+            },
+#if TINY_HAS_STATE
+            .sync_state = [this]() { _state_link.sync(); },
+#endif
         };
 
         return new View{{

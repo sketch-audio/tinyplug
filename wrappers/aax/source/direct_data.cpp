@@ -27,6 +27,8 @@ AAX_Result Direct_data::TimerWakeup_PrivateDataAccess(AAX_IPrivateDataAccess* pr
     _drain_returns(private_data);
     _push_worker_replies(private_data);
     _read_blocks(private_data);
+    _push_state_edit(private_data);
+    _read_state_snapshot(private_data);
 
     return AAX_SUCCESS;
 }
@@ -149,6 +151,61 @@ auto Direct_data::_push_worker_replies([[maybe_unused]] AAX_IPrivateDataAccess* 
             // Publish last, so the algorithm never observes a partially written entry.
             access->WritePortDirect(field_inbound, Inbound_ring::offset_write_pos, sizeof(write_pos), &write_pos);
         }
+    }
+#endif
+}
+
+// MARK: - state
+
+// Data model -> algorithm. Only into an empty inbox; a busy one leaves the patch with the data
+// model, whose editor folds later edits into the next patch.
+auto Direct_data::_push_state_edit([[maybe_unused]] AAX_IPrivateDataAccess* access) -> void
+{
+#if TINY_HAS_STATE
+    auto* params = EffectParameters();
+    if (params == nullptr) return;
+
+    auto counters = std::array<uint64_t, 2>{}; // posted, taken
+    if (access->ReadPortDirect(field_state_inbox, State_inbox::offset_posted, sizeof(counters), counters.data()) != AAX_SUCCESS) return;
+    if (counters[0] != counters[1]) return;
+
+    auto written = uint32_t{};
+    const auto result = params->GetCustomData(custom_data_state_edit, static_cast<uint32_t>(_state_edit.size()), _state_edit.data(), &written);
+    if (result != AAX_SUCCESS || written < sizeof(State_edit_header)) return;
+
+    auto header = State_edit_header{};
+    std::memcpy(&header, _state_edit.data(), sizeof(header));
+    if (header.bytes > state_edit_bytes || written < sizeof(header) + header.bytes) return;
+
+    // Payload and its length first; `posted` last, so the algorithm never sees a half-written patch.
+    access->WritePortDirect(field_state_inbox, State_inbox::offset_payload, header.bytes, _state_edit.data() + sizeof(header));
+    access->WritePortDirect(field_state_inbox, State_inbox::offset_meta, sizeof(header), &header);
+    const auto posted = counters[0] + 1;
+    access->WritePortDirect(field_state_inbox, State_inbox::offset_posted, sizeof(posted), &posted);
+#endif
+}
+
+// Algorithm -> data model, the same bracketed read as a block.
+auto Direct_data::_read_state_snapshot([[maybe_unused]] AAX_IPrivateDataAccess* access) -> void
+{
+#if TINY_HAS_STATE
+    if constexpr (State_processor::processor_writes) {
+        auto* params = EffectParameters();
+        if (params == nullptr) return;
+
+        auto before = uint64_t{};
+        if (access->ReadPortDirect(field_state_outbox, State_outbox::offset_seq, sizeof(before), &before) != AAX_SUCCESS) return;
+        if (before == 0) { _state_seen = 0; return; }
+        if (before == _state_seen) return;
+
+        if (access->ReadPortDirect(field_state_outbox, State_outbox::offset_front(before), State_outbox::frame_bytes, _state_snapshot.data()) != AAX_SUCCESS) return;
+
+        auto after = uint64_t{};
+        if (access->ReadPortDirect(field_state_outbox, State_outbox::offset_seq, sizeof(after), &after) != AAX_SUCCESS) return;
+        if (after != before) return;
+
+        params->SetCustomData(custom_data_state_snapshot, State_outbox::frame_bytes, _state_snapshot.data());
+        _state_seen = before;
     }
 #endif
 }

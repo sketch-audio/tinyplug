@@ -206,6 +206,10 @@ public:
         }
 
         auto context = tiny::process::Dsp_context{.propose_latency = {}};
+#if TINY_HAS_STATE
+        auto state_block = _state.begin_block(); // Applies a staged edit now; publishes when process returns.
+        context.state = tiny::state::Access_for<tiny::models::Resolved::State>{&state_block};
+#endif
 #if TINY_HAS_METERS
         context.meters = _meters.scratch();
 #endif
@@ -374,6 +378,9 @@ public:
         _mailbox.read(out);
     }
 #endif
+#if TINY_HAS_STATE
+    auto state() -> tiny::state::Processor_for<tiny::models::Resolved::State>& { return _state; }
+#endif
 #if TINY_HAS_BLOCKS
     auto read_blocks(tiny::blocks::Frames<tiny::models::Resolved::Blocks>& out) -> void
     {
@@ -418,6 +425,9 @@ private:
 #endif
 #if TINY_HAS_BLOCKS
     tiny::blocks::Publisher<tiny::models::Resolved::Blocks> _blocks{}; // Staging frames the DSP writes.
+#endif
+#if TINY_HAS_STATE
+    tiny::state::Processor_for<tiny::models::Resolved::State> _state{};
 #endif
 
     static constexpr auto queue_size = []() {

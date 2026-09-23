@@ -4,6 +4,7 @@
 #include <tiny_core/task_manager.hpp>
 
 #include "action_queue.hpp"
+#include "tiny_state_link.hpp"
 #include "undo_history.hpp"
 
 namespace tiny {
@@ -19,6 +20,9 @@ struct Edit_context {
     State_adapter::Actor state_adapter{};
     Undo_history::Actor undo_redo{};
     Task_manager::Actor tasks{};
+#if TINY_HAS_STATE
+    state::Editor_actor<models::Resolved::State> state{};
+#endif
 };
 
 } // namespace tiny

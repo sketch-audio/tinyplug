@@ -1,6 +1,7 @@
 #include "parameters.hpp"
 
 #include <cassert>
+#include <string>
 #include <cstring>
 
 #include "AAX_CBinaryTaperDelegate.h"
@@ -298,6 +299,14 @@ AAX_Result Parameters::ResetFieldData(AAX_CFieldIndex iFieldIndex, void* oData, 
             }
         }
 
+#if TINY_HAS_STATE
+        {
+            const auto lock = std::lock_guard{_state_mutex};
+            const auto& side = _state_link.side();
+            out.state = State_seed{.value = side.sent(), .applied = side.sent_at(), .gen = side.generation()};
+        }
+#endif
+
         std::memcpy(oData, &out, sizeof(out));
         return AAX_SUCCESS;
     }
@@ -320,8 +329,48 @@ AAX_Result Parameters::TimerWakeup()
 
 // MARK: - custom data (Direct Data bridge)
 
+#if TINY_HAS_STATE
+auto Parameters::_setup_state() -> void
+{
+    state::connect_remote(_state_link, [this](std::span<const std::byte> bytes, uint32_t seq) {
+        const auto lock = std::lock_guard{_state_out_mutex};
+        if (_state_out_full || bytes.size() > _state_out.size()) return false; // Direct Data has not taken the last one.
+        std::memcpy(_state_out.data(), bytes.data(), bytes.size());
+        _state_out_header = State_edit_header{.bytes = static_cast<uint32_t>(bytes.size()), .seq = seq};
+        _state_out_full = true;
+        return true;
+    }, _state_inbox);
+    _state_link.bind(_undo_history);
+}
+
+// A host load. The algorithm did not see it, so the whole document goes out as the next patch,
+// replacing any edit still waiting in the outbox.
+auto Parameters::_load_state(std::span<const std::byte> record) -> void
+{
+    const auto doc = state::decode_record_or_default<State_model>(record);
+
+    const auto lock = std::lock_guard{_state_mutex};
+    {
+        const auto out_lock = std::lock_guard{_state_out_mutex};
+        _state_out_full = false;
+    }
+    _state_link.load(doc, state::Editor_link<State_model>::Resend::Yes);
+    _state_link.flush();
+}
+#endif
+
 AAX_Result Parameters::SetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSize, const void* iData)
 {
+#if TINY_HAS_STATE
+    if (iDataBlockID == custom_data_state_snapshot && iData != nullptr) {
+        if (inDataSize != sizeof(State_snapshot_frame)) return AAX_ERROR_INVALID_ARGUMENT;
+        auto gen = uint32_t{};
+        std::memcpy(&gen, iData, sizeof(gen));
+        const auto* bytes = static_cast<const std::byte*>(iData) + offsetof(State_snapshot_frame, bytes);
+        state::post_snapshot<State_model>(_state_inbox, {bytes, state::snapshot_bytes<State_model>}, gen);
+        return AAX_SUCCESS;
+    }
+#endif
 #if TINY_HAS_BLOCKS
     if (iDataBlockID == custom_data_block && iData != nullptr) {
         if (inDataSize < sizeof(Block_header)) return AAX_ERROR_INVALID_ARGUMENT;
@@ -396,6 +445,23 @@ AAX_Result Parameters::SetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSi
 
 AAX_Result Parameters::GetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSize, void* oData, uint32_t* oDataWritten) const
 {
+#if TINY_HAS_STATE
+    if (iDataBlockID == custom_data_state_edit) {
+        if (oDataWritten != nullptr) *oDataWritten = 0;
+        const auto lock = std::lock_guard{_state_out_mutex};
+        if (!_state_out_full) return AAX_SUCCESS;
+
+        const auto total = sizeof(State_edit_header) + _state_out_header.bytes;
+        if (oData == nullptr || inDataSize < total) return AAX_ERROR_INVALID_ARGUMENT;
+
+        auto* out = static_cast<unsigned char*>(oData);
+        std::memcpy(out, &_state_out_header, sizeof(State_edit_header));
+        std::memcpy(out + sizeof(State_edit_header), _state_out.data(), _state_out_header.bytes);
+        if (oDataWritten != nullptr) *oDataWritten = static_cast<uint32_t>(total);
+        _state_out_full = false;
+        return AAX_SUCCESS;
+    }
+#endif
     if (iDataBlockID != custom_data_worker_reply) {
         return Super::GetCustomData(iDataBlockID, inDataSize, oData, oDataWritten);
     }
@@ -643,6 +709,18 @@ AAX_Result Parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iC
     auto host_changes = std::vector<Set_param>{};
     _undo_history.push_host_load(before, host_after, host_changes);
 
+#if TINY_HAS_STATE
+    // The document, into the same undo step. A chunk without one loads the default.
+    {
+        auto encoded = AAX_CString{};
+        auto record = std::vector<std::byte>{};
+        if (mChunkParser.FindString(State_rules::Aax::state_record, &encoded)) {
+            if (auto bytes = base64::decode(encoded.CString())) record = std::move(*bytes);
+        }
+        _load_state(record);
+    }
+#endif
+
     // Editor state.
     auto state_map = State_map{};
     for (const auto& [key, raw_tag] : parsed_edit_keys) {
@@ -789,6 +867,19 @@ AAX_Result Parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_C
         }
     }
 
+#if TINY_HAS_STATE
+    // The document, compared as records so a chunk from an older payload version still matches.
+    {
+        auto encoded = AAX_CString{};
+        auto record = std::vector<std::byte>{};
+        if (mChunkParser.FindString(State_rules::Aax::state_record, &encoded)) {
+            if (auto bytes = base64::decode(encoded.CString())) record = std::move(*bytes);
+        }
+        const auto theirs = state::encode_record(state::decode_record_or_default<State_model>(record));
+        if (theirs != _state_record()) return AAX_SUCCESS;
+    }
+#endif
+
     // We don't care about the editor state here.
     *oIsEqual = true;
     return AAX_SUCCESS;
@@ -801,6 +892,7 @@ void Parameters::_build_chunk() const
     mChunkParser.Clear();
 
     auto edit_state = _editor->save_state();
+    drop_reserved_keys(edit_state);
 
     // Inject the framework-owned editor window size (from our own cache) so the window
     // reopens pre-sized. The app editor never emits these keys.
@@ -887,6 +979,11 @@ void Parameters::_build_chunk() const
         bypass_param->GetValueAsBool(&bypassed);
     }
     mChunkParser.AddFloat(State_rules::Aax::host_bypass, bypassed ? 1.f : 0.f);
+
+#if TINY_HAS_STATE
+    // Base64: the parser has no binary type, and its strings have no length limit.
+    mChunkParser.AddString(State_rules::Aax::state_record, base64::encode(_state_record()).c_str());
+#endif
 
 }
 

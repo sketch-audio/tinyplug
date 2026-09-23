@@ -41,7 +41,15 @@ public:
             .state_adapter = _state_adapter.actor(),
             .undo_redo = _undo_history.actor(),
             .tasks = _tasks.actor(),
+#if TINY_HAS_STATE
+            .state = _state_link.actor(),
+#endif
         });
+
+#if TINY_HAS_STATE
+        state::connect_in_process(_state_link, _state);
+        _state_link.bind(_undo_history);
+#endif
 
 #if TINY_HAS_WORKER
         try_bind_worker(*_processor, Worker_processor_actor{
@@ -187,6 +195,12 @@ private:
     Undo_history _undo_history{};
     Action_queue _actions{};
 
+#if TINY_HAS_STATE
+    // The document: the processor's copy and the editor's half, joined by direct calls.
+    state::Processor_for<models::Resolved::State> _state{};
+    state::Editor_link<models::Resolved::State> _state_link{};
+#endif
+
     // Snapshot all current param values in knob space (for host-load undo diffs).
     auto _snapshot_knob_params() const -> std::array<double, num_params>
     {
@@ -303,7 +317,10 @@ private:
                 .version = 1,
                 .param_tree = &User_params::param_tree(),
                 .param_values = std::vector<double>(knob.begin(), knob.end()),
-                .editor_state = _editor ? _editor->save_state() : State_map{}
+                .editor_state = _editor ? _editor->save_state() : State_map{},
+#if TINY_HAS_STATE
+                .state_record = state::encode_record(_state_link.view()),
+#endif
             };
         },
     }};
@@ -313,7 +330,9 @@ private:
     auto _resolve_transport(const clap_process* process) -> process::Musical_context;
     auto _read_state_chunk(const clap_istream* stream) -> bool;
 
-    auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void;
+    // `record` is the document's `state::encode_record`; empty loads the default.
+    auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
+                       std::span<const std::byte> record) -> void;
     auto _handle_host_flushed(bool needs_resync) -> void;
     auto _handle_user_actions(const clap_output_events_t* out_events, bool needs_resync) -> void;
     auto _handle_user_action(const User_action& action) -> void;

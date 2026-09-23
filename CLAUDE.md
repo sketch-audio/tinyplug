@@ -128,13 +128,32 @@ live alongside each interface — find them by searching for `concept Some_*`.
   `Frames` is the editor's retained copy and `View` is what `Processor_state::blocks` hands
   it (`latest<A>()` / `fresh<A>()`). There is no `Host` mailbox for blocks: the VST3
   controller's `notify` can run on the relay's thread. Optional.
+- **`state::Model`** ([tiny_state.hpp](libs/tiny_core/include/tiny_core/tiny_state.hpp)) — one
+  trivially copyable struct both sides edit, synchronized and undoable; `writers`
+  (`Editor`/`Processor`/`Both`) removes whatever the other side may not do. Every change is a
+  `{base, next}` patch applied as a **byte merge** ([state_merge.hpp](libs/tiny_core/include/tiny_core/state_merge.hpp)),
+  so a stale edit never erases a concurrent write. The processor side (`Processor_side`,
+  `Store` in [state_store.hpp](libs/tiny_core/include/tiny_core/state_store.hpp)) applies a staged
+  patch at the top of the block and triple-buffers what it publishes; `Dsp_context::state` is
+  a per-block `Access`. The editor side is the wrapper-owned `state::Editor_link`
+  ([tiny_state_link.hpp](libs/tinyplug/include/tinyplug/tiny_state_link.hpp)) — it holds the view,
+  retains gestures to re-run on refusal, flushes once per frame (`Ui_receiver::sync_state`),
+  and records document steps into the wrapper's `Undo_history` through `bind_state`. The
+  editor sees it as `Edit_context::state`. **Persisted** as a record
+  ([state_record.hpp](libs/tiny_core/include/tiny_core/state_record.hpp)): the author's
+  optional `save`/`load` pair inside a framework container, appended after the bypass in the
+  CLAP stream and the VST3 processor chunk, under `tinyplug-state` in AUv2/AUv3/AAX (base64 in
+  AAX), and as `"state"` in preset JSON. A restore decodes it (default on anything refused),
+  loads the processor copy (`on_session_load`) and calls `Editor_link::load`, which folds the
+  change into the host-load undo step. AAX's algorithm doesn't see the load, so its data model
+  loads with `Resend::Yes` and flushes. Design: [state-persistence.md](plans/state-persistence.md). Optional.
 - **`work::Model`** ([tiny_work.hpp](libs/tiny_core/include/tiny_core/tiny_work.hpp)) — the
   worker's four channel variants plus tuning, declared as `models::Work` in
   `models/work.hpp`. Optional, and paired with `worker.hpp` (the `work::Worker` class).
 
 ## Model layer
 
-A plug-in declares models in `source/models/{params,meters,blocks,work}.hpp` and classes in
+A plug-in declares models in `source/models/{params,meters,blocks,state,work}.hpp` and classes in
 `source/{processor,editor,worker}.hpp`. Discovery is **file presence, resolved by CMake**:
 `configure_models()` / `configure_plugin()` ([helpers.cmake](cmake/helpers.cmake)) generate
 `<tiny_models.hpp>` (`models::Resolved`, `User_params`/`User_meters`/`User_work`,
@@ -320,6 +339,11 @@ This has knock-on effects throughout the wrapper:
   pending forever while the host compensated for a latency the kernel had
   not applied. This matches AUv2's `GetLatency`. Don't simplify the rest of
   it — it's how the state machine survives `kDistributable`.
+- **State travels as `IMessage`s both ways.** Controller → processor `tiny/state/edit` (a
+  `{base, next}` patch, tag = edit sequence), sent from `sync` on the UI thread; processor →
+  controller `tiny/state/snapshot` via a 60 Hz `Relay`, only when the processor writes. The
+  controller parks snapshots in a `Snapshot_inbox` (`notify` may run on any thread) and
+  `sync` applies them. `state::connect_remote` is the wiring.
 - **Blocks travel as `IMessage`s** (`tiny/blocks`, tag = address). `process` posts into
   an outbox `blocks::Mailbox`; a 60 Hz `Relay` (scoped to `setActive`, like the latency
   relay) reads it and sends each fresh frame; the controller checks the size and posts into
@@ -394,6 +418,14 @@ the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two
   of a VST3 `IMessage`. The wakeup is **~30 ms and not guaranteed regular**, so
   nothing may assume a rate. The producer never overwrites unread data (a full
   push drops), which is what lets the remote consumer read without a seqlock retry.
+- **State has its own private-data fields.** `State_inbox` (data model → algorithm): Direct
+  Data writes a patch only while `posted == taken`, then bumps `posted`; the algorithm stages
+  it at the top of the next block and sets `taken`. The data model's single-slot outbox
+  refuses while it is full, so the editor folds later edits into the next patch — nothing is
+  dropped. `State_outbox` (algorithm → data model, only when the processor writes) is a
+  `Block_store` read the same way as blocks. Private data is rebuilt at a reset, so
+  `Reset_state::state` seeds a **freshly constructed** `Alg_state` with the data model's
+  last-sent document, its edit sequence and snapshot generation — never a surviving one.
 - **Blocks bypass the ring.** Each address has its own private-data field (`blocks[I]` in
   `Alg_context`, a `Block_store`: `seq` + two slots, [block_store.hpp](wrappers/aax/source/block_store.hpp)).
   The algorithm fills the back slot and bumps `seq`; Direct Data reads `seq`, copies the
@@ -508,14 +540,15 @@ the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two
 
 ## State / preset model
 
-- **Three persistence surfaces**: per-param scalar (host-managed),
-  editor `State_map` (string→variant<bool,int32_t,double,string>), and
-  the optional buffer-source persistence from
+- **Persistence surfaces**: per-param scalar (host-managed),
+  editor `State_map` (string→variant<bool,int32_t,double,string>), the
+  `state::Model` record (see "Core abstractions"), and the optional buffer-source persistence from
   [plans/buffer-system.md](plans/buffer-system.md) for large audio buffers
   (not yet implemented).
-- `State_adapter` ([shared/tinyplug/state_adapter.hpp](shared/tinyplug/state_adapter.hpp))
+- `State_adapter` ([state_adapter.hpp](libs/tiny_core/include/tiny_core/state_adapter.hpp))
   is the format-agnostic glue: a JSON document with `version`, `params`,
-  and `editor` keys. The same adapter serves both bundle presets and the
+  `editor` and (with a state model) `state` keys. Editor keys beginning `tinyplug-` are
+  the framework's (`drop_reserved_keys`). The same adapter serves both bundle presets and the
   user-facing save/load.
 - Per-format chunk layouts in [shared/tinyplug/state_rules.hpp](shared/tinyplug/state_rules.hpp).
   Each format embeds a (framework/manufacturer/plugin) sentinel; mismatch

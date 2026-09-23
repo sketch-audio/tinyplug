@@ -7,6 +7,7 @@
 #include <span>
 #include <variant>
 
+#include <tiny_core/tiny_state.hpp>
 #include <tiny_core/tiny_utils.hpp>
 
 #include <tiny_models.hpp>
@@ -79,6 +80,9 @@ struct Dsp_context {
 #endif
 #if TINY_HAS_BLOCKS
     blocks::Writer<models::Resolved::Blocks> blocks{};
+#endif
+#if TINY_HAS_STATE
+    state::Access<models::Resolved::State, state::writers_of<models::Resolved::State>> state{}; // This block only.
 #endif
     std::optional<uint32_t> propose_latency{}; // samples.
     Render_mode render_mode{Render_mode::Realtime};

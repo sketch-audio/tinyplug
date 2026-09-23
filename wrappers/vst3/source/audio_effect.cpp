@@ -62,6 +62,15 @@ auto Audio_effect::_setup_worker() -> void
 
 #endif // TINY_HAS_WORKER
 
+#if TINY_HAS_STATE
+auto Audio_effect::_setup_state() -> void
+{
+    _router.register_handler(k_state_edit_id, [this](std::span<const std::byte> bytes, uint32_t seq) {
+        _state.on_edit(bytes, seq);
+    });
+}
+#endif
+
 Steinberg::tresult PLUGIN_API Audio_effect::notify(Steinberg::Vst::IMessage* message)
 {
     if (_router.dispatch(message)) return Steinberg::kResultOk;
@@ -138,6 +147,9 @@ Steinberg::tresult PLUGIN_API Audio_effect::terminate()
 
     // Backstop: hosts skip this far less often than they skip `setActive(false)`.
     _relay.reset();
+#if TINY_HAS_STATE
+    _state_relay.reset();
+#endif
 #if TINY_HAS_BLOCKS
     _block_relay.reset();
 #endif
@@ -233,6 +245,19 @@ Steinberg::tresult PLUGIN_API Audio_effect::setActive(Steinberg::TBool state)
             .interval = 1. / 60.
         });
 #endif
+#if TINY_HAS_STATE
+        if constexpr (state::Processor_for<models::Resolved::State>::processor_writes) {
+            _state_relay.emplace(Relay::Spec{
+                .execute = [this]() {
+                    const auto lock = std::lock_guard{_state_mutex};
+                    state::pump(_state, [this](std::span<const std::byte> bytes, uint32_t gen) {
+                        return _to_ctrl.send(k_state_snapshot_id, bytes, gen);
+                    });
+                },
+                .interval = 1. / 60.
+            });
+        }
+#endif
 
 #if TINY_HAS_WORKER
         _shuttle.start(User_work::update_period);
@@ -242,6 +267,9 @@ Steinberg::tresult PLUGIN_API Audio_effect::setActive(Steinberg::TBool state)
         _relay.reset();
 #if TINY_HAS_BLOCKS
         _block_relay.reset();
+#endif
+#if TINY_HAS_STATE
+        _state_relay.reset();
 #endif
 #if TINY_HAS_WORKER
         _shuttle.stop();
@@ -451,6 +479,12 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     // block is per-policy and the publisher decides it at the end (levels persist,
     // peaks and events do not).
     auto context = Dsp_context{};
+#if TINY_HAS_STATE
+    // Scoped by hand: the block must publish before the relay is told there is something to send.
+    auto state_block = std::optional<state::Processor_for<models::Resolved::State>::Block>{};
+    state_block.emplace(&_state);
+    context.state = state::Access_for<models::Resolved::State>{&*state_block};
+#endif
 #if TINY_HAS_METERS
     context.meters = _meters.scratch();
 #endif
@@ -669,6 +703,10 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     });
     if (posted_blocks && _block_relay) _block_relay->post();
 #endif
+#if TINY_HAS_STATE
+    state_block.reset();
+    if (_state_relay) _state_relay->post(); // Cheap; the relay sends only if a block published.
+#endif
 
     // Latency notifications, now only when actually changed. The configure-time path is
     // handled directly in `setupProcessing`; this is only a runtime proposal, and it goes
@@ -769,14 +807,29 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
         }
     }
 
-    // Try to read bypass state.
+    // Try to read bypass state. A preset exporter writes `no_value`: it has no opinion.
     auto bypass_value = float{};
-    if (streamer.readFloat(bypass_value)) {
+    const auto has_bypass = streamer.readFloat(bypass_value);
+    if (has_bypass && bypass_value != State_rules::no_value) {
         _bypass.set_bypassed(bypass_value >= 0.5f);
     }
-    else {
-        //_bypass.set_bypassed(false);
+
+#if TINY_HAS_STATE
+    // The state record follows the bypass; a session without one loads the default document.
+    auto record = std::vector<std::byte>{};
+    if (has_bypass) {
+        record = state::read_record([&](std::byte* out, size_t size) {
+            auto got = Steinberg::int32{};
+            return state->read(out, static_cast<Steinberg::int32>(size), &got) == Steinberg::kResultOk
+                && static_cast<size_t>(got) == size;
+        });
     }
+    const auto doc = state::decode_record_or_default<models::Resolved::State>(record);
+    {
+        const auto lock = std::lock_guard{_state_mutex};
+        _state.on_session_load(doc);
+    }
+#endif
 
     return Steinberg::kResultOk;
 }
@@ -821,6 +874,21 @@ Steinberg::tresult PLUGIN_API Audio_effect::getState(Steinberg::IBStream* state)
     if (!streamer.writeFloat(bypass_value)) {
         return Steinberg::kResultFalse;
     }
+
+#if TINY_HAS_STATE
+    // The state record, last so older builds stop before it.
+    auto doc = models::Resolved::State{};
+    {
+        const auto lock = std::lock_guard{_state_mutex};
+        _state.snapshot(doc);
+    }
+    const auto record = state::encode_record(doc);
+    auto written = Steinberg::int32{};
+    if (state->write(const_cast<std::byte*>(record.data()), static_cast<Steinberg::int32>(record.size()), &written) != Steinberg::kResultOk
+        || static_cast<size_t>(written) != record.size()) {
+        return Steinberg::kResultFalse;
+    }
+#endif
 
     return Steinberg::kResultOk;
 }

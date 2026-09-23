@@ -16,6 +16,9 @@ struct State_rules {
     // 
     static constexpr auto no_value = std::numeric_limits<float>::lowest();
 
+    // Keys the framework writes into a container beside the editor's own. Editor keys may not use it.
+    static constexpr const char reserved_prefix[] = "tinyplug-";
+
     static auto is_persistent(const params::Spec& spec) -> bool
     {
         return spec.policy != params::Policy::Interface;
@@ -29,6 +32,7 @@ struct State_rules {
         static constexpr const char num_params[] = "tinyplug-num-params";
         static constexpr const char edit_keys[] = "tinyplug-edit-keys";
         static constexpr const char host_bypass[] = "tinyplug-host-bypass";
+        static constexpr const char state_record[] = "tinyplug-state"; // Base64 `state::encode_record`.
     };
 
     /**
@@ -38,6 +42,7 @@ struct State_rules {
         static constexpr const char num_params[] = "tinyplug-num-params";
         static constexpr const char num_editor_items[] = "tinyplug-num-editor-items";
         static constexpr const char editor_state_map[] = "tinyplug-editor-state-map";
+        static constexpr const char state_record[] = "tinyplug-state"; // CFData, `state::encode_record`.
     };
 
     /**
@@ -48,6 +53,7 @@ struct State_rules {
         static constexpr const char num_editor_items[] = "tinyplug-num-editor-items";
         static constexpr const char editor_state_map[] = "tinyplug-editor-state-map";
         static constexpr const char values_from_preset[] = "tinyplug-values-from-preset"; // Optional
+        static constexpr const char state_record[] = "tinyplug-state"; // NSData, `state::encode_record`.
     };
 
     /**
@@ -61,6 +67,8 @@ struct State_rules {
      * - Plug-in code: `Plug_info::plugin_code`
      * - Number of parameter values in host space (`float`)
      * - Number of key-value pairs (`State_item`)
+     *
+     * After the pairs: the host bypass (`float`), then the state record, if the plug-in has one.
     */
     struct Clap {
         static constexpr auto num_header_items = size_t{5};
@@ -79,6 +87,9 @@ struct State_rules {
      * - Number of items:
      *   -- Processor: number of parameter values in knob space (`float`)
      *   -- Controller: number of key-value pairs (`State_item`)
+     *
+     * The processor chunk ends with the host bypass (`float`, `no_value` for none) and then the
+     * state record, if the plug-in has one.
     */
     struct Vst3 {
         static constexpr auto num_header_items = size_t{4};

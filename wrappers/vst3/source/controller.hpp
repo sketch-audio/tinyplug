@@ -25,8 +25,14 @@ public:
             .state_adapter = _state_adapter.actor(),
             .undo_redo = _undo_history.actor(),
             .tasks = _tasks.actor(),
+#if TINY_HAS_STATE
+            .state = _state_link.actor(),
+#endif
         });
         _setup_router();
+#if TINY_HAS_STATE
+        _setup_state();
+#endif
 #if TINY_HAS_WORKER
         _setup_worker();
 #endif
@@ -121,7 +127,10 @@ protected:
                 .version = 1,
                 .param_tree = &User_params::param_tree(),
                 .param_values = std::vector<double>(knob.begin(), knob.end()),
-                .editor_state = _editor ? _editor->save_state() : State_map{}
+                .editor_state = _editor ? _editor->save_state() : State_map{},
+#if TINY_HAS_STATE
+                .state_record = state::encode_record(_state_link.view()),
+#endif
             };
         },
     }};
@@ -180,6 +189,16 @@ protected:
     Worker_runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
 
     auto _setup_worker() -> void;
+#endif
+
+#if TINY_HAS_STATE
+    // The editor's half of the document. Edits go down over IMessage from the UI thread;
+    // snapshots arrive on whatever thread the host delivers `notify` on, so they wait in a
+    // port and `sync` takes them on the UI thread.
+    state::Editor_link<models::Resolved::State> _state_link{};
+    state::Snapshot_inbox<models::Resolved::State> _state_inbox{};
+
+    auto _setup_state() -> void;
 #endif
 
     auto _drain_worker_to_editor() -> void;
