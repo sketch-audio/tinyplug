@@ -10,6 +10,7 @@
 #include "clap/helpers/host-proxy.hxx"
 
 #include <tiny_plugin.hpp>
+#include <tiny_core/change_set.hpp>
 
 #include "plug_info.hpp"
 
@@ -247,10 +248,10 @@ private:
 
     static constexpr auto queue_size = 4 * num_params + 1; // State only
 
-    using From_flush_queue = Lock_free_queue<process::Event::Any, queue_size>; //
     using From_ui_queue = Lock_free_queue<User_action, queue_size>;
 
-    From_flush_queue _from_flush{};
+    // Values from `paramsFlush`, its only writer: on the audio thread while active, so no mutex.
+    Change_set<process::Event::Set, num_params, Producers::One> _from_flush{};
     From_ui_queue _from_ui{};
 
 #if TINY_HAS_METERS
@@ -369,10 +370,8 @@ private:
                     _processor->handle(process::Event::Set{.address = id, .value = plain_value});
                 }
                 else {
-                    // On flush, we need to push into a queue for later.
-                    [[maybe_unused]] const auto success = _from_flush.push(process::Event::Set{.address = id, .value = plain_value});
-                    assert(success && "Push to flush queue failed! Increase queue size.");
-                    if (!success) _needs_resync.store(true, std::memory_order_relaxed); // Resync from _hostvalues on the next process.
+                    // On flush, keep it for the next process. Coalesces, so it can't overflow.
+                    _from_flush.push(process::Event::Set{.address = id, .value = plain_value});
                 }
 
                 // Maintain host atomics.

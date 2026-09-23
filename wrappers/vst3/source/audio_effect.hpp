@@ -11,6 +11,7 @@
 
 #include "plug_info.hpp"
 #include <tiny_plugin.hpp>
+#include <tiny_core/change_set.hpp>
 #include <tiny_core/relay.hpp>
 
 
@@ -116,9 +117,8 @@ private:
     meters::Publisher<tiny::models::Resolved::Meters> _meters{}; // Owns the scratch the DSP writes.
 #endif
 
-    static constexpr auto queue_size = 4 * num_params + 1; // This is just for state load.
-    using State_queue = Overwrite_queue<process::Event::Set, queue_size>;
-    State_queue _queue{};
+    // State loads, to the audio thread. A load lands whole, in one block.
+    Change_set<process::Event::Set, num_params> _loaded{};
 
     //
     using Host_value = std::atomic<double>;

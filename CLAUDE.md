@@ -101,7 +101,7 @@ live alongside each interface — find them by searching for `concept Some_*`.
   `Set_param` carries **knob** values from the editor / undo history. They used to be one
   type, which made a wrong-space assignment — the bug shape this codebase is most prone to
   (see "Three spaces") — compile silently. `Value_helper` is the bridge, at the wrapper
-  boundary where it always was. `Change_list` is the one genuinely two-sided container and
+  boundary where it always was. `Change_set` is the one genuinely two-sided container and
   is templated on the event type so each instance declares its space.
   *Everything in `process::Event::Any` carries a frame offset*, which is what makes the
   `Tagged_event` sort meaningful. Anything the host says at a block boundary is a
@@ -257,9 +257,13 @@ a detemplated farbot port). Common topology:
   parameter changes alongside automation.
 - **Processor → editor**: `meters::Publisher` posts into a `meters::Mailbox`; the view
   reads one display value per meter in `run_frame`.
-- **State load → processor**: a `Lock_free_queue<Set_param>` (the
-  "state queue") so chunk loads can publish into the audio thread without
-  allocating.
+- **Latest value per parameter → processor or editor**: `Change_set`
+  ([change_set.hpp](libs/tiny_core/include/tiny_core/change_set.hpp)), a double-buffered
+  dense set with a dirty bitset. Fixed memory, can't overflow (writes coalesce), `push_n`
+  lands whole, and the consumer never waits. Used for VST3 state loads, the VST3
+  controller's host values, AUv2 editor edits and restores, AUv3 parameter-tree sets and
+  CLAP `paramsFlush` (`Producers::One`: its producer can be the audio thread, so no mutex).
+  Anything with a frame offset, a ramp or an order (automation, gestures) stays on a queue.
 
 The `view_impl::run_frame` template in [tiny_view.hpp](libs/tinyplug/include/tinyplug/tiny_view.hpp)
 is the canonical UI loop: read meters → call user's `on_gui_draw` → observe

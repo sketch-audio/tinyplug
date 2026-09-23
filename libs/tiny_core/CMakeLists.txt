@@ -30,7 +30,7 @@ target_sources(${TINY_CORE_LIB} PRIVATE
 
 target_sources(${TINY_CORE_LIB} PRIVATE
     include/tiny_core/base64.hpp
-    include/tiny_core/change_list.hpp
+    include/tiny_core/change_set.hpp
     include/tiny_core/data_port.hpp
     include/tiny_core/denormal_guard.hpp
     include/tiny_core/gesture_recognizers.hpp

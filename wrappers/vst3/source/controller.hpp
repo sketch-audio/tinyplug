@@ -8,7 +8,7 @@
 #include "messaging.hpp"
 #include "view.hpp"
 
-#include "tiny_core/change_list.hpp"
+#include "tiny_core/change_set.hpp"
 #include "tiny_core/task_manager.hpp"
 
 namespace tiny::vst3 {
@@ -143,7 +143,7 @@ protected:
     // Lock-free: `notify` may run on whatever thread the processor's relay sent from.
     blocks::Mailbox<models::Resolved::Blocks> _block_mailbox{};
 #endif
-    Change_list<Set_param> _state_queue{}; // Knob space, to the editor.
+    Change_set<Set_param, User_params::num_params> _state_queue{}; // Knob space, to the editor.
 
     std::unordered_set<uint32_t> _gestured{};
     std::optional<Rect_size> _last_size{};

@@ -14,6 +14,7 @@
 #include "plug_info.hpp"
 
 #include <tiny_dsp/host_bypass.hpp>
+#include <tiny_core/change_set.hpp>
 #include <tiny_core/denormal_guard.hpp>
 
 #include <tiny_core/relay.hpp>
@@ -94,21 +95,10 @@ public:
         const auto& spec = User_params::param_spec(addr);
         const auto plain = tiny::params::Value_helper::host_to_plain(value, spec.semantics);
 
-        if (_bypass.is_bypassed()) {
-            // We may or may not be getting processed while bypassed.
-            // process() must watch to see if a resync is necessary.
-            _bypass_epoch.fetch_add(1, std::memory_order_relaxed);
-        }
-        else {
-            [[maybe_unused]] const auto success = _param_queue.push(tiny::process::Event::Set{
-                .address = addr,
-                .value = plain
-            });
-            assert(success && "Param queue push failed. Increase queue size!");
-            if (!success) _needs_resync.store(true, std::memory_order_relaxed); // If we can't push, resync on the next process.
-        }
+        // Coalesces, so nothing is lost however long process() goes without running.
+        _param_changes.push(tiny::process::Event::Set{.address = addr, .value = plain});
 
-        // Maintain host values (the resync source of truth).
+        // Maintain host values.
         _hostvalues[address].store(value, std::memory_order_release);
     }
     
@@ -177,32 +167,15 @@ public:
             _bypass.snap();
         }
 
-        // Resync logic
-        const auto needs_resync = _needs_resync.exchange(false, std::memory_order_relaxed); // Queue overflow.
-        const auto epoch = _bypass_epoch.load(std::memory_order_relaxed);
-        const auto skipped_while_bypassed = epoch != _seen_epoch;
-        _seen_epoch = epoch;
+        // Parameter values set off the render thread since the last block.
+        const auto delivered = _param_changes.consume([this](uint32_t address, double value) {
+            _processor->handle(tiny::process::Event::Set{.address = address, .value = value});
+        });
 
-        if (needs_resync || skipped_while_bypassed) {
-            auto discarded = tiny::process::Event::Any{};
-            while (_param_queue.pop(discarded)) {}
-
-            for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
-                const auto host_value = _hostvalues[addr].load(std::memory_order_relaxed);
-                const auto& spec = User_params::param_spec(addr);
-                const auto plain = tiny::params::Value_helper::host_to_plain(host_value, spec.semantics);
-                _processor->handle(tiny::process::Event::Set{.address = addr, .value = plain});
-            }
-
-            // Manifest immediately — a client reading realized state (e.g. an open editor)
-            // shouldn't see stale values for the whole bypassed/inactive stretch.
+        // Changed while bypassed: manifest now rather than ramping through audio nobody hears,
+        // so a client reading realized state (an open editor) doesn't see stale values.
+        if (delivered && _bypass.is_bypassed()) {
             _processor->reset(tiny::process::Reset::Soft{});
-        }
-        else {
-            auto event = tiny::process::Event::Any{};
-            while (_param_queue.pop(event)) {
-                _processor->handle(event);
-            }
         }
 
         auto context = tiny::process::Dsp_context{.propose_latency = {}};
@@ -430,21 +403,10 @@ private:
     tiny::state::Processor_for<tiny::models::Resolved::State> _state{};
 #endif
 
-    static constexpr auto queue_size = []() {
-        const auto state = 4 * num_params;
-        const auto automation = 64 * std::bit_width(num_params); // We expect number of automated parameters to be small but we need to be able to handle a lot of flux.
-        return state + automation + 1;
-    }();
+    // Parameter values set off the render thread (the parameter tree), to process().
+    tiny::Change_set<tiny::process::Event::Set, num_params> _param_changes{};
 
-    //static constexpr auto param_queue_min_size = 4 * num_params + 1;
-    using Param_queue = tiny::Lock_free_queue<tiny::process::Event::Any, queue_size, tiny::Queue_concurrency::mpsc>; // I believe SetParameter can happen from multiple threads
-    Param_queue _param_queue{};
-
-    // Resync mechanism (see setParameter / setBypass / setOffline / process).
     std::atomic<bool> _needs_clear{false}; // Set by clear(), consumed at the top of process().
-    std::atomic<bool> _needs_resync{false}; // Queue-overflow recovery only. See process().
-    std::atomic<uint32_t> _bypass_epoch{};
-    uint32_t _seen_epoch{}; // process()-thread only.
     bool _was_skipped{}; // process()-thread only. Detects the can_skip -> processing edge.
     std::optional<tiny::process::Render_mode> _last_render_mode{}; // process()-thread only. Detects the realtime <-> offline edge.
 

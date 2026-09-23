@@ -1330,19 +1330,15 @@ uint32_t Plugin::tailGet() const noexcept
 
 auto Plugin::_handle_host_flushed(bool needs_resync) -> void
 {
-    // Don't replay stale events.
+    // Don't replay stale values: the resync restated everything from _hostvalues.
     if (needs_resync) {
-        auto discarded = process::Event::Any{};
-        while (_from_flush.pop(discarded)) {}
+        _from_flush.consume([](uint32_t, double) {});
         return;
     }
 
-    auto delivered = false;
-    auto kernel_event = process::Event::Any{};
-    while (_from_flush.pop(kernel_event)) {
-        _processor->handle(kernel_event);
-        delivered = true;
-    }
+    const auto delivered = _from_flush.consume([this](uint32_t address, double value) {
+        _processor->handle(process::Event::Set{.address = address, .value = value});
+    });
     if (delivered) {
         _processor->reset(process::Reset::Soft{});
     }

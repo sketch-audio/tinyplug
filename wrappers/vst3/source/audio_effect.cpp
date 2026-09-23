@@ -394,11 +394,10 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         _bypass.snap();
     }
 
-    // Process events in state queue.
-    auto state_event = process::Event::Set{};
-    while (_queue.pop(state_event)) {
-        _processor->handle(state_event);
-    }
+    // Values from a state load.
+    _loaded.consume([this](uint32_t address, double value) {
+        _processor->handle(process::Event::Set{address, value});
+    });
 
     // Validate shape up front.
     const auto has_inputs = data.numInputs > 0 && data.inputs;
@@ -756,14 +755,15 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
 
     const auto num_stored_values = header[3];
 
+    auto loaded = std::vector<process::Event::Set>{};
+    loaded.reserve(num_params);
+
     auto notify = [&](const auto& spec, float knob_value) {
         if (!State_rules::is_persistent(spec)) return;
 
         const auto address = spec.identity.address;
         const auto plain_value = Value_helper::knob_to_plain(knob_value, spec.semantics);
-
-        // Queue sends events to processor at next process call. 
-        _queue.push(process::Event::Set{address, plain_value}); // Overwrite queue, won't overflow.
+        loaded.push_back(process::Event::Set{address, plain_value});
 
         // Maintain host values.
         _host_values[address].store(knob_value, std::memory_order_relaxed);
@@ -806,6 +806,8 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
             notify(param, static_cast<float>(Value_helper::default_value(param, Space::Knob)));
         }
     }
+
+    _loaded.push_n(loaded); // One batch: the processor never runs a block on half a load.
 
     // Try to read bypass state. A preset exporter writes `no_value`: it has no opinion.
     auto bypass_value = float{};

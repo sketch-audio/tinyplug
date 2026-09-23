@@ -22,6 +22,13 @@ silence, trig, the host transport's dropped-restatement recovery, publisher to
 mailbox end to end, and one two-thread check that a peak is never lost to a concurrent
 read. Run that one under `-fsanitize=thread` too.
 
+## change_set_test.cpp
+
+`Change_set`, both producer modes: coalescing, sparse iteration, empty batches, buffers
+swapping roles, no allocation (with the `unordered_map` it replaced as a reference), batch
+atomicity under a concurrent producer, four producers ending on the last value written to
+each address, and a consumer that never waits. Run it under `-fsanitize=thread` too.
+
 ## data_port_test.cpp
 
 `Data_port` in both directions, plus `read_fresh`: coalescing, no torn reads against a

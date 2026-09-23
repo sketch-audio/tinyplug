@@ -373,6 +373,17 @@ VST3 (one `IMessage` per changed address), and ~33/s in AAX (Direct Data).
 
 ---
 
+## Change sets
+
+`Change_list` is gone; `Change_set<Event, N, Producers>`
+([change_set.hpp](libs/tiny_core/include/tiny_core/change_set.hpp)) replaces it, and VST3's
+state loads use it instead of `Overwrite_queue` (which stays in `lock_free_queue.hpp`, unused). `N` is the
+address count (usually `User_params::num_params`), fixed at compile time. `push`, `push_n` and
+`consume` are unchanged, except that `consume` now returns whether anything arrived. Only wrapper
+code used `Change_list`.
+
+---
+
 ## State
 
 Adds `state::Model`: one trivially copyable struct, declared in `source/models/state.hpp`,

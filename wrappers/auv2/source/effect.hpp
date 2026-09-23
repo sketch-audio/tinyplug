@@ -9,7 +9,7 @@
 #include <AudioToolbox/AudioToolbox.h>
 
 #include <tinyplug/tinyplug.hpp>
-#include "tiny_core/change_list.hpp"
+#include "tiny_core/change_set.hpp"
 
 #include <tiny_plugin.hpp>
 
@@ -218,7 +218,7 @@ private:
     using To_processor_queue = Lock_free_queue<process::Tagged_event, queue_size, Queue_concurrency::mpsc>; // I believe SetParameter can happen from a variety of threads.
 
 
-    Change_list<process::Event::Set> _changes{}; // Plain space, to the audio thread.
+    Change_set<process::Event::Set, num_params> _changes{}; // Plain space, to the audio thread.
     To_processor_queue _to_processor{};
 
 #if TINY_HAS_METERS
