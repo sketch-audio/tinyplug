@@ -149,6 +149,20 @@ private:
 
     std::vector<process::Tagged_event> _events{}; // Some fixed size thing.
 
+#if TINY_HAS_NOTES_IN
+    // Host notes and mapped controls, unnamed until `_name_notes` reads them in time order: MPE
+    // needs a control to meet exactly the notes held at its offset.
+    struct Staged {
+        std::variant<process::Note::Any, midi::Bytes> event{};
+        int32_t local{-1}; // The host's note id.
+        int32_t offset{};
+        uint32_t order{};
+    };
+    std::vector<Staged> _staged{};
+    auto _stage(Staged staged) -> void { if (_staged.size() < _staged.capacity()) _staged.push_back(staged); }
+    auto _name_notes() -> void;
+#endif
+
     std::unique_ptr<User_processor> _processor = std::make_unique<User_processor>();
 
     // Latency

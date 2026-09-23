@@ -24,6 +24,7 @@
 // What the plug-in carries, from TINY_PLUGIN_WANTS_NOTES. Not models: CMake declarations.
 #define TINY_HAS_NOTES_IN @TINY_HAS_NOTES_IN@
 #define TINY_HAS_NOTES_OUT @TINY_HAS_NOTES_OUT@
+#define TINY_HAS_NOTE_EXPRESSION @TINY_HAS_NOTE_EXPRESSION@
 
 namespace tiny::models {
 
@@ -58,5 +59,6 @@ inline constexpr bool has_state = TINY_HAS_STATE;
 inline constexpr bool has_work = TINY_HAS_WORK;
 inline constexpr bool has_notes_in = TINY_HAS_NOTES_IN;
 inline constexpr bool has_notes_out = TINY_HAS_NOTES_OUT;
+inline constexpr bool has_note_expression = TINY_HAS_NOTE_EXPRESSION;
 
 } // namespace tiny

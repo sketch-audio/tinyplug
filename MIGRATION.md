@@ -533,7 +533,7 @@ why CC is a closed set, is [plans/midi-support.md](plans/midi-support.md).
 
 ```cmake
 add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_AUDIO "out")   # in, out, sidechain, or none; default "in;out"
-add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_NOTES "in")    # in, out, or none; default none
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_NOTES "in")    # in, out, expression, or none; default none
 ```
 
 Audio in and out is an effect (notes optional); audio out with notes in is an instrument (a
@@ -545,6 +545,14 @@ Tools requires of MIDI effects.
 For Live, which loads neither `aumi` AUs nor VST3 effects without an audio input, a note
 generator declares `TINY_PLUGIN_WANTS_AUDIO "out"` with notes in and out: an instrument that
 emits notes, routed to another track with "MIDI From".
+
+`expression` (with `in`) declares MPE and per-note expression to every host that asks, and
+reads MIDI 1.0 member channels as MPE: their bend, pressure and CC 74 arrive as
+`Note::Expression{Tuning, Pressure, Brightness}`, only the manager channel as `Control`. A
+note starts at `Expression::neutral` for every kind. For a player-facing MPE switch, answer
+`auto mpe_enabled() const -> bool` (from a parameter, say); without it MPE is always on. The
+switch changes only how MIDI 1.0 is read; typed expressions from VST3 and CLAP hosts arrive
+either way.
 
 ### Processor
 
@@ -571,7 +579,7 @@ The types live in `tiny::midi` (`<tiny_core/tiny_midi.hpp>`); `tiny::process` re
 `Control` and `Performance`, so processor code writes them unqualified.
 
 Not included, in or out: SysEx, system messages (clock, song position, start/stop), MIDI 2.0,
-and MPE on AU and AAX. On the way in, arbitrary CC, NRPN and program change are dropped:
+and MPE out. On the way in, arbitrary CC, NRPN and program change are dropped:
 the host maps controllers to parameters. The full list is "Not included" in
 [plans/midi-support.md](plans/midi-support.md).
 

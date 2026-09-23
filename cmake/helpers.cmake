@@ -56,11 +56,11 @@ function(prepare_vst3_uid_array item1 item2 item3 item4 out_array_var)
 endfunction()
 
 # What the plug-in carries, and the format identity derived from it. Sets, in the caller's scope:
-# TINY_AUDIO_IN / _OUT, TINY_SIDECHAIN, TINY_NOTES_IN / _OUT (0/1), TINY_KIND and TINY_KIND_ENUM,
+# TINY_AUDIO_IN / _OUT, TINY_SIDECHAIN, TINY_NOTES_IN / _OUT, TINY_NOTE_EXPRESSION (0/1), TINY_KIND and TINY_KIND_ENUM,
 # and the derived TINY_AUV2_TYPE. Validates the combination, and an AUv2 type that contradicts it.
 #
 #   TINY_PLUGIN_WANTS_AUDIO   in, out, sidechain, or none   default "in;out"
-#   TINY_PLUGIN_WANTS_NOTES   in, out, or none              default none
+#   TINY_PLUGIN_WANTS_NOTES   in, out, expression, or none  default none; expression (MPE) needs in
 #   TINY_PLUGIN_WANTS_SIDECHAIN "true"             deprecated; same as adding `sidechain`
 macro(tiny_resolve_capabilities target)
     get_target_property(_audio ${target} TINY_PLUGIN_WANTS_AUDIO)
@@ -85,8 +85,8 @@ macro(tiny_resolve_capabilities target)
         endif()
     endforeach()
     foreach(_item IN LISTS _notes)
-        if(NOT _item MATCHES "^(in|out)$")
-            message(FATAL_ERROR "[tiny] ${target}: TINY_PLUGIN_WANTS_NOTES takes in and out, not '${_item}'.")
+        if(NOT _item MATCHES "^(in|out|expression)$")
+            message(FATAL_ERROR "[tiny] ${target}: TINY_PLUGIN_WANTS_NOTES takes in, out and expression, not '${_item}'.")
         endif()
     endforeach()
 
@@ -102,6 +102,10 @@ macro(tiny_resolve_capabilities target)
     _tiny_flag(_audio sidechain TINY_SIDECHAIN)
     _tiny_flag(_notes in TINY_NOTES_IN)
     _tiny_flag(_notes out TINY_NOTES_OUT)
+    _tiny_flag(_notes expression TINY_NOTE_EXPRESSION)
+    if(TINY_NOTE_EXPRESSION AND NOT TINY_NOTES_IN)
+        message(FATAL_ERROR "[tiny] ${target}: TINY_PLUGIN_WANTS_NOTES `expression` describes notes coming in; add `in`.")
+    endif()
 
     # The table in plans/midi-support.md, "Declaration".
     if(TINY_AUDIO_IN AND TINY_AUDIO_OUT)
@@ -307,6 +311,7 @@ function(configure_models target)
     tiny_resolve_capabilities(${target})
     set(TINY_HAS_NOTES_IN ${TINY_NOTES_IN})
     set(TINY_HAS_NOTES_OUT ${TINY_NOTES_OUT})
+    set(TINY_HAS_NOTE_EXPRESSION ${TINY_NOTE_EXPRESSION})
 
     if(NOT TINY_HAS_PARAMS)
         message(FATAL_ERROR "[tiny] ${target}: models/params.hpp is required (zero-parameter plug-ins are not supported yet).")

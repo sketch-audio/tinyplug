@@ -36,6 +36,10 @@ static_assert(requires(plugin::Resolved::Processor p, const process::Note::Any& 
 static_assert(requires(plugin::Resolved::Processor p, const process::Control::Any& c) { p.handle(c); },
               "TINY_PLUGIN_WANTS_NOTES has `in`: process::Processor needs `auto handle(const Control::Any&) -> void`.");
 #endif
+#if !TINY_HAS_NOTE_EXPRESSION
+static_assert(!process::Switches_mpe<plugin::Resolved::Processor>,
+              "process::Processor answers mpe_enabled(): declare TINY_PLUGIN_WANTS_NOTES \"in;expression\".");
+#endif
 static_assert(process::Interface<plugin::Resolved::Processor>,
               "process::Processor must satisfy process::Interface.");
 

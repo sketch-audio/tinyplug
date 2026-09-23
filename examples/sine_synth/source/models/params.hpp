@@ -13,6 +13,7 @@ struct Params {
         Release,
         Vibrato,
         Level,
+        Mpe,
         Num_params
     };
 
@@ -49,13 +50,20 @@ struct Params {
                 .name = "Level",
                 .semantics = Semantics::Real{.min_val = 0, .def_val = 0.5, .max_val = 1, .units = Units::Generic, .knob_adapter = Adapter::Lin{}}
             },
+            Spec{
+                // Whether MIDI 1.0 channels 2-16 each carry one note's bend, pressure and CC 74.
+                .identity = {.address = enum_raw(Mpe), .identifier = "mpe"},
+                .name = "MPE",
+                .semantics = Semantics::Bool{.def_val = true},
+                .policy = Policy::Control
+            },
         }};
     }
 
     static auto au_order() -> std::vector<Address>
     {
         using enum Address;
-        return {Attack, Decay, Sustain, Release, Vibrato, Level};
+        return {Attack, Decay, Sustain, Release, Vibrato, Level, Mpe};
     }
 };
 static_assert(params::Model<Params>);

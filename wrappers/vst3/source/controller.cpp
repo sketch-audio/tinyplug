@@ -1,5 +1,7 @@
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <span>
 
@@ -241,6 +243,17 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
         Steinberg::Vst::StringConvert::convert("Control", info.title);
         parameters.addParameter(info);
     }
+    for (auto i = int32_t{}; i < num_timbre_params; ++i) {
+        auto info = Steinberg::Vst::ParameterInfo{
+            .id = static_cast<Steinberg::Vst::ParamID>(timbre_param_offset + i),
+            .stepCount = 0,
+            .defaultNormalizedValue = 0.5,
+            .unitId = Steinberg::Vst::kRootUnitId,
+            .flags = Steinberg::Vst::ParameterInfo::kIsHidden
+        };
+        Steinberg::Vst::StringConvert::convert("Timbre", info.title);
+        parameters.addParameter(info);
+    }
 #endif
 
     // Add the bypass parameter.
@@ -264,6 +277,11 @@ Steinberg::tresult PLUGIN_API Controller::getMidiControllerAssignment(Steinberg:
 {
     if (busIndex != 0 || channel < 0 || channel > 15) return Steinberg::kResultFalse;
 
+    if (num_timbre_params > 0 && number == 74) {
+        id = static_cast<Steinberg::Vst::ParamID>(timbre_param_offset + channel);
+        return Steinberg::kResultTrue;
+    }
+
     auto which = int32_t{-1};
     if (number == Steinberg::Vst::kPitchBend) which = 0;
     else if (number == Steinberg::Vst::kAfterTouch) which = 1;
@@ -275,6 +293,82 @@ Steinberg::tresult PLUGIN_API Controller::getMidiControllerAssignment(Steinberg:
     if (which < 0) return Steinberg::kResultFalse; // Not a player control: the host maps it to parameters.
 
     id = static_cast<Steinberg::Vst::ParamID>(control_param_offset + channel * controls_per_channel + which);
+    return Steinberg::kResultTrue;
+}
+#endif
+
+#if TINY_HAS_NOTE_EXPRESSION
+namespace {
+
+auto find_expression(Steinberg::Vst::NoteExpressionTypeID id) -> const Expression_decl*
+{
+    for (const auto& decl : declared_expressions) if (decl.id == id) return &decl;
+    return nullptr;
+}
+
+} // namespace
+
+Steinberg::int32 PLUGIN_API Controller::getNoteExpressionCount(Steinberg::int32 busIndex, Steinberg::int16 /*channel*/)
+{
+    return busIndex == 0 ? static_cast<Steinberg::int32>(declared_expressions.size()) : 0;
+}
+
+Steinberg::tresult PLUGIN_API Controller::getNoteExpressionInfo(Steinberg::int32 busIndex, Steinberg::int16 /*channel*/,
+    Steinberg::int32 index, Steinberg::Vst::NoteExpressionTypeInfo& info)
+{
+    using Info = Steinberg::Vst::NoteExpressionTypeInfo;
+    if (busIndex != 0 || index < 0 || index >= static_cast<Steinberg::int32>(declared_expressions.size())) return Steinberg::kResultFalse;
+
+    const auto& decl = declared_expressions[static_cast<size_t>(index)];
+    info = Info{};
+    info.typeId = decl.id;
+    Steinberg::Vst::StringConvert::convert(decl.title, info.title);
+    Steinberg::Vst::StringConvert::convert(decl.short_title, info.shortTitle);
+    Steinberg::Vst::StringConvert::convert(decl.id == Steinberg::Vst::kTuningTypeID ? "st" : "%", info.units);
+    info.unitId = -1;
+    info.valueDesc = {decl.neutral, 0., 1., 0};
+    info.associatedParameterId = Steinberg::Vst::kNoParamId;
+    info.flags = (decl.bipolar ? Info::kIsBipolar : 0) | Info::kIsAbsolute;
+    return Steinberg::kResultTrue;
+}
+
+Steinberg::tresult PLUGIN_API Controller::getNoteExpressionStringByValue(Steinberg::int32 busIndex, Steinberg::int16 /*channel*/,
+    Steinberg::Vst::NoteExpressionTypeID id, Steinberg::Vst::NoteExpressionValue value, Steinberg::Vst::String128 string)
+{
+    if (busIndex != 0 || !find_expression(id)) return Steinberg::kResultFalse;
+    char text[32]{};
+    if (id == Steinberg::Vst::kTuningTypeID) std::snprintf(text, sizeof(text), "%+.2f", (value - 0.5) * 240.);
+    else std::snprintf(text, sizeof(text), "%.0f", value * 100.);
+    Steinberg::Vst::StringConvert::convert(text, string);
+    return Steinberg::kResultTrue;
+}
+
+Steinberg::tresult PLUGIN_API Controller::getNoteExpressionValueByString(Steinberg::int32 busIndex, Steinberg::int16 /*channel*/,
+    Steinberg::Vst::NoteExpressionTypeID id, const Steinberg::Vst::TChar* string, Steinberg::Vst::NoteExpressionValue& value)
+{
+    if (busIndex != 0 || !find_expression(id) || !string) return Steinberg::kResultFalse;
+    const auto text = Steinberg::Vst::StringConvert::convert(string);
+    char* end = nullptr;
+    const auto parsed = std::strtod(text.c_str(), &end);
+    if (end == text.c_str()) return Steinberg::kResultFalse;
+    value = std::clamp(id == Steinberg::Vst::kTuningTypeID ? parsed / 240. + 0.5 : parsed / 100., 0., 1.);
+    return Steinberg::kResultTrue;
+}
+
+// A controller's three MPE dimensions: X is tuning (the slide), Y brightness (CC 74), pressure pressure.
+Steinberg::tresult PLUGIN_API Controller::getPhysicalUIMapping(Steinberg::int32 busIndex, Steinberg::int16 /*channel*/,
+    Steinberg::Vst::PhysicalUIMapList& list)
+{
+    if (busIndex != 0 || !list.map) return Steinberg::kResultFalse;
+    for (auto i = Steinberg::uint32{}; i < list.count; ++i) {
+        auto& entry = list.map[i];
+        switch (entry.physicalUITypeID) {
+            case Steinberg::Vst::kPUIXMovement: entry.noteExpressionTypeID = Steinberg::Vst::kTuningTypeID; break;
+            case Steinberg::Vst::kPUIYMovement: entry.noteExpressionTypeID = Steinberg::Vst::kBrightnessTypeID; break;
+            case Steinberg::Vst::kPUIPressure: entry.noteExpressionTypeID = pressure_expression_id; break;
+            default: entry.noteExpressionTypeID = Steinberg::Vst::kInvalidTypeID; break;
+        }
+    }
     return Steinberg::kResultTrue;
 }
 #endif

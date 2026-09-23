@@ -363,7 +363,7 @@ public:
 #if TINY_HAS_NOTES_IN
                 const auto& m = event->MIDI;
                 const auto offset = static_cast<int32_t>(std::max<AUEventSampleTime>(event->head.eventSampleTime - _block_start, 0));
-                _notes.from_midi(m.data[0], m.length > 1 ? m.data[1] : 0, m.length > 2 ? m.data[2] : 0,
+                _notes.from_midi(tiny::process::mpe_enabled(*_processor), m.data[0], m.length > 1 ? m.data[1] : 0, m.length > 2 ? m.data[2] : 0,
                                  [&](const tiny::process::Input& input) { _input(input, offset); });
 #endif
                 break;

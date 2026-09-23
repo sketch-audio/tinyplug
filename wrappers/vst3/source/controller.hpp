@@ -1,6 +1,8 @@
 #pragma once
 
 #include "public.sdk/source/vst/vsteditcontroller.h"
+#include "pluginterfaces/vst/ivstnoteexpression.h"
+#include "pluginterfaces/vst/ivstphysicalui.h"
 
 
 #include <tiny_plugin.hpp>
@@ -16,6 +18,10 @@ namespace tiny::vst3 {
 class Controller : public Steinberg::Vst::EditControllerEx1
 #if TINY_HAS_NOTES_IN
     , public Steinberg::Vst::IMidiMapping
+#endif
+#if TINY_HAS_NOTE_EXPRESSION
+    , public Steinberg::Vst::INoteExpressionController
+    , public Steinberg::Vst::INoteExpressionPhysicalUIMapping
 #endif
 {
 public:
@@ -78,10 +84,27 @@ public:
         Steinberg::Vst::CtrlNumber midiControllerNumber, Steinberg::Vst::ParamID& id) SMTG_OVERRIDE;
 #endif
 
+#if TINY_HAS_NOTE_EXPRESSION
+    // INoteExpressionController and the physical mapping: what hosts read to send MPE as expressions.
+    Steinberg::int32 PLUGIN_API getNoteExpressionCount(Steinberg::int32 busIndex, Steinberg::int16 channel) SMTG_OVERRIDE;
+    Steinberg::tresult PLUGIN_API getNoteExpressionInfo(Steinberg::int32 busIndex, Steinberg::int16 channel,
+        Steinberg::int32 noteExpressionIndex, Steinberg::Vst::NoteExpressionTypeInfo& info) SMTG_OVERRIDE;
+    Steinberg::tresult PLUGIN_API getNoteExpressionStringByValue(Steinberg::int32 busIndex, Steinberg::int16 channel,
+        Steinberg::Vst::NoteExpressionTypeID id, Steinberg::Vst::NoteExpressionValue valueNormalized, Steinberg::Vst::String128 string) SMTG_OVERRIDE;
+    Steinberg::tresult PLUGIN_API getNoteExpressionValueByString(Steinberg::int32 busIndex, Steinberg::int16 channel,
+        Steinberg::Vst::NoteExpressionTypeID id, const Steinberg::Vst::TChar* string, Steinberg::Vst::NoteExpressionValue& valueNormalized) SMTG_OVERRIDE;
+    Steinberg::tresult PLUGIN_API getPhysicalUIMapping(Steinberg::int32 busIndex, Steinberg::int16 channel,
+        Steinberg::Vst::PhysicalUIMapList& list) SMTG_OVERRIDE;
+#endif
+
     //---Interface---------
     DEFINE_INTERFACES
 #if TINY_HAS_NOTES_IN
         DEF_INTERFACE(Steinberg::Vst::IMidiMapping)
+#endif
+#if TINY_HAS_NOTE_EXPRESSION
+        DEF_INTERFACE(Steinberg::Vst::INoteExpressionController)
+        DEF_INTERFACE(Steinberg::Vst::INoteExpressionPhysicalUIMapping)
 #endif
     END_DEFINE_INTERFACES(Steinberg::Vst::EditControllerEx1)
     DELEGATE_REFCOUNT(Steinberg::Vst::EditControllerEx1)

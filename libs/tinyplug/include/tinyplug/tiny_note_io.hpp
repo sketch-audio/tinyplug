@@ -6,6 +6,7 @@
 
 #include <tiny_core/lock_free_queue.hpp>
 #include <tiny_core/midi_codec.hpp>
+#include <tiny_core/midi_mpe.hpp>
 #include <tiny_core/note_ids.hpp>
 #include <tiny_core/note_out.hpp>
 #include <tiny_core/tiny_midi.hpp>
@@ -58,6 +59,16 @@ public:
     // Name a host's note event, local id -1 for none. False to drop it.
     auto from_host(int32_t local, Note::Any& event) -> bool { return _ids.name(Note_ids::Source::Host, local, event); }
 
+    // Name a host's note event and emit it, followed, with `mpe`, by what a note starting on a
+    // member channel inherits. For formats that deliver notes typed but controls as MIDI.
+    template<typename F>
+    auto from_host(bool mpe, int32_t local, Note::Any note, F&& emit) -> void
+    {
+        if (!from_host(local, note)) return;
+        emit(Input{note});
+        _inherit(mpe, note, emit);
+    }
+
     // A host's wildcard off: every held host note on `channel` (-1: all), as `Off`s.
     template<typename F>
     auto release_host(int32_t channel, F&& emit) -> void
@@ -65,13 +76,34 @@ public:
         _ids.release_all(Note_ids::Source::Host, channel, [&](const Note::Off& e) { emit(Input{Note::Any{e}}); });
     }
 
-    // One MIDI 1.0 message from the host, named, as zero or more inputs.
+    // One MIDI 1.0 message from the host, named, as zero or more inputs. With `mpe` (see
+    // `process::mpe_enabled`), a member channel's bend, pressure and CC 74 are its notes'
+    // expressions, and a note starting there inherits the channel's values.
     template<typename F>
-    auto from_midi(uint8_t status, uint8_t d1, uint8_t d2, F&& emit) -> void
+    auto from_midi(bool mpe, uint8_t status, uint8_t d1, uint8_t d2, F&& emit) -> void
     {
+#if TINY_HAS_NOTE_EXPRESSION
+        _mpe.observe(status, d1, d2);
+        const auto channel = static_cast<uint8_t>(status & 0x0f);
+        mpe = mpe && _mpe.is_member(channel);
+        if (mpe) {
+            if (const auto x = _mpe.expression(status, d1)) {
+                _ids.each_held(Note_ids::Source::Host, channel, [&](const Note::Id& id) {
+                    emit(Input{Note::Any{Note::Expression{id, x->kind, x->value}}});
+                });
+                return;
+            }
+        }
+#else
+        (void)mpe;
+#endif
         std::visit(Inline_visitor{
             [](std::monostate) {},
-            [&](Note::Any note) { if (from_host(-1, note)) emit(Input{note}); },
+            [&](Note::Any note) {
+                if (!from_host(-1, note)) return;
+                emit(Input{note});
+                _inherit(mpe, note, emit);
+            },
             [&](const Control::Any& control) { emit(Input{control}); },
             [&](const midi::All_off& off) {
                 _ids.release_all(Note_ids::Source::Host, off.channel, [&](const Note::Off& e) { emit(Input{Note::Any{e}}); });
@@ -123,6 +155,9 @@ public:
 #if TINY_HAS_NOTES_IN
         _ids.clear();
 #endif
+#if TINY_HAS_NOTE_EXPRESSION
+        _mpe.clear();
+#endif
 #if TINY_HAS_NOTES_OUT
         _all_off = true;
 #endif
@@ -131,8 +166,25 @@ public:
 private:
 
 #if TINY_HAS_NOTES_IN
+    template<typename F>
+    auto _inherit([[maybe_unused]] bool mpe, [[maybe_unused]] const Note::Any& note, [[maybe_unused]] F& emit) -> void
+    {
+#if TINY_HAS_NOTE_EXPRESSION
+        const auto* on = std::get_if<Note::On>(&note);
+        if (!mpe || !on || !_mpe.is_member(on->note.channel)) return;
+        _mpe.initial(on->note.channel, [&](Note::Expression::Kind kind, double value) {
+            emit(Input{Note::Any{Note::Expression{on->note, kind, value}}});
+        });
+#endif
+    }
+#endif
+
+#if TINY_HAS_NOTES_IN
     Note_ids _ids{};
     Lock_free_queue<Performance, editor_capacity, Queue_concurrency::spsc> _editor{};
+#endif
+#if TINY_HAS_NOTE_EXPRESSION
+    midi::Mpe _mpe{};
 #endif
 #if TINY_HAS_NOTES_OUT
     Note_outbox _out{};

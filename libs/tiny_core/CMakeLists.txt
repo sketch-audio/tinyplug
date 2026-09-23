@@ -38,6 +38,7 @@ target_sources(${TINY_CORE_LIB} PRIVATE
     include/tiny_core/lifecycle_probe.hpp
     include/tiny_core/lock_free_queue.hpp
     include/tiny_core/midi_codec.hpp
+    include/tiny_core/midi_mpe.hpp
     include/tiny_core/note_ids.hpp
     include/tiny_core/note_out.hpp
     include/tiny_core/notification_queue.hpp

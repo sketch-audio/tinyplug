@@ -176,6 +176,13 @@ OSStatus Effect::GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScop
             return noErr;
         }
 #endif
+#if TINY_HAS_NOTE_EXPRESSION
+        case kAudioUnitProperty_SupportsMPE: {
+            outDataSize = sizeof(UInt32);
+            outWritable = false;
+            return noErr;
+        }
+#endif
         case kAudioUnitProperty_CocoaUI: {
             outDataSize = sizeof(AudioUnitCocoaViewInfo);
             outWritable = false;
@@ -222,6 +229,12 @@ OSStatus Effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
             const auto name = CFSTR("Notes Out");
             auto names = CFArrayCreate(kCFAllocatorDefault, reinterpret_cast<const void**>(const_cast<CFStringRef*>(&name)), 1, &kCFTypeArrayCallBacks);
             std::memcpy(outData, &names, sizeof(names)); // The host releases it.
+            return noErr;
+        }
+#endif
+#if TINY_HAS_NOTE_EXPRESSION
+        case kAudioUnitProperty_SupportsMPE: {
+            Serialize<UInt32>(1, outData);
             return noErr;
         }
 #endif
@@ -1199,8 +1212,9 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 #if TINY_HAS_NOTES_IN
     // Host MIDI, named now, on the render thread, in the order it came.
     auto raw = Raw_midi{};
+    const auto mpe = process::mpe_enabled(*_processor);
     while (_midi_in.pop(raw)) {
-        _notes.from_midi(raw.status, raw.d1, raw.d2, [&](const process::Input& input) {
+        _notes.from_midi(mpe, raw.status, raw.d1, raw.d2, [&](const process::Input& input) {
             if (_events.size() < _events.capacity()) _events.push_back({.event = input, .offset = raw.offset});
         });
     }

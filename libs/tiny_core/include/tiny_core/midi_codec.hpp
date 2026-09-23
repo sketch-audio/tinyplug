@@ -39,6 +39,13 @@ inline auto seven(double v) -> uint8_t
     return static_cast<uint8_t>(std::clamp(std::lround(v * 127.), 0l, 127l));
 }
 
+// A 14-bit bend as −1…1; 0 and 16383 are the ends.
+inline auto bend(uint8_t lsb, uint8_t msb) -> double
+{
+    const auto raw = static_cast<double>(static_cast<int>((lsb & 0x7f) | ((msb & 0x7f) << 7)) - 8192);
+    return raw < 0. ? raw / 8192. : raw / 8191.;
+}
+
 inline auto pedal_kind(uint8_t number) -> std::optional<midi::Control::Pedal::Kind>
 {
     for (auto i = size_t{}; i < pedal_numbers.size(); ++i) {
@@ -70,10 +77,7 @@ inline auto decode(uint8_t status, uint8_t d1, uint8_t d2) -> Decoded
             }
             return std::monostate{};
         case 0xd0: return Control::Any{Control::Pressure{channel, detail::unit(d1)}};
-        case 0xe0: {
-            const auto raw = static_cast<double>(static_cast<int>((d1 & 0x7f) | ((d2 & 0x7f) << 7)) - 8192);
-            return Control::Any{Control::Bend{channel, raw < 0. ? raw / 8192. : raw / 8191.}}; // 0 and 16383 are the ends.
-        }
+        case 0xe0: return Control::Any{Control::Bend{channel, detail::bend(d1, d2)}};
         default: return std::monostate{};
     }
 }

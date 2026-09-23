@@ -22,9 +22,10 @@ add_property(${PLUGIN_TARGET} TINY_BASE_IDENTIFIER "com.tinyplug.SineSynth")
 add_property(${PLUGIN_TARGET} TINY_VERSION_STRING "1.0.0")
 add_property(${PLUGIN_TARGET} TINY_BUILD_NUMBER "1")
 
-# An instrument: notes in, audio out. The formats' categories follow from this.
+# An instrument: notes in, audio out. The formats' categories follow from this. `expression`
+# declares per-note expression (MPE) to hosts; the MPE parameter switches it for MIDI 1.0 input.
 add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_AUDIO "out")
-add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_NOTES "in")
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_NOTES "in;expression")
 add_property(${PLUGIN_TARGET} TINY_PLUGIN_CAN_PROCESS_MONO "false")
 
 # AAX

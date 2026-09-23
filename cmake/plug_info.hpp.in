@@ -44,6 +44,7 @@ struct Plug_info {
         static constexpr auto sidechain = bool{@TINY_SIDECHAIN@};
         static constexpr auto notes_in = bool{@TINY_NOTES_IN@};
         static constexpr auto notes_out = bool{@TINY_NOTES_OUT@};
+        static constexpr auto note_expression = bool{@TINY_NOTE_EXPRESSION@}; // MPE, and per-note expression where the format declares it.
     };
 
     static constexpr auto wants_sidechain = bool{@TINY_PLUGIN_WANTS_SIDECHAIN@};

@@ -1,8 +1,10 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 
 #include "pluginterfaces/base/funknown.h"
+#include "pluginterfaces/vst/ivstnoteexpression.h"
 
 #include <tinyplug/tinyplug.hpp>
 
@@ -38,6 +40,27 @@ static constexpr auto bypass_param_id = int32_t{0x60000001};
 static constexpr auto control_param_offset = int32_t{0x50000000};
 static constexpr auto controls_per_channel = int32_t{9};
 static constexpr auto num_control_params = 16 * controls_per_channel;
+
+// With `expression`, CC 74 per channel too: MPE's third dimension, for hosts that send MPE as MIDI.
+static constexpr auto timbre_param_offset = control_param_offset + num_control_params;
+static constexpr auto num_timbre_params = int32_t{TINY_HAS_NOTE_EXPRESSION ? 16 : 0};
+
+// VST3 has no pressure expression type (poly pressure is an event), so MPE pressure needs one.
+static constexpr auto pressure_expression_id = Steinberg::Vst::NoteExpressionTypeID{Steinberg::Vst::kCustomStart};
+
+// The expressions declared with `expression`, in `INoteExpressionController` order: MPE's three.
+struct Expression_decl {
+    Steinberg::Vst::NoteExpressionTypeID id{};
+    const char* title{};
+    const char* short_title{};
+    double neutral{}; // Normalized.
+    bool bipolar{};
+};
+static constexpr auto declared_expressions = std::array<Expression_decl, 3>{{
+    {Steinberg::Vst::kTuningTypeID, "Tuning", "Tune", 0.5, true},
+    {Steinberg::Vst::kBrightnessTypeID, "Brightness", "Brt", 0.5, true},
+    {pressure_expression_id, "Pressure", "Prs", 0., false},
+}};
 
 using Uid_arr = Plug_info::Vst3::Uid_arr;
 

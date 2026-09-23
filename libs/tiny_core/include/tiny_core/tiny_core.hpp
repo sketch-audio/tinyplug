@@ -10,6 +10,7 @@
 #include "host_formatter.hpp"
 #include "lock_free_queue.hpp"
 #include "midi_codec.hpp"
+#include "midi_mpe.hpp"
 #include "note_ids.hpp"
 #include "note_out.hpp"
 #include "platform_defs.hpp"

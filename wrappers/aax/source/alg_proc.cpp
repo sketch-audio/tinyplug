@@ -543,7 +543,7 @@ auto render_instance(Alg_context* ctx) -> void
         }
     }
     const auto deliver = [&](const AAX_CMidiPacket& p) {
-        st->notes.from_midi(p.mData[0], p.mLength > 1 ? p.mData[1] : 0, p.mLength > 2 ? p.mData[2] : 0,
+        st->notes.from_midi(process::mpe_enabled(st->processor), p.mData[0], p.mLength > 1 ? p.mData[1] : 0, p.mLength > 2 ? p.mData[2] : 0,
                             [&](const process::Input& in) { input(in, std::min<uint32_t>(p.mTimestamp, static_cast<uint32_t>(frames))); });
     };
     auto now = size_t{};

@@ -68,6 +68,7 @@ auto Processor::handle(const Note::Any& note) -> void
             using enum Note::Expression::Kind;
             if (e.kind == Pressure) voice->pressure = static_cast<float>(std::clamp(e.value, 0., 1.));
             if (e.kind == Tuning) voice->tuning = static_cast<float>(e.value);
+            if (e.kind == Brightness) voice->brightness = static_cast<float>(std::clamp(e.value, 0., 1.));
         },
     }, note);
 }
@@ -131,7 +132,9 @@ auto Processor::process(Dsp_context& context) -> void
             const auto semis = static_cast<float>(voice.key) - 69.f + _bend + voice.tuning + depth * amount * wobble;
             const auto hz = 440. * std::exp2(static_cast<double>(semis) / 12.);
             voice.phase = std::fmod(voice.phase + two_pi * hz / _sr, two_pi);
-            out += static_cast<float>(std::sin(voice.phase)) * voice.level * voice.velocity;
+            const auto octave = std::max(voice.brightness - 0.5f, 0.f); // Up to half as loud as the fundamental.
+            const auto tone = std::sin(voice.phase) + static_cast<double>(octave) * std::sin(2. * voice.phase);
+            out += static_cast<float>(tone) * voice.level * voice.velocity;
         }
 
         const auto sample = std::tanh(out * level * 0.5f);

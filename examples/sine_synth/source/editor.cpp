@@ -23,6 +23,7 @@ constexpr auto lit_color = SkColorSetRGB(96, 200, 120);
 constexpr auto strip_colors = std::array{
     SkColorSetRGB(230, 190, 80), SkColorSetRGB(220, 140, 80), SkColorSetRGB(200, 110, 160),
     SkColorSetRGB(130, 120, 220), SkColorSetRGB(80, 170, 220), SkColorSetRGB(96, 200, 120),
+    SkColorSetRGB(150, 150, 150),
 };
 
 struct Theme {
@@ -192,6 +193,13 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
                 if (down.button != Pointer_button::left) return;
                 for (auto i = size_t{}; i < num_params; ++i) {
                     if (!layout.strips[i].contains(down.pos)) continue;
+                    if (i == enum_raw(Address::Mpe)) { // A switch: a click flips it.
+                        const auto on = state.processor_state.params[i] >= 0.5;
+                        _edit.actions.push(Action_start{static_cast<uint32_t>(i)});
+                        _edit.actions.push(Set_param{static_cast<uint32_t>(i), on ? 0. : 1.});
+                        _edit.actions.push(Action_end{static_cast<uint32_t>(i)});
+                        return;
+                    }
                     _dragging = static_cast<int>(i);
                     _edit.actions.push(Action_start{static_cast<uint32_t>(i)});
                     _set(_dragging, layout.strips[i], down.pos);
@@ -232,7 +240,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     canvas->scale(static_cast<float>(view_context.scale), static_cast<float>(view_context.scale));
     fill(*canvas, SkRect::MakeWH(static_cast<float>(view_context.logical_size.w), static_cast<float>(view_context.logical_size.h)), colors.background);
 
-    // Parameters: attack, decay, sustain, release, vibrato, level.
+    // Parameters: attack, decay, sustain, release, vibrato, level, and the MPE switch.
     for (auto i = size_t{}; i < num_params; ++i) {
         const auto strip = rect(layout.strips[i]);
         fill(*canvas, strip, colors.panel);

@@ -300,12 +300,27 @@ once, standalone.
 
 Both fit behind the same types; neither changes the author's API.
 
-- **MPE.** VST3 and CLAP hosts already deliver it as `Note::Expression` (CLAP when the
-  plug-in accepts the `MIDI_MPE` dialect). For AU and AAX the codec gains MPE zone state
-  (the MCM RPN) and turns member-channel bend, pressure and CC 74 into
-  `Note::Expression{Tuning, Pressure, Brightness}`, manager-channel messages into `Control`.
-  Opt-in, because it changes how channel messages are read: `TINY_PLUGIN_WANTS_NOTES
-  "in;expression"`, which also declares CLAP's MPE dialect and VST3's expression types.
+- **MPE** (done). Opt-in, `TINY_PLUGIN_WANTS_NOTES "in;expression"`, because it changes how
+  channel messages are read. The declaration: AUv2 `kAudioUnitProperty_SupportsMPE`, AUv3
+  `supportsMPE`, CLAP's `MIDI_MPE` dialect on the input port, and VST3
+  `INoteExpressionController` (tuning, brightness, and pressure as custom type
+  `kCustomStart`, since VST3 has none) with `INoteExpressionPhysicalUIMapping` (X → tuning,
+  Y → brightness, pressure → pressure), which is how VST3 hosts learn to send MPE as
+  expressions. AAX declares nothing. The reading: `midi::Mpe` ([midi_mpe.hpp](../libs/tiny_core/include/tiny_core/midi_mpe.hpp))
+  tracks the zone layout (RPN 6; a lower zone of 15 when no host sends one), each zone's
+  member bend range (RPN 0, default ±48) and every channel's last values; `Note_io` turns a
+  member channel's bend, channel pressure and CC 74 into `Note::Expression{Tuning, Pressure,
+  Brightness}` for every held note there, and a note starting on a member channel inherits
+  the values that differ from `Expression::neutral`. Manager channels stay `Control`. The
+  switch: a processor may answer `mpe_enabled() const -> bool` (usually from a `Control`
+  parameter), read at every block; without it MPE is on. It governs only how MIDI 1.0 is
+  read: host-typed expressions (VST3, CLAP) arrive either way, as MIDI 2.0's will. The
+  declaration is static, so a host's MPE badge shows whatever the switch says.
+  VST3 hosts that don't convert MPE to expressions send it through `IMidiMapping`, which with
+  `expression` also maps CC 74 per channel. The wrapper stages its notes and mapped controls
+  unnamed and names them in time order, so a mapped member-channel control goes through the
+  same `Note_io::from_midi` as every MIDI format. Live 11 is such a host: it badges MPE only
+  for AUs (`supportsMPE`); a VST3 needs "Enable MPE" from the device title bar's menu.
 - **MIDI 2.0.** AUv3's `AURenderEventMIDIEventList` and CLAP's `MIDI2` dialect carry UMP; the
   codec decodes it. Per-note controllers become `Note::Expression`, 16-bit velocity and
   32-bit controllers fit the float and double fields, and note ids arrive natively. New
@@ -331,11 +346,9 @@ it can be as raw as a device downstream wants. What neither side carries yet:
   transport arrive as `Musical_context`.
 - Channel mode messages, except all-notes-off and all-sound-off, which release the held
   notes they name.
-- MPE on AU and AAX (VST3 and CLAP hosts already deliver it as `Note::Expression`), and MIDI
-  2.0 / UMP anywhere. Both are planned behind the same types (see above).
-- VST3 note-expression declarations, note names and key switches (CLAP `note_name`, VST3
-  `INoteExpressionController` / `IKeyswitchController`), CLAP `NOTE_END` and voice info, and
-  polyphonic parameter modulation.
+- MIDI 2.0 / UMP anywhere, planned behind the same types (see above).
+- Note names and key switches (CLAP `note_name`, VST3 `IKeyswitchController`), CLAP
+  `NOTE_END` and voice info, and polyphonic parameter modulation.
 
 **Out**
 
@@ -355,8 +368,9 @@ it can be as raw as a device downstream wants. What neither side carries yet:
 
 ## Demos
 
-- **`sine_synth`** (audio out; notes in): eight voices, ADSR and level parameters, voice
-  matching on `Note::Id`, pitch bend, sustain. An on-screen keyboard through `_edit.notes`,
+- **`sine_synth`** (audio out; notes in with expression): eight voices, ADSR and level
+  parameters, voice matching on `Note::Id`, pitch bend, sustain, MPE (tuning, pressure into
+  vibrato, brightness into the octave) with an MPE switch parameter. An on-screen keyboard through `_edit.notes`,
   owning its ids and held keys, highlighting held keys from a block.
 - **`step_sequencer`** (notes in and out, no audio): a 16-step pattern in a `Writers::Editor`
   state document, so it saves, undoes and edits from the UI only. The processor reads the
@@ -387,10 +401,9 @@ it can be as raw as a device downstream wants. What neither side carries yet:
 - Touch force and radius in the platform's pointer events (`UITouch.force`, `majorRadius`),
   so an iOS keyboard can drive per-note pressure. iPad fingers report no force; radius is the
   usual stand-in.
-- MPE and MIDI 2.0, as above.
+- MIDI 2.0, as above.
 - A generator row (`augn`).
-- Note names and key switches (CLAP `note_name`, VST3 `INoteExpressionController` /
-  `IKeyswitchController`); VST3 note expression declarations.
+- Note names and key switches (CLAP `note_name`, VST3 `IKeyswitchController`).
 
 ## Open questions
 

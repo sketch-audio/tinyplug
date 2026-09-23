@@ -26,8 +26,9 @@ read. Run that one under `-fsanitize=thread` too.
 
 The MIDI 1.0 codec (every message the framework reads, velocity and bend round trips, the
 closed controller set, all-notes-off), note identity (two notes on one key, oldest first,
-host ids, sources kept apart, editor ids, full table, release by channel) and the outbox
-(slice frames to block frames, ordering, capacity).
+host ids, sources kept apart, editor ids, full table, release by channel), the outbox
+(slice frames to block frames, ordering, capacity) and MPE (the default zone, member
+expressions, inherited values, bend range, zone configuration and overlap, NRPN deselection).
 
 ## change_set_test.cpp
 

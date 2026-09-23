@@ -7,8 +7,8 @@
 namespace tiny::process {
 
 // Eight sine voices with an ADSR. Pressure on a note (aftertouch, or a finger pushed up the
-// on-screen key) deepens that note's vibrato; tuning slides it; bend, the mod wheel and sustain
-// act on every note.
+// on-screen key) deepens that note's vibrato; tuning slides it; brightness above centre adds
+// the octave; bend, the mod wheel and sustain act on every note. MPE-capable.
 class Processor {
 public:
 
@@ -21,6 +21,7 @@ public:
 
     auto latency_samps() const -> uint32_t { return 0; }
     auto tail_samps() const -> uint32_t;
+    auto mpe_enabled() const -> bool { return _values[enum_raw(Address::Mpe)] >= 0.5f; }
 
 private:
 
@@ -40,6 +41,7 @@ private:
         float level{};     // Envelope.
         float pressure{};
         float tuning{};    // Semitones.
+        float brightness{0.5f};
         double phase{};
         uint64_t started{}; // For stealing the oldest.
     };

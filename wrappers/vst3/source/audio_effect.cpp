@@ -208,6 +208,9 @@ Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::Proc
         return state + automation + 1;
     };
     _events.reserve(events_size(max_samples) + (Plug_info::Wants::notes_in ? 1024 : 0)); // Want fixed size event vector.
+#if TINY_HAS_NOTES_IN
+    _staged.reserve(1024);
+#endif
 
     return Steinberg::Vst::AudioEffect::setupProcessing(newSetup);
 }
@@ -988,11 +991,21 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
                 auto value = Steinberg::Vst::ParamValue{};
                 auto offset = int32_t{};
                 if (queue.getPoint(point, offset, value) != Steinberg::kResultTrue) continue;
-                if (_events.size() == _events.capacity()) break;
                 const auto control = which == 0 ? Control::Any{Control::Bend{channel, value * 2. - 1.}}
                                    : which == 1 ? Control::Any{Control::Pressure{channel, value}}
                                    : Control::Any{Control::Pedal{channel, static_cast<Control::Pedal::Kind>(which - 2), value}};
-                _events.push_back({.event = control, .offset = std::clamp(offset, 0, std::max(data.numSamples - 1, 0))});
+                _stage({.event = midi::encode(control), .offset = std::clamp(offset, 0, std::max(data.numSamples - 1, 0))});
+            }
+            continue;
+        }
+        if (id >= static_cast<Steinberg::Vst::ParamID>(timbre_param_offset) && id < static_cast<Steinberg::Vst::ParamID>(timbre_param_offset + num_timbre_params)) {
+            const auto channel = static_cast<uint8_t>(static_cast<int32_t>(id) - timbre_param_offset);
+            for (auto point = int32_t{}; point < queue.getPointCount(); ++point) {
+                auto value = Steinberg::Vst::ParamValue{};
+                auto offset = int32_t{};
+                if (queue.getPoint(point, offset, value) != Steinberg::kResultTrue) continue;
+                const auto cc = midi::Bytes{{static_cast<uint8_t>(0xb0 | channel), 74, midi::detail::seven(value)}, 3};
+                _stage({.event = cc, .offset = std::clamp(offset, 0, std::max(data.numSamples - 1, 0))});
             }
             continue;
         }
@@ -1078,19 +1091,16 @@ auto Audio_effect::_input(const process::Input& input, [[maybe_unused]] int32_t 
 #endif
 }
 
-// [audio] The event bus into `_events`, named. Controls arrive separately, as mapped parameters.
+// [audio] The event bus, staged for `_name_notes`. Controls arrive separately, as mapped parameters.
 auto Audio_effect::_collect_notes([[maybe_unused]] Steinberg::Vst::ProcessData& data) -> void
 {
 #if TINY_HAS_NOTES_IN
     using namespace process;
     using Vst_event = Steinberg::Vst::Event;
     auto* list = data.inputEvents;
-    if (!list) return;
+    if (!list) return _name_notes();
 
     const auto last = std::max(data.numSamples - 1, 0);
-    const auto push = [&](const Note::Any& note, int32_t offset) {
-        if (_events.size() < _events.capacity()) _events.push_back({.event = note, .offset = std::clamp(offset, 0, last)});
-    };
     const auto key_of = [](int16_t pitch) { return static_cast<uint8_t>(pitch); };
 
     const auto count = list->getEventCount();
@@ -1104,21 +1114,21 @@ auto Audio_effect::_collect_notes([[maybe_unused]] Steinberg::Vst::ProcessData& 
                 if (on.pitch < 0 || on.pitch > 127) break;
                 const auto id = Note::Id{0, static_cast<uint8_t>(on.channel), key_of(on.pitch)};
                 auto note = on.velocity > 0.f ? Note::Any{Note::On{id, on.velocity}} : Note::Any{Note::Off{id, 0.f}}; // 0 is an off, as in MIDI.
-                if (_notes.from_host(on.noteId, note)) push(note, e.sampleOffset);
+                _stage({.event = note, .local = on.noteId, .offset = std::clamp(e.sampleOffset, 0, last)});
                 break;
             }
             case Vst_event::kNoteOffEvent: {
                 const auto& off = e.noteOff;
                 if (off.pitch < 0 || off.pitch > 127) break;
                 auto note = Note::Any{Note::Off{{0, static_cast<uint8_t>(off.channel), key_of(off.pitch)}, off.velocity}};
-                if (_notes.from_host(off.noteId, note)) push(note, e.sampleOffset);
+                _stage({.event = note, .local = off.noteId, .offset = std::clamp(e.sampleOffset, 0, last)});
                 break;
             }
             case Vst_event::kPolyPressureEvent: {
                 const auto& pp = e.polyPressure;
                 if (pp.pitch < 0 || pp.pitch > 127) break;
                 auto note = Note::Any{Note::Expression{{0, static_cast<uint8_t>(pp.channel), key_of(pp.pitch)}, Note::Expression::Kind::Pressure, pp.pressure}};
-                if (_notes.from_host(pp.noteId, note)) push(note, e.sampleOffset);
+                _stage({.event = note, .local = pp.noteId, .offset = std::clamp(e.sampleOffset, 0, last)});
                 break;
             }
             case Vst_event::kNoteExpressionValueEvent: {
@@ -1132,20 +1142,50 @@ auto Audio_effect::_collect_notes([[maybe_unused]] Steinberg::Vst::ProcessData& 
                     case Steinberg::Vst::kTuningTypeID: kind = Kind::Tuning; value = (value - 0.5) * 240.; break; // ±120 semitones.
                     case Steinberg::Vst::kVibratoTypeID: kind = Kind::Vibrato; break;
                     case Steinberg::Vst::kBrightnessTypeID: kind = Kind::Brightness; break;
+                    case pressure_expression_id: kind = Kind::Pressure; break;
                     default: break;
                 }
                 if (!kind || x.noteId < 0) break;
                 // Named by id alone: key 255 matches nothing if the id is unknown.
                 auto note = Note::Any{Note::Expression{{0, 0, 255}, *kind, value}};
-                if (_notes.from_host(x.noteId, note)) push(note, e.sampleOffset);
+                _stage({.event = note, .local = x.noteId, .offset = std::clamp(e.sampleOffset, 0, last)});
                 break;
             }
             default:
                 break;
         }
     }
+    _name_notes();
 #endif
 }
+
+#if TINY_HAS_NOTES_IN
+// [audio] Staged notes and controls named in time order, into `_events`. At one offset, controls
+// go first: an MPE sender sets a channel's values before its note starts.
+auto Audio_effect::_name_notes() -> void
+{
+    using namespace process;
+    for (auto i = size_t{}; i < _staged.size(); ++i) _staged[i].order = static_cast<uint32_t>(i);
+    std::ranges::sort(_staged, [](const Staged& a, const Staged& b) {
+        if (a.offset != b.offset) return a.offset < b.offset;
+        const auto a_note = std::holds_alternative<Note::Any>(a.event);
+        if (a_note != std::holds_alternative<Note::Any>(b.event)) return !a_note;
+        return a.order < b.order;
+    });
+
+    const auto mpe = process::mpe_enabled(*_processor);
+    for (const auto& staged : _staged) {
+        const auto emit = [&](const Input& input) {
+            if (_events.size() < _events.capacity()) _events.push_back({.event = input, .offset = staged.offset});
+        };
+        std::visit(Inline_visitor{
+            [&](const Note::Any& note) { _notes.from_host(mpe, staged.local, note, emit); },
+            [&](const midi::Bytes& bytes) { _notes.from_midi(mpe, bytes.data[0], bytes.data[1], bytes.data[2], emit); },
+        }, staged.event);
+    }
+    _staged.clear();
+}
+#endif
 
 // [audio] What the processor sent this block, after all-notes-off if the stream broke.
 auto Audio_effect::_send_notes([[maybe_unused]] Steinberg::Vst::ProcessData& data) -> void

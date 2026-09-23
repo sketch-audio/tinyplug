@@ -45,6 +45,15 @@ public:
         }
     }
 
+    // Every held note of `source` on `channel`, in no particular order.
+    template<typename F>
+    auto each_held(Source source, uint8_t channel, F&& on_note) const -> void
+    {
+        for (const auto& held : _held) {
+            if (held.used && held.source == source && held.channel == channel) on_note(Note::Id{held.id, held.channel, held.key});
+        }
+    }
+
     // Forget everything, e.g. at `Reset::Hard`, where the processor releases its voices anyway.
     auto clear() -> void
     {

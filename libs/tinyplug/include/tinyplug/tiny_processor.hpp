@@ -217,4 +217,24 @@ auto deliver(P& processor, const Input& input) -> void
     }, input);
 }
 
+// A processor that switches MPE itself (a player-facing toggle, typically backed by a
+// parameter) answers `mpe_enabled()`. Read at every block, so realtime-safe.
+template<typename P>
+concept Switches_mpe = requires(const P& p) {
+    { p.mpe_enabled() } -> std::same_as<bool>;
+};
+
+// Whether MIDI 1.0 member channels read as MPE: never without `expression` declared, always
+// with it unless the processor says otherwise.
+template<typename P>
+auto mpe_enabled([[maybe_unused]] const P& processor) -> bool
+{
+#if TINY_HAS_NOTE_EXPRESSION
+    if constexpr (Switches_mpe<P>) return processor.mpe_enabled();
+    else return true;
+#else
+    return false;
+#endif
+}
+
 } // namespace tiny::process

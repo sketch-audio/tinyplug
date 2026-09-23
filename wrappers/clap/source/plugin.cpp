@@ -1492,6 +1492,7 @@ bool Plugin::notePortsInfo(uint32_t index, bool isInput, clap_note_port_info* in
     *info = {};
     info->id = 0;
     info->supported_dialects = CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI;
+    if (isInput && Plug_info::Wants::note_expression) info->supported_dialects |= CLAP_NOTE_DIALECT_MIDI_MPE;
     info->preferred_dialect = CLAP_NOTE_DIALECT_CLAP;
     std::snprintf(info->name, CLAP_NAME_SIZE, "%s", isInput ? "Notes In" : "Notes Out");
     return true;
@@ -1537,7 +1538,7 @@ auto Plugin::_handle_note_event([[maybe_unused]] const clap_event_header* event)
             auto note = event->type == CLAP_EVENT_NOTE_ON ? Note::Any{Note::On{id, velocity}}
                       : event->type == CLAP_EVENT_NOTE_OFF ? Note::Any{Note::Off{id, velocity}}
                       : Note::Any{Note::Choke{id}};
-            if (_notes.from_host(e->note_id, note)) emit(Input{note});
+            _notes.from_host(process::mpe_enabled(*_processor), e->note_id, note, emit); // A note on a member channel inherits its MPE values.
             break;
         }
         case CLAP_EVENT_NOTE_EXPRESSION: {
@@ -1561,7 +1562,7 @@ auto Plugin::_handle_note_event([[maybe_unused]] const clap_event_header* event)
         }
         case CLAP_EVENT_MIDI: {
             const auto* e = reinterpret_cast<const clap_event_midi*>(event);
-            _notes.from_midi(e->data[0], e->data[1], e->data[2], emit);
+            _notes.from_midi(process::mpe_enabled(*_processor), e->data[0], e->data[1], e->data[2], emit);
             break;
         }
         default:

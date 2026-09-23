@@ -11,6 +11,7 @@
 #define TINY_HAS_WORK 0
 #define TINY_HAS_NOTES_IN 0
 #define TINY_HAS_NOTES_OUT 0
+#define TINY_HAS_NOTE_EXPRESSION 0
 
 namespace tiny::models {
 

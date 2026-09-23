@@ -30,6 +30,14 @@ struct Note {
         Id note{};
         Kind kind{};
         double value{}; // Tuning in semitones, Volume a gain (1 unchanged, up to 4), the rest 0…1.
+
+        // Where every note starts: an `On` implies these until an `Expression` says otherwise.
+        static constexpr auto neutral(Kind kind) -> double
+        {
+            if (kind == Kind::Volume) return 1.;
+            if (kind == Kind::Pan || kind == Kind::Brightness) return 0.5;
+            return 0.;
+        }
     };
 
     using Any = std::variant<On, Off, Choke, Expression>;

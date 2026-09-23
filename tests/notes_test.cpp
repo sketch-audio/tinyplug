@@ -1,9 +1,11 @@
 // Notes: the MIDI 1.0 codec, note identity, and the processor's outbox.
+#include <cmath>
 #include <cstdio>
 #include <type_traits>
 #include <vector>
 
 #include <tiny_core/midi_codec.hpp>
+#include <tiny_core/midi_mpe.hpp>
 #include <tiny_core/note_ids.hpp>
 #include <tiny_core/note_out.hpp>
 
@@ -193,6 +195,61 @@ auto test_outbox() -> void
     expect(!Note_outbox::Writer{}.send(0, Control::Any{Control::Pressure{0, 1.}}), "an unbound writer refuses");
 }
 
+
+// MARK: - mpe
+
+auto test_mpe() -> void
+{
+    std::printf("mpe\n");
+    using Kind = Note::Expression::Kind;
+
+    auto mpe = midi::Mpe{};
+    const auto read = [&](uint8_t status, uint8_t d1, uint8_t d2) { mpe.observe(status, d1, d2); return mpe.expression(status, d1); };
+
+    expect(!mpe.is_member(0) && mpe.is_member(1) && mpe.is_member(15), "no configuration: a lower zone of 15 members");
+
+    const auto bend = read(0xe3, 127, 127); // Full up on channel 4.
+    expect(bend && bend->kind == Kind::Tuning && bend->channel == 3 && std::abs(bend->value - 48.) < 0.01, "member bend is tuning, ±48 by default");
+    expect(!read(0xe0, 0, 127), "manager bend stays a control");
+
+    const auto press = read(0xd3, 127, 0);
+    expect(press && press->kind == Kind::Pressure && press->value == 1., "member channel pressure is per-note pressure");
+    const auto timbre = read(0xb3, 74, 0);
+    expect(timbre && timbre->kind == Kind::Brightness && timbre->value == 0., "member CC 74 is brightness");
+    expect(!read(0xb3, 64, 127), "other member controllers aren't expressions");
+
+    auto inherited = std::vector<Kind>{};
+    mpe.initial(3, [&](Kind kind, double) { inherited.push_back(kind); });
+    expect(inherited.size() == 3, "a new note inherits what differs from neutral");
+    read(0xe3, 0, 64); read(0xd3, 0, 0); read(0xb3, 74, 64);
+    inherited.clear();
+    mpe.initial(3, [&](Kind kind, double) { inherited.push_back(kind); });
+    expect(inherited.size() == 1 && inherited[0] == Kind::Brightness, "neutral values aren't sent (CC 74 at 64 is just above 0.5)");
+
+    // Bend sensitivity on a member sets the zone's: RPN 0, 12 semitones.
+    read(0xb5, 101, 0); read(0xb5, 100, 0); read(0xb5, 6, 12);
+    const auto narrow = read(0xe2, 127, 127);
+    expect(narrow && std::abs(narrow->value - 12.) < 0.01, "RPN 0 on a member sets the zone's bend range");
+
+    // Configuration: a lower zone of 7 on channel 1, then an upper zone of 3 on channel 16.
+    read(0xb0, 101, 0); read(0xb0, 100, 6); read(0xb0, 6, 7);
+    expect(mpe.is_member(7) && !mpe.is_member(8), "configuration sets the lower zone");
+    const auto reset_range = read(0xe2, 127, 127);
+    expect(reset_range && std::abs(reset_range->value - 48.) < 0.01, "configuration restores the default range");
+    read(0xbf, 101, 0); read(0xbf, 100, 6); read(0xbf, 6, 3);
+    expect(mpe.is_member(12) && mpe.is_member(14) && !mpe.is_member(11) && !mpe.is_member(15), "and the upper zone");
+    read(0xbf, 6, 14);
+    const auto lower_bend = read(0xe1, 127, 127);
+    expect(mpe.is_member(1) && lower_bend && lower_bend->channel == 1, "an upper zone of 14 takes channel 2 from the lower zone");
+    read(0xbf, 6, 0);
+    expect(!mpe.is_member(14) && !mpe.is_member(1), "zero members: no zone");
+
+    // An NRPN deselects, so its data entry changes nothing.
+    auto fresh = midi::Mpe{};
+    fresh.observe(0xb0, 101, 0); fresh.observe(0xb0, 100, 6); fresh.observe(0xb0, 99, 1); fresh.observe(0xb0, 6, 3);
+    expect(fresh.is_member(15), "data entry after an NRPN is ignored");
+}
+
 } // namespace
 
 auto main() -> int
@@ -200,6 +257,7 @@ auto main() -> int
     test_codec();
     std::printf("\n"); test_ids();
     std::printf("\n"); test_outbox();
+    std::printf("\n"); test_mpe();
 
     std::printf("\n%s\n", failures == 0 ? "all tests passed" : "TESTS FAILED");
     return failures == 0 ? 0 : 1;

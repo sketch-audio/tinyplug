@@ -262,6 +262,12 @@ static auto presets_path() -> std::filesystem::path
 }
 #endif
 
+#if TINY_HAS_NOTE_EXPRESSION
+- (BOOL)supportsMPE {
+    return YES;
+}
+#endif
+
 #if TINY_HAS_NOTES_OUT
 - (NSArray<NSString*>*)MIDIOutputNames {
     return @[@"Notes Out"];

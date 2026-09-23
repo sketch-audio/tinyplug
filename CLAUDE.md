@@ -153,7 +153,9 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   `TINY_PLUGIN_WANTS_AUDIO` / `TINY_PLUGIN_WANTS_NOTES` in CMake declare what the plug-in
   carries, `tiny_resolve_capabilities` ([helpers.cmake](cmake/helpers.cmake)) derives the kind
   (effect, instrument, note effect) and each format's identity, and `<tiny_models.hpp>` gets
-  `TINY_HAS_NOTES_IN` / `_OUT`. `midi::Note` and `midi::Control` (a closed set of
+  `TINY_HAS_NOTES_IN` / `_OUT`, and `TINY_HAS_NOTE_EXPRESSION` for `"in;expression"` (MPE:
+  declared per format, read by `midi::Mpe` in `Note_io`, switched by an optional processor
+  `mpe_enabled()`). `midi::Note` and `midi::Control` (a closed set of
   player controls, never arbitrary CC; re-exported into `tiny::process`) arrive through `handle`
   between slices; output leaves through `Dsp_context::notes`, which also takes `midi::Raw`:
   any channel voice message, output only, since sending can't write the plug-in's own
