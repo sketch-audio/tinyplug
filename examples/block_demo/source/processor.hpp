@@ -59,6 +59,6 @@ private:
     auto _scope(Dsp_context& context, float x) -> void;
 
 };
-static_assert(Some_plug_processor<Processor>);
+static_assert(Interface<Processor>);
 
 } // namespace tiny::process

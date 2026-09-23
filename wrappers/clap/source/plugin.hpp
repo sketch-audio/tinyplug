@@ -45,6 +45,9 @@ public:
 #if TINY_HAS_STATE
             .state = _state_link.actor(),
 #endif
+#if TINY_HAS_NOTES_IN
+            .notes = Note_sender{[this](const midi::Performance& e) { return _notes.post_from_editor(e); }},
+#endif
         });
 
 #if TINY_HAS_STATE
@@ -107,8 +110,13 @@ public:
     uint32_t audioPortsCount(bool isInput) const noexcept override;
     bool audioPortsInfo(uint32_t index, bool isInput, clap_audio_port_info* info) const noexcept override;
 
+    // note ports
+    bool implementsNotePorts() const noexcept override { return Plug_info::Wants::notes_in || Plug_info::Wants::notes_out; }
+    uint32_t notePortsCount(bool isInput) const noexcept override;
+    bool notePortsInfo(uint32_t index, bool isInput, clap_note_port_info* info) const noexcept override;
+
     // configurable audio ports
-    bool implementsConfigurableAudioPorts() const noexcept override { return true; }
+    bool implementsConfigurableAudioPorts() const noexcept override { return Plug_info::Wants::audio_out; }
     bool configurableAudioPortsCanApplyConfiguration(const clap_audio_port_configuration_request* requests, uint32_t request_count) const noexcept override;
     bool configurableAudioPortsApplyConfiguration(const clap_audio_port_configuration_request* requests, uint32_t request_count) noexcept override;
 
@@ -162,9 +170,18 @@ private:
     static constexpr auto max_ichannels = size_t{2};
     static constexpr auto max_schannels = size_t{2};
     static constexpr auto max_ochannels = size_t{2};
-    size_t _ichannels{max_ichannels};
+    size_t _ichannels{Plug_info::Wants::audio_in ? max_ichannels : 0};
     size_t _schannels{Plug_info::wants_sidechain ? max_schannels : 0};
-    size_t _ochannels{max_ochannels};
+    size_t _ochannels{Plug_info::Wants::audio_out ? max_ochannels : 0};
+    static constexpr auto sidechain_index = uint32_t{Plug_info::Wants::audio_in ? 1 : 0};
+    std::vector<float> _silence{}; // Bypass's dry signal when there's no audio input.
+
+    // Notes: identity, the editor's inbox, the outbox. `_passing` while a bypassed note effect
+    // forwards what comes in.
+    process::Note_io _notes{};
+#if TINY_HAS_NOTES_OUT
+    bool _passing{};
+#endif
 
     // Pointers to host io buffers.
     std::array<const float*, max_ichannels> _ibuffers{};
@@ -335,6 +352,9 @@ private:
     auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
                        std::span<const std::byte> record) -> void;
     auto _handle_host_flushed(bool needs_resync) -> void;
+    auto _input(const process::Input& input, uint32_t time) -> void;
+    auto _handle_note_event(const clap_event_header* event) -> void;
+    auto _send_notes(const clap_output_events* out) -> void;
     auto _handle_user_actions(const clap_output_events_t* out_events, bool needs_resync) -> void;
     auto _handle_user_action(const User_action& action) -> void;
 
@@ -379,6 +399,13 @@ private:
 
                 break;
             }
+            case CLAP_EVENT_NOTE_ON:
+            case CLAP_EVENT_NOTE_OFF:
+            case CLAP_EVENT_NOTE_CHOKE:
+            case CLAP_EVENT_NOTE_EXPRESSION:
+            case CLAP_EVENT_MIDI:
+                if constexpr (on_audio_thread) _handle_note_event(event);
+                break;
             default:
                 break;
         }

@@ -51,6 +51,7 @@ static auto presets_path() -> std::filesystem::path
     tiny::state::Editor_link<tiny::models::Resolved::State> _state_link; // The kernel holds the processor's copy.
 #endif
     BufferedInputBus _inputBus;
+    BufferedOutputBus _ownedOutput; // Render memory when there's no input to render in place into.
 #if TINY_WANTS_SIDECHAIN
     BufferedInputBus _sidechainBus;
 #endif
@@ -160,9 +161,11 @@ static auto presets_path() -> std::filesystem::path
     _outputBus = [[AUAudioUnitBus alloc] initWithFormat:format error:nil];
     _outputBus.maximumChannelCount = 2;
     
-    // Create the input and output busses.
+    // Create the input and output busses. An instrument has no main input; a note effect keeps
+    // a silent output, since AU renders are pulled through one.
     _inputBus.init(format, 2);
-    auto numBuses = 1;
+    _ownedOutput.init(format, 2);
+    auto numBuses = tiny::Plug_info::Wants::audio_in ? 1 : 0;
     
 #if TINY_WANTS_SIDECHAIN
     // Sidechain?
@@ -249,6 +252,19 @@ static auto presets_path() -> std::filesystem::path
 #if TINY_HAS_STATE
 - (tiny::state::Editor_actor<tiny::models::Resolved::State>)stateActor {
     return _state_link.actor();
+}
+#endif
+
+#if TINY_HAS_NOTES_IN
+- (tiny::Note_sender)noteSender {
+    auto* kernel = &_kernel;
+    return tiny::Note_sender{[kernel](const tiny::midi::Performance& e) { return kernel->notes().post_from_editor(e); }};
+}
+#endif
+
+#if TINY_HAS_NOTES_OUT
+- (NSArray<NSString*>*)MIDIOutputNames {
+    return @[@"Notes Out"];
 }
 #endif
 
@@ -549,10 +565,10 @@ static auto presets_path() -> std::filesystem::path
 // Allocate resources required to render.
 // Subclassers should call the superclass implementation.
 - (BOOL)allocateRenderResourcesAndReturnError:(NSError **)outError {
-    const auto inputChannelCount = [self.inputBusses objectAtIndexedSubscript:0].format.channelCount;
+    const auto inputChannelCount = tiny::Plug_info::Wants::audio_in ? [self.inputBusses objectAtIndexedSubscript:0].format.channelCount : 0;
     const auto outputChannelCount = [self.outputBusses objectAtIndexedSubscript:0].format.channelCount;
     
-    if (outputChannelCount != inputChannelCount) {
+    if (tiny::Plug_info::Wants::audio_in && outputChannelCount != inputChannelCount) {
         if (outError) {
             *outError = [NSError errorWithDomain:NSOSStatusErrorDomain code:kAudioUnitErr_FailedInitialization userInfo:nil];
         }
@@ -561,7 +577,11 @@ static auto presets_path() -> std::filesystem::path
         
         return NO;
     }
-    _inputBus.allocateRenderResources(self.maximumFramesToRender);
+    if (tiny::Plug_info::Wants::audio_in) _inputBus.allocateRenderResources(self.maximumFramesToRender);
+    else _ownedOutput.allocateRenderResources(self.maximumFramesToRender); // Nothing to render in place into.
+#if TINY_HAS_NOTES_OUT
+    _kernel.setMidiOutput(self.MIDIOutputEventBlock);
+#endif
 #if TINY_WANTS_SIDECHAIN
     _sidechainBus.allocateRenderResources(self.maximumFramesToRender);
 #endif
@@ -640,6 +660,7 @@ static auto presets_path() -> std::filesystem::path
     __block DSPKernel *kernel = &_kernel;
     __block std::unique_ptr<AUProcessHelper> &processHelper = _processHelper;
     __block BufferedInputBus *input = &_inputBus;
+    __block BufferedOutputBus *owned = &_ownedOutput;
     
 #if TINY_WANTS_SIDECHAIN
     __block BufferedInputBus *sidechain = &_sidechainBus;
@@ -659,18 +680,20 @@ static auto presets_path() -> std::filesystem::path
             return kAudioUnitErr_TooManyFramesToProcess;
         }
         
-        // Input
-        {
+        // Input, when there is one.
+        AudioBufferList *inAudioBufferList = nil;
+        if (tiny::Plug_info::Wants::audio_in) {
             AUAudioUnitStatus err = input->pullInput(&pullFlags, timestamp, frameCount, 0, pullInputBlock);
             
             if (err != 0) { return err; }
+            inAudioBufferList = input->mutableAudioBufferList;
         }
-        AudioBufferList *inAudioBufferList = input->mutableAudioBufferList;
         AudioBufferList *sidechainAudioBufferList = nil;
         
 #if TINY_WANTS_SIDECHAIN
         {
-            AUAudioUnitStatus err = sidechain->pullInput(&pullFlags, timestamp, frameCount, 1, pullInputBlock);
+            const auto sidechainBus = tiny::Plug_info::Wants::audio_in ? 1 : 0;
+            AUAudioUnitStatus err = sidechain->pullInput(&pullFlags, timestamp, frameCount, sidechainBus, pullInputBlock);
 
             if (err == 0) { sidechainAudioBufferList = sidechain->mutableAudioBufferList; }
         }
@@ -694,8 +717,13 @@ static auto presets_path() -> std::filesystem::path
         // If passed null output buffer pointers, process in-place in the input buffer.
         AudioBufferList *outAudioBufferList = outputData;
         if (outAudioBufferList->mBuffers[0].mData == nullptr) {
-            for (UInt32 i = 0; i < outAudioBufferList->mNumberBuffers; ++i) {
-                outAudioBufferList->mBuffers[i].mData = inAudioBufferList->mBuffers[i].mData;
+            if (inAudioBufferList) {
+                for (UInt32 i = 0; i < outAudioBufferList->mNumberBuffers; ++i) {
+                    outAudioBufferList->mBuffers[i].mData = inAudioBufferList->mBuffers[i].mData;
+                }
+            }
+            else {
+                owned->prepareOutputBufferList(outAudioBufferList, frameCount, true);
             }
         }
         

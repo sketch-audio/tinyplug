@@ -15,7 +15,7 @@ function(make_auv2_plugin USER_TARGET)
     read_property(${USER_TARGET} TINY_COMPANY_NAME)
     read_property(${USER_TARGET} TINY_MANUFACTURER_CODE)
     read_property(${USER_TARGET} TINY_PLUGIN_CODE)
-    read_property(${USER_TARGET} TINY_AUV2_TYPE)
+    tiny_resolve_capabilities(${USER_TARGET}) # Derives TINY_AUV2_TYPE.
 
     derive_build_number(${TINY_VERSION_STRING} TINY_AUV2_BUNDLE_VERSION)
     
@@ -37,6 +37,7 @@ function(make_auv2_plugin USER_TARGET)
     target_link_libraries(${AUV2_TARGET} PRIVATE ${USER_TARGET})
     target_link_libraries(${AUV2_TARGET} PRIVATE ${TINY_PLATFORM_LIB})
     target_link_libraries(${AUV2_TARGET} PRIVATE ${TINY_DSP_LIB})
+    target_link_libraries(${AUV2_TARGET} PRIVATE "-framework CoreMIDI") # MIDI output packet lists.
 
     target_compile_options(${AUV2_TARGET} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wswitch-enum -Wswitch-default -Wshadow)
 

@@ -45,6 +45,6 @@ private:
     std::array<float, num_params> _values{tiny::params::make_defaults<float, User_params>(Plain)};
 
 };
-static_assert(Some_plug_processor<Processor>); // Check your interface.
+static_assert(Interface<Processor>); // Check your interface.
 
 } // namespace tiny::process

@@ -32,6 +32,13 @@ static constexpr auto export_param_offset = int32_t{0x40000000};
 // static constexpr auto latency_param_id = int32_t{0x60000000};
 static constexpr auto bypass_param_id = int32_t{0x60000001};
 
+// Player controls, which VST3 hosts deliver only as parameters mapped through `IMidiMapping`:
+// per channel, bend, channel pressure, then each `Control::Pedal::Kind`. Hidden, never
+// automatable, never saved, and turned back into `Control` events in `process`.
+static constexpr auto control_param_offset = int32_t{0x50000000};
+static constexpr auto controls_per_channel = int32_t{9};
+static constexpr auto num_control_params = 16 * controls_per_channel;
+
 using Uid_arr = Plug_info::Vst3::Uid_arr;
 
 inline auto map_to_fuid(const Uid_arr& uid) -> Steinberg::FUID

@@ -13,7 +13,11 @@
 
 namespace tiny::vst3 {
 
-class Controller : public Steinberg::Vst::EditControllerEx1 {
+class Controller : public Steinberg::Vst::EditControllerEx1
+#if TINY_HAS_NOTES_IN
+    , public Steinberg::Vst::IMidiMapping
+#endif
+{
 public:
 
     using Super = Steinberg::Vst::EditControllerEx1;
@@ -27,6 +31,10 @@ public:
             .tasks = _tasks.actor(),
 #if TINY_HAS_STATE
             .state = _state_link.actor(),
+#endif
+#if TINY_HAS_NOTES_IN
+            // To the processor over IMessage: the controller holds no processor.
+            .notes = Note_sender{[this](const midi::Performance& e) { return _to_proc.send_pod(k_notes_id, e); }},
 #endif
         });
         _setup_router();
@@ -64,10 +72,17 @@ public:
     Steinberg::tresult PLUGIN_API setComponentHandler(Steinberg::Vst::IComponentHandler* handler) SMTG_OVERRIDE;
     Steinberg::IPlugView* PLUGIN_API createView(Steinberg::FIDString name) SMTG_OVERRIDE;
 
+#if TINY_HAS_NOTES_IN
+    // IMidiMapping: the only way VST3 delivers bend, pressure and pedals.
+    Steinberg::tresult PLUGIN_API getMidiControllerAssignment(Steinberg::int32 busIndex, Steinberg::int16 channel,
+        Steinberg::Vst::CtrlNumber midiControllerNumber, Steinberg::Vst::ParamID& id) SMTG_OVERRIDE;
+#endif
+
     //---Interface---------
     DEFINE_INTERFACES
-        // Here you can add more supported VST3 interfaces
-        // DEF_INTERFACE (Vst::IXXX)
+#if TINY_HAS_NOTES_IN
+        DEF_INTERFACE(Steinberg::Vst::IMidiMapping)
+#endif
     END_DEFINE_INTERFACES(Steinberg::Vst::EditControllerEx1)
     DELEGATE_REFCOUNT(Steinberg::Vst::EditControllerEx1)
 

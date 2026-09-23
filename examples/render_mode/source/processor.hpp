@@ -43,6 +43,6 @@ private:
     double _phase_inc{0};     // radians per sample
     uint32_t _rng{0x1234567u}; // xorshift state for white noise
 };
-static_assert(Some_plug_processor<Processor>); // Check your interface.
+static_assert(Interface<Processor>); // Check your interface.
 
 } // namespace tiny::process

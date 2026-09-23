@@ -6,6 +6,7 @@
 
 #include "tiny_edit.hpp"
 #include "tiny_events.hpp"
+#include "tiny_note_io.hpp"
 #include "tiny_processor.hpp"
 #include "tiny_state_link.hpp"
 #include "tiny_view.hpp"

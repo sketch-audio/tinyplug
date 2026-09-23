@@ -22,6 +22,13 @@ silence, trig, the host transport's dropped-restatement recovery, publisher to
 mailbox end to end, and one two-thread check that a peak is never lost to a concurrent
 read. Run that one under `-fsanitize=thread` too.
 
+## notes_test.cpp
+
+The MIDI 1.0 codec (every message the framework reads, velocity and bend round trips, the
+closed controller set, all-notes-off), note identity (two notes on one key, oldest first,
+host ids, sources kept apart, editor ids, full table, release by channel) and the outbox
+(slice frames to block frames, ordering, capacity).
+
 ## change_set_test.cpp
 
 `Change_set`, both producer modes: coalescing, sparse iteration, empty batches, buffers

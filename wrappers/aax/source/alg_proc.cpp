@@ -64,18 +64,29 @@ auto apply_coefs(const Alg_context* ctx, Alg_state& st) -> void
 
 auto drain_inbound([[maybe_unused]] const Alg_context* ctx, [[maybe_unused]] Alg_state& st) -> void
 {
-#if TINY_HAS_WORKER
+#if TINY_HAS_WORKER || TINY_HAS_NOTES_IN
     if (ctx->inbound == nullptr) return;
 
-    using To_processor = typename User_work::To_processor;
-
     ctx->inbound->drain([&st](Ring_kind kind, const void* payload, uint32_t bytes) {
+#if TINY_HAS_NOTES_IN
+        if (kind == Ring_kind::Editor_note && bytes == sizeof(midi::Performance)) {
+            auto event = midi::Performance{};
+            std::memcpy(&event, payload, sizeof(event));
+            st.notes.post_from_editor(event);
+            return;
+        }
+#endif
+#if TINY_HAS_WORKER
+        using To_processor = typename User_work::To_processor;
         if (kind != Ring_kind::Worker_to_processor) return;
         if (bytes != sizeof(To_processor)) return;
 
         auto msg = To_processor{};
         std::memcpy(&msg, payload, sizeof(msg));
         try_handle_worker_reply(st.processor, msg);
+#else
+        (void)kind; (void)payload; (void)bytes;
+#endif
     });
 #endif
 }
@@ -225,6 +236,7 @@ auto construct_instance(const Alg_context* context, Alg_state* st, double sample
     // not done in ResetFieldData: that block is copied into the algorithm's
     // memory pool, which would require Alg_state to be trivially relocatable.
     st = new (static_cast<void*>(st)) Alg_state{};
+    st->notes.clear(); // A fresh instance: anything sounding downstream is released at its first block.
 
 #if TINY_HAS_STATE
     // A fresh Alg_state has a default document; take the data model's, and carry the edit
@@ -356,7 +368,7 @@ auto render_instance(Alg_context* ctx) -> void
         ? static_cast<size_t>(*ctx->num_frames)
         : size_t{};
 
-    if (ctx->audio_in == nullptr || ctx->audio_out == nullptr) {
+    if (ctx->audio_out == nullptr || (Plug_info::Wants::audio_in && ctx->audio_in == nullptr)) {
         return;
     }
 
@@ -395,10 +407,23 @@ auto render_instance(Alg_context* ctx) -> void
 
     apply_coefs(ctx, *st);
 
-    // Buffer pointers.
-    const auto channels = static_cast<size_t>(num_channels);
+    // A note effect passes audio straight through; the processor never sees it.
+    constexpr auto note_effect = Plug_info::kind == Plugin_kind::Note_effect;
+    if constexpr (note_effect) {
+        for (auto ch = int32_t{}; ch < num_channels; ++ch) {
+            if (ctx->audio_in != nullptr && ctx->audio_in[ch] != ctx->audio_out[ch]) std::copy_n(ctx->audio_in[ch], num_frames, ctx->audio_out[ch]);
+        }
+    }
+
+    // Buffer pointers. An instrument's input is silence: the dry signal its bypass fades to.
+    const auto channels = note_effect ? size_t{0} : static_cast<size_t>(num_channels);
+    auto frames = num_frames;
     for (auto ch = size_t{}; ch < channels; ++ch) {
-        st->ibuffers[ch] = ctx->audio_in[ch];
+        if constexpr (Plug_info::Wants::audio_in) st->ibuffers[ch] = ctx->audio_in[ch];
+        else {
+            st->ibuffers[ch] = st->silence.data();
+            frames = std::min(frames, st->silence.size());
+        }
         st->obuffers[ch] = ctx->audio_out[ch];
     }
 #if TINY_WANTS_SIDECHAIN
@@ -423,12 +448,13 @@ auto render_instance(Alg_context* ctx) -> void
     state_block.emplace(&st->state);
 #endif
 
+    const auto block_context = read_musical_context(ctx, runtime.recording != 0);
     auto context = process::Dsp_context{
-        .musical_context = read_musical_context(ctx, runtime.recording != 0),
-        .ibuffers = {st->ibuffers.begin(), channels},
+        .musical_context = block_context,
+        .ibuffers = {st->ibuffers.begin(), Plug_info::Wants::audio_in ? channels : 0},
         .sbuffers = {st->sbuffers.begin(), Plug_info::wants_sidechain ? max_schannels : 0},
         .obuffers = {st->obuffers.begin(), channels},
-        .num_frames = num_frames,
+        .num_frames = frames,
     };
 #if TINY_HAS_METERS
     context.meters = st->meters.scratch();
@@ -453,10 +479,114 @@ auto render_instance(Alg_context* ctx) -> void
     }
     st->was_skipped = can_skip;
 
-    if (!can_skip) {
+#if TINY_HAS_NOTES_OUT
+    const auto bypassed = st->notes.bypassed(st->bypass.is_bypassed());
+    [[maybe_unused]] const auto passing = bypassed && note_effect; // A bypassed note effect forwards its input.
+#else
+    [[maybe_unused]] constexpr auto passing = false;
+#endif
+#if TINY_HAS_NOTES_IN
+    // One input for the processor, and for the output while a bypassed note effect forwards.
+    const auto input = [st, passing](const process::Input& in, [[maybe_unused]] uint32_t frame) {
+        process::deliver(st->processor, in);
+#if TINY_HAS_NOTES_OUT
+        if (passing) {
+            std::visit(Inline_visitor{
+                [](const process::Event::Any&) {},
+                [&](const auto& e) { st->notes.outbox().pass(static_cast<int32_t>(frame), e); },
+            }, in);
+        }
+#else
+        (void)passing;
+#endif
+    };
+    // The editor's notes land at the top of the block.
+    st->notes.drain_editor([&](const process::Input& in) { input(in, 0); });
+#endif
+
+    // One slice of the block, from `offset`: pointers, musical position and the outbox move with it.
+    const auto sr = ctx->sample_rate != nullptr && *ctx->sample_rate > 0 ? static_cast<double>(*ctx->sample_rate) : 44100.;
+    const auto run = [&](size_t offset, size_t count) {
+        if (count == 0 || can_skip) return;
+        auto ins = std::array<const float*, max_ichannels>{};
+        auto outs = std::array<float*, max_ochannels>{};
+        auto sides = std::array<const float*, max_schannels>{};
+        for (auto ch = size_t{}; ch < channels; ++ch) {
+            ins[ch] = st->ibuffers[ch] ? st->ibuffers[ch] + offset : nullptr;
+            outs[ch] = st->obuffers[ch] + offset;
+        }
+        for (auto ch = size_t{}; ch < context.sbuffers.size(); ++ch) {
+            sides[ch] = st->sbuffers[ch] ? st->sbuffers[ch] + offset : nullptr;
+        }
+        context.ibuffers = {ins.data(), context.ibuffers.size()};
+        context.obuffers = {outs.data(), channels};
+        context.sbuffers = {sides.data(), context.sbuffers.size()};
+        context.num_frames = count;
+        context.musical_context = block_context;
+        context.musical_context.sample_pos = block_context.sample_pos + static_cast<int64_t>(offset);
+        context.musical_context.beat_pos = block_context.beat_pos + process::frames_to_beats(static_cast<int64_t>(offset), block_context.tempo_ideal, sr);
+#if TINY_HAS_NOTES_OUT
+        st->notes.outbox().begin_slice(static_cast<int64_t>(offset), static_cast<int64_t>(count));
+        context.notes = st->notes.writer(bypassed);
+#endif
         st->processor.process(context);
+    };
+
+#if TINY_HAS_NOTES_IN
+    // Host notes, sample accurate: the block is split at each packet's timestamp.
+    const AAX_CMidiPacket* packets = nullptr;
+    auto count = uint32_t{};
+    if (ctx->notes_in != nullptr) {
+        if (const auto* stream = ctx->notes_in->GetNodeBuffer()) {
+            packets = stream->mBuffer;
+            count = stream->mBufferSize;
+        }
     }
-    st->bypass.process({st->ibuffers.begin(), channels}, {st->obuffers.begin(), channels}, num_frames);
+    const auto deliver = [&](const AAX_CMidiPacket& p) {
+        st->notes.from_midi(p.mData[0], p.mLength > 1 ? p.mData[1] : 0, p.mLength > 2 ? p.mData[2] : 0,
+                            [&](const process::Input& in) { input(in, std::min<uint32_t>(p.mTimestamp, static_cast<uint32_t>(frames))); });
+    };
+    auto now = size_t{};
+    auto index = uint32_t{};
+    while (now < frames) {
+        const auto next = index < count ? std::min<size_t>(packets[index].mTimestamp, frames) : frames;
+        if (next > now) {
+            run(now, next - now);
+            now = next;
+        }
+        while (index < count && packets[index].mTimestamp <= now) deliver(packets[index++]);
+    }
+    while (index < count) deliver(packets[index++]); // Late ones still land.
+#else
+    run(0, frames);
+#endif
+
+    if constexpr (!note_effect) {
+        st->bypass.process({st->ibuffers.begin(), channels}, {st->obuffers.begin(), channels}, frames);
+    }
+
+#if TINY_HAS_NOTES_OUT
+    // What the processor sent, after all-notes-off if the stream broke.
+    {
+        auto& box = st->notes.outbox();
+        const auto send = [&](uint32_t frame, const midi::Bytes& bytes) {
+            if (ctx->notes_out == nullptr || bytes.size == 0) return;
+            auto packet = AAX_CMidiPacket{};
+            packet.mTimestamp = frame;
+            packet.mLength = bytes.size;
+            std::copy_n(bytes.data.begin(), bytes.size, packet.mData);
+            packet.mIsImmediate = false;
+            ctx->notes_out->PostMIDIPacket(&packet);
+        };
+        if (st->notes.take_all_off()) {
+            for (auto channel = uint8_t{}; channel < 16; ++channel) send(0, midi::all_notes_off(channel));
+        }
+        for (const auto& entry : box.events()) {
+            std::visit([&](const auto& e) { send(static_cast<uint32_t>(entry.frame), midi::encode(e)); }, entry.event);
+        }
+        box.clear();
+    }
+#endif
 
 #if TINY_HAS_METERS
     // Meters out. Suppressed during an offline bounce; the publisher still resets

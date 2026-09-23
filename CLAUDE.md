@@ -68,14 +68,16 @@ cmake --build build
 ## Core abstractions
 
 The plug-in author implements two classes plus a few static models. Concepts
-live alongside each interface — find them by searching for `concept Some_*`.
+live alongside each interface: `process::Interface`, and a `concept Model` per model.
 
 - **`Processor`** ([tiny_processor.hpp](libs/tinyplug/include/tinyplug/tiny_processor.hpp))
   — the whole process side lives in **`tiny::process`**, *including the user's class*, so
   a processor file writes the vocabulary unqualified:
   `configure(const Config&)`, `reset(const Reset::Any&)`, `handle(const Event::Any&)`,
   `process(Dsp_context&)`, `latency_samps()`, `tail_samps()`. The concept is
-  `Some_plug_processor`.
+  `process::Interface`, and its requirements follow the plug-in's declared capabilities
+  (`#if TINY_HAS_*`): notes in requires `handle(Note::Any)` and `handle(Control::Any)`, a
+  work model replying to the processor requires `handle_worker_reply`.
 
   The user's classes live by **side**: `process::Processor`, `edit::Editor`,
   `work::Worker`. Framework vocabulary is mostly still in `tiny` and resolves unqualified
@@ -147,6 +149,24 @@ live alongside each interface — find them by searching for `concept Some_*`.
   loads the processor copy (`on_session_load`) and calls `Editor_link::load`, which folds the
   change into the host-load undo step. AAX's algorithm doesn't see the load, so its data model
   loads with `Resend::Yes` and flushes. Design: [state-persistence.md](plans/state-persistence.md). Optional.
+- **Notes** ([tiny_midi.hpp](libs/tiny_core/include/tiny_core/tiny_midi.hpp)) — not a model:
+  `TINY_PLUGIN_WANTS_AUDIO` / `TINY_PLUGIN_WANTS_NOTES` in CMake declare what the plug-in
+  carries, `tiny_resolve_capabilities` ([helpers.cmake](cmake/helpers.cmake)) derives the kind
+  (effect, instrument, note effect) and each format's identity, and `<tiny_models.hpp>` gets
+  `TINY_HAS_NOTES_IN` / `_OUT`. `midi::Note` and `midi::Control` (a closed set of
+  player controls, never arbitrary CC; re-exported into `tiny::process`) arrive through `handle`
+  between slices; output leaves through `Dsp_context::notes`, which also takes `midi::Raw`:
+  any channel voice message, output only, since sending can't write the plug-in's own
+  parameters. Every wrapper owns a `process::Note_io`
+  ([tiny_note_io.hpp](libs/tinyplug/include/tinyplug/tiny_note_io.hpp)): `Note_ids` mints one
+  id per note whatever the format supplied, the editor's pipe (`Edit_context::notes`) lands
+  at the top of the next block, and a stream break (hard reset, bypass edge, deactivate)
+  sends all-notes-off. MIDI 1.0 goes through one codec
+  ([midi_codec.hpp](libs/tiny_core/include/tiny_core/midi_codec.hpp)). Per format: CLAP note
+  ports, VST3 event buses plus `IMidiMapping` onto 144 hidden parameters for controls, AUv2
+  `MIDIEvent` and the MIDI output callback (factory by kind), AUv3 render events and
+  `MIDIOutputEventBlock`, AAX MIDI nodes with the algorithm slicing at packet timestamps and
+  editor notes on the inbound ring. Design: [midi-support.md](plans/midi-support.md).
 - **`work::Model`** ([tiny_work.hpp](libs/tiny_core/include/tiny_core/tiny_work.hpp)) — the
   worker's four channel variants plus tuning, declared as `models::Work` in
   `models/work.hpp`. Optional, and paired with `worker.hpp` (the `work::Worker` class).

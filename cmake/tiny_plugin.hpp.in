@@ -25,8 +25,19 @@ struct Resolved {
 
 namespace tiny {
 
-static_assert(process::Some_plug_processor<plugin::Resolved::Processor>,
-              "process::Processor must satisfy process::Some_plug_processor.");
+#if TINY_HAS_WORK
+static_assert(std::is_same_v<User_work::To_processor, std::monostate>
+              || requires(plugin::Resolved::Processor p, const User_work::To_processor& r) { p.handle_worker_reply(r); },
+              "models::Work replies to the processor: process::Processor needs `auto handle_worker_reply(const User_work::To_processor&) -> void`.");
+#endif
+#if TINY_HAS_NOTES_IN
+static_assert(requires(plugin::Resolved::Processor p, const process::Note::Any& n) { p.handle(n); },
+              "TINY_PLUGIN_WANTS_NOTES has `in`: process::Processor needs `auto handle(const Note::Any&) -> void`.");
+static_assert(requires(plugin::Resolved::Processor p, const process::Control::Any& c) { p.handle(c); },
+              "TINY_PLUGIN_WANTS_NOTES has `in`: process::Processor needs `auto handle(const Control::Any&) -> void`.");
+#endif
+static_assert(process::Interface<plugin::Resolved::Processor>,
+              "process::Processor must satisfy process::Interface.");
 
 using User_processor = plugin::Resolved::Processor;
 using User_editor = plugin::Resolved::Editor;

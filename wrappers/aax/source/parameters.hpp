@@ -40,6 +40,10 @@ public:
 #if TINY_HAS_STATE
             .state = _state_link.actor(),
 #endif
+#if TINY_HAS_NOTES_IN
+            // Held here until Direct Data carries them to the algorithm on the inbound ring.
+            .notes = Note_sender{[this](const midi::Performance& e) { return _editor_notes.push(e); }},
+#endif
         });
 #if TINY_HAS_STATE
         _setup_state();
@@ -172,6 +176,10 @@ private:
 
     Undo_history _undo_history{};
     Action_queue _actions{};
+
+#if TINY_HAS_NOTES_IN
+    mutable Lock_free_queue<midi::Performance, process::Note_io::editor_capacity, Queue_concurrency::spsc> _editor_notes{}; // Drained from the const GetCustomData.
+#endif
 
 #if TINY_HAS_STATE
     // The editor's half of the document. `_state_mutex` guards the link between the GUI and

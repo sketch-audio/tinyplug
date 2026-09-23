@@ -7,8 +7,13 @@
 static const unsigned int kAudioUnitProperty_UserPlugin = 64000; // User properties have to be >= 64000.
 
 #define TINY_WANTS_SIDECHAIN @TINY_WANTS_SIDECHAIN@
+#define TINY_KIND_INSTRUMENT @TINY_KIND_INSTRUMENT@
+#define TINY_KIND_NOTE_EFFECT @TINY_KIND_NOTE_EFFECT@
 
 namespace tiny {
+
+// Derived from what the plug-in carries (TINY_PLUGIN_WANTS_AUDIO / _NOTES).
+enum class Plugin_kind : uint32_t { Effect, Instrument, Note_effect };
 
 struct Plug_info {
     static constexpr const char company_name[] = "@TINY_COMPANY_NAME@";
@@ -30,6 +35,16 @@ struct Plug_info {
     static constexpr const char base_identifier[] = "@TINY_BASE_IDENTIFIER@";
     static constexpr const char version_string[] = "@TINY_VERSION_STRING@";
     static constexpr auto build_number = size_t{@TINY_BUILD_NUMBER@};
+
+    static constexpr auto kind = Plugin_kind::@TINY_KIND_ENUM@;
+
+    struct Wants {
+        static constexpr auto audio_in = bool{@TINY_AUDIO_IN@};
+        static constexpr auto audio_out = bool{@TINY_AUDIO_OUT@};
+        static constexpr auto sidechain = bool{@TINY_SIDECHAIN@};
+        static constexpr auto notes_in = bool{@TINY_NOTES_IN@};
+        static constexpr auto notes_out = bool{@TINY_NOTES_OUT@};
+    };
 
     static constexpr auto wants_sidechain = bool{@TINY_PLUGIN_WANTS_SIDECHAIN@};
     static constexpr auto can_process_mono = bool{@TINY_PLUGIN_CAN_PROCESS_MONO@};

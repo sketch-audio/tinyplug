@@ -9,6 +9,8 @@
 #define TINY_HAS_BLOCKS 0
 #define TINY_HAS_STATE 0
 #define TINY_HAS_WORK 0
+#define TINY_HAS_NOTES_IN 0
+#define TINY_HAS_NOTES_OUT 0
 
 namespace tiny::models {
 
@@ -35,5 +37,7 @@ inline constexpr bool has_meters = false;
 inline constexpr bool has_blocks = false;
 inline constexpr bool has_state = false;
 inline constexpr bool has_work = false;
+inline constexpr bool has_notes_in = false;
+inline constexpr bool has_notes_out = false;
 
 } // namespace tiny

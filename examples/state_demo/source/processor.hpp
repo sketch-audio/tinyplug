@@ -34,6 +34,6 @@ private:
     float _glide{};       // One-pole coefficient: ~3 ms, so steps don't click.
 
 };
-static_assert(Some_plug_processor<Processor>);
+static_assert(Interface<Processor>);
 
 } // namespace tiny::process

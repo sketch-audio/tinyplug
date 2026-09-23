@@ -7,6 +7,8 @@
 #include <span>
 #include <variant>
 
+#include <tiny_core/note_out.hpp>
+#include <tiny_core/tiny_midi.hpp>
 #include <tiny_core/tiny_state.hpp>
 #include <tiny_core/tiny_utils.hpp>
 
@@ -29,10 +31,20 @@ struct Event {
     using Any = std::variant<Set, Ramp>;
 };
 
+// Anything a wrapper delivers through `handle` at a frame offset.
+using Input = std::variant<Event::Any, Note::Any, Control::Any>;
+
 struct Tagged_event {
-    Event::Any event{};
+    Input event{};
     int32_t offset{std::numeric_limits<decltype(offset)>::max()}; // Frame offset in current buffer.
+    uint32_t order{}; // Arrival order, so events at one offset keep the order they came in.
 };
+
+// Sorts by offset, keeping arrival order at equal offsets without `std::stable_sort`, which may allocate.
+inline auto before(const Tagged_event& a, const Tagged_event& b) -> bool
+{
+    return a.offset != b.offset ? a.offset < b.offset : a.order < b.order;
+}
 
 inline auto frames_to_beats(int64_t frames, double tempo, double sample_rate) noexcept -> double
 {
@@ -86,6 +98,9 @@ struct Dsp_context {
 #endif
     std::optional<uint32_t> propose_latency{}; // samples.
     Render_mode render_mode{Render_mode::Realtime};
+#if TINY_HAS_NOTES_OUT
+    Note_outbox::Writer notes{}; // Frames count from the start of this `process` call.
+#endif
 };
 
 // What a processor is built for: the rate it will run at, and the parameter values it
@@ -133,7 +148,7 @@ struct Reset {
 };
 
 template<typename T>
-concept Some_plug_processor = requires(T t) {
+concept Interface = requires(T t) {
     // Two entry points for state, split by what they cost rather than by depth:
     //
     //   sample rate / configuration   configure(cfg)      allocates, off the audio thread
@@ -175,6 +190,31 @@ concept Some_plug_processor = requires(T t) {
     { t.process(std::declval<Dsp_context&>(/*context*/)) } -> std::same_as<void>;
     { t.latency_samps() } -> std::same_as<uint32_t>;
     { t.tail_samps() } -> std::same_as<uint32_t>;
-};
+}
+#if TINY_HAS_WORK
+// A work model that replies to the processor means handling the replies. Required rather than
+// detected, like notes: a misspelled handler would otherwise drop every reply silently.
+&& (std::is_same_v<User_work::To_processor, std::monostate> || requires(T t, const User_work::To_processor& reply) {
+    { t.handle_worker_reply(reply) } -> std::same_as<void>;
+})
+#endif
+#if TINY_HAS_NOTES_IN
+// Declaring notes in (TINY_PLUGIN_WANTS_NOTES) means handling notes and controls, even if one
+// visitor is empty: required, so a misspelled overload is a compile error rather than silence.
+&& requires(T t) {
+    { t.handle(std::declval<const Note::Any&>(/*note*/)) } -> std::same_as<void>;
+    { t.handle(std::declval<const Control::Any&>(/*control*/)) } -> std::same_as<void>;
+}
+#endif
+;
+
+// Hand one delivered input to the processor's matching `handle`.
+template<typename P>
+auto deliver(P& processor, const Input& input) -> void
+{
+    std::visit([&](const auto& e) {
+        if constexpr (requires { processor.handle(e); }) processor.handle(e);
+    }, input);
+}
 
 } // namespace tiny::process

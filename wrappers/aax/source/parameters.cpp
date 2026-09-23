@@ -436,6 +436,7 @@ AAX_Result Parameters::SetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSi
             break;
         }
         case Ring_kind::Worker_to_processor:
+        case Ring_kind::Editor_note:
         default:
             break;
     }
@@ -459,6 +460,17 @@ AAX_Result Parameters::GetCustomData(AAX_CTypeID iDataBlockID, uint32_t inDataSi
         std::memcpy(out + sizeof(State_edit_header), _state_out.data(), _state_out_header.bytes);
         if (oDataWritten != nullptr) *oDataWritten = static_cast<uint32_t>(total);
         _state_out_full = false;
+        return AAX_SUCCESS;
+    }
+#endif
+#if TINY_HAS_NOTES_IN
+    if (iDataBlockID == custom_data_editor_note) {
+        if (oDataWritten != nullptr) *oDataWritten = 0;
+        if (oData == nullptr || inDataSize < sizeof(midi::Performance)) return AAX_ERROR_INVALID_ARGUMENT;
+        auto event = midi::Performance{};
+        if (!_editor_notes.pop(event)) return AAX_SUCCESS; // Nothing pending.
+        std::memcpy(oData, &event, sizeof(event));
+        if (oDataWritten != nullptr) *oDataWritten = static_cast<uint32_t>(sizeof(event));
         return AAX_SUCCESS;
     }
 #endif

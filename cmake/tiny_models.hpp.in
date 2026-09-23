@@ -21,6 +21,10 @@
 @TINY_WORK_INCLUDE@
 #define TINY_HAS_WORK @TINY_HAS_WORK@
 
+// What the plug-in carries, from TINY_PLUGIN_WANTS_NOTES. Not models: CMake declarations.
+#define TINY_HAS_NOTES_IN @TINY_HAS_NOTES_IN@
+#define TINY_HAS_NOTES_OUT @TINY_HAS_NOTES_OUT@
+
 namespace tiny::models {
 
 struct Resolved {
@@ -52,5 +56,7 @@ inline constexpr bool has_meters = TINY_HAS_METERS;
 inline constexpr bool has_blocks = TINY_HAS_BLOCKS;
 inline constexpr bool has_state = TINY_HAS_STATE;
 inline constexpr bool has_work = TINY_HAS_WORK;
+inline constexpr bool has_notes_in = TINY_HAS_NOTES_IN;
+inline constexpr bool has_notes_out = TINY_HAS_NOTES_OUT;
 
 } // namespace tiny

@@ -14,6 +14,9 @@
 #if TINY_HAS_STATE
 -(tiny::state::Editor_actor<tiny::models::Resolved::State>)stateActor;
 #endif
+#if TINY_HAS_NOTES_IN
+-(tiny::Note_sender)noteSender;
+#endif
 #if TINY_HAS_WORKER
 -(void)bindEditorToWorker;
 -(void)drainWorkerToEditor;

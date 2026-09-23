@@ -28,8 +28,11 @@ namespace tiny::auv2 {
 class Effect : public ausdk::AUBase {
 public:
 
-    static constexpr auto num_inputs = uint32_t{Plug_info::wants_sidechain ? 2 : 1};
+    // Buses follow what the plug-in carries. A note effect keeps one silent output: AU renders
+    // are pulled through an output element.
+    static constexpr auto num_inputs = uint32_t{(Plug_info::Wants::audio_in ? 1u : 0u) + (Plug_info::wants_sidechain ? 1u : 0u)};
     static constexpr auto num_outputs = uint32_t{1};
+    static constexpr auto sidechain_input = uint32_t{Plug_info::Wants::audio_in ? 1 : 0};
 
     using Super = ausdk::AUBase;
     Effect(AudioUnit component);
@@ -44,9 +47,10 @@ public:
     UInt32 SupportedNumChannels(const AUChannelInfo** outInfo) override
     {
         if (cinfo.empty()) {
-            cinfo.push_back({2, 2});
+            const auto in = [](SInt16 n) { return Plug_info::Wants::audio_in ? n : SInt16{0}; };
+            cinfo.push_back({in(2), 2});
             if constexpr (Plug_info::can_process_mono) {
-                cinfo.push_back({1, 1});
+                cinfo.push_back({in(1), 1});
             }
         }
         if (!outInfo) return (UInt32)cinfo.size();
@@ -110,6 +114,11 @@ public:
 
     OSStatus Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTimeStamp& inTimeStamp, UInt32 nFrames) override;
 
+#if TINY_HAS_NOTES_IN
+    // Any thread the host likes, before the render it belongs to: queued, named on the render thread.
+    OSStatus MIDIEvent(UInt32 inStatus, UInt32 inData1, UInt32 inData2, UInt32 inOffsetSampleFrame) override;
+#endif
+
     auto create_view() -> void*;
 
 private:
@@ -118,6 +127,8 @@ private:
     auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
                        std::span<const std::byte> record) -> void;
     auto _load_state_record(std::span<const std::byte> record) -> void;
+    auto _input(const process::Input& input, int32_t offset) -> void;
+    auto _send_notes(const AudioTimeStamp& time) -> void;
 
     double _sr{48000};
 
@@ -212,13 +223,25 @@ private:
 
     // Both queue and change list drain into events vector. 
     // We may want to revisit to reduce memory usage for high parameter counts.
-    static constexpr auto events_size = num_params + queue_size + 1;
+    static constexpr auto events_size = num_params + queue_size + 1 + (Plug_info::Wants::notes_in ? 1024 : 0);
 
     // 
     using To_processor_queue = Lock_free_queue<process::Tagged_event, queue_size, Queue_concurrency::mpsc>; // I believe SetParameter can happen from a variety of threads.
 
 
     Change_set<process::Event::Set, num_params> _changes{}; // Plain space, to the audio thread.
+
+    // Notes: identity, the editor's inbox, the outbox. Raw MIDI waits here until the render
+    // thread names it. `_passing` while a bypassed note effect forwards what comes in.
+    process::Note_io _notes{};
+    struct Raw_midi { uint8_t status{}, d1{}, d2{}; int32_t offset{}; };
+    Lock_free_queue<Raw_midi, 1024, Queue_concurrency::mpsc> _midi_in{};
+    std::vector<float> _silence{}; // Bypass's dry signal when there's no audio input.
+#if TINY_HAS_NOTES_OUT
+    bool _passing{};
+    AUMIDIOutputCallbackStruct _midi_out{};
+    std::array<Byte, 8192> _packets{};
+#endif
     To_processor_queue _to_processor{};
 
 #if TINY_HAS_METERS

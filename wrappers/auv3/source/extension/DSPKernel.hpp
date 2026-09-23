@@ -61,6 +61,7 @@ public:
 
         _bypass.reset(static_cast<float>(inSampleRate));
         _bypass.set_latency(latency);
+        _silence.assign(mMaxFramesToRender, 0.f);
 
 #if TINY_HAS_WORKER
         bind_worker_to_kernel_classes();
@@ -71,6 +72,49 @@ public:
     void deInitialize() {
         _pending_latency.store(std::nullopt, std::memory_order_release);
         _accepted_latency.store(std::nullopt, std::memory_order_release);
+        _notes.clear(); // Released downstream at the next block.
+    }
+
+    // MARK: - Notes
+
+    auto notes() -> tiny::process::Note_io& { return _notes; }
+
+#if TINY_HAS_NOTES_OUT
+    // Captured when render resources are allocated; called on the render thread.
+    void setMidiOutput(AUMIDIOutputEventBlock block) { _midi_out = block; }
+#endif
+
+    // Once per render, before any slice: the editor's notes, and the bypass the block renders with.
+    void begin_block(AUEventSampleTime start) {
+        _block_start = start;
+#if TINY_HAS_NOTES_OUT
+        const auto bypassed = _notes.bypassed(_bypass.is_bypassed());
+        _passing = bypassed && tiny::Plug_info::kind == tiny::Plugin_kind::Note_effect;
+        _writer = _notes.writer(bypassed);
+#endif
+#if TINY_HAS_NOTES_IN
+        _notes.drain_editor([this](const tiny::process::Input& input) { _input(input, 0); });
+#endif
+    }
+
+    // Once per render, after the last slice: what the processor sent, as MIDI.
+    void end_block() {
+#if TINY_HAS_NOTES_OUT
+        auto& box = _notes.outbox();
+        const auto all_off = _notes.take_all_off();
+        if (_midi_out) {
+            const auto send = [&](int32_t frame, const tiny::midi::Bytes& bytes) {
+                if (bytes.size > 0) _midi_out(_block_start + frame, 0, bytes.size, bytes.data.data());
+            };
+            if (all_off) {
+                for (auto channel = uint8_t{}; channel < 16; ++channel) send(0, tiny::midi::all_notes_off(channel));
+            }
+            for (const auto& entry : box.events()) {
+                std::visit([&](const auto& e) { send(entry.frame, tiny::midi::encode(e)); }, entry.event);
+            }
+        }
+        box.clear();
+#endif
     }
 
     // AUAudioUnit's `-reset`: "Reset transitory rendering state to its initial state."
@@ -143,7 +187,11 @@ public:
          Note: For an Audio Unit with 'n' input channels to 'n' output channels, remove the assert below and
          modify the check in [Galaxy_Brain_AUAudioUnit allocateRenderResourcesAndReturnError]
          */
-        assert(inputBuffers.size() == outputBuffers.size());
+        assert(!tiny::Plug_info::Wants::audio_in || inputBuffers.size() == outputBuffers.size());
+
+#if TINY_HAS_NOTES_OUT
+        _notes.outbox().begin_slice(bufferStartTime - _block_start, frameCount);
+#endif
 
         const auto denormals = tiny::Denormal_guard{}; // Restores the host's FP mode on the way out.
 
@@ -163,6 +211,7 @@ public:
         // delivers lands.
         if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
             _processor->reset(tiny::process::Reset::Hard{});
+            _notes.clear();
             _bypass.clear();    // Its delay lines hold pre-seek dry audio.
             _bypass.snap();
         }
@@ -199,6 +248,7 @@ public:
         // forget history as well as manifesting values.
         if (_last_render_mode != context.render_mode) {
             _processor->reset(tiny::process::Reset::Hard{});
+            _notes.clear();
             _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
             _bypass.snap();
             _last_render_mode = context.render_mode;
@@ -207,11 +257,15 @@ public:
         assert(inputBuffers.size() == static_cast<size_t>(mInputChannelCount));
         assert(outputBuffers.size() == static_cast<size_t>(mOutputChannelCount));
         
-        // Already spans with size set by process helper.
+        // Already spans with size set by process helper. A note effect's output is a silent bus
+        // the processor never sees.
         context.ibuffers = inputBuffers;
-        context.obuffers = outputBuffers;
+        context.obuffers = tiny::Plug_info::Wants::audio_out ? outputBuffers : std::span<float*>{};
         context.sbuffers = sidechainBuffers;
         context.num_frames = frameCount;
+#if TINY_HAS_NOTES_OUT
+        context.notes = _writer;
+#endif
         
         const auto can_skip = _bypass.can_skip_effect();
 
@@ -226,7 +280,19 @@ public:
             _processor->process(context);
         }
         
-        _bypass.process(inputBuffers, outputBuffers, frameCount);
+        if constexpr (!tiny::Plug_info::Wants::audio_out) {
+            for (auto* channel : outputBuffers) std::fill(channel, channel + frameCount, 0.f);
+        }
+        else if constexpr (tiny::Plug_info::Wants::audio_in) {
+            _bypass.process(inputBuffers, outputBuffers, frameCount);
+        }
+        else {
+            // No audio input: the dry signal is silence, so bypass fades out.
+            auto dry = std::array<const float*, max_ochannels>{};
+            for (auto& channel : dry) channel = _silence.data();
+            const auto channels = std::min(outputBuffers.size(), max_ochannels);
+            _bypass.process({dry.data(), channels}, outputBuffers.first(channels), std::min<size_t>(frameCount, _silence.size()));
+        }
         
         // Send exports. Suppressed during an offline bounce; the publisher still
         // resets peaks so a bounce cannot hoard a spike.
@@ -293,9 +359,31 @@ public:
                 break;
             }
                 
+            case AURenderEventMIDI: {
+#if TINY_HAS_NOTES_IN
+                const auto& m = event->MIDI;
+                const auto offset = static_cast<int32_t>(std::max<AUEventSampleTime>(event->head.eventSampleTime - _block_start, 0));
+                _notes.from_midi(m.data[0], m.length > 1 ? m.data[1] : 0, m.length > 2 ? m.data[2] : 0,
+                                 [&](const tiny::process::Input& input) { _input(input, offset); });
+#endif
+                break;
+            }
             default:
                 break;
         }
+    }
+
+    // One input for the processor, and for the output while a bypassed note effect forwards.
+    void _input(const tiny::process::Input& input, [[maybe_unused]] int32_t offset) {
+        tiny::process::deliver(*_processor, input);
+#if TINY_HAS_NOTES_OUT
+        if (_passing) {
+            std::visit(tiny::Inline_visitor{
+                [](const tiny::process::Event::Any&) {},
+                [&](const auto& e) { _notes.outbox().pass(offset, e); },
+            }, input);
+        }
+#endif
     }
     
     void handleParameterEvent(AUEventSampleTime now, AUParameterEvent const& parameterEvent) {
@@ -405,6 +493,16 @@ private:
 
     // Parameter values set off the render thread (the parameter tree), to process().
     tiny::Change_set<tiny::process::Event::Set, num_params> _param_changes{};
+
+    // Notes: identity, the editor's inbox, the outbox.
+    tiny::process::Note_io _notes{};
+    AUEventSampleTime _block_start{};
+    std::vector<float> _silence{}; // Bypass's dry signal when there's no audio input.
+#if TINY_HAS_NOTES_OUT
+    AUMIDIOutputEventBlock _midi_out = nil;
+    tiny::process::Note_outbox::Writer _writer{};
+    bool _passing{};
+#endif
 
     std::atomic<bool> _needs_clear{false}; // Set by clear(), consumed at the top of process().
     bool _was_skipped{}; // process()-thread only. Detects the can_skip -> processing edge.

@@ -186,6 +186,12 @@ struct Alg_context {
     int32_t* sidechain_index;         // AddSideChainIn
 #endif
     AAX_IMIDINode* transport_node;    // AddMIDINode(Transport)
+#if TINY_HAS_NOTES_IN
+    AAX_IMIDINode* notes_in;          // AddMIDINode(LocalInput)
+#endif
+#if TINY_HAS_NOTES_OUT
+    AAX_IMIDINode* notes_out;         // AddMIDINode(LocalOutput)
+#endif
 
     const Runtime_packet* runtime;    // AddDataInPort
 
@@ -221,6 +227,12 @@ enum : AAX_CFieldIndex {
     field_sidechain = AAX_FIELD_INDEX(Alg_context, sidechain_index),
 #endif
     field_transport = AAX_FIELD_INDEX(Alg_context, transport_node),
+#if TINY_HAS_NOTES_IN
+    field_notes_in = AAX_FIELD_INDEX(Alg_context, notes_in),
+#endif
+#if TINY_HAS_NOTES_OUT
+    field_notes_out = AAX_FIELD_INDEX(Alg_context, notes_out),
+#endif
     field_runtime = AAX_FIELD_INDEX(Alg_context, runtime),
     field_reset_state = AAX_FIELD_INDEX(Alg_context, reset_state),
     field_state = AAX_FIELD_INDEX(Alg_context, state),
@@ -296,6 +308,9 @@ inline constexpr auto custom_data_state_edit = AAX_CTypeID{'tSTE'};
 // Direct Data -> data model: one state snapshot, a State_snapshot_frame.
 inline constexpr auto custom_data_state_snapshot = AAX_CTypeID{'tSTS'};
 
+// Data model -> Direct Data: one `midi::Performance` from the editor per call.
+inline constexpr auto custom_data_editor_note = AAX_CTypeID{'tNTE'};
+
 // Header for a `custom_data_block`; `frame_bytes` of frame follow it.
 struct Block_header {
     uint32_t address{};
@@ -340,6 +355,11 @@ struct Alg_state {
     std::array<const float*, max_ichannels> ibuffers{};
     std::array<const float*, max_schannels> sbuffers{};
     std::array<float*, max_ochannels> obuffers{};
+
+    // Notes: identity, the editor's inbox (fed from the inbound ring), the outbox. An
+    // instrument's bypass fades to `silence`, its dry signal.
+    process::Note_io notes{};
+    [[no_unique_address]] std::conditional_t<Plug_info::Wants::audio_in, std::array<float, 0>, std::array<float, 4096>> silence{};
 
     uint32_t latency_seq{};
     uint32_t accepted_latency{};

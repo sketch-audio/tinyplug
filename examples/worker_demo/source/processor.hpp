@@ -70,6 +70,6 @@ private:
     uint64_t _last_count{};
 
 };
-static_assert(Some_plug_processor<Processor>);
+static_assert(Interface<Processor>);
 
 } // namespace tiny::process

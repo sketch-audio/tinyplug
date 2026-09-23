@@ -33,6 +33,7 @@ private:
 
     auto _drain_returns(AAX_IPrivateDataAccess* access) -> void;
     auto _push_worker_replies(AAX_IPrivateDataAccess* access) -> void;
+    auto _push_editor_notes(AAX_IPrivateDataAccess* access) -> void;
     auto _read_blocks(AAX_IPrivateDataAccess* access) -> void;
     auto _push_state_edit(AAX_IPrivateDataAccess* access) -> void;
     auto _read_state_snapshot(AAX_IPrivateDataAccess* access) -> void;

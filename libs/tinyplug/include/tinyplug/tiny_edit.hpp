@@ -4,6 +4,7 @@
 #include <tiny_core/task_manager.hpp>
 
 #include "action_queue.hpp"
+#include "tiny_note_io.hpp"
 #include "tiny_state_link.hpp"
 #include "undo_history.hpp"
 
@@ -22,6 +23,9 @@ struct Edit_context {
     Task_manager::Actor tasks{};
 #if TINY_HAS_STATE
     state::Editor_actor<models::Resolved::State> state{};
+#endif
+#if TINY_HAS_NOTES_IN
+    Note_sender notes{};
 #endif
 };
 

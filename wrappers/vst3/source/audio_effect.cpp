@@ -1,5 +1,9 @@
 #include "audio_effect.hpp"
 
+#include "pluginterfaces/vst/ivstevents.h"
+#include "pluginterfaces/vst/ivstmidicontrollers.h"
+#include "pluginterfaces/vst/ivstnoteexpression.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -125,18 +129,11 @@ Steinberg::tresult PLUGIN_API Audio_effect::initialize(Steinberg::FUnknown* cont
 
     using namespace Steinberg::Vst; // SpeakerArr, BusTypes
 
-    const auto input_count = Plug_info::wants_sidechain ? 2 : 1;
-
-    for (auto i = decltype(input_count){}; i < input_count; ++i) {
-        const auto is_main = (i == 0);
-
-        const auto* input_name = is_main ? u"Input" : u"Sidechain";
-        const auto bus_type = is_main ? BusTypes::kMain : BusTypes::kAux;
-
-        addAudioInput(input_name, SpeakerArr::kStereo, bus_type);
-    }
-
-    addAudioOutput(u"Output", SpeakerArr::kStereo, BusTypes::kMain);
+    if constexpr (Plug_info::Wants::audio_in) addAudioInput(u"Input", SpeakerArr::kStereo, BusTypes::kMain);
+    if constexpr (Plug_info::wants_sidechain) addAudioInput(u"Sidechain", SpeakerArr::kStereo, BusTypes::kAux);
+    if constexpr (Plug_info::Wants::audio_out) addAudioOutput(u"Output", SpeakerArr::kStereo, BusTypes::kMain);
+    if constexpr (Plug_info::Wants::notes_in) addEventInput(u"Notes In", 16);
+    if constexpr (Plug_info::Wants::notes_out) addEventOutput(u"Notes Out", 16);
 
     return Steinberg::kResultOk;
 }
@@ -210,7 +207,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::Proc
         const auto automation = scale * 64 * std::bit_width(num_params); // We expect number of automated parameters to be small but we need to be able to handle a lot of flux.
         return state + automation + 1;
     };
-    _events.reserve(events_size(max_samples)); // Want fixed size event vector.
+    _events.reserve(events_size(max_samples) + (Plug_info::Wants::notes_in ? 1024 : 0)); // Want fixed size event vector.
 
     return Steinberg::Vst::AudioEffect::setupProcessing(newSetup);
 }
@@ -264,6 +261,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setActive(Steinberg::TBool state)
 #endif
     }
     else {
+        _notes.clear(); // Released downstream at the next block.
         _relay.reset();
 #if TINY_HAS_BLOCKS
         _block_relay.reset();
@@ -289,51 +287,42 @@ Steinberg::tresult PLUGIN_API Audio_effect::setProcessing(Steinberg::TBool state
 
 Steinberg::tresult PLUGIN_API Audio_effect::setBusArrangements(Steinberg::Vst::SpeakerArrangement* inputs, Steinberg::int32 numIns, Steinberg::Vst::SpeakerArrangement* outputs, Steinberg::int32 numOuts)
 {
-    if (!inputs || !outputs) return Steinberg::kResultFalse;
-
     using namespace Steinberg::Vst;
 
-    const auto expected_ins = Plug_info::wants_sidechain ? 2 : 1;
-    const auto expected_outs = 1;
+    const auto expected_ins = (Plug_info::Wants::audio_in ? 1 : 0) + (Plug_info::wants_sidechain ? 1 : 0);
+    const auto expected_outs = Plug_info::Wants::audio_out ? 1 : 0;
 
     if (numIns != expected_ins || numOuts != expected_outs) return Steinberg::kResultFalse;
+    if ((numIns > 0 && !inputs) || (numOuts > 0 && !outputs)) return Steinberg::kResultFalse;
+    if constexpr (!Plug_info::Wants::audio_out) return Steinberg::kResultTrue; // A note effect: no audio to arrange.
 
-    // What does the host want to do?
-    auto& input_arr = inputs[0];
+    // What does the host want to do? An instrument has no main input: only its output counts.
     auto& output_arr = outputs[0];
-    const auto wants_mono = SpeakerArr::getChannelCount(input_arr) == 1 && SpeakerArr::getChannelCount(output_arr) == 1;
-    const auto wants_stereo = SpeakerArr::getChannelCount(input_arr) == 2 && SpeakerArr::getChannelCount(output_arr) == 2;
+    const auto out_count = SpeakerArr::getChannelCount(output_arr);
+    const auto in_count = Plug_info::Wants::audio_in ? SpeakerArr::getChannelCount(inputs[0]) : out_count;
+    const auto wants_mono = in_count == 1 && out_count == 1;
+    const auto wants_stereo = in_count == 2 && out_count == 2;
 
     // We will accept either mono or stereo sidechain.
     auto accept_sidechain = [&]() {
         if constexpr (Plug_info::wants_sidechain) {
-            auto& sidechain_arr = inputs[1];
-            getAudioInput(1)->setArrangement(sidechain_arr);
+            auto& sidechain_arr = inputs[sidechain_bus];
+            getAudioInput(sidechain_bus)->setArrangement(sidechain_arr);
             _schannels = static_cast<size_t>(SpeakerArr::getChannelCount(sidechain_arr));
         }
     };
 
-    if (wants_mono && Plug_info::can_process_mono) {
-        // The host wants mono --> mono.
-        getAudioInput(0)->setArrangement(input_arr);
+    const auto accept = [&](size_t channels) {
+        if constexpr (Plug_info::Wants::audio_in) getAudioInput(0)->setArrangement(inputs[0]);
         getAudioOutput(0)->setArrangement(output_arr);
-
-        _ichannels = _ochannels = 1;
+        _ichannels = Plug_info::Wants::audio_in ? channels : 0;
+        _ochannels = channels;
         accept_sidechain();
-
         return Steinberg::kResultTrue;
-    }
-    else if (wants_stereo) {
-        // The host wants stereo --> stereo.
-        getAudioInput(0)->setArrangement(input_arr);
-        getAudioOutput(0)->setArrangement(output_arr);
+    };
 
-        _ichannels = _ochannels = 2;
-        accept_sidechain();
-
-        return Steinberg::kResultTrue;
-    }
-
+    if (wants_mono && Plug_info::can_process_mono) return accept(1);
+    if (wants_stereo) return accept(2);
     return Steinberg::kResultFalse;
 }
 
@@ -390,6 +379,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     // delivers lands.
     if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
         _processor->reset(Reset::Hard{});
+        _notes.clear();
         _bypass.clear();    // Its delay lines hold pre-seek dry audio.
         _bypass.snap();
     }
@@ -399,10 +389,11 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         _processor->handle(process::Event::Set{address, value});
     });
 
-    // Validate shape up front.
-    const auto has_inputs = data.numInputs > 0 && data.inputs;
-    const auto has_sidechain = data.numInputs > 1 && data.inputs;
-    const auto has_outputs = data.numOutputs > 0 && data.outputs;
+    // Validate shape up front. Bus indices follow what the plug-in carries: an instrument's
+    // first input is its sidechain.
+    const auto has_inputs = data.numInputs > 0 && data.inputs && Plug_info::Wants::audio_in;
+    const auto has_sidechain = data.numInputs > sidechain_bus && data.inputs && Plug_info::wants_sidechain;
+    const auto has_outputs = data.numOutputs > 0 && data.outputs && Plug_info::Wants::audio_out;
 
     const auto required_in_channels = static_cast<Steinberg::int32>(_ichannels);
     const auto required_out_channels = static_cast<Steinberg::int32>(_ochannels);
@@ -412,8 +403,8 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         || (data.inputs[0].channelBuffers32 != nullptr && data.inputs[0].numChannels >= required_in_channels);
     const auto outputs_shape_ok = !has_outputs
         || (data.outputs[0].channelBuffers32 != nullptr && data.outputs[0].numChannels >= required_out_channels);
-    const auto sidechain_shape_ok = !(has_sidechain && Plug_info::wants_sidechain)
-        || (data.inputs[1].channelBuffers32 != nullptr && data.inputs[1].numChannels >= required_sc_channels);
+    const auto sidechain_shape_ok = !has_sidechain
+        || (data.inputs[sidechain_bus].channelBuffers32 != nullptr && data.inputs[sidechain_bus].numChannels >= required_sc_channels);
 
     const auto shape_ok = inputs_shape_ok && outputs_shape_ok && sidechain_shape_ok;
 
@@ -440,9 +431,9 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     }
 
     auto sidechain_pointers_ok = true;
-    if (shape_ok && has_sidechain && Plug_info::wants_sidechain) {
+    if (shape_ok && has_sidechain) {
         for (size_t i = 0; i < _schannels; ++i) {
-            if (data.inputs[1].channelBuffers32[i] == nullptr) {
+            if (data.inputs[sidechain_bus].channelBuffers32[i] == nullptr) {
                 sidechain_pointers_ok = false;
                 break;
             }
@@ -453,8 +444,21 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
 
     // Well-formed *and* actually carrying samples on both the main input and the main
     // output. Everything else is a flush.
-    const auto renders_audio = shape_ok && pointers_ok
-        && has_inputs && has_outputs && data.numSamples > 0;
+    const auto renders_audio = shape_ok && pointers_ok && data.numSamples > 0
+        && (has_inputs || !Plug_info::Wants::audio_in) && (has_outputs || !Plug_info::Wants::audio_out);
+
+    // A bypassed note effect forwards its input instead of running; an edge releases what was sounding.
+#if TINY_HAS_NOTES_OUT
+    const auto bypassed = _notes.bypassed(_bypass.is_bypassed());
+    _passing = bypassed && Plug_info::kind == Plugin_kind::Note_effect;
+#else
+    const auto bypassed = false;
+#endif
+
+#if TINY_HAS_NOTES_IN
+    // The editor's notes land at the top of the block.
+    _notes.drain_editor([this](const process::Input& input) { _input(input, 0); });
+#endif
 
     _events.clear(); // Events only valid for this render cycle.
     this->normalize_input_events(data, renders_audio);
@@ -503,6 +507,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     // rather than gliding in.
     if (data.processMode != _last_process_mode) {
         _processor->reset(Reset::Hard{});
+        _notes.clear();
         _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
         _bypass.snap();
         _last_process_mode = data.processMode;
@@ -519,7 +524,13 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     }
 
     // So we can process with an offset.
-    auto do_process = [this, &data, &context, has_inputs, has_outputs, has_sidechain](size_t num_frames, size_t offset) {
+    auto do_process = [this, &data, &context, has_inputs, has_outputs, has_sidechain, bypassed](size_t num_frames, size_t offset) {
+#if TINY_HAS_NOTES_OUT
+        _notes.outbox().begin_slice(static_cast<int64_t>(offset), static_cast<int64_t>(num_frames));
+        context.notes = _notes.writer(bypassed);
+#else
+        (void)bypassed;
+#endif
         assert(offset + num_frames <= static_cast<size_t>(data.numSamples) && "Offset + num_frames exceeds data.numSamples!");
 
         // Assign buffer ptrs.
@@ -535,10 +546,10 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
                 _obuffers[i] = &data.outputs[0].channelBuffers32[i][offset];
             }
         }
-        if (has_sidechain && Plug_info::wants_sidechain) {
-            assert(data.inputs[1].numChannels >= static_cast<Steinberg::int32>(_schannels));
+        if (has_sidechain) {
+            assert(data.inputs[sidechain_bus].numChannels >= static_cast<Steinberg::int32>(_schannels));
             for (size_t i = 0; i < _schannels; ++i) {
-                _sbuffers[i] = &data.inputs[1].channelBuffers32[i][offset]; // Assume sidechain not "in-place"
+                _sbuffers[i] = &data.inputs[sidechain_bus].channelBuffers32[i][offset]; // Assume sidechain not "in-place"
             }
         }
 
@@ -601,7 +612,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         // No kernel run to interleave the events with, so deliver them all.
         auto delivered = false;
         while (event) {
-            _processor->handle(event->event);
+            _input(event->event, event->offset);
             next_event();
             delivered = true;
         }
@@ -633,17 +644,17 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
             }
 
             do {
-                _processor->handle(event->event);
+                _input(event->event, event->offset);
                 next_event();
             } while (event && event->offset <= now);
         }
     }
 
-    // Host bypass.
-    if (renders_audio) {
+    // Host bypass. Without an audio input the dry signal is `_input_data`'s silence, so bypass fades out.
+    if (renders_audio && has_outputs) {
         auto in_buffers = [&]() {
             auto arr = std::array<const float*, max_ichannels>{};
-            for (size_t i = 0; i < _ichannels; ++i) {
+            for (size_t i = 0; i < std::min(_ochannels, max_ichannels); ++i) {
                 arr[i] = &_input_data[i][0];
             }
             return arr;
@@ -658,7 +669,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         }();
 
         const auto min_channels = std::min({
-            data.inputs[0].numChannels,
+            has_inputs ? data.inputs[0].numChannels : data.outputs[0].numChannels,
             data.outputs[0].numChannels,
             static_cast<Steinberg::int32>(max_ichannels),
             static_cast<Steinberg::int32>(max_ochannels)
@@ -670,6 +681,10 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
             static_cast<size_t>(data.numSamples)
         );
     }
+
+#if TINY_HAS_NOTES_OUT
+    _send_notes(data);
+#endif
 
 #if TINY_HAS_METERS
     auto add_output_event = [&](int32_t id, double value) -> bool {
@@ -935,7 +950,14 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
     using namespace params;
     using namespace process;
 
-    if (!data.inputParameterChanges) return;
+    if (!data.inputParameterChanges) {
+#if TINY_HAS_NOTES_IN
+        _collect_notes(data);
+        for (auto i = size_t{}; i < _events.size(); ++i) _events[i].order = static_cast<uint32_t>(i);
+        std::ranges::sort(_events, process::before);
+#endif
+        return;
+    }
     auto& param_changes = *data.inputParameterChanges;
     const auto num_changes = param_changes.getParameterCount();
 
@@ -955,6 +977,26 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
             _bypass.set_bypassed(value >= 0.5);
             continue;
         }
+
+#if TINY_HAS_NOTES_IN
+        // A player control, mapped by the controller's `IMidiMapping`.
+        if (id >= static_cast<Steinberg::Vst::ParamID>(control_param_offset) && id < static_cast<Steinberg::Vst::ParamID>(control_param_offset + num_control_params)) {
+            const auto index = static_cast<int32_t>(id) - control_param_offset;
+            const auto channel = static_cast<uint8_t>(index / controls_per_channel);
+            const auto which = index % controls_per_channel;
+            for (auto point = int32_t{}; point < queue.getPointCount(); ++point) {
+                auto value = Steinberg::Vst::ParamValue{};
+                auto offset = int32_t{};
+                if (queue.getPoint(point, offset, value) != Steinberg::kResultTrue) continue;
+                if (_events.size() == _events.capacity()) break;
+                const auto control = which == 0 ? Control::Any{Control::Bend{channel, value * 2. - 1.}}
+                                   : which == 1 ? Control::Any{Control::Pressure{channel, value}}
+                                   : Control::Any{Control::Pedal{channel, static_cast<Control::Pedal::Kind>(which - 2), value}};
+                _events.push_back({.event = control, .offset = std::clamp(offset, 0, std::max(data.numSamples - 1, 0))});
+            }
+            continue;
+        }
+#endif
 
         if (id >= User_params::num_params) continue; // Be defensive.
 
@@ -1011,8 +1053,225 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
         }
     }
 
-    // sort events.
-    std::ranges::sort(_events, [](const auto& a, const auto& b) { return a.offset < b.offset; });
+#if TINY_HAS_NOTES_IN
+    _collect_notes(data);
+#endif
+
+    // Sort by offset, keeping arrival order at equal offsets.
+    for (auto i = size_t{}; i < _events.size(); ++i) _events[i].order = static_cast<uint32_t>(i);
+    std::ranges::sort(_events, process::before);
+}
+
+// MARK: - notes
+
+// [audio] One input for the processor, and for the output while a bypassed note effect forwards.
+auto Audio_effect::_input(const process::Input& input, [[maybe_unused]] int32_t offset) -> void
+{
+    process::deliver(*_processor, input);
+#if TINY_HAS_NOTES_OUT
+    if (_passing) {
+        std::visit(Inline_visitor{
+            [](const process::Event::Any&) {},
+            [&](const auto& e) { _notes.outbox().pass(offset, e); },
+        }, input);
+    }
+#endif
+}
+
+// [audio] The event bus into `_events`, named. Controls arrive separately, as mapped parameters.
+auto Audio_effect::_collect_notes([[maybe_unused]] Steinberg::Vst::ProcessData& data) -> void
+{
+#if TINY_HAS_NOTES_IN
+    using namespace process;
+    using Vst_event = Steinberg::Vst::Event;
+    auto* list = data.inputEvents;
+    if (!list) return;
+
+    const auto last = std::max(data.numSamples - 1, 0);
+    const auto push = [&](const Note::Any& note, int32_t offset) {
+        if (_events.size() < _events.capacity()) _events.push_back({.event = note, .offset = std::clamp(offset, 0, last)});
+    };
+    const auto key_of = [](int16_t pitch) { return static_cast<uint8_t>(pitch); };
+
+    const auto count = list->getEventCount();
+    for (auto i = decltype(count){}; i < count; ++i) {
+        auto e = Vst_event{};
+        if (list->getEvent(i, e) != Steinberg::kResultOk) continue;
+
+        switch (e.type) {
+            case Vst_event::kNoteOnEvent: {
+                const auto& on = e.noteOn;
+                if (on.pitch < 0 || on.pitch > 127) break;
+                const auto id = Note::Id{0, static_cast<uint8_t>(on.channel), key_of(on.pitch)};
+                auto note = on.velocity > 0.f ? Note::Any{Note::On{id, on.velocity}} : Note::Any{Note::Off{id, 0.f}}; // 0 is an off, as in MIDI.
+                if (_notes.from_host(on.noteId, note)) push(note, e.sampleOffset);
+                break;
+            }
+            case Vst_event::kNoteOffEvent: {
+                const auto& off = e.noteOff;
+                if (off.pitch < 0 || off.pitch > 127) break;
+                auto note = Note::Any{Note::Off{{0, static_cast<uint8_t>(off.channel), key_of(off.pitch)}, off.velocity}};
+                if (_notes.from_host(off.noteId, note)) push(note, e.sampleOffset);
+                break;
+            }
+            case Vst_event::kPolyPressureEvent: {
+                const auto& pp = e.polyPressure;
+                if (pp.pitch < 0 || pp.pitch > 127) break;
+                auto note = Note::Any{Note::Expression{{0, static_cast<uint8_t>(pp.channel), key_of(pp.pitch)}, Note::Expression::Kind::Pressure, pp.pressure}};
+                if (_notes.from_host(pp.noteId, note)) push(note, e.sampleOffset);
+                break;
+            }
+            case Vst_event::kNoteExpressionValueEvent: {
+                const auto& x = e.noteExpressionValue;
+                using Kind = Note::Expression::Kind;
+                auto kind = std::optional<Kind>{};
+                auto value = x.value;
+                switch (x.typeId) {
+                    case Steinberg::Vst::kVolumeTypeID: kind = Kind::Volume; value *= 4.; break; // 0.25 is unity.
+                    case Steinberg::Vst::kPanTypeID: kind = Kind::Pan; break;
+                    case Steinberg::Vst::kTuningTypeID: kind = Kind::Tuning; value = (value - 0.5) * 240.; break; // ±120 semitones.
+                    case Steinberg::Vst::kVibratoTypeID: kind = Kind::Vibrato; break;
+                    case Steinberg::Vst::kBrightnessTypeID: kind = Kind::Brightness; break;
+                    default: break;
+                }
+                if (!kind || x.noteId < 0) break;
+                // Named by id alone: key 255 matches nothing if the id is unknown.
+                auto note = Note::Any{Note::Expression{{0, 0, 255}, *kind, value}};
+                if (_notes.from_host(x.noteId, note)) push(note, e.sampleOffset);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+#endif
+}
+
+// [audio] What the processor sent this block, after all-notes-off if the stream broke.
+auto Audio_effect::_send_notes([[maybe_unused]] Steinberg::Vst::ProcessData& data) -> void
+{
+#if TINY_HAS_NOTES_OUT
+    using namespace process;
+    using Vst_event = Steinberg::Vst::Event;
+    auto& box = _notes.outbox();
+    auto* out = data.outputEvents;
+    if (!out) {
+        box.clear();
+        return;
+    }
+
+    const auto id_of = [](const Note::Id& n) { return static_cast<int32_t>(n.id & 0x7fffffff); };
+    const auto cc = [&](int32_t offset, int16_t channel, uint8_t number, uint8_t value, uint8_t value2 = 0) {
+        auto e = Vst_event{};
+        e.busIndex = 0;
+        e.sampleOffset = offset;
+        e.type = Vst_event::kLegacyMIDICCOutEvent;
+        e.midiCCOut.controlNumber = number;
+        e.midiCCOut.channel = static_cast<int8_t>(channel);
+        e.midiCCOut.value = static_cast<int8_t>(value);
+        e.midiCCOut.value2 = static_cast<int8_t>(value2);
+        out->addEvent(e);
+    };
+
+    if (_notes.take_all_off()) {
+        for (auto channel = int16_t{}; channel < 16; ++channel) cc(0, channel, midi::all_notes_off_number, 0);
+    }
+
+    for (const auto& entry : box.events()) {
+        std::visit(Inline_visitor{
+            [&](const Note::Any& note) {
+                auto e = Vst_event{};
+                e.busIndex = 0;
+                e.sampleOffset = entry.frame;
+                std::visit(Inline_visitor{
+                    [&](const Note::On& n) {
+                        e.type = Vst_event::kNoteOnEvent;
+                        e.noteOn.channel = n.note.channel;
+                        e.noteOn.pitch = n.note.key;
+                        e.noteOn.velocity = n.velocity;
+                        e.noteOn.noteId = id_of(n.note);
+                    },
+                    [&](const Note::Off& n) {
+                        e.type = Vst_event::kNoteOffEvent;
+                        e.noteOff.channel = n.note.channel;
+                        e.noteOff.pitch = n.note.key;
+                        e.noteOff.velocity = n.velocity;
+                        e.noteOff.noteId = id_of(n.note);
+                    },
+                    [&](const Note::Choke& n) {
+                        e.type = Vst_event::kNoteOffEvent;
+                        e.noteOff.channel = n.note.channel;
+                        e.noteOff.pitch = n.note.key;
+                        e.noteOff.noteId = id_of(n.note);
+                    },
+                    [&](const Note::Expression& n) {
+                        using Kind = Note::Expression::Kind;
+                        if (n.kind == Kind::Pressure) {
+                            e.type = Vst_event::kPolyPressureEvent;
+                            e.polyPressure.channel = n.note.channel;
+                            e.polyPressure.pitch = n.note.key;
+                            e.polyPressure.pressure = static_cast<float>(n.value);
+                            e.polyPressure.noteId = id_of(n.note);
+                            return;
+                        }
+                        static constexpr auto types = std::array<Steinberg::Vst::NoteExpressionTypeID, 5>{
+                            Steinberg::Vst::kVolumeTypeID, Steinberg::Vst::kPanTypeID, Steinberg::Vst::kTuningTypeID,
+                            Steinberg::Vst::kVibratoTypeID, Steinberg::Vst::kBrightnessTypeID};
+                        auto value = n.value;
+                        if (n.kind == Kind::Volume) value /= 4.;
+                        if (n.kind == Kind::Tuning) value = value / 240. + 0.5;
+                        e.type = Vst_event::kNoteExpressionValueEvent;
+                        e.noteExpressionValue.typeId = types[static_cast<size_t>(n.kind)];
+                        e.noteExpressionValue.noteId = id_of(n.note);
+                        e.noteExpressionValue.value = std::clamp(value, 0., 1.);
+                    },
+                }, note);
+                out->addEvent(e);
+            },
+            [&](const auto& message) { // Control::Any or midi::Raw, by status byte.
+                const auto bytes = midi::encode(message);
+                if (bytes.size == 0) return;
+                const auto channel = static_cast<int16_t>(bytes.data[0] & 0x0f);
+                const auto note = [&](Vst_event::EventTypes type) {
+                    auto e = Vst_event{};
+                    e.busIndex = 0;
+                    e.sampleOffset = entry.frame;
+                    e.type = type;
+                    if (type == Vst_event::kNoteOnEvent) {
+                        e.noteOn.channel = channel;
+                        e.noteOn.pitch = bytes.data[1];
+                        e.noteOn.velocity = static_cast<float>(bytes.data[2]) / 127.f;
+                        e.noteOn.noteId = -1;
+                    }
+                    else if (type == Vst_event::kNoteOffEvent) {
+                        e.noteOff.channel = channel;
+                        e.noteOff.pitch = bytes.data[1];
+                        e.noteOff.velocity = static_cast<float>(bytes.data[2]) / 127.f;
+                        e.noteOff.noteId = -1;
+                    }
+                    else {
+                        e.polyPressure.channel = channel;
+                        e.polyPressure.pitch = bytes.data[1];
+                        e.polyPressure.pressure = static_cast<float>(bytes.data[2]) / 127.f;
+                        e.polyPressure.noteId = -1;
+                    }
+                    out->addEvent(e);
+                };
+                switch (bytes.data[0] & 0xf0) {
+                    case 0x80: note(Vst_event::kNoteOffEvent); break;
+                    case 0x90: note(bytes.data[2] == 0 ? Vst_event::kNoteOffEvent : Vst_event::kNoteOnEvent); break;
+                    case 0xa0: note(Vst_event::kPolyPressureEvent); break;
+                    case 0xb0: cc(entry.frame, channel, bytes.data[1], bytes.data[2]); break;
+                    case 0xc0: cc(entry.frame, channel, Steinberg::Vst::kCtrlProgramChange, bytes.data[1]); break;
+                    case 0xd0: cc(entry.frame, channel, Steinberg::Vst::kAfterTouch, bytes.data[1]); break;
+                    case 0xe0: cc(entry.frame, channel, Steinberg::Vst::kPitchBend, bytes.data[1], bytes.data[2]); break;
+                    default: break;
+                }
+            },
+        }, entry.event);
+    }
+    box.clear();
+#endif
 }
 
 } // namespace tiny::vst3

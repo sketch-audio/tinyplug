@@ -37,6 +37,9 @@ target_sources(${TINY_CORE_LIB} PRIVATE
     include/tiny_core/host_formatter.hpp
     include/tiny_core/lifecycle_probe.hpp
     include/tiny_core/lock_free_queue.hpp
+    include/tiny_core/midi_codec.hpp
+    include/tiny_core/note_ids.hpp
+    include/tiny_core/note_out.hpp
     include/tiny_core/notification_queue.hpp
     include/tiny_core/platform_defs.hpp
     include/tiny_core/relay.hpp
@@ -53,6 +56,7 @@ target_sources(${TINY_CORE_LIB} PRIVATE
     include/tiny_core/tiny_input.hpp
     include/tiny_core/tiny_log.hpp
     include/tiny_core/tiny_meters.hpp
+    include/tiny_core/tiny_midi.hpp
     include/tiny_core/tiny_notifications.hpp
     include/tiny_core/tiny_params.hpp
     include/tiny_core/tiny_state.hpp

@@ -23,6 +23,7 @@ enum class Ring_kind : uint32_t {
 
     // Data model -> algorithm.
     Worker_to_processor,
+    Editor_note, // One `midi::Performance`.
 };
 
 // Every entry is [header][payload], each padded up to an 8-byte boundary.

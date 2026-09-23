@@ -17,9 +17,11 @@ bool Plugin::init() noexcept
     return true;
 }
 
-bool Plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t /*maxFrameCount*/) noexcept
+bool Plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t maxFrameCount) noexcept
 {
     using namespace params;
+
+    _silence.assign(maxFrameCount, 0.f);
 
     const auto sr_changed = (_sr != sampleRate); // Need this below.
     _sr = sampleRate;
@@ -81,6 +83,7 @@ bool Plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t /*
 
 void Plugin::deactivate() noexcept
 {
+    _notes.clear(); // The audio thread is stopped; anything sounding downstream is released at the next block.
 }
 
 bool Plugin::startProcessing() noexcept
@@ -112,6 +115,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // delivers lands.
     if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
         _processor->reset(process::Reset::Hard{});
+        _notes.clear();
         _bypass.clear();    // Its delay lines hold pre-seek dry audio.
         _bypass.snap();
     }
@@ -172,6 +176,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // forget history as well as manifesting values.
     if (_last_render_mode != context.render_mode) {
         _processor->reset(process::Reset::Hard{});
+        _notes.clear();
         _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
         _bypass.snap();
         _last_render_mode = context.render_mode;
@@ -180,23 +185,49 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // Resolve transport.
     const auto block_context = this->_resolve_transport(process);
 
+    // A bypassed note effect forwards its input instead of running; an edge releases what was sounding.
+#if TINY_HAS_NOTES_OUT
+    const auto bypassed = _notes.bypassed(_bypass.is_bypassed());
+    _passing = bypassed && Plug_info::kind == Plugin_kind::Note_effect;
+#else
+    const auto bypassed = false;
+#endif
+    (void)bypassed;
+
+#if TINY_HAS_NOTES_IN
+    // The editor's notes land at the top of the block.
+    _notes.drain_editor([this](const process::Input& input) { _input(input, 0); });
+#endif
+
     // So we can process with an offset.
-    auto do_process = [this, &process, &context, &block_context](size_t num_frames, size_t offset) {
+    auto do_process = [this, &process, &context, &block_context, bypassed](size_t num_frames, size_t offset) {
         // Assign buffer ptrs.
-        const auto& input_port = process->audio_inputs[0];
-        assert(input_port.channel_count == static_cast<uint32_t>(_ichannels));
-        for (size_t i = 0; i < _ichannels; ++i) {
-            _ibuffers[i] = &input_port.data32[i][offset];
+        if constexpr (Plug_info::Wants::audio_in) {
+            const auto& input_port = process->audio_inputs[0];
+            assert(input_port.channel_count == static_cast<uint32_t>(_ichannels));
+            for (size_t i = 0; i < _ichannels; ++i) {
+                _ibuffers[i] = &input_port.data32[i][offset];
+            }
         }
 
-        auto& output_port = process->audio_outputs[0];
-        assert(output_port.channel_count == static_cast<uint32_t>(_ochannels));
-        for (size_t i = 0; i < _ochannels; ++i) {
-            _obuffers[i] = &output_port.data32[i][offset];
+        if constexpr (Plug_info::Wants::audio_out) {
+            auto& output_port = process->audio_outputs[0];
+            assert(output_port.channel_count == static_cast<uint32_t>(_ochannels));
+            for (size_t i = 0; i < _ochannels; ++i) {
+                _obuffers[i] = &output_port.data32[i][offset];
+            }
         }
+
+#if TINY_HAS_NOTES_OUT
+        _notes.outbox().begin_slice(static_cast<int64_t>(offset), static_cast<int64_t>(num_frames));
+        context.notes = _notes.writer(bypassed);
+#else
+        (void)bypassed;
+#endif
+        (void)process; // Unused when the plug-in carries no audio.
 
         if constexpr (Plug_info::wants_sidechain) {
-            const auto& sidechain_port = process->audio_inputs[1];
+            const auto& sidechain_port = process->audio_inputs[sidechain_index];
             assert(sidechain_port.channel_count == static_cast<uint32_t>(_schannels));
             for (size_t i = 0; i < _schannels; ++i) {
                 _sbuffers[i] = &sidechain_port.data32[i][offset];
@@ -272,29 +303,35 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
         }
     }
 
-    auto in_buffers = [&]() {
-        auto arr = std::array<const float*, max_ichannels>{};
-        const auto& input_port = process->audio_inputs[0];
-        assert(input_port.channel_count == static_cast<uint32_t>(_ichannels));
-        for (size_t i = 0; i < _ichannels; ++i) {
-            arr[i] = &input_port.data32[i][0];
-        }
-        return arr;
-    }();
+    // Host bypass. Without an audio input the dry signal is silence, so bypass fades out.
+    if constexpr (Plug_info::Wants::audio_out) {
+        auto in_buffers = [&]() {
+            auto arr = std::array<const float*, max_ochannels>{};
+            for (size_t i = 0; i < _ochannels; ++i) {
+                if constexpr (Plug_info::Wants::audio_in) arr[i] = &process->audio_inputs[0].data32[std::min(i, _ichannels - 1)][0];
+                else arr[i] = _silence.data();
+            }
+            return arr;
+        }();
 
-    auto out_buffers = [&]() {
-        auto arr = std::array<float*, max_ochannels>{};
-        const auto& output_port = process->audio_outputs[0];
-        assert(output_port.channel_count == static_cast<uint32_t>(_ochannels));
-        for (size_t i = 0; i < _ochannels; ++i) {
-            arr[i] = &output_port.data32[i][0];
-        }
-        return arr;
-    }();
+        auto out_buffers = [&]() {
+            auto arr = std::array<float*, max_ochannels>{};
+            const auto& output_port = process->audio_outputs[0];
+            assert(output_port.channel_count == static_cast<uint32_t>(_ochannels));
+            for (size_t i = 0; i < _ochannels; ++i) {
+                arr[i] = &output_port.data32[i][0];
+            }
+            return arr;
+        }();
 
-    const auto min_channels = std::min(process->audio_inputs[0].channel_count, process->audio_outputs[0].channel_count);
-    const auto num_channels = static_cast<size_t>(min_channels);
-    _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, frame_count);
+        const auto num_channels = Plug_info::Wants::audio_in ? std::min(_ichannels, _ochannels) : _ochannels;
+        const auto frames = Plug_info::Wants::audio_in ? size_t{frame_count} : std::min<size_t>(frame_count, _silence.size());
+        _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, frames);
+    }
+
+#if TINY_HAS_NOTES_OUT
+    _send_notes(process->out_events);
+#endif
 
     // Send exports. Quiet during an offline bounce, and quiet on a flush block
     // (frames_count == 0) which ran no audio and so has measured nothing — the
@@ -887,14 +924,17 @@ bool Plugin::presetLoadFromLocation(uint32_t location_kind, const char* location
 
 uint32_t Plugin::audioPortsCount(bool isInput) const noexcept
 {
-    return isInput ? (Plug_info::wants_sidechain ? 2 : 1) : 1;
+    if (isInput) return (Plug_info::Wants::audio_in ? 1 : 0) + (Plug_info::wants_sidechain ? 1 : 0);
+    return Plug_info::Wants::audio_out ? 1 : 0;
 }
 
 bool Plugin::audioPortsInfo(uint32_t index, bool isInput, clap_audio_port_info* info) const noexcept
 {
     if (!info) return false;
+    if (index >= audioPortsCount(isInput)) return false;
 
-    const auto is_main = (index == 0);
+    // Without a main input, an instrument's only input port is its sidechain.
+    const auto is_main = (index == 0) && (!isInput || Plug_info::Wants::audio_in);
     const char* port_name = isInput ? (is_main ? "Input" : "Sidechain") : "Output";
 
     const auto channel_count = isInput ? (is_main ? _ichannels : _schannels) : _ochannels;
@@ -939,7 +979,7 @@ bool Plugin::configurableAudioPortsCanApplyConfiguration(const clap_audio_port_c
     for (const auto& request : requests_) {
         if (!check_port_type(request)) return false;
 
-        const auto is_main = (request.port_index == 0);
+        const auto is_main = (request.port_index == 0) && (!request.is_input || Plug_info::Wants::audio_in);
         if (request.is_input && is_main) {
             ichannels = request.channel_count;
         }
@@ -957,6 +997,8 @@ bool Plugin::configurableAudioPortsCanApplyConfiguration(const clap_audio_port_c
         }
         return schannels == 0;
     }();
+    // An instrument has no main input: only its output's width is asked about.
+    if constexpr (!Plug_info::Wants::audio_in) ichannels = ochannels;
     const auto wants_mono = (ichannels == 1 && ochannels == 1);
     const auto wants_stereo = (ichannels == 2 && ochannels == 2);
 
@@ -977,7 +1019,7 @@ bool Plugin::configurableAudioPortsApplyConfiguration(const clap_audio_port_conf
 
     const auto requests_ = std::span{requests, static_cast<size_t>(request_count)};
     for (const auto& request : requests_) {
-        const auto is_main = (request.port_index == 0);
+        const auto is_main = (request.port_index == 0) && (!request.is_input || Plug_info::Wants::audio_in);
         if (request.is_input && is_main) {
             _ichannels = std::min<size_t>(request.channel_count, max_ichannels);
         }
@@ -1435,6 +1477,161 @@ auto Plugin::_handle_user_action(const User_action& action) -> void
     [[maybe_unused]] const auto success = _from_ui.push(action);
     assert(success && "UI to processor queue full, increase queue size!");
     if (!success) _needs_resync.store(true, std::memory_order_relaxed); // Resync from _hostvalues on the next process.
+}
+
+// MARK: - notes
+
+uint32_t Plugin::notePortsCount(bool isInput) const noexcept
+{
+    return (isInput ? Plug_info::Wants::notes_in : Plug_info::Wants::notes_out) ? 1 : 0;
+}
+
+bool Plugin::notePortsInfo(uint32_t index, bool isInput, clap_note_port_info* info) const noexcept
+{
+    if (!info || index >= notePortsCount(isInput)) return false;
+    *info = {};
+    info->id = 0;
+    info->supported_dialects = CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI;
+    info->preferred_dialect = CLAP_NOTE_DIALECT_CLAP;
+    std::snprintf(info->name, CLAP_NAME_SIZE, "%s", isInput ? "Notes In" : "Notes Out");
+    return true;
+}
+
+// [audio] One input for the processor, and for the output while a bypassed note effect forwards.
+auto Plugin::_input([[maybe_unused]] const process::Input& input, [[maybe_unused]] uint32_t time) -> void
+{
+#if TINY_HAS_NOTES_IN
+    process::deliver(*_processor, input);
+#if TINY_HAS_NOTES_OUT
+    if (_passing) {
+        std::visit(Inline_visitor{
+            [](const process::Event::Any&) {},
+            [&](const auto& e) { _notes.outbox().pass(static_cast<int32_t>(time), e); },
+        }, input);
+    }
+#endif
+#endif
+}
+
+auto Plugin::_handle_note_event([[maybe_unused]] const clap_event_header* event) -> void
+{
+#if TINY_HAS_NOTES_IN
+    using namespace process;
+    const auto time = event->time;
+    const auto emit = [&](const Input& input) { _input(input, time); };
+
+    switch (event->type) {
+        case CLAP_EVENT_NOTE_ON:
+        case CLAP_EVENT_NOTE_OFF:
+        case CLAP_EVENT_NOTE_CHOKE: {
+            const auto* e = reinterpret_cast<const clap_event_note*>(event);
+            // A wildcard (no id, no key) releases a channel, or everything.
+            if (event->type != CLAP_EVENT_NOTE_ON && e->note_id < 0 && e->key < 0) {
+                _notes.release_host(e->channel, emit);
+                return;
+            }
+            if (e->key < 0 && event->type == CLAP_EVENT_NOTE_ON) return;
+
+            const auto id = Note::Id{0, static_cast<uint8_t>(std::max<int16_t>(e->channel, 0)), static_cast<uint8_t>(std::max<int16_t>(e->key, 0))};
+            const auto velocity = static_cast<float>(e->velocity);
+            auto note = event->type == CLAP_EVENT_NOTE_ON ? Note::Any{Note::On{id, velocity}}
+                      : event->type == CLAP_EVENT_NOTE_OFF ? Note::Any{Note::Off{id, velocity}}
+                      : Note::Any{Note::Choke{id}};
+            if (_notes.from_host(e->note_id, note)) emit(Input{note});
+            break;
+        }
+        case CLAP_EVENT_NOTE_EXPRESSION: {
+            const auto* e = reinterpret_cast<const clap_event_note_expression*>(event);
+            using Kind = Note::Expression::Kind;
+            auto kind = std::optional<Kind>{};
+            switch (e->expression_id) {
+                case CLAP_NOTE_EXPRESSION_VOLUME: kind = Kind::Volume; break;
+                case CLAP_NOTE_EXPRESSION_PAN: kind = Kind::Pan; break;
+                case CLAP_NOTE_EXPRESSION_TUNING: kind = Kind::Tuning; break;
+                case CLAP_NOTE_EXPRESSION_VIBRATO: kind = Kind::Vibrato; break;
+                case CLAP_NOTE_EXPRESSION_BRIGHTNESS: kind = Kind::Brightness; break;
+                case CLAP_NOTE_EXPRESSION_PRESSURE: kind = Kind::Pressure; break;
+                default: break;
+            }
+            if (!kind || (e->note_id < 0 && e->key < 0)) return; // No per-channel form.
+            const auto id = Note::Id{0, static_cast<uint8_t>(std::max<int16_t>(e->channel, 0)), static_cast<uint8_t>(std::max<int16_t>(e->key, 0))};
+            auto note = Note::Any{Note::Expression{id, *kind, e->value}};
+            if (_notes.from_host(e->note_id, note)) emit(Input{note});
+            break;
+        }
+        case CLAP_EVENT_MIDI: {
+            const auto* e = reinterpret_cast<const clap_event_midi*>(event);
+            _notes.from_midi(e->data[0], e->data[1], e->data[2], emit);
+            break;
+        }
+        default:
+            break;
+    }
+#endif
+}
+
+// [audio] What the processor sent this block, after all-notes-off if the stream broke.
+auto Plugin::_send_notes([[maybe_unused]] const clap_output_events* out) -> void
+{
+#if TINY_HAS_NOTES_OUT
+    using namespace process;
+    auto& box = _notes.outbox();
+
+    const auto note_event = [](uint16_t type, uint32_t time, int32_t id, int16_t channel, int16_t key, double velocity) {
+        return clap_event_note{
+            .header = {.size = sizeof(clap_event_note), .time = time, .space_id = CLAP_CORE_EVENT_SPACE_ID, .type = type, .flags = 0},
+            .note_id = id, .port_index = 0, .channel = channel, .key = key, .velocity = velocity,
+        };
+    };
+
+    if (out && _notes.take_all_off()) {
+        const auto e = note_event(CLAP_EVENT_NOTE_OFF, 0, -1, -1, -1, 0.); // Every note, every channel.
+        out->try_push(out, &e.header);
+    }
+
+    for (const auto& entry : box.events()) {
+        if (!out) break;
+        const auto time = static_cast<uint32_t>(entry.frame);
+        std::visit(Inline_visitor{
+            [&](const Note::Any& note) {
+                std::visit(Inline_visitor{
+                    [&](const Note::On& e) {
+                        const auto c = note_event(CLAP_EVENT_NOTE_ON, time, static_cast<int32_t>(e.note.id & 0x7fffffff), e.note.channel, e.note.key, e.velocity);
+                        out->try_push(out, &c.header);
+                    },
+                    [&](const Note::Off& e) {
+                        const auto c = note_event(CLAP_EVENT_NOTE_OFF, time, static_cast<int32_t>(e.note.id & 0x7fffffff), e.note.channel, e.note.key, e.velocity);
+                        out->try_push(out, &c.header);
+                    },
+                    [&](const Note::Choke& e) {
+                        const auto c = note_event(CLAP_EVENT_NOTE_CHOKE, time, static_cast<int32_t>(e.note.id & 0x7fffffff), e.note.channel, e.note.key, 0.);
+                        out->try_push(out, &c.header);
+                    },
+                    [&](const Note::Expression& e) {
+                        static constexpr auto ids = std::array{CLAP_NOTE_EXPRESSION_VOLUME, CLAP_NOTE_EXPRESSION_PAN, CLAP_NOTE_EXPRESSION_TUNING,
+                                                               CLAP_NOTE_EXPRESSION_VIBRATO, CLAP_NOTE_EXPRESSION_BRIGHTNESS, CLAP_NOTE_EXPRESSION_PRESSURE};
+                        const auto c = clap_event_note_expression{
+                            .header = {.size = sizeof(clap_event_note_expression), .time = time, .space_id = CLAP_CORE_EVENT_SPACE_ID, .type = CLAP_EVENT_NOTE_EXPRESSION, .flags = 0},
+                            .expression_id = ids[static_cast<size_t>(e.kind)],
+                            .note_id = static_cast<int32_t>(e.note.id & 0x7fffffff), .port_index = 0, .channel = e.note.channel, .key = e.note.key, .value = e.value,
+                        };
+                        out->try_push(out, &c.header);
+                    },
+                }, note);
+            },
+            [&](const auto& control) { // Control::Any or midi::Raw: both go out as MIDI bytes.
+                const auto bytes = midi::encode(control);
+                if (bytes.size == 0) return;
+                auto c = clap_event_midi{
+                    .header = {.size = sizeof(clap_event_midi), .time = time, .space_id = CLAP_CORE_EVENT_SPACE_ID, .type = CLAP_EVENT_MIDI, .flags = 0},
+                    .port_index = 0, .data = {bytes.data[0], bytes.data[1], bytes.data[2]},
+                };
+                out->try_push(out, &c.header);
+            },
+        }, entry.event);
+    }
+    box.clear();
+#endif
 }
 
 } // namespace tiny::clap

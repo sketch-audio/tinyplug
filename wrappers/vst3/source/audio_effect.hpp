@@ -34,6 +34,14 @@ public:
 #if TINY_HAS_STATE
         _setup_state();
 #endif
+#if TINY_HAS_NOTES_IN
+        _router.register_handler(k_notes_id, [this](std::span<const std::byte> bytes, uint32_t) {
+            auto event = midi::Performance{};
+            if (bytes.size() != sizeof(event)) return;
+            std::memcpy(&event, bytes.data(), sizeof(event));
+            _notes.post_from_editor(event);
+        });
+#endif
     }
 
     // Last-resort relay stop. `setActive(false)` and `terminate()` are the real doors;
@@ -102,9 +110,20 @@ private:
     static constexpr auto max_ochannels = size_t{2};
 
     // Runtime.
-    size_t _ichannels{max_ichannels};
+    size_t _ichannels{Plug_info::Wants::audio_in ? max_ichannels : 0};
     size_t _schannels{Plug_info::wants_sidechain ? max_schannels : 0};
-    size_t _ochannels{max_ochannels};
+    size_t _ochannels{Plug_info::Wants::audio_out ? max_ochannels : 0};
+    static constexpr auto sidechain_bus = Plug_info::Wants::audio_in ? 1 : 0; // An instrument's first input is its sidechain.
+
+    // Notes: identity, the editor's inbox, the outbox. `_passing` while a bypassed note effect
+    // forwards what comes in.
+    process::Note_io _notes{};
+#if TINY_HAS_NOTES_OUT
+    bool _passing{};
+#endif
+    auto _input(const process::Input& input, int32_t offset) -> void;
+    auto _collect_notes(Steinberg::Vst::ProcessData& data) -> void;
+    auto _send_notes(Steinberg::Vst::ProcessData& data) -> void;
 
     using Channel_data = std::vector<float>;
     std::array<Channel_data, max_ichannels> _input_data{}; // We might be processing in place.

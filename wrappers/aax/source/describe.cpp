@@ -42,6 +42,12 @@ auto describe_algorithm(AAX_IComponentDescriptor* desc, bool stereo) -> void
     err = desc->AddAudioBufferLength(field_num_frames);
     err = desc->AddSampleRate(field_sample_rate);
     err = desc->AddMIDINode(field_transport, AAX_eMIDINodeType_Transport, "Transport", 0xffff);
+#if TINY_HAS_NOTES_IN
+    err = desc->AddMIDINode(field_notes_in, AAX_eMIDINodeType_LocalInput, Plug_info::plugin_short_name, 0xffff);
+#endif
+#if TINY_HAS_NOTES_OUT
+    err = desc->AddMIDINode(field_notes_out, AAX_eMIDINodeType_LocalOutput, Plug_info::plugin_short_name, 0xffff);
+#endif
 
 #if TINY_WANTS_SIDECHAIN
     err = desc->AddSideChainIn(field_sidechain);
@@ -82,7 +88,10 @@ auto describe_algorithm(AAX_IComponentDescriptor* desc, bool stereo) -> void
     err = properties->AddProperty(AAX_eProperty_ManufacturerID, static_cast<int32_t>(Plug_info::Aax::manufacturer_id));
     err = properties->AddProperty(AAX_eProperty_ProductID, static_cast<int32_t>(Plug_info::Aax::product_id));
     err = properties->AddProperty(AAX_eProperty_PlugInID_Native, static_cast<int32_t>(Plug_info::Aax::plugin_id + (stereo ? 0 : 1)));
-    err = properties->AddProperty(AAX_eProperty_InputStemFormat, static_cast<int32_t>(stem_format));
+    // An instrument has no audio input. A note effect is still an insert: Pro Tools wants it to
+    // pass audio through, in every format it offers.
+    constexpr auto passes_audio = Plug_info::Wants::audio_in || Plug_info::kind == Plugin_kind::Note_effect;
+    err = properties->AddProperty(AAX_eProperty_InputStemFormat, static_cast<int32_t>(passes_audio ? stem_format : AAX_eStemFormat_None));
     err = properties->AddProperty(AAX_eProperty_OutputStemFormat, static_cast<int32_t>(stem_format));
     err = properties->AddProperty(AAX_eProperty_CanBypass, true);
     err = properties->AddProperty(AAX_eProperty_UsesTransport, true);
@@ -134,7 +143,7 @@ auto describe_effect(AAX_IEffectDescriptor* descriptor) -> AAX_Result
     };
 
     add_component(true);
-    if constexpr (Plug_info::can_process_mono) {
+    if constexpr (Plug_info::can_process_mono || Plug_info::kind == Plugin_kind::Note_effect) { // A MIDI effect shows on every track width.
         add_component(false);
     }
 

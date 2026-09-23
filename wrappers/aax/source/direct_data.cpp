@@ -26,6 +26,7 @@ AAX_Result Direct_data::TimerWakeup_PrivateDataAccess(AAX_IPrivateDataAccess* pr
 
     _drain_returns(private_data);
     _push_worker_replies(private_data);
+    _push_editor_notes(private_data);
     _read_blocks(private_data);
     _push_state_edit(private_data);
     _read_state_snapshot(private_data);
@@ -97,6 +98,46 @@ auto Direct_data::_drain_returns(AAX_IPrivateDataAccess* access) -> void
 
 // MARK: - data model -> algorithm
 
+namespace {
+
+// Append entries to the inbound ring while `pull(dst)` produces one of `payload_bytes`, and
+// publish them together: the algorithm never observes a partial entry. A full ring stops the
+// pull, so what didn't fit waits in the data model for the next wakeup.
+template<typename F>
+auto push_inbound(AAX_IPrivateDataAccess* access, Ring_kind kind, uint32_t payload_bytes, F&& pull) -> void
+{
+    auto head = Ring_head{};
+    if (access->ReadPortDirect(field_inbound, Inbound_ring::offset_write_pos, sizeof(head), &head) != AAX_SUCCESS) {
+        return;
+    }
+
+    const auto total = sizeof(Ring_header) + ring_align_up(payload_bytes);
+    auto write_pos = head.write_pos;
+    auto wrote_any = false;
+
+    alignas(8) auto entry = std::array<unsigned char, sizeof(Ring_header) + Inbound_ring::max_payload_bytes>{};
+    while ((write_pos - head.read_pos) + total <= Inbound_ring::capacity && pull(entry.data() + sizeof(Ring_header))) {
+        const auto entry_header = Ring_header{.kind = static_cast<uint32_t>(kind), .payload_bytes = payload_bytes};
+        std::memcpy(entry.data(), &entry_header, sizeof(entry_header));
+
+        const auto start = static_cast<uint32_t>(write_pos & Inbound_ring::mask);
+        const auto first = std::min<size_t>(total, Inbound_ring::capacity - start);
+        access->WritePortDirect(field_inbound, Inbound_ring::offset_data + start, static_cast<uint32_t>(first), entry.data());
+        if (first < total) {
+            access->WritePortDirect(field_inbound, Inbound_ring::offset_data, static_cast<uint32_t>(total - first), entry.data() + first);
+        }
+
+        write_pos += total;
+        wrote_any = true;
+    }
+
+    if (wrote_any) {
+        access->WritePortDirect(field_inbound, Inbound_ring::offset_write_pos, sizeof(write_pos), &write_pos);
+    }
+}
+
+} // namespace
+
 auto Direct_data::_push_worker_replies([[maybe_unused]] AAX_IPrivateDataAccess* access) -> void
 {
 #if TINY_HAS_WORKER
@@ -104,54 +145,29 @@ auto Direct_data::_push_worker_replies([[maybe_unused]] AAX_IPrivateDataAccess* 
     if (params == nullptr) return;
 
     using To_processor = typename User_work::To_processor;
-    if constexpr (std::is_same_v<To_processor, std::monostate>) {
-        return;
-    }
-    else {
-        auto head = Ring_head{};
-        if (access->ReadPortDirect(field_inbound, Inbound_ring::offset_write_pos, sizeof(head), &head) != AAX_SUCCESS) {
-            return;
-        }
-
-        auto write_pos = head.write_pos;
-        auto wrote_any = false;
-
-        for (;;) {
-            auto msg = To_processor{};
+    if constexpr (!std::is_same_v<To_processor, std::monostate>) {
+        push_inbound(access, Ring_kind::Worker_to_processor, sizeof(To_processor), [params](unsigned char* dst) {
             auto written = uint32_t{};
-            const auto result = params->GetCustomData(custom_data_worker_reply, sizeof(msg), &msg, &written);
-            if (result != AAX_SUCCESS || written != sizeof(msg)) break;
-
-            const auto payload_bytes = static_cast<uint32_t>(sizeof(msg));
-            const auto total = sizeof(Ring_header) + ring_align_up(payload_bytes);
-            if ((write_pos - head.read_pos) + total > Inbound_ring::capacity) break; // Full: drop.
-
-            alignas(8) auto entry = std::array<unsigned char, sizeof(Ring_header) + Inbound_ring::max_payload_bytes>{};
-            const auto entry_header = Ring_header{
-                .kind = static_cast<uint32_t>(Ring_kind::Worker_to_processor),
-                .payload_bytes = payload_bytes
-            };
-            std::memcpy(entry.data(), &entry_header, sizeof(entry_header));
-            std::memcpy(entry.data() + sizeof(entry_header), &msg, payload_bytes);
-
-            const auto start = static_cast<uint32_t>(write_pos & Inbound_ring::mask);
-            const auto first = std::min<size_t>(total, Inbound_ring::capacity - start);
-            access->WritePortDirect(field_inbound, Inbound_ring::offset_data + start,
-                                    static_cast<uint32_t>(first), entry.data());
-            if (first < total) {
-                access->WritePortDirect(field_inbound, Inbound_ring::offset_data,
-                                        static_cast<uint32_t>(total - first), entry.data() + first);
-            }
-
-            write_pos += total;
-            wrote_any = true;
-        }
-
-        if (wrote_any) {
-            // Publish last, so the algorithm never observes a partially written entry.
-            access->WritePortDirect(field_inbound, Inbound_ring::offset_write_pos, sizeof(write_pos), &write_pos);
-        }
+            const auto result = params->GetCustomData(custom_data_worker_reply, sizeof(To_processor), dst, &written);
+            return result == AAX_SUCCESS && written == sizeof(To_processor);
+        });
     }
+#endif
+}
+
+auto Direct_data::_push_editor_notes([[maybe_unused]] AAX_IPrivateDataAccess* access) -> void
+{
+#if TINY_HAS_NOTES_IN
+    auto* params = EffectParameters();
+    if (params == nullptr) return;
+
+    using Event = midi::Performance;
+    static_assert(sizeof(Event) <= Inbound_ring::max_payload_bytes);
+    push_inbound(access, Ring_kind::Editor_note, sizeof(Event), [params](unsigned char* dst) {
+        auto written = uint32_t{};
+        const auto result = params->GetCustomData(custom_data_editor_note, sizeof(Event), dst, &written);
+        return result == AAX_SUCCESS && written == sizeof(Event);
+    });
 #endif
 }
 

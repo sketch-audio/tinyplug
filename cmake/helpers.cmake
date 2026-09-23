@@ -9,12 +9,14 @@ macro(read_property target property)
 endmacro()
 
 # Prepare a the feature list for a CLAP plug-in.
-function(prepare_clap_feature_list list_var_name can_process_mono out_count_var out_array_var)
-    list(APPEND ${list_var_name} "stereo") # Always have stereo.
+function(prepare_clap_feature_list list_var_name can_process_mono has_audio out_count_var out_array_var)
+    if(has_audio)
+        list(APPEND ${list_var_name} "stereo") # Always have stereo.
 
-    # If can process mono, append "mono" to the list.
-    if(can_process_mono STREQUAL "true")
-        list(APPEND ${list_var_name} "mono")
+        # If can process mono, append "mono" to the list.
+        if(can_process_mono STREQUAL "true")
+            list(APPEND ${list_var_name} "mono")
+        endif()
     endif()
      
     # Get the list content by indirect reference, replacing semicolons with spaces.
@@ -52,6 +54,91 @@ function(prepare_vst3_uid_array item1 item2 item3 item4 out_array_var)
     set(joined "'${item1}', '${item2}', '${item3}', '${item4}'")
     set(${out_array_var} "${joined}" PARENT_SCOPE)
 endfunction()
+
+# What the plug-in carries, and the format identity derived from it. Sets, in the caller's scope:
+# TINY_AUDIO_IN / _OUT, TINY_SIDECHAIN, TINY_NOTES_IN / _OUT (0/1), TINY_KIND and TINY_KIND_ENUM,
+# and the derived TINY_AUV2_TYPE. Validates the combination, and an AUv2 type that contradicts it.
+#
+#   TINY_PLUGIN_WANTS_AUDIO   in, out, sidechain, or none   default "in;out"
+#   TINY_PLUGIN_WANTS_NOTES   in, out, or none              default none
+#   TINY_PLUGIN_WANTS_SIDECHAIN "true"             deprecated; same as adding `sidechain`
+macro(tiny_resolve_capabilities target)
+    get_target_property(_audio ${target} TINY_PLUGIN_WANTS_AUDIO)
+    get_target_property(_notes ${target} TINY_PLUGIN_WANTS_NOTES)
+    get_target_property(_legacy_sc ${target} TINY_PLUGIN_WANTS_SIDECHAIN)
+    get_target_property(_auv2_type ${target} TINY_AUV2_TYPE)
+    if(NOT _audio)
+        set(_audio "in;out")
+    elseif(_audio STREQUAL "none")
+        set(_audio "")
+    endif()
+    if(NOT _notes OR _notes STREQUAL "none")
+        set(_notes "")
+    endif()
+    if(_legacy_sc STREQUAL "true")
+        list(APPEND _audio "sidechain")
+    endif()
+
+    foreach(_item IN LISTS _audio)
+        if(NOT _item MATCHES "^(in|out|sidechain)$")
+            message(FATAL_ERROR "[tiny] ${target}: TINY_PLUGIN_WANTS_AUDIO takes in, out and sidechain, not '${_item}'.")
+        endif()
+    endforeach()
+    foreach(_item IN LISTS _notes)
+        if(NOT _item MATCHES "^(in|out)$")
+            message(FATAL_ERROR "[tiny] ${target}: TINY_PLUGIN_WANTS_NOTES takes in and out, not '${_item}'.")
+        endif()
+    endforeach()
+
+    macro(_tiny_flag list item out)
+        if("${item}" IN_LIST ${list})
+            set(${out} 1)
+        else()
+            set(${out} 0)
+        endif()
+    endmacro()
+    _tiny_flag(_audio in TINY_AUDIO_IN)
+    _tiny_flag(_audio out TINY_AUDIO_OUT)
+    _tiny_flag(_audio sidechain TINY_SIDECHAIN)
+    _tiny_flag(_notes in TINY_NOTES_IN)
+    _tiny_flag(_notes out TINY_NOTES_OUT)
+
+    # The table in plans/midi-support.md, "Declaration".
+    if(TINY_AUDIO_IN AND TINY_AUDIO_OUT)
+        set(TINY_KIND effect)
+        set(TINY_KIND_ENUM Effect)
+        if(TINY_NOTES_IN)
+            set(_derived_type aumf)
+        else()
+            set(_derived_type aufx)
+        endif()
+    elseif(TINY_AUDIO_OUT AND NOT TINY_AUDIO_IN AND TINY_NOTES_IN)
+        set(TINY_KIND instrument)
+        set(TINY_KIND_ENUM Instrument)
+        set(_derived_type aumu)
+    elseif(NOT TINY_AUDIO_IN AND NOT TINY_AUDIO_OUT AND NOT TINY_SIDECHAIN AND TINY_NOTES_IN AND TINY_NOTES_OUT)
+        set(TINY_KIND note_effect)
+        set(TINY_KIND_ENUM Note_effect)
+        set(_derived_type aumi)
+    else()
+        message(FATAL_ERROR "[tiny] ${target}: audio '${_audio}' with notes '${_notes}' is not a plug-in any format has. "
+            "Effect: audio in;out (notes optional). Instrument: audio out (sidechain optional), notes in. "
+            "Note effect: no audio, notes in;out.")
+    endif()
+
+    if(_auv2_type AND NOT _auv2_type STREQUAL _derived_type)
+        message(FATAL_ERROR "[tiny] ${target}: TINY_AUV2_TYPE '${_auv2_type}' contradicts what the plug-in carries, "
+            "which makes it '${_derived_type}'. Remove TINY_AUV2_TYPE; it is derived.")
+    endif()
+    set(TINY_AUV2_TYPE ${_derived_type})
+    set(TINY_KIND_INSTRUMENT 0)
+    set(TINY_KIND_NOTE_EFFECT 0)
+    if(TINY_KIND STREQUAL "instrument")
+        set(TINY_KIND_INSTRUMENT 1)
+    elseif(TINY_KIND STREQUAL "note_effect")
+        set(TINY_KIND_NOTE_EFFECT 1)
+    endif()
+endmacro()
 
 # Configure a plug-in's `plug_info.h` header.
 function(configure_plug_info plugin_target output)
@@ -110,16 +197,41 @@ function(configure_plug_info plugin_target output)
         set(TINY_PRESET_EXTENSION "json")
     endif()
 
+    tiny_resolve_capabilities(${plugin_target})
+
     # So use a define for AUv3
-    if(TINY_PLUGIN_WANTS_SIDECHAIN STREQUAL "true")
-        set(TINY_WANTS_SIDECHAIN 1)
+    set(TINY_WANTS_SIDECHAIN ${TINY_SIDECHAIN})
+    if(TINY_SIDECHAIN)
+        set(TINY_PLUGIN_WANTS_SIDECHAIN true)
     else()
-        set(TINY_WANTS_SIDECHAIN 0)
+        set(TINY_PLUGIN_WANTS_SIDECHAIN false)
+    endif()
+
+    # Each format's main category comes from the kind; the author's own entries describe it.
+    if(TINY_KIND STREQUAL "instrument")
+        set(_clap_main "instrument")
+        set(_vst3_main "Instrument")
+    elseif(TINY_KIND STREQUAL "note_effect")
+        set(_clap_main "note-effect")
+        set(_vst3_main "Fx")
+    else()
+        set(_clap_main "audio-effect")
+        set(_vst3_main "Fx")
+    endif()
+    list(REMOVE_ITEM TINY_CLAP_FEATURES "audio-effect" "instrument" "note-effect")
+    list(PREPEND TINY_CLAP_FEATURES ${_clap_main})
+    if(NOT TINY_VST3_SUBCATEGORIES MATCHES "^${_vst3_main}")
+        string(REGEX REPLACE "^(Fx|Instrument)\\|?" "" _vst3_rest "${TINY_VST3_SUBCATEGORIES}")
+        if(_vst3_rest)
+            set(TINY_VST3_SUBCATEGORIES "${_vst3_main}|${_vst3_rest}")
+        else()
+            set(TINY_VST3_SUBCATEGORIES "${_vst3_main}")
+        endif()
     endif()
 
     # Generate the CLAP feature list.
     prepare_clap_feature_list(
-        TINY_CLAP_FEATURES ${TINY_PLUGIN_CAN_PROCESS_MONO}
+        TINY_CLAP_FEATURES ${TINY_PLUGIN_CAN_PROCESS_MONO} ${TINY_AUDIO_OUT}
         TINY_CLAP_FEATURE_COUNT TINY_CLAP_FEATURE_VALUES
     )
 
@@ -192,6 +304,9 @@ function(configure_models target)
     _tiny_optional(BLOCKS models/blocks.hpp blocks::None models::Blocks)
     _tiny_optional(STATE  models/state.hpp  state::None  models::State)
     _tiny_optional(WORK   models/work.hpp   work::None   models::Work)
+    tiny_resolve_capabilities(${target})
+    set(TINY_HAS_NOTES_IN ${TINY_NOTES_IN})
+    set(TINY_HAS_NOTES_OUT ${TINY_NOTES_OUT})
 
     if(NOT TINY_HAS_PARAMS)
         message(FATAL_ERROR "[tiny] ${target}: models/params.hpp is required (zero-parameter plug-ins are not supported yet).")

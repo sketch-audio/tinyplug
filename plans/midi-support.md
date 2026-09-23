@@ -1,452 +1,413 @@
-# Plan: Add MIDI Input and Output Support to tinyplug
+# Plan: Notes in, notes out
 
-## Context
+> Status: **built**, steps 1–7 except the extraction in step 0, which was skipped: the five
+> loops differ enough (CLAP and AUv3 walk the host's own event lists, AAX has none) that each
+> gained notes in place instead. Every format carries notes in and out; `sine_synth` and
+> `step_sequencer` are the demos. Checked with clap-validator, the VST3 validator, the AAX
+> validator (same results as `gain_demo`), and scratch CLAP and AUv2 hosts that play notes
+> and read note output. Not yet run in a DAW. "Later" below is still later.
 
-tinyplug is currently effects-only. This plan adds MIDI input/output support to enable **instrument plugins** (synths, samplers) and **MIDI effect plugins** (arpeggiators, transposers) alongside existing audio effects. The framework's core strength is that users write format-agnostic code — a single `Plug_processor` and `Plug_editor` — while format wrappers handle VST3/CLAP/AUv2/AUv3/AAX translation. MIDI support must preserve this property.
+## Principles
 
-The design priority is the **framework abstraction quality** — a clean, minimal user-facing API that hides format differences. Format wrapper implementation details are outlined but secondary.
+- **No new model.** What a plug-in carries (audio, notes) is a CMake declaration. The types
+  are framework vocabulary, like `process::Event`.
+- **Authors never see MIDI.** They see notes and a closed set of performance controls, in
+  normalized values, as VST3 does. Wrappers translate through one shared, tested codec.
+- **Performance data, not state.** Notes and controls are audio-thread events. They never
+  write parameters, are never persisted, never enter undo. Parameters stay the host's.
+- **Pipes, not policy.** The framework moves events safely between threads and processes, and
+  takes on state only where the state erases a format difference. Note identity qualifies
+  (see "Note identity"); voices and an editor keyboard's held keys don't, and stay with the
+  plug-in.
+- **Sample accurate, like parameters.** In through `handle` between process slices at its
+  offset; out with an offset.
 
----
+## Declaration (CMake)
 
-## 1. MIDI Event Types (`shared/tinyplug/tiny_events.h`)
+What the plug-in carries, and the format identity derived from it:
 
-Add structured note events rather than raw MIDI bytes. This matches the direction of modern formats (VST3, CLAP) and is a better abstraction. Format wrappers translate raw MIDI (AU, AAX) into these types.
+```cmake
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_AUDIO "out;sidechain")  # in, out, sidechain; default "in;out"
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_NOTES "in")             # in, out; default none
+```
 
-### New types
+`sidechain` folds in today's `TINY_PLUGIN_WANTS_SIDECHAIN` (kept as a deprecated alias). The
+split between a main input and a sidechain is what resolves the one real ambiguity: a
+vocoder with a *main* input is an effect that takes notes; with a *sidechain* it is an
+instrument.
+
+| Audio | Notes | Derived kind | AUv2 / AUv3 | VST3 | CLAP | AAX |
+|---|---|---|---|---|---|---|
+| in, out | — | effect | `aufx` | `Fx` | `audio-effect` | as today |
+| in, out | in (± out) | effect | `aumf` | `Fx` | `audio-effect` + note port | as today + MIDI node |
+| out (± sidechain) | in (± out) | instrument | `aumu` | `Instrument` | `instrument` | `SWGenerators` |
+| — | in, out | note effect | `aumi` | `Fx\|Event` | `note-effect` | `MIDIEffect`, audio passed through |
+| in, out | out | effect (audio → notes) | `aufx` + MIDI out | `Fx` | `audio-effect` + note port | + MIDI node |
+
+- Anything else (no output of either kind, notes in with nothing out, audio out with no
+  input of either kind) is a configure error naming the table. A generator (`augn`) can come
+  later as one more row.
+- The author's `TINY_AUV2_TYPE` / `TINY_VST3_SUBCATEGORIES` / `TINY_CLAP_FEATURES` /
+  `TINY_AAX_CATEGORIES` still add descriptors (`Synth`, `sequencer`). An AUv2 type that
+  contradicts the row is an error; the others are appended to the derived token.
+- Generated: `Plug_info::kind` and `Plug_info::Wants::{audio_in, audio_out, sidechain,
+  notes_in, notes_out}`; in `<tiny_models.hpp>`, `TINY_HAS_NOTES_IN` / `TINY_HAS_NOTES_OUT`
+  and `has_notes_in` / `has_notes_out`, so the header-only layer gates as it does for
+  meters.
+
+## Types
+
+In `tiny::midi` (re-exported into `tiny::process`), model-free, so they live in core
+(`tiny_core/tiny_midi.hpp`) beside the codec. Output also takes `midi::Raw`: any channel voice
+message, sent as written. Raw is output only (the case against CC is about input), and SysEx
+is still later.
 
 ```cpp
-// Unified note addressing across all formats.
-// VST3/CLAP provide explicit voice IDs; AU/AAX use channel+key only.
-// -1 means "unspecified" / wildcard.
-struct Note_id {
-    int16_t channel{};   // 0-15, or -1
-    int16_t key{};       // 0-127 MIDI note number, or -1
-    int32_t id{-1};      // Unique voice ID (VST3/CLAP only, -1 for AU/AAX)
+struct Note {
+    // Which note. `id` is assigned by the framework at `On` and carried by every event for that
+    // note, whatever the format supplied: match on it alone. `channel` and `key` are
+    // information (pitch), not identity.
+    struct Id {
+        uint32_t id{};
+        uint8_t channel{};
+        uint8_t key{};
+    };
+
+    struct On { Id note{}; float velocity{}; };   // 0…1
+    struct Off { Id note{}; float velocity{}; };  // release velocity, 0…1
+    struct Choke { Id note{}; };                  // stop now, no release
+
+    // Per-note controls: VST3 and CLAP natively, poly pressure everywhere, MPE and MIDI 2.0
+    // later through the codec.
+    struct Expression {
+        enum class Kind : uint8_t { Volume, Pan, Tuning, Vibrato, Brightness, Pressure };
+        Id note{};
+        Kind kind{};
+        double value{}; // Tuning in semitones; the rest 0…1.
+    };
+
+    using Any = std::variant<On, Off, Choke, Expression>;
 };
 
-struct Note_on {
-    Note_id note{};
-    double velocity{};   // 0.0 - 1.0
-};
+// Whole-channel performance controls: a closed set, not arbitrary CC (see "Controls").
+struct Control {
+    struct Bend { uint8_t channel{}; double value{}; };      // −1…1
+    struct Pressure { uint8_t channel{}; double value{}; };  // 0…1
 
-struct Note_off {
-    Note_id note{};
-    double velocity{};   // 0.0 - 1.0 (release velocity)
-};
+    // A controller a player's hardware has: wheels and pedals.
+    struct Pedal {
+        enum class Kind : uint8_t { Mod_wheel, Breath, Foot, Expression, Sustain, Sostenuto, Soft };
+        uint8_t channel{};
+        Kind kind{};
+        double value{}; // 0…1; switches read >= 0.5.
+    };
 
-// Immediately kill a voice without release phase (CLAP note_choke).
-struct Note_choke {
-    Note_id note{};
-};
-
-// Per-note expression (polyphonic modulation).
-// Only natively supported in VST3/CLAP; ignored on AU/AAX.
-enum class Note_expression : uint32_t {
-    volume = 0, pan, tuning, vibrato, expression, brightness, pressure,
-};
-
-struct Note_expression_value {
-    Note_id note{};
-    Note_expression expression{};
-    double value{};
-};
-
-// Channel-level MIDI messages.
-struct Midi_cc {
-    int16_t channel{};
-    uint8_t cc{};        // 0-127
-    double value{};      // 0.0 - 1.0
-};
-
-struct Pitch_bend {
-    int16_t channel{};
-    double value{};      // -1.0 to 1.0
-};
-
-struct Channel_pressure {
-    int16_t channel{};
-    double value{};      // 0.0 - 1.0
+    using Any = std::variant<Bend, Pressure, Pedal>;
 };
 ```
 
-### Updated Render_event variant
+`Pedal` is a working name for "wheel or pedal" (see N1).
+
+## Processor interface
+
+`Some_plug_processor` becomes `process::Interface`, and its requirements follow the plug-in's
+declared capabilities instead of detecting optional members:
 
 ```cpp
-using Render_event = std::variant<
-    Set_param, Ramp_param, Accepted_latency,
-    Note_on, Note_off, Note_choke,
-    Note_expression_value,
-    Midi_cc, Pitch_bend, Channel_pressure
->;
-```
-
-`Tagged_event` is unchanged — it already wraps `Render_event` with a sample-accurate offset.
-
-### MIDI output types (separate variant)
-
-```cpp
-using Midi_output_event = std::variant<
-    Note_on, Note_off, Note_choke, Midi_cc, Pitch_bend, Channel_pressure
->;
-
-struct Tagged_midi_output {
-    Midi_output_event event{};
-    int32_t offset{};
-};
-```
-
-### Design rationale
-- **Normalized doubles** (0.0–1.0 for velocity/CC) instead of raw MIDI integers — format wrappers convert.
-- **`Note_id`** unifies VST3 `noteId`, CLAP `note_id`, and channel+key for AU/AAX. Formats without voice IDs leave `id` at -1.
-- **`Note_choke`** is distinct from `Note_off` — it means "kill immediately, no release phase" (important for drum machines).
-- **Backward compatible** — existing effect plugins that only handle `Set_param`/`Ramp_param`/`Accepted_latency` in their `handle` visitor continue working unchanged. New variant alternatives fall through to the default `[](const auto&) {}` handler.
-
----
-
-## 2. Processor Interface Changes (`shared/tinyplug/tiny_processor.h`)
-
-### Dsp_context additions
-
-```cpp
-struct Dsp_context {
-    // ... existing fields unchanged ...
-
-    // MIDI output buffer. Non-null only for plugins with wants_midi_output.
-    // Processor appends events here during process().
-    // Framework reads and dispatches to host after process() returns.
-    std::vector<Tagged_midi_output>* midi_output{nullptr};
-};
-```
-
-### Processor concept — UNCHANGED
-
-```cpp
-concept Some_plug_processor = requires(T t) {
-    { t.reset(double{}) } -> std::same_as<void>;
-    { t.handle(std::declval<const Render_event&>()) } -> std::same_as<void>;
+template<typename T>
+concept Interface = requires(T t) {
+    { t.configure(std::declval<const Config&>()) } -> std::same_as<void>;
+    { t.reset(std::declval<const Reset::Any&>()) } -> std::same_as<void>;
+    { t.handle(std::declval<const Event::Any&>()) } -> std::same_as<void>;
     { t.process(std::declval<Dsp_context&>()) } -> std::same_as<void>;
     { t.latency_samps() } -> std::same_as<uint32_t>;
     { t.tail_samps() } -> std::same_as<uint32_t>;
-};
+}
+#if TINY_HAS_NOTES_IN
+&& requires(T t) {
+    { t.handle(std::declval<const Note::Any&>()) } -> std::same_as<void>;
+    { t.handle(std::declval<const Control::Any&>()) } -> std::same_as<void>;
+}
+#endif
+;
 ```
 
-This is a key advantage of the existing variant-based design: MIDI events are new alternatives in `Render_event`, so `handle` receives them automatically. Zero concept changes needed.
+- Declaring notes in means handling both; an author who ignores pedals writes an empty
+  visitor. Required, not detected: a misspelled overload is a compile error, not silence.
+- The generated `<tiny_plugin.hpp>` assertion and every example's
+  `static_assert(Some_plug_processor<Processor>)` move to `Interface`, with one `static_assert`
+  per capability so the message names the missing overload.
+- The same pass applies to the worker reply: `handle_worker_reply(const To_processor&)` is
+  required under `TINY_HAS_WORKER` rather than concept-detected (the editor side likewise),
+  which retires the detect-in-a-template workaround CLAUDE.md warns about. Worth a separate
+  commit inside this work.
+- Output through the context, under `TINY_HAS_NOTES_OUT`:
 
----
+  ```cpp
+  context.notes.send(frame, Note::On{{.id = _next_id++, .channel = 0, .key = 60}, 0.8f}); // Output ids are the processor's.
+  context.notes.send(frame, Control::Pedal{0, Control::Pedal::Kind::Mod_wheel, 0.5});
+  ```
 
-## 3. Sample-Accurate Event Interleaving — NO ARCHITECTURAL CHANGE
+  `frame` is relative to this slice; the writer adds the slice's start. Fixed capacity,
+  owned by the wrapper, no allocation; `send` returns false when full.
+- Instruments get empty `ibuffers` (or the sidechain only). `Reset::Hard` gains one sentence:
+  it also means release every voice and return controls to their defaults.
 
-Every format wrapper already implements the same pattern:
-1. Collect all events into `_events` vector with sample offsets
-2. Sort by offset
-3. Walk the buffer: process audio up to next event → dispatch event → continue
+## Note identity
 
-MIDI events slot directly into this mechanism. Each wrapper's event-collection phase now *also* collects MIDI input events, converts them to `Tagged_event` with the appropriate `Render_event` alternative, and pushes them into `_events`. The existing sort-and-dispatch loop handles everything.
+Hosts own note identity where they have it: VST3's `noteId` and CLAP's `note_id` let a later
+`Off` or expression address one exact note. But AU and AAX never carry ids, and VST3 and CLAP
+hosts may send -1, so without help every instrument needs two matching rules (by id if there
+is one, else by channel + key), which is where cross-format stuck notes come from. That is a
+format difference, and erasing those is the framework's job.
 
----
+So the scheduler keeps a fixed table of held notes (a few hundred entries, no allocation). At
+`On` it mints a fresh id and records how the source will name the note again: the host id,
+or channel + key. Later `Off`, `Choke` and `Expression` events arrive carrying the minted id;
+one for a note the table doesn't know is dropped.
 
-## 4. Plugin Type Configuration
+- **One policy:** a second `On` for a held key from an id-less source is a new note, with its
+  own id; an id-less `Off` closes the oldest held note on that key, as hardware does. Whether
+  the second `On` retriggers or layers is still the plug-in's decision: it sees two ids.
+- **Sources are separate, and each may name its own notes.** Every source's ids are local to
+  it: the host's `noteId` / `note_id`, or ids the editor chooses. The editor pipe feeds the
+  same table under its own source, so an editor `Off` can never close a host note on the same
+  key. A source that gives no id is matched on channel + key.
+- **Voices stay the plug-in's**: allocation, stealing, polyphony, mono and legato, choke
+  groups, release tails. A voice allocator encodes musical policy; if one is ever wanted, it
+  is an opt-in helper in `tiny_dsp`, beside `Host_bypass`.
+- **Out of scope:** CLAP's `NOTE_END` and voice-info. They exist so the host knows when to stop
+  sending per-note parameter modulation, which tinyplug doesn't support. If it ever does,
+  the table maps minted ids back to host ids and the processor gains a way to report a
+  voice's end.
+- Output ids are the processor's: a sequencer names its own notes, and the wrapper maps them
+  to the host's note id where the format has one.
 
-### New CMake property
+## Delivery
 
-```cmake
-add_property(${target} TINY_PLUGIN_TYPE "effect")  # "effect" | "instrument" | "midi_effect"
-```
+- **Ordering.** Sort by `(offset, arrival)`: same-offset order matters (an `Off` then an `On`
+  for a retriggered key), and `std::stable_sort` may allocate.
+- **Capacity.** A note reserve beside the parameter reserve in every `_events`. On overflow,
+  drop `On`s first; never drop an `Off`.
+- **Slicing.** Dense notes mean small slices, as dense automation does. Accepted: the
+  alternative, a span of notes per block, makes every author split blocks.
+- **Five loops.** All five wrappers carry their own collect/sort/slice loop and all five
+  change. Extract one shared scheduler in `tinyplug` first (step 0).
 
-Default is `"effect"` for backward compatibility.
+## Stuck notes
 
-### Changes to `cmake/helpers.cmake`
+Stateless. On `Reset::Hard`, bypass engage and deactivate (at the next block, where a format
+gives no chance before), the wrapper sends *all notes off* on every channel of the note
+output: a wildcard `Off` in CLAP (`key = -1`), CC 123 elsewhere. No held-note tracking.
+Everything else, including releasing notes when the transport stops, is the processor's.
 
-Add a derivation function that maps `TINY_PLUGIN_TYPE` → format-specific values:
+**Bypass by kind:** an instrument keeps receiving notes while bypassed, so its voices track,
+and its output is silenced. A note effect passes input notes through. Effects are unchanged.
 
-| `TINY_PLUGIN_TYPE` | AUv2 type | VST3 subcategories | CLAP features | AAX category |
-|---|---|---|---|---|
-| `"effect"` | `aufx` (existing) | `Fx` (existing) | `audio-effect` (existing) | existing |
-| `"instrument"` | `aumu` | `Instrument` | `instrument` (prepended) | `SWGenerators` |
-| `"midi_effect"` | `aumi` | `Fx\|Event` | `note-effect` (prepended) | N/A (see below) |
+## Controls, and why not CC
 
-The user writes `add_property(${target} TINY_PLUGIN_TYPE "instrument")` and everything derives. Individual format fields can still be overridden.
+**What goes wrong with CC.** CC is trouble when it moves a parameter behind the host's back:
+two writers for one value, one of them unrecorded. VST3 dropped raw MIDI for that reason and
+routes controllers through `IMidiMapping` into parameters.
 
-### Changes to `cmake/plug_info.h.in`
+**What a plug-in realistically does with CC:**
+
+1. **Performance controllers**: mod wheel, breath, expression, foot, and above all sustain.
+   A keyboard instrument without sustain is broken for players. Also pitch bend and
+   channel pressure, which VST3 routes the same way.
+2. **MPE**: per-channel bend, pressure and CC 74. Hosts turn these into note expressions in
+   VST3 and CLAP; the codec does it for AU and AAX. None of it reaches the author as CC.
+3. **MIDI learn / CC → parameter.** A plug-in can't write parameters, so all it could do is
+   keep a mapping in its state document and apply the CC as a macro or offset on top of
+   the parameter's value. That's coherent, but it's worse than what every host already
+   offers (controller → automation mapping), and the knob wouldn't move. Agreed with VST3:
+   expose parameters and let the host map controllers to them.
+4. **Hardware emulation** (a synth that answers its original's CC chart) is (3) again, and
+   the host's mapping covers it.
+
+**So:** no arbitrary CC, in or out. A closed set, `Control::{Bend, Pressure, Pedal}`, covers
+(1); (2) arrives as `Note::Expression`; (3) and (4) are the host's job, documented as the
+reason. Other controllers are dropped by the wrapper in every format, so a plug-in behaves
+the same everywhere. The closed set also keeps the author out of MIDI numbers: `Sustain`,
+not 64.
+
+**What it costs in VST3:** `IMidiMapping` for 9 controllers (7 pedals, bend, pressure) on 16
+channels, 144 hidden, non-automatable, never-persisted parameters in a reserved id range
+(like meters' `export_param_offset`), turned back into `Control` events in `process`. Not
+JUCE's 2080. Mapping omni instead would cut it to 9 at the price of the channel number; the
+channel only matters to a multitimbral instrument, so omni is the fallback if hosts list the
+144 (N4). Output uses `LegacyMIDICCOutEvent`.
+
+## Editor → processor (an on-screen keyboard)
+
+A pipe:
 
 ```cpp
-enum class Plugin_type : uint32_t { effect = 0, instrument, midi_effect };
-
-struct Plug_info {
-    // ... existing fields ...
-    static constexpr auto plugin_type = Plugin_type::@TINY_PLUGIN_TYPE_ENUM@;
-
-    // Derived convenience flags for format wrappers:
-    static constexpr auto wants_midi_input = (plugin_type != Plugin_type::effect);
-    static constexpr auto wants_midi_output = (plugin_type == Plugin_type::midi_effect);
-
-    // Per-note expression support. When true:
-    //   - CLAP: declares CLAP_NOTE_DIALECT_CLAP | MIDI_MPE | MIDI2
-    //   - VST3: registers note expression types
-    //   - AUv2/AUv3/AAX: enables MPE zone parsing in the wrapper
-    // When false: note events are delivered but per-note expression is ignored.
-    // Default false — simple synths just get Note_on/Note_off.
-    static constexpr auto supports_per_note_expression = bool{@TINY_SUPPORTS_PER_NOTE_EXPRESSION@};
-};
+_edit.notes.send(Note::On{{.channel = 0, .key = 60}, 0.8f});   // -> bool
+_edit.notes.send(Note::Off{{.channel = 0, .key = 60}, 0.f});
+_edit.notes.send(Control::Bend{0, value});
 ```
 
-### Files to modify
-- `cmake/plug_info.h.in` — add `Plugin_type` enum and derived booleans
-- `cmake/helpers.cmake` — add type derivation in `configure_plug_info`
+The framework moves `Note::Any` and `Control::Any` from the editor to the processor: in
+order, bounded, delivered at the start of the next block (offset 0) through the same
+`handle`. `send` returns false when full. That is all it does.
 
----
+**Weighed against owning it** (`press(key)` / `release(key)`, with the framework tracking
+held keys and releasing them on hide): that version saves each keyboard perhaps fifteen
+lines and costs a held-key table in the editor, a policy about what "hide" means, and an API
+that grows with each gesture a keyboard might want. None of it is needed for coherence: the
+hazard it would guard against, an editor `Off` closing a host voice on the same key, is
+already closed by note identity, because the editor is its own source. The editor names
+notes by channel + key, like an id-less host.
 
-## 5. MIDI Version Handling (MIDI 1.0 / MPE / MIDI 2.0)
+An editor may set `Note::Id::id` to an id of its own (a touch counter, say), mapped like a
+host's; without one its notes match on channel + key. It needs one for two fingers on one
+key, where channel + key can't say which note a `Note::Expression` means. That is what makes
+an in-plug-in keyboard with per-finger pressure or pitch slides work (`Expression` with
+`Pressure` or `Tuning`, one per finger per frame, coalesced by the editor).
 
-The framework's structured event types (`Note_on`, `Note_off`, `Note_expression_value`, etc.) already provide a version-agnostic abstraction. **Plugin developers never see raw MIDI bytes or need to know which protocol delivered the data.** Format wrappers handle all translation.
+What the plug-in owns, and the docs and the `sine_synth` keyboard show:
 
-### How each MIDI version maps to the framework
+- pairing each `Off` with its `On`;
+- releasing held keys in `on_gui_hide`;
+- retrying a refused `Off` next frame (a keyboard can't fill the queue at human rates, but a
+  host that stops processing can leave it full).
 
-**MIDI 1.0 (standard)**
-- Notes → `Note_on`/`Note_off` with `Note_id{channel, key, -1}` (no voice ID)
-- Pitch bend, CC, channel pressure → global `Pitch_bend`/`Midi_cc`/`Channel_pressure` events (affect all notes on that channel)
-- 7-bit velocity/CC values normalized to `double` by wrappers
-- No per-note expression capability
+Per format: coupled formats push straight into a processor-side `Lock_free_queue`. VST3
+sends a `tiny/notes` `IMessage` and the processor queues it. AAX carries it as a new
+`Ring_kind` on the existing inbound `Byte_ring`, inheriting Direct Data's ~30 ms wakeup
+(stated as a limit). Not a `Change_set`: order matters.
 
-**MIDI 1.0 + MPE**
-- MPE uses channel-per-note allocation within zones. Manager channel sends global controls; member channels each carry one note with per-note pitch bend (tuning), channel pressure (pressure), and CC#74 (brightness)
-- Wrappers that receive raw MIDI (AUv2, AUv3, AAX) translate MPE member channel messages into `Note_expression_value` events:
-  - Member pitch bend → `Note_expression_value{note, tuning, ...}` (converted from semitone range)
-  - Member channel pressure → `Note_expression_value{note, pressure, ...}`
-  - Member CC#74 → `Note_expression_value{note, brightness, ...}`
-  - Manager channel messages → global `Pitch_bend`/`Midi_cc` events
-- VST3/CLAP hosts already parse MPE for us — they deliver structured note events with voice IDs and note expressions. Wrappers just translate to framework types.
+No format lets a plug-in inject notes into its own track, so an on-screen keyboard plays the
+plug-in, not the DAW. Showing held notes in the editor needs nothing new: the processor
+publishes a held-key bitmap as a block.
 
-**MIDI 2.0**
-- Native per-note attributes, 32-bit resolution, note IDs built into the protocol
-- Maps directly to framework types — `Note_id.id` carries the note ID, `double` values absorb 32-bit resolution
-- Current host support is minimal. CLAP has `CLAP_NOTE_DIALECT_MIDI2`; AUv3 can receive UMP packets on newer macOS. Implementation can wait — the abstraction already supports it.
+## Formats
 
-### No "dialect" declaration needed
+One codec in core (`tiny_core/midi_codec.hpp`: MIDI 1.0 bytes ↔ `Note` / `Control`, 14-bit
+bend, the closed controller table) serves AUv2, AUv3, AAX and CLAP's MIDI dialect. Tested
+once, standalone.
 
-The plugin developer declares **capability**, not protocol:
-
-```cpp
-// In Plug_info:
-static constexpr auto supports_per_note_expression = bool{false}; // default
-```
-
-This single boolean controls wrapper behavior across all formats:
-
-| `supports_per_note_expression` | CLAP dialects | VST3 | AUv2/AUv3/AAX |
+| | Input | Output | Notes |
 |---|---|---|---|
-| `false` | `CLAP \| MIDI` | No note expression types | No MPE parsing — pitch bend/CC/pressure delivered as global channel events |
-| `true` | `CLAP \| MIDI_MPE \| MIDI2` | Registers note expression types | Enables MPE zone parsing — per-channel messages converted to `Note_expression_value` |
+| **CLAP** | `CLAP_EVENT_NOTE_*`, `NOTE_EXPRESSION`, `MIDI` (codec) | `out_events`, CLAP dialect | `note_ports`; dialects `CLAP \| MIDI`, prefer `CLAP` |
+| **VST3** | `inputEvents` (`NoteOn/Off`, `PolyPressure`, `NoteExpressionValue`); controls via `IMidiMapping` | `outputEvents`; controls via `LegacyMIDICCOutEvent` | event buses in `initialize`; bus arrangement accepts no audio input |
+| **AUv2** | `AUMIDIBase` mixed into the existing class when notes are in; factory chosen by kind | `kAudioUnitProperty_MIDIOutputCallback`, after render | MIDI entry points can arrive off the render thread: they use the timed queue `_to_processor` already provides |
+| **AUv3** | `AURenderEventMIDI` in the render event list | `MIDIOutputEventBlock` + `MIDIOutputNames` | component type from the kind, in the plist |
+| **AAX** | `AAX_IMIDINode` (`LocalInput`) as an `Alg_context` field; packets carry sample timestamps | `LocalOutput` node | reaches the algorithm directly; instrument input stem `None` |
 
-CLAP always prefers `CLAP_NOTE_DIALECT_CLAP`. The supported set tells the host what fallbacks are acceptable.
+## MPE and MIDI 2.0
 
-A simple synth sets nothing (defaults to `false`) and gets plain `Note_on`/`Note_off`. An expressive synth (e.g., for Roli Seaboard/Linnstrument) sets `supports_per_note_expression = true` and receives `Note_expression_value` events — regardless of whether the source was MPE, CLAP native, VST3 note expression, or MIDI 2.0.
+Both fit behind the same types; neither changes the author's API.
 
-### MPE Zone Parsing (shared utility)
+- **MPE.** VST3 and CLAP hosts already deliver it as `Note::Expression` (CLAP when the
+  plug-in accepts the `MIDI_MPE` dialect). For AU and AAX the codec gains MPE zone state
+  (the MCM RPN) and turns member-channel bend, pressure and CC 74 into
+  `Note::Expression{Tuning, Pressure, Brightness}`, manager-channel messages into `Control`.
+  Opt-in, because it changes how channel messages are read: `TINY_PLUGIN_WANTS_NOTES
+  "in;expression"`, which also declares CLAP's MPE dialect and VST3's expression types.
+- **MIDI 2.0.** AUv3's `AURenderEventMIDIEventList` and CLAP's `MIDI2` dialect carry UMP; the
+  codec decodes it. Per-note controllers become `Note::Expression`, 16-bit velocity and
+  32-bit controllers fit the float and double fields, and note ids arrive natively. New
+  fields MIDI 2.0 adds (attribute types, per-note pitch) extend `On` without breaking anyone
+  who initializes by name.
+- **Out** is harder than in: sending MPE means allocating member channels in the encoder.
+  Later again.
 
-For raw-MIDI formats (AUv2, AUv3, AAX) when `supports_per_note_expression` is true, the framework provides a shared `Mpe_state` utility in `shared/tinyplug/`:
+## Not included
 
-```cpp
-// Tracks MPE zone configuration and active note→channel mappings.
-// Used by AUv2/AUv3/AAX wrappers to convert raw MIDI into Note_expression_value events.
-struct Mpe_state {
-    // Call when receiving RPN 0x0006 (MCM message) to configure zone boundaries.
-    void handle_mcm(uint8_t channel, uint8_t member_channel_count);
+The shape: **abstract types in, abstract types plus raw MIDI 1.0 out.** Input is interpreted
+(named notes, a closed set of controls) because the framework has to keep it coherent: note
+identity across formats, no second writer for parameters. Output needs no such guarding, so
+it can be as raw as a device downstream wants. What neither side carries yet:
 
-    // Returns true if the given channel is a member channel in an active zone.
-    bool is_member_channel(uint8_t channel) const;
+**In**
 
-    // Track note-on/off to maintain channel→active note mapping.
-    void note_on(uint8_t channel, uint8_t key);
-    void note_off(uint8_t channel, uint8_t key);
+- Arbitrary CC, NRPN / RPN, 14-bit CC pairs: dropped. Player controls are the closed
+  `Control` set; everything else is the host's job, mapped to parameters (MIDI learn is out
+  on purpose).
+- Program change and bank select: dropped. Hosts load presets.
+- SysEx, and system messages (clock, song position, MTC, start / stop): dropped. Tempo and
+  transport arrive as `Musical_context`.
+- Channel mode messages, except all-notes-off and all-sound-off, which release the held
+  notes they name.
+- MPE on AU and AAX (VST3 and CLAP hosts already deliver it as `Note::Expression`), and MIDI
+  2.0 / UMP anywhere. Both are planned behind the same types (see above).
+- VST3 note-expression declarations, note names and key switches (CLAP `note_name`, VST3
+  `INoteExpressionController` / `IKeyswitchController`), CLAP `NOTE_END` and voice info, and
+  polyphonic parameter modulation.
 
-    // Look up which note is active on a given member channel.
-    // Returns the Note_id, or nullopt if no note is active.
-    std::optional<Note_id> active_note(uint8_t channel) const;
-};
-```
+**Out**
 
-This is a lightweight state tracker (no allocations, fixed-size arrays for 16 channels). Each raw-MIDI wrapper creates one and feeds it MIDI events during the event collection phase. When a pitch bend/pressure/CC#74 arrives on a member channel, the wrapper checks `active_note()` and emits the corresponding `Note_expression_value`.
+- SysEx. It needs a fixed byte pool in the outbox to stay allocation-free.
+- System messages: clock, song position, start / stop. VST3 can't express them.
+- MIDI 2.0, and MPE out (allocating member channels).
+- Note ids reaching the host where the format has none: AU, AAX, and `midi::Raw` notes in
+  VST3 go out on channel + key.
 
-### Resolution handling
+**Around it**
 
-All resolution differences are absorbed by the `double` value space:
-- MIDI 1.0: 7-bit (0-127) → wrapper divides by 127.0
-- MIDI 1.0 pitch bend: 14-bit (0-16383) → wrapper maps to -1.0..1.0
-- MIDI 2.0: 32-bit → wrapper divides by max uint32
-- VST3/CLAP: already provide float/double values
+- An on-screen keyboard plays the plug-in; no format lets a plug-in record into its own track.
+- Per-format identity (an `aumi` for Logic and an instrument for VST3 from one declaration).
+  Today a plug-in picks one shape for every format.
+- Where a host puts a notes-only plug-in is the host's policy: Live, for one, loads neither
+  `aumi` nor an audio-less VST3 effect (see N5).
 
-The plugin developer always sees normalized doubles. Zero protocol awareness required.
+## Demos
 
----
+- **`sine_synth`** (audio out; notes in): eight voices, ADSR and level parameters, voice
+  matching on `Note::Id`, pitch bend, sustain. An on-screen keyboard through `_edit.notes`,
+  owning its ids and held keys, highlighting held keys from a block.
+- **`step_sequencer`** (notes in and out, no audio): a 16-step pattern in a `Writers::Editor`
+  state document, so it saves, undoes and edits from the UI only. The processor reads the
+  pattern and `Musical_context`, emits `On`/`Off` at step boundaries while the transport
+  moves, releases its own notes on stop, and passes input notes through. Built for CLAP,
+  VST3, AUv2 (Logic MIDI FX), AUv3 and AAX (a MIDI effect on Instrument tracks).
 
-## 6. Format Wrapper Changes
+## Order of work
 
-### 6.1 VST3 (`formats/vst3/source/vst3_processor.cpp`)
+0. Extract the shared event scheduler from the five wrappers (behavior-preserving). The
+   note-identity table lands in it with step 4.
+1. `process::Interface` with capability-gated requirements; examples and template follow.
+   The worker reply joins it in its own commit.
+2. Types and codec in core, with a standalone codec test.
+3. CMake `WANTS_AUDIO` / `WANTS_NOTES`, derivation and validation, `Plug_info`,
+   `<tiny_models.hpp>` gating, format identity and bus layouts. Existing demos build
+   unchanged.
+4. Input: CLAP, VST3 (with `IMidiMapping`), AUv3, AUv2, AAX. `sine_synth` without its
+   keyboard.
+5. Output and all-notes-off: CLAP, VST3, AUv2, AUv3 (AAX's output node built, unused by the
+   demos). `step_sequencer`.
+6. The editor pipe and its per-format transport; the `sine_synth` keyboard.
+7. Validators (clap-validator, the VST3 validator, auval, the AAX validator) and a pass in
+   Logic, Reaper, Bitwig and Pro Tools.
 
-**MIDI Input:**
-- `initialize()`: Add event input bus (`addEventInput(u"Event In", 16)`) when `Plug_info::wants_midi_input`.
-- `normalize_input_events()`: In addition to `IParameterChanges`, iterate `data.inputEvents` (`IEventList`). Translate `NoteOnEvent` → `Note_on`, `NoteOffEvent` → `Note_off`, `PolyPressureEvent` → `Note_expression_value{..., pressure}`, `NoteExpressionValueEvent` → `Note_expression_value`. Push as `Tagged_event` with `event.sampleOffset`.
-- Existing sort-and-dispatch loop handles the rest.
+## Later
 
-**MIDI Output:**
-- After process loop: iterate `context.midi_output`, translate to VST3 `Event` structs, push to `data.outputEvents`.
+- Touch force and radius in the platform's pointer events (`UITouch.force`, `majorRadius`),
+  so an iOS keyboard can drive per-note pressure. iPad fingers report no force; radius is the
+  usual stand-in.
+- MPE and MIDI 2.0, as above.
+- A generator row (`augn`).
+- Note names and key switches (CLAP `note_name`, VST3 `INoteExpressionController` /
+  `IKeyswitchController`); VST3 note expression declarations.
 
-**Bus config:**
-- Instruments: main audio input bus is optional. `setBusArrangements` needs a path where 0 audio inputs is acceptable.
+## Open questions
 
-**Category:**
-- `Plug_info::Vst3::subcategories` already flows into the factory entry. `"Instrument"` is sufficient.
-
-### 6.2 CLAP (`formats/clap/source/clap_plugin.cpp`, `formats/clap/source/clap_plugin.h`)
-
-**MIDI Input:**
-- `_handle_host_event()`: Add cases for `CLAP_EVENT_NOTE_ON`, `CLAP_EVENT_NOTE_OFF`, `CLAP_EVENT_NOTE_CHOKE`, `CLAP_EVENT_NOTE_EXPRESSION`, `CLAP_EVENT_MIDI`. Convert to framework types and dispatch to processor.
-- Already naturally integrates with the existing event interleaving loop.
-
-**MIDI Output:**
-- After process loop: iterate `context.midi_output`, push to `process->out_events->try_push()` as `clap_event_note` structs.
-
-**New extension:**
-- Implement `clap_plugin_note_ports`: `notePortsCount()` / `notePortsInfo()`. Instruments: 1 input port. MIDI effects: 1 input + 1 output.
-- Dialect negotiation based on `Plug_info::supports_per_note_expression`:
-  - `false`: `supported_dialects = CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI`
-  - `true`: `supported_dialects = CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI_MPE | CLAP_NOTE_DIALECT_MIDI2`
-  - `preferred_dialect = CLAP_NOTE_DIALECT_CLAP` always (hosts convert to CLAP native events when possible)
-
-**Descriptor:**
-- `Plug_info::Clap::features` already injected into descriptor. `"instrument"` gets prepended by CMake derivation.
-
-### 6.3 AUv2 (`formats/auv2/source/auv2_effect.h`, `formats/auv2/source/auv2_effect.cpp`)
-
-**This is the most significant wrapper change.** Currently `Auv2_effect` inherits from `ausdk::AUBase`. Instruments must inherit from `ausdk::MusicDeviceBase` (which provides `HandleNoteOn/Off`, `HandleControlChange`, etc.).
-
-**Approach:** Create a parallel class `Auv2_instrument` inheriting from `MusicDeviceBase`, sharing common logic via extracted utility functions. CMake selects which source file to compile based on `TINY_PLUGIN_TYPE`. This avoids complex conditional inheritance and keeps each class clean.
-
-**MIDI Input:**
-- Override `HandleNoteOn(channel, key, velocity, offsetSampleFrame)` → push `Note_on` into `_events` with offset.
-- Override `HandleNoteOff`, `HandleControlChange`, `HandlePitchWheel`, `HandleChannelPressure`.
-
-**MIDI Output:**
-- **Not supported on AUv2.** The AU SDK has no standard MIDI output mechanism for AUv2. This is a known limitation to document. `wants_midi_output` is a no-op on AUv2.
-
-**MPE support (when `supports_per_note_expression`):**
-- Create `Mpe_state` instance in the wrapper. Feed all MIDI events through it.
-- When pitch bend/pressure/CC#74 arrive on an MPE member channel, look up `active_note()` and emit `Note_expression_value` instead of global channel events.
-- Zone configuration via RPN 0x0006 (MCM) handled automatically by `Mpe_state`.
-
-**Limitations:**
-- AUv2 MIDI handlers do receive `inOffsetSampleFrame` so sample-accurate MIDI is possible.
-- No native per-note expressions or voice ID tracking (channel+key only). MPE parsing via `Mpe_state` bridges this gap.
-
-**Component type:**
-- `Plug_info::Auv2::type` set to `'aumu'` (instrument) or `'aumi'` (MIDI effect) by CMake derivation.
-
-### 6.4 AUv3 (`formats/auv3/`)
-
-**MIDI Input:**
-- In the DSP kernel's event handler: add cases for `AURenderEventMIDI`. Parse raw MIDI bytes from `event->MIDI.data` into framework note types. AUv3 provides sample-accurate timing via `eventSampleTime`.
-
-**MIDI Output:**
-- AUv3 supports MIDI output via `AUMIDIOutputEventBlock` (macOS 10.13+ / iOS 11+). Set `self.MIDIOutputNames` and call the output block during render.
-
-**Component type:**
-- Set via Info.plist `AudioComponents` array, same mechanism as AUv2.
-
-### 6.5 AAX (`formats/aax/source/aax_parameters.cpp`, `formats/aax/source/aax_describe.cpp`)
-
-**MIDI Input:**
-- `RenderAudio()`: Iterate `ioRenderInfo->mInputNode->GetNodeBuffer()` to get `AAX_CMidiStream`. Parse each `AAX_CMidiPacket` (status byte + data bytes + `mTimestamp`) into framework types. Push as `Tagged_event`.
-- `aax_describe.cpp`: Set `info.mNeedsInputMIDI = true` for instruments/MIDI effects.
-
-**MIDI Output:**
-- AAX supports output via `AAX_IMIDINode::PostMIDIPacket()`. Add output MIDI node in descriptor. After process loop, translate `Tagged_midi_output` to `AAX_CMidiPacket` and post.
-
-**Category:**
-- `AAX_ePlugInCategory_SWGenerators` for instruments.
-
-**Bus config:**
-- For instruments: `mInputStemFormat = AAX_eStemFormat_None` when no audio input needed.
-
----
-
-## 7. Format Compatibility Matrix
-
-| Capability | VST3 | CLAP | AUv2 | AUv3 | AAX |
-|---|---|---|---|---|---|
-| MIDI input (notes) | Yes | Yes | Yes | Yes | Yes |
-| Sample-accurate MIDI | Yes | Yes | Yes | Yes | Yes |
-| Note ID / voice tracking | Yes (`noteId`) | Yes (`note_id`) | No (ch+key) | No (ch+key) | No (ch+key) |
-| Per-note expressions (native) | Yes | Yes | No | No | No |
-| MPE → per-note expressions | Host handles | Host handles | Wrapper parses | Wrapper parses | Wrapper parses |
-| MIDI 2.0 | Partial* | `MIDI2` dialect | No | UMP (future) | No |
-| MIDI CC input | Deprecated** | Yes | Yes | Yes | Yes |
-| MIDI output | Yes | Yes | **No** | Yes | Yes |
-| Instrument category | `"Instrument"` | `"instrument"` | `'aumu'` | `'aumu'` | enum |
-
-\* VST3 doesn't define a MIDI 2.0 path; some hosts may bridge UMP to VST3 note events.
-\** VST3 deprecated raw MIDI CC in favor of parameter automation. Hosts may not send MIDI CC through the event list.
-
-### Key limitations to document
-- **AUv2**: No MIDI output. No native per-note expressions (MPE parsing available via `Mpe_state`). No voice ID tracking.
-- **AUv3**: No native per-note expressions (MPE parsing available via `Mpe_state`). No voice ID tracking.
-- **AAX**: No native per-note expressions (MPE parsing available via `Mpe_state`). No voice ID tracking. No MIDI effect category (AAX doesn't distinguish MIDI effects from instruments).
-- **VST3**: MIDI CC delivery is host-dependent due to deprecation. No MIDI 2.0 protocol support.
-- **MPE everywhere**: When `supports_per_note_expression` is true, all formats deliver per-note expression — VST3/CLAP via host-native mechanisms, AUv2/AUv3/AAX via framework's `Mpe_state` parser.
-
----
-
-## 8. Implementation Sequence
-
-### Phase 1: Core types (no format changes, no breaking changes)
-1. Add MIDI event types to `shared/tinyplug/tiny_events.h`
-2. Add `Plugin_type` enum and `Mpe_state` utility to `shared/tinyplug/`
-3. Add `midi_output` pointer to `Dsp_context` in `shared/tinyplug/tiny_processor.h`
-4. Verify existing plugins still compile (variant grows but nothing references new alternatives)
-
-### Phase 2: Build system and Plug_info
-5. Add `TINY_PLUGIN_TYPE` and `TINY_SUPPORTS_PER_NOTE_EXPRESSION` properties to `cmake/helpers.cmake`
-6. Update `cmake/plug_info.h.in` with `Plugin_type`, derived booleans, and `supports_per_note_expression`
-7. Update existing plugin CMakeLists to set `TINY_PLUGIN_TYPE "effect"` (explicit default)
-
-### Phase 3: Format wrappers — MIDI input
-8. CLAP: note event handling in `_handle_host_event`, note ports extension with dialect negotiation based on `supports_per_note_expression`
-9. VST3: event input bus, `inputEvents` reading in `normalize_input_events`, note expression type registration
-10. AAX: MIDI node reading in `RenderAudio`, descriptor changes, `Mpe_state` integration
-11. AUv3: MIDI event cases in kernel event handler, `Mpe_state` integration
-12. AUv2: Create `Auv2_instrument` class with `MusicDeviceBase` inheritance, `Mpe_state` integration
-
-### Phase 4: Format wrappers — MIDI output
-13. CLAP, VST3, AUv3, AAX: translate `midi_output` vector to host-native output
-14. Document AUv2 limitation
-
-### Phase 5: Instrument bus configuration
-15. Each format: conditional audio input bus (optional for instruments)
-
-### Phase 6: Demo and testing
-16. Create a simple synth demo plugin (basic Note_on/Note_off)
-17. Create an expressive synth demo plugin (with `supports_per_note_expression = true`)
-18. Test across formats in DAWs (Logic, Reaper, Bitwig, Pro Tools) with standard MIDI and MPE controllers
-
----
-
-## 9. Open Design Decisions
-
-1. **AUv2 class split strategy**: Two separate files (`auv2_effect.cpp` / `auv2_instrument.cpp`) sharing utilities via extracted functions, or a CRTP base template? I recommend the simpler split approach — the AU SDK base classes have fundamentally different APIs so trying to unify with templates adds complexity for little gain.
-
-2. **MIDI CC in VST3**: Since VST3 deprecated raw MIDI, should the VST3 wrapper attempt to map host parameter automation back to `Midi_cc` events? Or just document that CC-based workflows should use CLAP/AU/AAX? I'd lean toward "document the limitation" — trying to reverse-map parameters to CC is fragile.
-
-3. **Event buffer sizing**: The `_events` vector capacity should increase for MIDI-capable plugins. Current sizing is `4 * num_params + 64 * bit_width(num_params)`. For MIDI plugins, add a fixed MIDI reservation (e.g., 256 events). Fast arpeggios or dense MIDI can generate many events per buffer.
-
-4. **`midi_effect` plugins with audio**: Should MIDI effects also receive audio input (e.g., a vocoder that takes audio + MIDI)? The `Plugin_type` could be extended, or this could be a combination of flags. For now, `midi_effect` means MIDI-in → MIDI-out with optional audio pass-through.
-
----
-
-## Verification
-
-- Compile all existing demo plugins (gain_demo, latency_demo, etc.) — they must build unchanged
-- Create a minimal synth demo that responds to Note_on/Note_off
-- Build as VST3 and CLAP, load in Reaper/Bitwig, verify notes trigger audio
-- Build as AUv2, load in Logic, verify notes trigger audio
-- Build as AAX (if toolchain available), load in Pro Tools
-- Test MIDI output with a MIDI effect demo in CLAP and VST3
+- **N1. Names.** `Note` / `Control` / `Control::Pedal`, `context.notes`, `_edit.notes`.
+  `context.notes.send` carries controls too; `context.output` is the alternative.
+- **N2. Note-effect audio.** Logic's `aumi` and some VST3 hosts want an audio output bus even
+  on a MIDI effect. A silent bus, or none? Settle per format in step 3.
+- **N3. AAX note effects.** Closed, and the premise was wrong: AAX has
+  `AAX_ePlugInCategory_MIDIEffect`, which Pro Tools lists in a separate MIDI plug-ins menu on
+  Instrument tracks and chains through the first channel of the first MIDI input and output
+  node. A MIDI effect is still an audio insert, so it passes audio through and registers every
+  stem format it can (mono and stereo here); the processor never sees the audio.
+- **N5. Where hosts put a notes-only plug-in.** Every spec allows the combination except
+  VST3's, which has no category for it (Steinberg has said there are no plans for one). Live
+  refuses an `Fx` VST3 without an audio input and doesn't scan `aumi`; the known way into Live
+  is an instrument with notes out (`TINY_PLUGIN_WANTS_AUDIO "out"`), routed with "MIDI From".
+  JUCE's MIDI-effect builds add a dummy audio output for the same reason. Per-format identity
+  (`aumi` for Logic, an instrument in VST3) is a possible later opt-in.
+- **N4. VST3 controls.** 144 hidden parameters per channel-aware mapping, or 9 mapped omni.
+  Start channel-aware; fall back if hosts list them.

@@ -20,6 +20,9 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
 #if TINY_HAS_STATE
         .state = _state_link.actor(),
 #endif
+#if TINY_HAS_NOTES_IN
+        .notes = Note_sender{[this](const midi::Performance& e) { return _notes.post_from_editor(e); }},
+#endif
     });
 
 #if TINY_HAS_STATE
@@ -52,7 +55,7 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
 
     // 
     for (size_t i = 0; i < num_inputs; ++i) {
-        const auto is_main = (i == 0);
+        const auto is_main = (i == 0) && Plug_info::Wants::audio_in;
         const auto* input_name = is_main ? "Input" : "Sidechain";
         const auto str = CFStringCreateWithCString(kCFAllocatorDefault, input_name, kCFStringEncodingUTF8);
         auto defer = Deferred([str]() { CFRelease(str); });
@@ -101,6 +104,7 @@ OSStatus Effect::Initialize()
     _bypass.set_latency(_latency);
 
     _events.reserve(events_size);
+    _silence.assign(GetMaxFramesPerSlice(), 0.f);
 
     // Scoped to the initialized window rather than object lifetime, so no timer exists
     // while the AU is uninitialized. `Cleanup` is guaranteed to run before destruction
@@ -160,6 +164,18 @@ OSStatus Effect::GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScop
             outWritable = true;
             return noErr;
         }
+#if TINY_HAS_NOTES_OUT
+        case kAudioUnitProperty_MIDIOutputCallbackInfo: {
+            outDataSize = sizeof(CFArrayRef);
+            outWritable = false;
+            return noErr;
+        }
+        case kAudioUnitProperty_MIDIOutputCallback: {
+            outDataSize = sizeof(AUMIDIOutputCallbackStruct);
+            outWritable = true;
+            return noErr;
+        }
+#endif
         case kAudioUnitProperty_CocoaUI: {
             outDataSize = sizeof(AudioUnitCocoaViewInfo);
             outWritable = false;
@@ -201,6 +217,14 @@ OSStatus Effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
     if (inScope != kAudioUnitScope_Global || !outData) return kAudioUnitErr_InvalidScope;
 
     switch (inID) {
+#if TINY_HAS_NOTES_OUT
+        case kAudioUnitProperty_MIDIOutputCallbackInfo: {
+            const auto name = CFSTR("Notes Out");
+            auto names = CFArrayCreate(kCFAllocatorDefault, reinterpret_cast<const void**>(const_cast<CFStringRef*>(&name)), 1, &kCFTypeArrayCallBacks);
+            std::memcpy(outData, &names, sizeof(names)); // The host releases it.
+            return noErr;
+        }
+#endif
         case kAudioUnitProperty_BypassEffect: {
             const auto bypass = _bypass.is_bypassed();
             Serialize<UInt32>(bypass ? 1 : 0, outData);
@@ -279,6 +303,13 @@ OSStatus Effect::SetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
             _offline.store(offline, std::memory_order_relaxed);
             return noErr;
         }
+#if TINY_HAS_NOTES_OUT
+        case kAudioUnitProperty_MIDIOutputCallback: {
+            if (inDataSize < sizeof(AUMIDIOutputCallbackStruct)) return kAudioUnitErr_InvalidPropertyValue;
+            std::memcpy(&_midi_out, inData, sizeof(AUMIDIOutputCallbackStruct));
+            return noErr;
+        }
+#endif
         default: break;
     }
 
@@ -1077,6 +1108,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     // delivers lands.
     if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
         _processor->reset(process::Reset::Hard{});
+        _notes.clear();
         _bypass.clear();    // Its delay lines hold pre-seek dry audio.
         _bypass.snap();
     }
@@ -1150,6 +1182,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     // why the resync branch below is an `else`.
     if (render_mode_changed) {
         _processor->reset(process::Reset::Hard{});
+        _notes.clear();
         _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
         _bypass.snap();
     }
@@ -1163,17 +1196,20 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         _processor->reset(process::Reset::Soft{});
     }
 
-    // Sort by offset; at equal offset, Event::Set before Event::Ramp — a fresh Set at an
-    // offset must still precede its own Ramp. Ranked explicitly rather than as a bare
-    // "Set < Ramp" boolean so that adding an alternative (MIDI is scheduled) cannot
-    // produce an intransitive equivalence (UB in std::sort).
-    const auto event_rank = [](const process::Event::Any& event) {
-        return std::holds_alternative<process::Event::Set>(event) ? 0 : 1;
-    };
-    std::ranges::sort(_events, [&](const auto& a, const auto& b) {
-        if (a.offset != b.offset) return a.offset < b.offset;
-        return event_rank(a.event) < event_rank(b.event);
-    });
+#if TINY_HAS_NOTES_IN
+    // Host MIDI, named now, on the render thread, in the order it came.
+    auto raw = Raw_midi{};
+    while (_midi_in.pop(raw)) {
+        _notes.from_midi(raw.status, raw.d1, raw.d2, [&](const process::Input& input) {
+            if (_events.size() < _events.capacity()) _events.push_back({.event = input, .offset = raw.offset});
+        });
+    }
+#endif
+
+    // Sort by offset, keeping arrival order at equal offsets: a fresh Set at an offset still
+    // precedes its own Ramp, and a note's Off still precedes a retrigger's On.
+    for (auto i = size_t{}; i < _events.size(); ++i) _events[i].order = static_cast<uint32_t>(i);
+    std::ranges::sort(_events, process::before);
 
     // Not thrilled with this, by the way.
     const auto event_count = _events.size();
@@ -1252,28 +1288,55 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 #endif
     context.render_mode = render_mode; // Resolved above, where the transition is detected.
 
-    auto do_process = [this, &context, &host_data](size_t num_frames, size_t offset) {
-        const auto num_ichannels = Input(0).NumberChannels();
-        [[maybe_unused]] const auto num_ibuffers = Input(0).GetBufferList().mNumberBuffers;
-        assert(num_ichannels == num_ibuffers && "Channel mismatch!");
-        for (size_t i = 0; i < num_ichannels; ++i) {
-            _ibuffers[i] = static_cast<const float*>(Input(0).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
+    // A bypassed note effect forwards its input instead of running; an edge releases what was sounding.
+#if TINY_HAS_NOTES_OUT
+    const auto bypassed = _notes.bypassed(_bypass.is_bypassed());
+    _passing = bypassed && Plug_info::kind == Plugin_kind::Note_effect;
+#else
+    const auto bypassed = false;
+#endif
+
+#if TINY_HAS_NOTES_IN
+    // The editor's notes land at the top of the block.
+    _notes.drain_editor([this](const process::Input& input) { _input(input, 0); });
+#endif
+
+    auto do_process = [this, &context, &host_data, bypassed](size_t num_frames, size_t offset) {
+#if TINY_HAS_NOTES_OUT
+        _notes.outbox().begin_slice(static_cast<int64_t>(offset), static_cast<int64_t>(num_frames));
+        context.notes = _notes.writer(bypassed);
+#else
+        (void)bypassed;
+#endif
+
+        auto num_ichannels = size_t{};
+        if constexpr (Plug_info::Wants::audio_in) {
+            num_ichannels = Input(0).NumberChannels();
+            [[maybe_unused]] const auto num_ibuffers = Input(0).GetBufferList().mNumberBuffers;
+            assert(num_ichannels == num_ibuffers && "Channel mismatch!");
+            for (size_t i = 0; i < num_ichannels; ++i) {
+                _ibuffers[i] = static_cast<const float*>(Input(0).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
+            }
         }
 
-        const auto num_ochannels = Output(0).NumberChannels();
-        [[maybe_unused]] const auto num_obuffers = Output(0).GetBufferList().mNumberBuffers;
-        assert(num_ochannels == num_obuffers && "Channel mismatch!");
-        for (size_t i = 0; i < num_ochannels; ++i) {
-            _obuffers[i] = static_cast<float*>(Output(0).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
+        // A note effect's output is a silent bus the processor never sees.
+        auto num_ochannels = size_t{};
+        if constexpr (Plug_info::Wants::audio_out) {
+            num_ochannels = Output(0).NumberChannels();
+            [[maybe_unused]] const auto num_obuffers = Output(0).GetBufferList().mNumberBuffers;
+            assert(num_ochannels == num_obuffers && "Channel mismatch!");
+            for (size_t i = 0; i < num_ochannels; ++i) {
+                _obuffers[i] = static_cast<float*>(Output(0).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
+            }
         }
 
         auto num_schannels = size_t{};
-        if (Plug_info::wants_sidechain && HasInput(1)) {
-            num_schannels = Input(1).NumberChannels();
-            [[maybe_unused]] const auto num_sbuffers = Input(1).GetBufferList().mNumberBuffers;
+        if (Plug_info::wants_sidechain && HasInput(sidechain_input)) {
+            num_schannels = Input(sidechain_input).NumberChannels();
+            [[maybe_unused]] const auto num_sbuffers = Input(sidechain_input).GetBufferList().mNumberBuffers;
             assert(num_schannels == num_sbuffers && "Channel mismatch!");
             for (size_t i = 0; i < num_schannels; ++i) {
-                _sbuffers[i] = static_cast<const float*>(Input(1).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
+                _sbuffers[i] = static_cast<const float*>(Input(sidechain_input).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
             }
         }
 
@@ -1319,7 +1382,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     if (can_skip) {
         // Manifest events until end of block.
         while (event) {
-            _processor->handle(event->event);
+            _input(event->event, event->offset);
             next_event();
         }
     }
@@ -1346,31 +1409,49 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
             }
 
             do {
-                _processor->handle(event->event);
+                _input(event->event, event->offset);
                 next_event();
             } while (event && event->offset <= static_cast<int32_t>(now));
         }
     }
 
-    auto in_buffers = [&]() {
-        auto arr = std::array<const float*, max_ichannels>{};
-        for (size_t i = 0; i < Input(0).NumberChannels(); ++i) {
-            arr[i] = static_cast<const float*>(Input(0).GetFloat32ChannelData(static_cast<UInt32>(i)));
-        }
-        return arr;
-    }();
-
     auto out_buffers = [&]() {
         auto arr = std::array<float*, max_ochannels>{};
-        for (size_t i = 0; i < Output(0).NumberChannels(); ++i) {
+        for (size_t i = 0; i < std::min<size_t>(Output(0).NumberChannels(), max_ochannels); ++i) {
             arr[i] = static_cast<float*>(Output(0).GetFloat32ChannelData(static_cast<UInt32>(i)));
         }
         return arr;
     }();
 
-    const auto min_channels = std::min(Input(0).NumberChannels(), Output(0).NumberChannels());
-    const auto num_channels = static_cast<size_t>(min_channels);
-    _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, frame_count);
+    if constexpr (Plug_info::Wants::audio_out) {
+        // Host bypass. Without an audio input the dry signal is silence, so bypass fades out.
+        auto in_buffers = [&]() {
+            auto arr = std::array<const float*, max_ichannels>{};
+            for (size_t i = 0; i < max_ichannels; ++i) {
+                if constexpr (Plug_info::Wants::audio_in) {
+                    if (i < Input(0).NumberChannels()) arr[i] = static_cast<const float*>(Input(0).GetFloat32ChannelData(static_cast<UInt32>(i)));
+                }
+                else arr[i] = _silence.data();
+            }
+            return arr;
+        }();
+
+        const auto num_channels = Plug_info::Wants::audio_in
+            ? static_cast<size_t>(std::min(Input(0).NumberChannels(), Output(0).NumberChannels()))
+            : std::min<size_t>(Output(0).NumberChannels(), max_ichannels);
+        const auto frames = Plug_info::Wants::audio_in ? size_t{frame_count} : std::min<size_t>(frame_count, _silence.size());
+        _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, frames);
+    }
+    else {
+        for (size_t i = 0; i < std::min<size_t>(Output(0).NumberChannels(), max_ochannels); ++i) {
+            std::fill(out_buffers[i], out_buffers[i] + frame_count, 0.f); // The silent bus.
+        }
+        ioActionFlags |= kAudioUnitRenderAction_OutputIsSilence;
+    }
+
+#if TINY_HAS_NOTES_OUT
+    _send_notes(inTimeStamp);
+#endif
 
     // Send exports. Suppressed during an offline bounce (Live corrupts its heap
     // ingesting them); the publisher still resets peaks so nothing hoards a spike.
@@ -1400,6 +1481,62 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     }
 
     return noErr;
+}
+
+// MARK: - notes
+
+#if TINY_HAS_NOTES_IN
+OSStatus Effect::MIDIEvent(UInt32 inStatus, UInt32 inData1, UInt32 inData2, UInt32 inOffsetSampleFrame)
+{
+    _midi_in.push(Raw_midi{static_cast<uint8_t>(inStatus), static_cast<uint8_t>(inData1), static_cast<uint8_t>(inData2),
+                           static_cast<int32_t>(inOffsetSampleFrame)});
+    return noErr;
+}
+#endif
+
+// [render] One input for the processor, and for the output while a bypassed note effect forwards.
+auto Effect::_input(const process::Input& input, [[maybe_unused]] int32_t offset) -> void
+{
+    process::deliver(*_processor, input);
+#if TINY_HAS_NOTES_OUT
+    if (_passing) {
+        std::visit(Inline_visitor{
+            [](const process::Event::Any&) {},
+            [&](const auto& e) { _notes.outbox().pass(offset, e); },
+        }, input);
+    }
+#endif
+}
+
+// [render] What the processor sent this block, as one MIDI packet list, after all-notes-off if the
+// stream broke. A packet's time stamp is its frame in the buffer.
+auto Effect::_send_notes([[maybe_unused]] const AudioTimeStamp& time) -> void
+{
+#if TINY_HAS_NOTES_OUT
+    auto& box = _notes.outbox();
+    const auto all_off = _notes.take_all_off();
+    if (!_midi_out.midiOutputCallback) {
+        box.clear();
+        return;
+    }
+
+    auto* list = reinterpret_cast<MIDIPacketList*>(_packets.data());
+    auto* packet = MIDIPacketListInit(list);
+    const auto add = [&](int32_t frame, const midi::Bytes& bytes) {
+        if (!packet || bytes.size == 0) return;
+        packet = MIDIPacketListAdd(list, _packets.size(), packet, static_cast<MIDITimeStamp>(frame), bytes.size, bytes.data.data());
+    };
+
+    if (all_off) {
+        for (auto channel = uint8_t{}; channel < 16; ++channel) add(0, midi::all_notes_off(channel));
+    }
+    for (const auto& entry : box.events()) {
+        std::visit([&](const auto& e) { add(entry.frame, midi::encode(e)); }, entry.event);
+    }
+    box.clear();
+
+    if (list->numPackets > 0) _midi_out.midiOutputCallback(_midi_out.userData, &time, 0, list);
+#endif
 }
 
 // MARK: - create_view 
@@ -1433,6 +1570,13 @@ auto Effect::_release_presets() const -> void
 
 // MARK: - entry
 
+// The factory decides which MIDI entry points the host can reach.
+#if TINY_KIND_INSTRUMENT
+AUSDK_COMPONENT_ENTRY(ausdk::AUMusicDeviceFactory, Effect);
+#elif TINY_HAS_NOTES_IN
+AUSDK_COMPONENT_ENTRY(ausdk::AUMIDIEffectFactory, Effect);
+#else
 AUSDK_COMPONENT_ENTRY(ausdk::AUBaseFactory, Effect);
+#endif
 
 } // namespace tiny::auv2

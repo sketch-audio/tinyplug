@@ -41,6 +41,7 @@ inline constexpr auto k_blocks_id = "tiny/blocks";
 // processor -> controller, tag is the processor's edit generation.
 inline constexpr auto k_state_edit_id = "tiny/state/edit";
 inline constexpr auto k_state_snapshot_id = "tiny/state/snapshot";
+inline constexpr auto k_notes_id = "tiny/notes";                   // controller → processor: one `midi::Performance`
 
 // MARK: - router
 

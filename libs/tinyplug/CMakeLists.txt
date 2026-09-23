@@ -13,6 +13,7 @@ target_sources(${TINY_PLUG_LIB} INTERFACE FILE_SET HEADERS BASE_DIRS ${CMAKE_CUR
     include/tinyplug/action_queue.hpp
     include/tinyplug/tiny_edit.hpp
     include/tinyplug/tiny_events.hpp
+    include/tinyplug/tiny_note_io.hpp
     include/tinyplug/tiny_processor.hpp
     include/tinyplug/tiny_state_link.hpp
     include/tinyplug/tiny_view.hpp

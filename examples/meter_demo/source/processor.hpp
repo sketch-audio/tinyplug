@@ -37,6 +37,6 @@ private:
     float _sparse_ramp{};   // Advances only while signal is present.
 
 };
-static_assert(Some_plug_processor<Processor>);
+static_assert(Interface<Processor>);
 
 } // namespace tiny::process

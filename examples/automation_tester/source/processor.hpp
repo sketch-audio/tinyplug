@@ -51,6 +51,6 @@ private:
     Linear_ramper _ramper{};
 
 };
-static_assert(Some_plug_processor<Processor>); // Check your interface.
+static_assert(Interface<Processor>); // Check your interface.
 
 } // namespace tiny::process

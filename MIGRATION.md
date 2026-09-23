@@ -504,3 +504,79 @@ static auto load(state::Reader in, State& value) -> bool
 A host load (session, preset) is one undo step covering its params and the document. An
 editor-side preset browser loads the record as an ordinary edit, through
 `_edit.state.load_record(_edit.state_adapter.state_record(json))`.
+
+---
+
+## Notes
+
+Adds notes in and out: instruments, note effects, and effects that take or send notes.
+Declared in CMake, not as a model. [examples/sine_synth](examples/sine_synth/) and
+[examples/step_sequencer](examples/step_sequencer/) are the references; the design, and
+why CC is a closed set, is [plans/midi-support.md](plans/midi-support.md).
+
+### Breaks
+
+- **`process::Some_plug_processor` is now `process::Interface`.** Rename your
+  `static_assert`. Its requirements now follow what the plug-in declares: with notes in it
+  requires `handle(const Note::Any&)` and `handle(const Control::Any&)`, and a work model
+  that replies to the processor requires `handle_worker_reply`. The generated
+  `<tiny_plugin.hpp>` names the missing member.
+- **`TINY_AUV2_TYPE` is derived.** Delete it, or keep a value that matches; a contradicting
+  one is a configure error.
+- **`TINY_PLUGIN_WANTS_SIDECHAIN` is deprecated** in favour of
+  `TINY_PLUGIN_WANTS_AUDIO "in;out;sidechain"`. It still works.
+- Wrapper code only: `process::Tagged_event::event` is a `process::Input` (parameters,
+  notes or controls) with an `order` field, delivered through `process::deliver`, and sorted
+  with `process::before`.
+
+### Declaring
+
+```cmake
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_AUDIO "out")   # in, out, sidechain, or none; default "in;out"
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_NOTES "in")    # in, out, or none; default none
+```
+
+Audio in and out is an effect (notes optional); audio out with notes in is an instrument (a
+sidechain optional); no audio with notes in and out is a note effect. Each format's type and
+category follow; `TINY_VST3_SUBCATEGORIES`, `TINY_CLAP_FEATURES` and `TINY_AAX_CATEGORIES`
+still add descriptors. An AAX note effect is a `MIDIEffect` that passes audio through, as Pro
+Tools requires of MIDI effects.
+
+For Live, which loads neither `aumi` AUs nor VST3 effects without an audio input, a note
+generator declares `TINY_PLUGIN_WANTS_AUDIO "out"` with notes in and out: an instrument that
+emits notes, routed to another track with "MIDI From".
+
+### Processor
+
+```cpp
+auto handle(const Note::Any& note) -> void;       // On, Off, Choke, Expression
+auto handle(const Control::Any& control) -> void; // Bend, Pressure, Pedal
+```
+
+Match notes on `note.id` alone: the framework mints one id per note whatever the format
+supplied. `Reset::Hard` also means release every voice. With notes out, send through the
+context, with frames counted from the start of this `process` call and ids of your own:
+
+```cpp
+context.notes.send(frame, Note::On{{.id = _next_id++, .channel = 0, .key = 60}, 0.8f});
+```
+
+### Editor
+
+Beyond notes and controls, `context.notes.send(frame, midi::Raw::cc(channel, number, value))`
+(or `Raw::program`, or any channel voice message as three bytes) sends MIDI exactly as written,
+for a device downstream. Output only, and no SysEx yet.
+
+The types live in `tiny::midi` (`<tiny_core/tiny_midi.hpp>`); `tiny::process` re-exports `Note`,
+`Control` and `Performance`, so processor code writes them unqualified.
+
+Not included, in or out: SysEx, system messages (clock, song position, start/stop), MIDI 2.0,
+and MPE on AU and AAX. On the way in, arbitrary CC, NRPN and program change are dropped:
+the host maps controllers to parameters. The full list is "Not included" in
+[plans/midi-support.md](plans/midi-support.md).
+
+`_edit.notes.send(Note::Any / Control::Any)` plays the processor, e.g. an on-screen
+keyboard, landing at the next block. Give notes an id of your own (non-zero) to tell two
+fingers on one key apart, pair every `Off` with its `On`, and release held keys in
+`on_gui_hide`.
+

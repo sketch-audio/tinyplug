@@ -55,6 +55,9 @@ static_assert(false, "ARC must be enabled for this file");
 #if TINY_HAS_STATE
             .state = [auv3 stateActor],
 #endif
+#if TINY_HAS_NOTES_IN
+            .notes = [auv3 noteSender],
+#endif
         });
     }
     [auv3 setEditor:_editor];

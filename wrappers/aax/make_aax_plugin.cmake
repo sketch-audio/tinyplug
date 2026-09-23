@@ -5,7 +5,18 @@ function(make_aax_plugin USER_TARGET)
         return()
     endif()
 
+    tiny_resolve_capabilities(${USER_TARGET})
+
+    # The kind's category, unless the author named one: instruments are software generators, and
+    # note effects the MIDI plug-ins Pro Tools chains on Instrument tracks.
     read_property(${USER_TARGET} TINY_AAX_CATEGORIES)
+    if(NOT TINY_AAX_CATEGORIES OR TINY_AAX_CATEGORIES STREQUAL "AAX_ePlugInCategory_None")
+        if(TINY_KIND STREQUAL "instrument")
+            set(TINY_AAX_CATEGORIES "AAX_ePlugInCategory_SWGenerators")
+        elseif(TINY_KIND STREQUAL "note_effect")
+            set(TINY_AAX_CATEGORIES "AAX_ePlugInCategory_MIDIEffect")
+        endif()
+    endif()
     read_property(${USER_TARGET} TINY_AAX_PAGE_TABLE_PATH)
 
     # A page table binds to the effect by its Type ID, so it can never resolve against the

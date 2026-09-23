@@ -4,6 +4,7 @@
 #include <span>
 
 #include "pluginterfaces/base/ibstream.h"
+#include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "public.sdk/source/vst/utility/stringconvert.h"
 #include "base/source/fstreamer.h"
 
@@ -227,6 +228,21 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
     }
 #endif
 
+#if TINY_HAS_NOTES_IN
+    // Player controls, as hidden parameters `getMidiControllerAssignment` maps to. Not automatable.
+    for (auto i = int32_t{}; i < num_control_params; ++i) {
+        auto info = Steinberg::Vst::ParameterInfo{
+            .id = static_cast<Steinberg::Vst::ParamID>(control_param_offset + i),
+            .stepCount = 0,
+            .defaultNormalizedValue = (i % controls_per_channel == 0) ? 0.5 : 0., // Bend rests at the centre.
+            .unitId = Steinberg::Vst::kRootUnitId,
+            .flags = Steinberg::Vst::ParameterInfo::kIsHidden
+        };
+        Steinberg::Vst::StringConvert::convert("Control", info.title);
+        parameters.addParameter(info);
+    }
+#endif
+
     // Add the bypass parameter.
     auto bypass_info = Steinberg::Vst::ParameterInfo{
         .id = bypass_param_id,
@@ -241,6 +257,27 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
 
     return result;
 }
+
+#if TINY_HAS_NOTES_IN
+Steinberg::tresult PLUGIN_API Controller::getMidiControllerAssignment(Steinberg::int32 busIndex, Steinberg::int16 channel,
+    Steinberg::Vst::CtrlNumber number, Steinberg::Vst::ParamID& id)
+{
+    if (busIndex != 0 || channel < 0 || channel > 15) return Steinberg::kResultFalse;
+
+    auto which = int32_t{-1};
+    if (number == Steinberg::Vst::kPitchBend) which = 0;
+    else if (number == Steinberg::Vst::kAfterTouch) which = 1;
+    else {
+        for (auto i = size_t{}; i < midi::pedal_numbers.size(); ++i) {
+            if (number == midi::pedal_numbers[i]) which = static_cast<int32_t>(i) + 2;
+        }
+    }
+    if (which < 0) return Steinberg::kResultFalse; // Not a player control: the host maps it to parameters.
+
+    id = static_cast<Steinberg::Vst::ParamID>(control_param_offset + channel * controls_per_channel + which);
+    return Steinberg::kResultTrue;
+}
+#endif
 
 Steinberg::tresult PLUGIN_API Controller::terminate()
 {

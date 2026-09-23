@@ -16,7 +16,7 @@ function(make_auv3_plugin USER_TARGET)
     read_property(${USER_TARGET} TINY_COMPANY_WEBSITE)
     read_property(${USER_TARGET} TINY_MANUFACTURER_CODE)
     read_property(${USER_TARGET} TINY_PLUGIN_CODE)
-    read_property(${USER_TARGET} TINY_AUV2_TYPE) # same as AUv2
+    tiny_resolve_capabilities(${USER_TARGET}) # Derives TINY_AUV2_TYPE, same as AUv2.
     read_property(${USER_TARGET} TINY_APP_XCASSETS)
 
     # iOS device family: "ipad" (default), "iphone", or "universal" (iPhone + iPad).

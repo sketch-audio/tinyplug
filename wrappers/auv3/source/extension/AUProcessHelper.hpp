@@ -20,7 +20,7 @@ public:
     mInputBuffers(max_ichannels), // Here we reserve the max space.
     mSidechainBuffers(max_schannels),
     mOutputBuffers(max_ochannels) {
-        assert(inputChannelCount > 0 && inputChannelCount <= max_ichannels);
+        assert(inputChannelCount <= max_ichannels); // 0 for an instrument: no main input.
         assert(outputChannelCount > 0 && outputChannelCount <= max_ochannels);
     }
 
@@ -32,6 +32,8 @@ public:
 
         AUEventSampleTime now = AUEventSampleTime(timestamp->mSampleTime);
         AUAudioFrameCount framesRemaining = frameCount;
+        mKernel.begin_block(now);
+        struct End { DSPKernel& kernel; ~End() { kernel.end_block(); } } end{mKernel};
         AURenderEvent const *nextEvent = events; // events is a linked list, at the beginning, the nextEvent is the first event
 
         auto callProcess = [this] (AudioBufferList* inBufferListPtr,
@@ -41,7 +43,7 @@ public:
                                    AUAudioFrameCount frameCount,
                                    AUAudioFrameCount const frameOffset) {
             
-            const auto num_ichannels = inBufferListPtr->mNumberBuffers;
+            const auto num_ichannels = inBufferListPtr ? inBufferListPtr->mNumberBuffers : UInt32{0};
             assert(num_ichannels == mInputChannelCount && "Channel mismatch!");
             for (int channel = 0; channel < num_ichannels; ++channel) {
                 mInputBuffers[channel] = (const float*)inBufferListPtr->mBuffers[channel].mData  + frameOffset;
