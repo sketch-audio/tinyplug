@@ -51,7 +51,7 @@ public:
         _setup_worker();
 #endif
     }
-    ~Controller() SMTG_OVERRIDE = default;
+    ~Controller() SMTG_OVERRIDE { _tasks.shutdown(); } // First: no task may outlive the editor or worker it captures.
 
     Steinberg::tresult PLUGIN_API notify(Steinberg::Vst::IMessage* message) SMTG_OVERRIDE;
 

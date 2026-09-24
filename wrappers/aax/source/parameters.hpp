@@ -55,7 +55,7 @@ public:
         });
 #endif
     }
-    ~Parameters() override = default;
+    ~Parameters() override { _tasks.shutdown(); } // First: no task may outlive the editor or worker it captures.
 
     static AAX_CEffectParameters* AAX_CALLBACK Create()
     {

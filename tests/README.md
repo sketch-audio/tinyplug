@@ -1,26 +1,63 @@
 # tests
 
-Standalone test programs, not wired into CMake. Each is one translation unit that
-builds and runs with one command, prints one line per check, and exits non-zero on
-failure:
+One executable per file, each registered with CTest. Three presets, which build only the tests
+(`TINY_BUILD_PLUGINS=OFF`):
 
 ```sh
-clang++ -std=c++20 -Wall -Wextra -Wconversion -Wshadow -pthread \
-    -I libs/tiny_core/include -I tests tests/tiny_meters_test.cpp -o /tmp/t && /tmp/t
+cmake --preset tests && cmake --build --preset tests && ctest --preset tests
+cmake --preset tsan  && cmake --build --preset tsan  && ctest --preset tsan   # ThreadSanitizer
+cmake --preset asan  && cmake --build --preset asan  && ctest --preset asan   # AddressSanitizer + UBSan
 ```
 
-`state_link_test.cpp` includes tinyplug's interface headers, so it also needs
-`-I libs/tinyplug/include -I tests/support/generated` (a stand-in for the generated
-`<tiny_models.hpp>`) and nlohmann's include directory, for example
-`-I build-debug/_deps/nlohmann_json-src/include`. `tests/support/` holds shared test
-fixtures: a queued `Pipe`, a toy undo log and two example documents.
+`TINY_SANITIZE` applies to the whole configure, dependencies included, and builds one
+architecture: a partly instrumented link is where TSan's false reports come from.
+
+New tests use [audio_bench](https://github.com/sketch-audio/audio_bench) (`Tests::add`,
+`expect_true`, `expect_close`), fetched at a pinned commit in `tests/CMakeLists.txt`; `main` returns
+non-zero when `run_all()` reports failures. The older files keep their own `expect` helper. Add a
+test with one `tiny_add_test(<name>)` line. Test executables target macOS 13.3, which
+audio_bench's `std::format` needs.
+
+`tests/support/` holds shared fixtures: stand-ins for the generated `<tiny_models.hpp>`
+(`generated/` with no models, `work_models/` with a work model), a queued `Pipe`, a toy undo log
+and two example documents.
+
+## lock_free_queue_test.cpp
+
+All four `Lock_free_queue` modes: exact capacity, FIFO across many trips round the storage, and
+threaded delivery (nothing lost, nothing twice, in order per producer). The thread registry
+refuses the thread past its limit instead of writing past its end, and `Overwrite_queue` keeps the
+newest items.
+
+## tasks_test.cpp
+
+`Notification_queue`, `Serial_queue`, `Task_launcher`, `Task_manager` (`is_main_thread` read from
+any thread while main binds, `on_main` ordering) and, on Apple, `Relay`: idle never fires, posts
+coalesce onto main, nothing fires after destruction. The test pumps the main run loop for it.
+
+## worker_runner_test.cpp
+
+`Worker_runner`: both inbound channels in order on the worker thread, the post-cycle and update
+hooks, idempotent start/stop, and 100 start/stop cycles with traffic in flight losing nothing.
+
+## aax_transport_test.cpp
+
+AAX's `Byte_ring` and `Block_store`, standard library only: framing, wraparound, refusal when
+full, a remote reader by byte offset, a threaded ring, and the block store's seqlock stepped by
+hand. The torn-frame stress runs outside TSan only, since a seqlock copy races by design.
+
+## value_helper_test.cpp
+
+`Value_helper` and `Host_formatter` as properties over a spread of parameter shapes: exact
+endpoints, round trips between every pair of spaces, monotonic knob curves, step grids,
+`knob_next`/`knob_prev`, and displayed text that re-parses to the same text.
 
 ## tiny_meters_test.cpp
 
 `meters::Publisher` and both `meters::Mailbox` transports: stream, peak max and
 silence, trig, the host transport's dropped-restatement recovery, publisher to
 mailbox end to end, and one two-thread check that a peak is never lost to a concurrent
-read. Run that one under `-fsanitize=thread` too.
+read.
 
 ## notes_test.cpp
 
@@ -35,7 +72,7 @@ expressions, inherited values, bend range, zone configuration and overlap, NRPN 
 `Change_set`, both producer modes: coalescing, sparse iteration, empty batches, buffers
 swapping roles, no allocation (with the `unordered_map` it replaced as a reference), batch
 atomicity under a concurrent producer, four producers ending on the last value written to
-each address, and a consumer that never waits. Run it under `-fsanitize=thread` too.
+each address, and a consumer that never waits.
 
 ## data_port_test.cpp
 
@@ -48,7 +85,7 @@ concurrent writer, and scalar handoff probes that only mean something under
 `blocks::Publisher` through `blocks::Mailbox` to `blocks::Frames`: typed round trip,
 `fresh` vs `latest`, an abandoned write, coalescing with the reader 1, 5, 20 and 64
 publishes behind, suspend and refusal, the empty model, and a concurrent stream plus
-scalar handoff probe. Run it under `-fsanitize=thread` too.
+scalar handoff probe.
 
 ## state_*_test.cpp
 
@@ -60,7 +97,6 @@ The state document, ported from the `tiny_state_idea` prototype:
 - `state_retry_test`: the `Retry` policy: stale read-modify-writes, per-edit policy, coalescing, refusal is not loss.
 - `state_writers_test`: what each `Writers` mode removes from the API, checked at compile time.
 - `state_record_test`: the persistence record: author `save`/`load` round trip, older and future author versions, truncation and foreign headers, a refused or half-done load leaving the target untouched, the raw fallback and its upgrade to functions, the stream reader, and base64.
-- `state_adapter_test`: the record in preset JSON, hostile `"state"` values, reserved editor keys. Links two core sources: add `libs/tiny_core/source/state_adapter.cpp libs/tiny_core/source/value_helper.cpp` and nlohmann's include directory.
+- `state_adapter_test`: the record in preset JSON, hostile `"state"` values, reserved editor keys.
 - `state_link_test`: tinyplug's `Editor_link` with the real `Undo_history`: in-process undo/redo, remote `Both` with undo around processor writes, an AAX-style reseed after reset, host loads as one undo step, AAX's resend, an Overwrite over a staged load, a stale snapshot across a load, `load_record`, and the byte budget.
 
-Run `state_store_test`, `state_stress_test` and `state_retry_test` under `-fsanitize=thread` too.

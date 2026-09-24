@@ -78,6 +78,8 @@ auto Value_helper::knob_to_plain(double x, const Semantics::Real& r) -> double
         },
         [&](const Adapter::Log&) {
             assert(r.min_val > 0 && "Adapter::Log requires range min_val > 0.");
+            if (x <= 0) return r.min_val; // exp2(log2(min)) is not always min.
+            if (x >= 1) return r.max_val;
             const auto log_min = std::log2(r.min_val);
             const auto k = std::log2(r.max_val) - log_min;
             return std::exp2(k * x + log_min);
@@ -141,15 +143,15 @@ auto Value_helper::plain_to_knob(double x, const Semantics::Any& semantics) -> d
         },
         [&](const Semantics::List& l) {
             const auto step_count = static_cast<double>(l.items.size() - 1);
-            return x / step_count;
+            return step_count > 0 ? x / step_count : 0.; // One item: nothing to divide.
         },
         [&](const Semantics::Int& i) {
             const auto step_count = static_cast<double>(i.max_val - i.min_val);
-            return (x - i.min_val) / step_count;
+            return step_count > 0 ? (x - i.min_val) / step_count : 0.;
         },
         [&](const Semantics::Fixed& f) {
             const auto step_count = (f.max_val - f.min_val) / f.step_size;
-            return (x - f.min_val) / (step_count * f.step_size);
+            return step_count > 0 ? (x - f.min_val) / (step_count * f.step_size) : 0.;
         },
         [&](const Semantics::Real& r) {
             return plain_to_knob(x, r);
@@ -381,12 +383,10 @@ auto Value_helper::knob_next(double x, const Semantics::Any& semantics) -> doubl
             return plain_to_knob(static_cast<double>(next), semantics);
         },
         [&, x](const Semantics::Fixed& s) {
-            const auto plain = knob_to_plain(x, semantics);
-            const auto next = plain + s.step_size;
-            if (next > s.max_val) {
-                return plain_to_knob(s.min_val, semantics);
-            }
-            return plain_to_knob(next, semantics);
+            // By index: adding step_size accumulates error and can wrap before reaching max.
+            const auto count = std::lround((s.max_val - s.min_val) / s.step_size) + 1;
+            const auto idx = std::lround((knob_to_plain(x, semantics) - s.min_val) / s.step_size);
+            return plain_to_knob(s.min_val + static_cast<double>((idx + 1) % count) * s.step_size, semantics);
         },
         [x](const Semantics::Real&) {
             return std::nextafter(x, 1.0);
@@ -414,12 +414,9 @@ auto Value_helper::knob_prev(double x, const Semantics::Any& semantics) -> doubl
             return plain_to_knob(static_cast<double>(prev), semantics);
         },
         [&, x](const Semantics::Fixed& s) {
-            const auto plain = knob_to_plain(x, semantics);
-            const auto prev = plain - s.step_size;
-            if (prev < s.min_val) {
-                return plain_to_knob(s.max_val, semantics);
-            }
-            return plain_to_knob(prev, semantics);
+            const auto count = std::lround((s.max_val - s.min_val) / s.step_size) + 1;
+            const auto idx = std::lround((knob_to_plain(x, semantics) - s.min_val) / s.step_size);
+            return plain_to_knob(s.min_val + static_cast<double>((idx + count - 1) % count) * s.step_size, semantics);
         },
         [x](const Semantics::Real&) {
             return std::nextafter(x, 0.0);

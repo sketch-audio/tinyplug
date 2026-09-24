@@ -23,7 +23,6 @@ static_assert(false, "ARC must be enabled for this file");
 @implementation Auv3_AUViewController {
     std::unique_ptr<tiny::auv3::View> _view_adapter;
     std::shared_ptr<tiny::User_editor> _editor;
-    tiny::Task_manager _tasks;
 }
 
 // TODO: - Get this into the plist for AUM.
@@ -51,7 +50,7 @@ static_assert(false, "ARC must be enabled for this file");
             .format = tiny::Format::Auv3,
             .state_adapter = [auv3 stateAdapter]->actor(),
             .undo_redo = [auv3 undoHistory]->actor(),
-            .tasks = _tasks.actor(),
+            .tasks = [auv3 tasks]->actor(), // The AU owns it: the editor lives there too.
 #if TINY_HAS_STATE
             .state = [auv3 stateActor],
 #endif
@@ -81,7 +80,7 @@ static_assert(false, "ARC must be enabled for this file");
         _view_adapter = std::make_unique<tiny::auv3::View>(tiny::auv3::View::Deps{
             _editor.get(),
             receiver,
-            &_tasks,
+            [auv3 tasks],
             [auv3 undoHistory],
             [auv3 actions],
             [weak_auv3]() { [weak_auv3 drainWorkerToEditor]; }
@@ -90,7 +89,7 @@ static_assert(false, "ARC must be enabled for this file");
         _view_adapter = std::make_unique<tiny::auv3::View>(tiny::auv3::View::Deps{
             _editor.get(),
             receiver,
-            &_tasks,
+            [auv3 tasks],
             [auv3 undoHistory],
             [auv3 actions],
         });

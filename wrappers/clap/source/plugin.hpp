@@ -64,7 +64,7 @@ public:
         });
 #endif
     }
-    ~Plugin() override = default;
+    ~Plugin() override { _tasks.shutdown(); } // First: no task may outlive the editor or worker it captures.
 
     static const inline clap_plugin_descriptor_t descriptor{
         .clap_version = CLAP_VERSION,

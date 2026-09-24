@@ -588,3 +588,88 @@ keyboard, landing at the next block. Give notes an id of your own (non-zero) to 
 fingers on one key apart, pair every `Off` with its `On`, and release held keys in
 `on_gui_hide`.
 
+
+---
+
+## Task lifetimes
+
+`Task_manager` work can no longer outlive the plug-in. The host owns the plug-in and may
+destroy it at any time, but a dialog sheet, a network completion or a queued background task
+used to hold a raw `Task_manager*` and call into it (and into whatever `this` its task captured)
+after the instance was gone. Now:
+
+- `Task_manager::Actor` holds a weak reference to a shared core. Posting after the manager has
+  shut down, or been destroyed, is refused: `on_main`/`on_background`/`on_serial` return `false`
+  and the task is dropped without running. An actor is safe to copy into anything.
+- `Task_manager::shutdown()` refuses new work, discards queued work without running it, and waits
+  for any task already running, on any lane, including a main task when the host destroys us off
+  main. Every wrapper calls it first in its destructor, before the editor and worker die.
+- The main queue has no fixed size (it was 16 slots, with an assert on overflow).
+- `Actor::is_open()` tells a long-running task that shutdown has begun.
+- AUv3's `Task_manager` moved from the view controller to the audio unit, beside the editor it
+  serves: the editor outlives the view there, so its actor used to dangle. The AUv3 worker moved
+  out of `DSPKernel` onto the audio unit too, as in every other wrapper, and now gets a working
+  task actor. It used to get an empty one, so its `on_main`/`on_background`/`on_serial` did
+  nothing on AUv3.
+
+### Breaks
+
+Nothing fails to compile. `Actor{ptr}`, `Actor{nullptr}` and `Actor{}` all still work, and the
+`on_*` calls now return `bool`, which existing call sites ignore. Behaviour changes in two places:
+
+- Background and serial work still queued at teardown is discarded. It used to run inside the
+  destructor, after the queues it might post to were already gone.
+- `task_manager.hpp` no longer includes `serial_queue.hpp`, `task_launcher.hpp`,
+  `notification_queue.hpp` or `lock_free_queue.hpp`. Include them directly, or use
+  `<tiny_core/tiny_core.hpp>`, which now includes all four.
+
+### What client code should do
+
+The licensing code in `all_plugins/shared` is the worked example throughout.
+
+1. **Reach `this` only through the actor.** An OS callback (an `NSURLSession` completion, a
+   dialog sheet, `dispatch_after`, a WinHTTP callback) must post to the actor and do its work in
+   the task, never call a captured `this` directly. Tasks may capture `this` freely: shutdown
+   runs before the editor or worker dies, and a refused task never runs. `Networking::get_async`
+   and `post_async` already follow this, so `License_checker`'s `[this]` completions are safe.
+2. **Don't sleep on a lane.** `with_delay` in `license_checker.cpp` sleeps on the background lane.
+   That lane has one thread, so every other background task, dialog callbacks included, waits
+   behind the sleep, and shutdown waits for it too, which stalls the host's teardown for up to
+   the poll interval. On Apple, use a timer that posts through the actor:
+
+   ```cpp
+   static auto with_delay(double seconds, std::function<void()> callback, Task_manager::Actor tasks) -> void
+   {
+       const auto when = dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(seconds * NSEC_PER_SEC));
+       dispatch_after(when, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+           tasks.on_background(callback); // Refused, and dropped, once the plug-in is gone.
+       });
+   }
+   ```
+
+   On Windows, don't leave an OS timer pending: a host may unload the DLL. Wait in short slices
+   instead, so teardown waits one slice at most:
+
+   ```cpp
+   tasks.on_background([=] {
+       for (auto waited = 0.0; waited < seconds; waited += 0.05) {
+           std::this_thread::sleep_for(std::chrono::milliseconds{50});
+           if (!tasks.is_open()) return;
+       }
+       callback();
+   });
+   ```
+
+3. **Bound blocking work.** `networking_win.cpp` runs the whole request as one background task,
+   and shutdown waits for it. WinHTTP's defaults allow a minute or more, so set
+   `WinHttpSetTimeouts` (a few seconds each) to bound how long a teardown can hang.
+4. **Treat `false` as "gone", not as an error.** A refused post means the plug-in is being
+   destroyed. Don't assert on it, and don't retry.
+5. **If you own a `Task_manager`** (a controller that isn't the wrapper's), call `shutdown()`
+   first in your destructor, before anything its tasks capture is destroyed.
+6. **Optional:** keep the `NSURLSessionDataTask` and `cancel` it in the owner's destructor. It
+   isn't needed for safety (a late completion is refused) but it stops wasted network work.
+
+Main tasks still run only while the editor draws, so keep `Delivery::Background` for work that
+must progress with the window closed, like the activation poll. Dialog callbacks may capture
+`this` too: after shutdown a late answer is dropped instead of delivered.

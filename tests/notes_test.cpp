@@ -52,16 +52,19 @@ auto test_codec() -> void
     expect(as<Note::Off>(midi::decode(0x90, 60, 0)) != nullptr, "velocity 0 is an off");
     expect(as<Note::Off>(midi::decode(0x80, 60, 64)) != nullptr, "note off");
 
-    const auto* poly = as<Note::Expression>(midi::decode(0xa0, 61, 127));
+    const auto poly_msg = midi::decode(0xa0, 61, 127); // `as` points into it, so it must outlive the pointer.
+    const auto* poly = as<Note::Expression>(poly_msg);
     expect(poly && poly->kind == Note::Expression::Kind::Pressure && poly->value == 1., "poly pressure is a per-note expression");
 
-    const auto* pressure = as<Control::Pressure>(midi::decode(0xd2, 127, 0));
+    const auto pressure_msg = midi::decode(0xd2, 127, 0);
+    const auto* pressure = as<Control::Pressure>(pressure_msg);
     expect(pressure && pressure->channel == 2 && pressure->value == 1., "channel pressure");
 
     const auto bend = [](uint8_t lsb, uint8_t msb) { return as<Control::Bend>(midi::decode(0xe0, lsb, msb))->value; };
     expect(bend(0, 0) == -1. && bend(0, 64) == 0. && bend(127, 127) == 1., "bend: both ends and the centre are exact");
 
-    const auto* sustain = as<Control::Pedal>(midi::decode(0xb0, 64, 127));
+    const auto sustain_msg = midi::decode(0xb0, 64, 127);
+    const auto* sustain = as<Control::Pedal>(sustain_msg);
     expect(sustain && sustain->kind == Control::Pedal::Kind::Sustain && sustain->value == 1., "CC 64 is the sustain pedal");
     expect(as<Control::Pedal>(midi::decode(0xb0, 1, 0))->kind == Control::Pedal::Kind::Mod_wheel, "CC 1 is the mod wheel");
     expect(std::holds_alternative<std::monostate>(midi::decode(0xb0, 20, 5)), "other controllers are dropped");

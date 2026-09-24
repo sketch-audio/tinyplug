@@ -17,10 +17,23 @@ auto Host_formatter::to_string(double host_value, const Semantics::Any& semantic
 
     const auto plain_value = Value_helper::host_to_plain(host_value, semantics);
 
-    auto format_double = [](double value, int precision) {
+    // Rounded as displayed, with no negative zero: "-0.0" would re-parse and print as "+0.0".
+    auto shown = [](double value, int precision) {
+        const auto scale = std::pow(10.0, precision);
+        const auto rounded = std::round(value * scale) / scale;
+        return rounded == 0 ? 0.0 : rounded;
+    };
+
+    auto format_double = [&](double value, int precision) {
         auto oss = std::ostringstream{};
-        oss << std::fixed << std::setprecision(precision) << value;
+        oss << std::fixed << std::setprecision(precision) << shown(value, precision);
         return oss.str();
+    };
+
+    // "+" by the value as displayed, for the units that show a sign.
+    auto signed_text = [&](double value, int precision, const char* suffix) {
+        const auto prefix = shown(value, precision) >= 0 ? "+" : "";
+        return prefix + format_double(value, precision) + suffix;
     };
 
     // Pick precision from the value as it will be *displayed*, not as it arrives. Text round-trips
@@ -52,17 +65,12 @@ auto Host_formatter::to_string(double host_value, const Semantics::Any& semantic
                     const auto suffix = " %";
                     return format_double(plain_value, 0) + suffix;
                 }
-                case Decibels: {
-                    const auto prefix = (plain_value >= 0 ? "+" : "");
-                    const auto suffix = " dB";
-                    return prefix + format_double(plain_value, adaptive_prec(plain_value)) + suffix;
-                }
+                case Decibels:
+                    return signed_text(plain_value, adaptive_prec(plain_value), " dB");
                 case Linear_gain: {
                     if (!(plain_value > 0)) return std::string{"-inf dB"};
-                    const auto raw_db = 20 * std::log10(plain_value);
-                    const auto db = std::abs(raw_db) < 0.05 ? 0. : raw_db; // Knob round trips land a hair under unity: no "-0.0".
-                    const auto prefix = (db >= 0 ? "+" : "");
-                    return prefix + format_double(db, adaptive_prec(db)) + " dB";
+                    const auto db = 20 * std::log10(plain_value);
+                    return signed_text(db, adaptive_prec(db), " dB");
                 }
                 case Hertz: {
                     // Switch to kHz on the *rounded* value, so 999.96 doesn't print "1000.0 Hz"
@@ -80,11 +88,8 @@ auto Host_formatter::to_string(double host_value, const Semantics::Any& semantic
                     const auto suffix = " ms";
                     return format_double(plain_value, adaptive_prec(plain_value)) + suffix;
                 }
-                case Degrees: {
-                    const auto prefix = (plain_value >= 0 ? "+" : "");
-                    const auto suffix = " °";
-                    return prefix + format_double(plain_value, 0) + suffix;
-                }
+                case Degrees:
+                    return signed_text(plain_value, 0, " °");
                 default:
                     return std::string{};
             }

@@ -69,6 +69,7 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
 
 Effect::~Effect()
 {
+    _tasks.shutdown(); // First: no task may outlive the editor or worker it captures.
     _relay.reset(); // Last resort; `Cleanup` should already have done it.
     this->_release_presets();
 }

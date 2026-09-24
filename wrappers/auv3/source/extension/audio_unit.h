@@ -9,6 +9,7 @@
 -(tiny::Ui_receiver)makeReceiver;
 -(tiny::Undo_history*)undoHistory;
 -(tiny::Action_queue*)actions;
+-(tiny::Task_manager*)tasks;
 -(tiny::State_adapter*)stateAdapter;
 -(void)setEditor:(std::shared_ptr<tiny::User_editor>)editor;
 #if TINY_HAS_STATE

@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.25)
 
 option(TINY_BUILD_PLUGINS "Build the test plug-ins." ON)
 option(TINY_INSTALL_PLUGINS "Copy plug-ins to system folders after build (may prompt for admin privileges)" ON)
+option(TINY_BUILD_TESTS "Build the tests under tests/." OFF)
+set(TINY_SANITIZE "" CACHE STRING "Sanitizers for the whole configure, e.g. thread or address,undefined. Empty for none.")
 
 project(tinyplug VERSION 0.1.0) # Version code is used to generate names for Obj-C classes.
 
@@ -46,6 +48,17 @@ elseif(WIN32)
     endif()
 endif()
 
+# Sanitizers instrument everything built from source, deps included: a partly instrumented
+# link is where TSan's false reports come from. One slice, since TSan builds one at a time.
+if(TINY_SANITIZE)
+    if(APPLE)
+        set(CMAKE_OSX_ARCHITECTURES ${CMAKE_HOST_SYSTEM_PROCESSOR})
+    endif()
+    add_compile_options(-fsanitize=${TINY_SANITIZE} -fno-omit-frame-pointer -O1)
+    add_link_options(-fsanitize=${TINY_SANITIZE})
+    message(STATUS "[tiny] sanitizers: ${TINY_SANITIZE}")
+endif()
+
 # tiny_deps path is required.
 set(TINY_DEPS_PATH "" CACHE PATH "Path to tiny_deps.")
 if (NOT TINY_DEPS_PATH)
@@ -80,6 +93,11 @@ add_subdirectory(libs/tiny_ui)
 # Build the plug-ins.
 if(TINY_BUILD_PLUGINS)
     add_subdirectory(examples)
+endif()
+
+if(TINY_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
 endif()
 
 # Forward SDK variables to parent scope only if this is NOT the top-level project.

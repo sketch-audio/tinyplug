@@ -33,6 +33,8 @@ struct Platform_dialogs {
     // Every one of them fires exactly once, on every path — including "the user
     // cancelled" and "there was no window to present on". A dialog that cannot be
     // shown degrades to a cancel rather than leaving the caller waiting forever.
+    // The one exception: once the context's Task_manager has shut down (the plug-in
+    // is being destroyed), a late answer is dropped, so a callback may capture `this`.
 
     static auto message(const std::string& title, const std::string& message, std::function<void()> on_done, Dialog_context ctx) -> void;
 

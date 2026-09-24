@@ -39,6 +39,10 @@ translate the host's API into framework events and back.
     ([tools/presets/](tools/presets/)), and AAX page-table generation
     ([tools/pagetables/](tools/pagetables/)). All opt-in; demos don't use them.
   - [plans/](plans/) — design docs for in-flight work.
+  - [tests/](tests/) — one CTest executable per file; presets `tests`, `tsan`, `asan`
+    (`cmake --preset tsan && cmake --build --preset tsan && ctest --preset tsan`). New tests use
+    audio_bench, fetched at a pinned commit; see [tests/README.md](tests/README.md). Run the
+    `tsan` preset after touching any threading primitive.
 
 ## Build
 
@@ -543,6 +547,11 @@ the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two
   selects ipad/iphone/universal (`UIDeviceFamily` in the plist).
 - Optional IAP / App-Group entitlements are templated for the container
   app via `TINY_APP_GROUP_ID`, `TINY_APP_IAP_PRODUCT_ID`, `TINY_APP_IAP_TRIAL_ID`.
+- Ownership mirrors the other wrappers: the audio unit (`Auv3_AUAudioUnit`) holds the
+  editor, `Task_manager`, undo history and worker (`std::optional`s emplaced in init, since
+  an Objective-C++ ivar can't take constructor arguments). `DSPKernel` holds the processor and only
+  pointers to the worker's two processor-side queues. The view controller borrows the
+  audio unit's task manager.
 - Param values cached locally in `_hostvalues` atomics (host space)
   because AUv3 sends per-param values and the controller view needs them
   fast.
@@ -685,10 +694,13 @@ TINY_PLATFORM_WINDOWS`; selection at compile time only.
   exists in source but is disabled (`WIN_GRAPHICS_GPU` defaults to `0` in
   [shared/CMakeLists.txt](shared/CMakeLists.txt)) pending CPU/GPU
   sync work — see README roadmap.
-- `Task_manager` ([shared/tinyplug/task_manager.hpp](shared/tinyplug/task_manager.hpp))
+- `Task_manager` ([task_manager.hpp](libs/tiny_core/include/tiny_core/task_manager.hpp))
   exposes background / main-thread / serial-queue dispatch. The view is
   the only thing that calls `bind_main` + `run_main`; user code uses the
-  `Actor`.
+  `Actor`, which holds the queues weakly and is refused once the manager
+  shuts down. **Every owner calls `_tasks.shutdown()` first in its
+  destructor** — that is what lets tasks, dialog callbacks and network
+  completions capture a raw `this`. AUv3's lives on the audio unit.
 
 ## Logging and lifecycle probing
 

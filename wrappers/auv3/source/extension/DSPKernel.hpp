@@ -64,8 +64,7 @@ public:
         _silence.assign(mMaxFramesToRender, 0.f);
 
 #if TINY_HAS_WORKER
-        bind_worker_to_kernel_classes();
-        _worker_runner.start(inSampleRate);
+        bind_worker_to_kernel_classes(); // The AU starts the runner.
 #endif
     }
     
@@ -550,38 +549,36 @@ private:
 #if TINY_HAS_WORKER
 public:
 
-    // Worker channel.
+    // Worker channel. The worker and its queues live on the AU, beside the editor and the task
+    // manager, as in every other wrapper; the kernel only reaches the processor's two queues.
     using Worker_from_proc_q = tiny::Lock_free_queue<typename tiny::User_work::From_processor, tiny::User_work::inbound_capacity, tiny::Queue_concurrency::spsc>;
     using Worker_from_edit_q = tiny::Lock_free_queue<typename tiny::User_work::From_editor,    tiny::User_work::inbound_capacity, tiny::Queue_concurrency::spsc>;
     using Worker_to_proc_q   = tiny::Lock_free_queue<typename tiny::User_work::To_processor,   tiny::User_work::outbound_capacity>;
     using Worker_to_edit_q   = tiny::Lock_free_queue<typename tiny::User_work::To_editor,     tiny::User_work::outbound_capacity>;
 
-    Worker_from_proc_q _worker_from_proc{};
-    Worker_from_edit_q _worker_from_edit{};
-    Worker_to_proc_q   _worker_to_proc{};
-    Worker_to_edit_q   _worker_to_edit{};
+    // Before `initialize`: it binds the processor to them.
+    void bindWorkerQueues(Worker_from_proc_q* from_proc, Worker_to_proc_q* to_proc) {
+        _worker_from_proc = from_proc;
+        _worker_to_proc = to_proc;
+    }
 
-    tiny::User_worker _worker{
-        tiny::Worker_replies{
-            [this](const auto& m) { return _worker_to_proc.push(m); },
-            [this](const auto& m) { return _worker_to_edit.push(m); }
-        },
-        tiny::Task_manager::Actor{}
-    };
+private:
+
+    Worker_from_proc_q* _worker_from_proc{};
+    Worker_to_proc_q* _worker_to_proc{};
 
     auto bind_worker_to_kernel_classes() -> void
     {
+        auto* from_proc = _worker_from_proc;
         tiny::try_bind_worker(*_processor, tiny::Worker_processor_actor{
-            [this](const auto& m) { return _worker_from_proc.push(m); }
+            [from_proc](const auto& m) { return from_proc->push(m); }
         });
     }
 
     auto drain_worker_to_processor() -> void
     {
-        tiny::try_drain_worker_to_processor(*_processor, _worker_to_proc);
+        tiny::try_drain_worker_to_processor(*_processor, *_worker_to_proc);
     }
-
-    tiny::Worker_runner<tiny::User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
 #endif
 
 private:

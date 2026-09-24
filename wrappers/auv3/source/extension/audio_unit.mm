@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 
 #import <AVFoundation/AVFoundation.h>
 #import <CoreAudioKit/AUViewController.h>
@@ -47,6 +48,17 @@ static auto presets_path() -> std::filesystem::path
     // across window open/close and host preset loads are captured with the window closed.
     tiny::Undo_history _undo_history;
     tiny::Action_queue _actions;
+    tiny::Task_manager _tasks; // Here, beside the editor and worker it serves; the view controller borrows it.
+#if TINY_HAS_WORKER
+    // The worker, as in every other wrapper: plug-in lifetime, same side as the editor. Optional
+    // because an ivar can't take constructor arguments; emplaced in init.
+    DSPKernel::Worker_from_proc_q _worker_from_proc;
+    DSPKernel::Worker_from_edit_q _worker_from_edit;
+    DSPKernel::Worker_to_proc_q _worker_to_proc;
+    DSPKernel::Worker_to_edit_q _worker_to_edit;
+    std::optional<tiny::User_worker> _worker;
+    std::optional<tiny::Worker_runner<tiny::User_worker>> _worker_runner;
+#endif
 #if TINY_HAS_STATE
     tiny::state::Editor_link<tiny::models::Resolved::State> _state_link; // The kernel holds the processor's copy.
 #endif
@@ -73,6 +85,17 @@ static auto presets_path() -> std::filesystem::path
     
     [self setupAudioBuses];
     _parameterTreeSetup = false;
+
+#if TINY_HAS_WORKER
+    auto* to_proc = &_worker_to_proc;
+    auto* to_edit = &_worker_to_edit;
+    _worker.emplace(tiny::Worker_replies{
+        [to_proc](const auto& m) { return to_proc->push(m); },
+        [to_edit](const auto& m) { return to_edit->push(m); }
+    }, _tasks.actor());
+    _worker_runner.emplace(&*_worker, &_worker_from_proc, &_worker_from_edit);
+    _kernel.bindWorkerQueues(&_worker_from_proc, &_worker_to_proc);
+#endif
 
 #if TINY_HAS_STATE
     tiny::state::connect_in_process(_state_link, _kernel.state());
@@ -135,6 +158,11 @@ static auto presets_path() -> std::filesystem::path
 }
 
 - (void)dealloc {
+    _tasks.shutdown(); // First: no task may outlive the editor or worker it captures.
+#if TINY_HAS_WORKER
+    _worker_runner.reset(); // Joins the worker thread before the worker goes.
+    _worker.reset();
+#endif
     // Backstop. Unlike AUBase, AUAudioUnit does not guarantee `deallocateRenderResources`
     // runs before this, and a delivery must not observe a half-torn-down AU.
     _kernel.stop_relay();
@@ -245,6 +273,10 @@ static auto presets_path() -> std::filesystem::path
     return &_undo_history;
 }
 
+- (tiny::Task_manager*)tasks {
+    return &_tasks;
+}
+
 - (tiny::Action_queue*)actions {
     return &_actions;
 }
@@ -347,15 +379,15 @@ static auto presets_path() -> std::filesystem::path
 #if TINY_HAS_WORKER
 - (void)bindEditorToWorker {
     if (!_editor) return;
-    DSPKernel* kernel = &_kernel;
+    auto* from_edit = &_worker_from_edit;
     tiny::try_bind_worker(*_editor, tiny::Worker_editor_actor{
-        [kernel](const auto& m) { return kernel->_worker_from_edit.push(m); }
+        [from_edit](const auto& m) { return from_edit->push(m); }
     });
 }
 
 - (void)drainWorkerToEditor {
     if (!_editor) return;
-    tiny::try_drain_worker_to_editor(*_editor, _kernel._worker_to_edit);
+    tiny::try_drain_worker_to_editor(*_editor, _worker_to_edit);
 }
 #endif
 
@@ -594,6 +626,9 @@ static auto presets_path() -> std::filesystem::path
     _kernel.setMusicalContextBlock(self.musicalContextBlock);
     _kernel.setTransportStateBlock(self.transportStateBlock);
     _kernel.initialize(inputChannelCount, outputChannelCount, _outputBus.format.sampleRate);
+#if TINY_HAS_WORKER
+    _worker_runner->start(_outputBus.format.sampleRate); // Idempotent: the first allocation's rate sticks.
+#endif
     _processHelper = std::make_unique<AUProcessHelper>(_kernel, inputChannelCount, outputChannelCount);
 
     // Latency notifications can't be posted from the render thread, and can't be posted

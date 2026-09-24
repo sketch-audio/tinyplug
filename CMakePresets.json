@@ -21,6 +21,27 @@
       "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" }
     },
     {
+      "name": "tests",
+      "displayName": "Tests — Makefiles, no plug-ins",
+      "description": "Builds and runs tests/ only. Pair with the 'tests' build and test presets.",
+      "inherits": "base",
+      "generator": "Unix Makefiles",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "TINY_BUILD_PLUGINS": "OFF", "TINY_BUILD_TESTS": "ON" },
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "tsan",
+      "displayName": "Tests under ThreadSanitizer",
+      "inherits": "tests",
+      "cacheVariables": { "TINY_SANITIZE": "thread" }
+    },
+    {
+      "name": "asan",
+      "displayName": "Tests under AddressSanitizer + UBSan",
+      "inherits": "tests",
+      "cacheVariables": { "TINY_SANITIZE": "address,undefined" }
+    },
+    {
       "name": "macos",
       "displayName": "macOS — Xcode (all formats incl. AUv3)",
       "description": "Xcode generator, required for AUv3. Multi-config: pass --config Debug|Release at build time.",
@@ -46,8 +67,22 @@
   ],
   "buildPresets": [
     { "name": "debug",  "configurePreset": "debug", "jobs": 8 },
+    { "name": "tests",  "configurePreset": "tests", "jobs": 8, "targets": ["tiny_tests"] },
+    { "name": "tsan",   "configurePreset": "tsan",  "jobs": 8, "targets": ["tiny_tests"] },
+    { "name": "asan",   "configurePreset": "asan",  "jobs": 8, "targets": ["tiny_tests"] },
     { "name": "macos",  "configurePreset": "macos", "configuration": "Debug" },
     { "name": "ios",    "configurePreset": "ios",   "configuration": "Debug" },
     { "name": "windows", "configurePreset": "windows", "configuration": "Debug" }
+  ],
+  "testPresets": [
+    { "name": "tests", "configurePreset": "tests", "output": { "outputOnFailure": true } },
+    {
+      "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true },
+      "environment": { "TSAN_OPTIONS": "halt_on_error=1:second_deadlock_stack=1:history_size=7" }
+    },
+    {
+      "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true },
+      "environment": { "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=0", "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1" }
+    }
   ]
 }

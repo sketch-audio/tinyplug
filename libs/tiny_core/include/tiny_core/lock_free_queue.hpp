@@ -79,8 +79,8 @@ private:
     static constexpr auto GET_INDEX_MASK = num_slots - 1;
 
     std::array<T, num_slots> _storage{};
-    std::atomic<uint32_t> _rpos{};
-    std::atomic<uint32_t> _wpos{};
+    std::atomic<uint64_t> _rpos{}; // 64-bit: a 32-bit position wraps after ~4e9 operations.
+    std::atomic<uint64_t> _wpos{};
 
 };
 
@@ -92,8 +92,9 @@ static constexpr auto queue_max_threads = size_t{64};
 
 struct Thread_info {
     std::atomic<std::thread::id> identifier{};
-    std::atomic<uint32_t> pos{std::numeric_limits<uint32_t>::max()};
+    std::atomic<uint64_t> pos{std::numeric_limits<uint64_t>::max()};
     static_assert(std::atomic<std::thread::id>::is_always_lock_free);
+    static_assert(std::atomic<uint64_t>::is_always_lock_free);
 };
 
 template<size_t max_threads = queue_max_threads>
@@ -102,31 +103,31 @@ struct Thread_registry {
     std::array<Thread_info, max_threads> infos{};
 
     /// Get this thread's temporary position variable or add ourselves to the registry.
-    auto get_own_position() -> std::atomic<uint32_t>&
+    /// Null once `max_threads` distinct threads have registered: slots are never reclaimed.
+    auto get_own_position() -> std::atomic<uint64_t>*
     {
         const auto own_id = std::this_thread::get_id();
-        const auto num = num_threads.load(std::memory_order_relaxed);
+        auto num = num_threads.load(std::memory_order_relaxed);
 
         for (auto i = decltype(num){}; i < num; ++i) {
             if (own_id == infos[i].identifier.load(std::memory_order_relaxed)) {
-                return infos[i].pos;
+                return &infos[i].pos;
             }
         }
 
-        auto own_slot = num_threads.fetch_add(1, std::memory_order_relaxed);
+        // Claim the next slot, never one past the end: sharing a slot would break the queue, so a
+        // full registry refuses (push/pop return false) instead.
+        do {
+            if (num >= max_threads) return nullptr;
+        } while (!num_threads.compare_exchange_weak(num, num + 1, std::memory_order_relaxed));
 
-        if (own_slot >= num_threads) {
-            assert(false);
-            own_slot = 0; // Something is wrong!
-        }
+        infos[num].identifier.store(own_id, std::memory_order_relaxed);
 
-        infos[own_slot].identifier.store(own_id, std::memory_order_relaxed);
-
-        return infos[own_slot].pos;
+        return &infos[num].pos;
     }
 
     /// Get the least position in the registry starting with `own`.
-    auto get_least_position(uint32_t own) -> uint32_t
+    auto get_least_position(uint64_t own) -> uint64_t
     {
         // Note that if a new thread gets added to the registry, its position
         // will necessarily be larger than what this function returns anyway.
@@ -170,7 +171,8 @@ public:
 
     auto pop(T& output) -> bool
     {
-        auto& temp = reader_infos.get_own_position();
+        auto* temp = reader_infos.get_own_position();
+        if (!temp) return false;
         auto pos = _rpos.load(std::memory_order_relaxed);
 
         // Return if empty at this moment.
@@ -179,26 +181,26 @@ public:
         }
 
         // Attempt to pop. Enter "scope" with a "low enough" position.
-        temp.store(pos, std::memory_order_release);
+        temp->store(pos, std::memory_order_release);
 
         // Possibly avoid loop with this if.
         if (!_rpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
             do {
                 // Possible someone else popped the last element.
                 if (pos >= _wpos.load(std::memory_order_acquire)) {
-                    temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_relaxed);
+                    temp->store(std::numeric_limits<uint64_t>::max(), std::memory_order_relaxed);
                     return false;
                 }
             } while (!_rpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed));
 
             // Got our position.
-            temp.store(pos, std::memory_order_release);
+            temp->store(pos, std::memory_order_release);
         }
 
         output = std::move(_storage[pos & GET_INDEX_MASK]);
 
         // Exit "scope" now that we're done reading.
-        temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_release);
+        temp->store(std::numeric_limits<uint64_t>::max(), std::memory_order_release);
 
         return true;
     }
@@ -209,8 +211,8 @@ private:
     static constexpr auto GET_INDEX_MASK = num_slots - 1;
 
     std::array<T, num_slots> _storage{};
-    std::atomic<uint32_t> _rpos{};
-    std::atomic<uint32_t> _wpos{};
+    std::atomic<uint64_t> _rpos{};
+    std::atomic<uint64_t> _wpos{};
 
     queue_impl::Thread_registry<> reader_infos{};
 
@@ -225,7 +227,8 @@ public:
     template<typename T_>
     auto push(T_&& value) -> bool
     {
-        auto& temp = writer_infos.get_own_position();
+        auto* temp = writer_infos.get_own_position();
+        if (!temp) return false;
         auto pos = _wpos.load(std::memory_order_relaxed);
 
         // Return if full at this moment.
@@ -234,26 +237,26 @@ public:
         }
 
         // Attempt to push. Enter "scope" with a "low enough" position.
-        temp.store(pos, std::memory_order_release);
+        temp->store(pos, std::memory_order_release);
 
         // Possibly avoid loop with this if.
         if (!_wpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
             do {
                 // Possible someone else pushed and filled the queue.
                 if (pos >= _rpos.load(std::memory_order_acquire) + num_slots) {
-                    temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_relaxed);
+                    temp->store(std::numeric_limits<uint64_t>::max(), std::memory_order_relaxed);
                     return false;
                 }
             } while (!_wpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed));
 
             // Got our position.
-            temp.store(pos, std::memory_order_release);
+            temp->store(pos, std::memory_order_release);
         }
 
         _storage[pos & GET_INDEX_MASK] = std::forward<T_>(value);
 
         // Exit "scope" now that we're done writing.
-        temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_release);
+        temp->store(std::numeric_limits<uint64_t>::max(), std::memory_order_release);
 
         return true;
     }
@@ -281,8 +284,8 @@ private:
     static constexpr auto GET_INDEX_MASK = num_slots - 1;
 
     std::array<T, num_slots> _storage{};
-    std::atomic<uint32_t> _rpos{};
-    std::atomic<uint32_t> _wpos{};
+    std::atomic<uint64_t> _rpos{};
+    std::atomic<uint64_t> _wpos{};
 
     queue_impl::Thread_registry<> writer_infos{};
 
@@ -297,7 +300,8 @@ public:
     template<typename T_>
     auto push(T_&& value) -> bool
     {
-        auto& temp = writer_infos.get_own_position();
+        auto* temp = writer_infos.get_own_position();
+        if (!temp) return false;
         auto pos = _wpos.load(std::memory_order_relaxed);
 
         // Make sure there aren't any readers in "scope" reading where we want to write.
@@ -307,33 +311,34 @@ public:
         }
 
         // Attempt to push. Enter "scope" with a "low enough" position.
-        temp.store(pos, std::memory_order_release);
+        temp->store(pos, std::memory_order_release);
 
         // Possibly avoid loop with this if.
         if (!_wpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
             do {
                 // Possible someone else pushed and filled the queue.
                 if (pos >= least_rpos + num_slots) {
-                    temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_relaxed);
+                    temp->store(std::numeric_limits<uint64_t>::max(), std::memory_order_relaxed);
                     return false;
                 }
             } while (!_wpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed));
 
             // Got our position.
-            temp.store(pos, std::memory_order_release);
+            temp->store(pos, std::memory_order_release);
         }
 
         _storage[pos & GET_INDEX_MASK] = std::forward<T_>(value);
 
         // Exit "scope" now that we're done writing.
-        temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_release);
+        temp->store(std::numeric_limits<uint64_t>::max(), std::memory_order_release);
 
         return true;
     }
 
     auto pop(T& output) -> bool
     {
-        auto& temp = reader_infos.get_own_position();
+        auto* temp = reader_infos.get_own_position();
+        if (!temp) return false;
         auto pos = _rpos.load(std::memory_order_relaxed);
 
         // Return if empty at this moment.
@@ -343,7 +348,7 @@ public:
         }
 
         // Attempt to pop. Enter "scope" with a "low enough" position.
-        temp.store(pos, std::memory_order_release);
+        temp->store(pos, std::memory_order_release);
 
         // Possibly avoid loop with this if.
         if (!_rpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
@@ -351,19 +356,19 @@ public:
                 // Possible someone else popped the last element.
                 //auto least_wpos = writer_infos.get_least_position(_wpos.load(std::memory_order_acquire));
                 if (pos >= least_wpos) {
-                    temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_relaxed);
+                    temp->store(std::numeric_limits<uint64_t>::max(), std::memory_order_relaxed);
                     return false;
                 }
             } while (!_rpos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed));
 
             // Got our position.
-            temp.store(pos, std::memory_order_release);
+            temp->store(pos, std::memory_order_release);
         }
 
         output = std::move(_storage[pos & GET_INDEX_MASK]);
 
         // Exit "scope" now that we're done reading.
-        temp.store(std::numeric_limits<uint32_t>::max(), std::memory_order_release);
+        temp->store(std::numeric_limits<uint64_t>::max(), std::memory_order_release);
 
         return true;
     }
@@ -374,8 +379,8 @@ private:
     static constexpr auto GET_INDEX_MASK = num_slots - 1;
 
     std::array<T, num_slots> _storage{};
-    std::atomic<uint32_t> _rpos{};
-    std::atomic<uint32_t> _wpos{};
+    std::atomic<uint64_t> _rpos{};
+    std::atomic<uint64_t> _wpos{};
 
     queue_impl::Thread_registry<> reader_infos{};
     queue_impl::Thread_registry<> writer_infos{};
