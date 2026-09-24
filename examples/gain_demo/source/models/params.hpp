@@ -5,22 +5,12 @@
 namespace tiny::models {
 
 struct Params {
-    // This is where you enumerate your parameter ids.
-    // You can use the raw values to index into arrays and vectors.
     // Once you ship a plug-in you should only add ids, not rearrange or remove!
     enum class Address : uint32_t {
         Gain = 0,
         Num_params
     };
 
-    // Here you declare your parameters.
-    // Your parameters will be displayed in the host in the order which they are declared here. (preorder depth-first traversal)
-    // Once you ship a plug-in the tree is a permanence surface, not just presentation:
-    //  - never move a parameter between groups, and never change an `identifier` (breaks AUv3
-    //    host documents and preset recall)
-    //  - declare `au_order()` before you ship, and only ever append to it (Logic addresses AUv2
-    //    automation by index into that list)
-    // You can always hide a parameter by marking its policy as `hidden` or `interface`. 
     static auto build_tree() -> params::Node
     {
         using namespace params;
@@ -29,17 +19,14 @@ struct Params {
             Spec{
                 .identity = {.address = enum_raw(Gain), .identifier = "gain"},
                 .name = "Gain",
-                .semantics = Semantics::Real{
-                    .min_val = 0,
-                    .def_val = 1,
-                    .max_val = 1,
-                    .units = Units::Generic,
-                    .knob_adapter = Adapter::Pow{3}
-                }
-            }
+                .semantics = Semantics::Real{.min_val = 0, .def_val = 1, .max_val = 4, .units = Units::Linear_gain, .knob_adapter = Adapter::Pow{.exp = 4}} // Mute to +12 dB, unity at 0.71.
+            },
         }};
     }
+
+    static auto au_order() -> std::vector<Address> { return {Address::Gain}; }
 };
-static_assert(params::Model<Params>); // Check your interface.
+static_assert(params::Model<Params>);
+static_assert(params::Au_ordered<Params>);
 
 } // namespace tiny::models

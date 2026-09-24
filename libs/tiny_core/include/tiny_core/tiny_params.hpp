@@ -24,7 +24,8 @@ enum class Units : uint32_t {
     Decibels,
     Hertz,
     Milliseconds,
-    Degrees
+    Degrees,
+    Linear_gain // Plain value is an amplitude factor (0 mutes), displayed in dB.
 };
 
 // MARK: - Knob adapters

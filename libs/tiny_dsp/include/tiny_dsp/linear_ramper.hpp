@@ -21,6 +21,14 @@ public:
         _remaining = 0;
     }
 
+    // Land on the target now, e.g. at a reset.
+    auto snap() -> void
+    {
+        _value = _target;
+        _inc = 0.f;
+        _remaining = 0;
+    }
+
     auto set_target(X value) -> void
     {
         const auto scale = std::ceil(_fade_ms * 0.001f * _sr);

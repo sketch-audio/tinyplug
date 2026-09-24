@@ -71,9 +71,11 @@ add_subdirectory(libs/tiny_core)
 add_subdirectory(libs/tinyplug)
 
 # Optional, self-contained libraries (each its own CMakeLists, own include root).
-# tiny_dsp is a pure leaf; tiny_platform depends on core, so it follows core.
+# tiny_dsp is a pure leaf; tiny_platform depends on core, so it follows core; tiny_ui
+# is header-only on top of tinyplug.
 add_subdirectory(libs/tiny_dsp)
 add_subdirectory(libs/tiny_platform)
+add_subdirectory(libs/tiny_ui)
 
 # Build the plug-ins.
 if(TINY_BUILD_PLUGINS)
@@ -86,4 +88,5 @@ if(NOT CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
     set(TINY_PLUG_LIB ${TINY_PLUG_LIB} PARENT_SCOPE)
     set(TINY_PLATFORM_LIB ${TINY_PLATFORM_LIB} PARENT_SCOPE)
     set(TINY_DSP_LIB ${TINY_DSP_LIB} PARENT_SCOPE)
+    set(TINY_UI_LIB ${TINY_UI_LIB} PARENT_SCOPE)
 endif()

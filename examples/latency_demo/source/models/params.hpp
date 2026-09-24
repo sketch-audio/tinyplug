@@ -1,63 +1,51 @@
 #pragma once
 
+#include <array>
+
 #include <tiny_core/tiny_core.hpp>
 
 namespace tiny::models {
 
 struct Params {
-    // This is where you enumerate your parameter ids.
-    // You can use the raw values to index into arrays and vectors.
     // Once you ship a plug-in you should only add ids, not rearrange or remove!
     enum class Address : uint32_t {
-        Gain = 0,
-        Latency_mode,
+        Mode = 0,
+        Click,
         Num_params
     };
 
-    // Here you declare your parameters.
-    // Your parameters will be displayed in the host in the order which they are declared here. (preorder depth-first traversal)
-    // Once you ship a plug-in the tree is a permanence surface, not just presentation:
-    //  - never move a parameter between groups, and never change an `identifier` (breaks AUv3
-    //    host documents and preset recall)
-    //  - declare `au_order()` before you ship, and only ever append to it (Logic addresses AUv2
-    //    automation by index into that list)
-    // You can always hide a parameter by marking its policy as `hidden` or `interface`. 
+    // What each mode delays by. Three, so a quick A-B-C shows a proposal superseding another.
+    static constexpr auto mode_ms = std::array{0., 2., 20.};
+
     static auto build_tree() -> params::Node
     {
         using namespace params;
         using enum Address;
         return Group{.nodes = {
             Spec{
-                .identity = {.address = enum_raw(Gain), .identifier = "gain"},
-                .name = "Gain",
-                .semantics = Semantics::Real{
-                    .min_val = 0,
-                    .def_val = 1,
-                    .max_val = 1,
-                    .units = Units::Generic,
-                    .knob_adapter = Adapter::Pow{3}
-                }
+                .identity = {.address = enum_raw(Mode), .identifier = "mode"},
+                .name = "Latency",
+                .semantics = Semantics::List{{"0 ms", "2 ms", "20 ms"}},
+                .policy = Policy::Control // Latency is structural: no automation.
             },
             Spec{
-                .identity = {.address = enum_raw(Latency_mode), .identifier = "latency"},
-                .name = "Latency",
-                .semantics = Semantics::List{{"Low", "High"}},
-                .policy = Policy::Control // No automation.
+                // Replace the input with a click on every second of the timeline: with delay
+                // compensation working, a bounce puts each click exactly on the second.
+                .identity = {.address = enum_raw(Click), .identifier = "click"},
+                .name = "Click",
+                .semantics = Semantics::Bool{.def_val = false},
+                .policy = Policy::Control
             },
         }};
     }
 
-    // Append-only. See the template for why this is separate from the tree.
     static auto au_order() -> std::vector<Address>
     {
         using enum Address;
-        return {
-            Gain,
-            Latency_mode,
-        };
+        return {Mode, Click};
     }
 };
-static_assert(params::Model<Params>); // Check your interface.
-static_assert(params::Au_ordered<Params>); // Check your AU order.
+static_assert(params::Model<Params>);
+static_assert(params::Au_ordered<Params>);
 
 } // namespace tiny::models

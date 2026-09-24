@@ -1,11 +1,10 @@
 # Note: new_plugin.py appends an `add_subdirectory` call for new plug-ins and then sorts the lines in this file.
-add_subdirectory(automation_tester)
+add_subdirectory(automation_demo)
 add_subdirectory(block_demo)
 add_subdirectory(gain_demo)
 add_subdirectory(latency_demo)
 add_subdirectory(meter_demo)
 add_subdirectory(platform_demo)
-add_subdirectory(render_mode)
 add_subdirectory(sine_synth)
 add_subdirectory(state_demo)
 add_subdirectory(step_sequencer)

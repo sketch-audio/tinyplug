@@ -1,41 +1,37 @@
 #pragma once
 
+#include <array>
+
 #include <tiny_core/tiny_core.hpp>
 
 namespace tiny::models {
 
-// Minimal worker demo. Exercises every leg of the channel symmetrically:
-//   From_processor: Tick (sample-position snapshot)
-//   From_editor:    Set_session (UUID string)
-//   To_processor:   Set_counter (round-trip example)
-//   To_editor:      Session_path (string the worker would derive)
+// A waveshaper transfer curve over -1…1, what the worker designs for the processor.
+inline constexpr auto curve_points = size_t{65};
+using Curve_table = std::array<float, curve_points>;
 
-struct Tick {
-    int64_t sample_pos{};
-};
+// Processor -> worker: a curve for this drive, please (sent when Drive moves) and a heartbeat.
+struct Design { uint32_t seq{}; double drive{}; };
+struct Heartbeat { uint32_t seq{}; int64_t frame{}; };
 
-struct Set_session {
-    std::array<char, 64> uuid{};
-};
+// Worker -> processor: the designed curve, and the heartbeat echoed back.
+struct Curve { uint32_t seq{}; double drive{}; Curve_table table{}; };
+struct Echo { uint32_t seq{}; int64_t frame{}; };
 
-struct Set_counter {
-    uint64_t count{};
-};
+// Editor -> worker -> editor: a ping carrying when it left, and its pong.
+struct Ping { uint32_t seq{}; int64_t sent_ns{}; };
+struct Pong { uint32_t seq{}; int64_t sent_ns{}; uint32_t designs{}; };
 
-struct Session_path {
-    std::array<char, 128> path{};
-};
-
-// The channel shape: the four typed message variants plus capacity/period tuning.
+// Each of the four channels carries its own message types.
 struct Work {
-    using From_processor = std::variant<Tick>;
-    using From_editor    = std::variant<Set_session>;
-    using To_processor   = std::variant<Set_counter>;
-    using To_editor      = std::variant<Session_path>;
+    using From_processor = std::variant<Design, Heartbeat>;
+    using From_editor = std::variant<Ping>;
+    using To_processor = std::variant<Curve, Echo>;
+    using To_editor = std::variant<Pong>;
 
-    static constexpr auto inbound_capacity  = size_t{64};
+    static constexpr auto inbound_capacity = size_t{64};
     static constexpr auto outbound_capacity = size_t{16};
-    static constexpr auto update_period = std::chrono::milliseconds{16};
+    static constexpr auto update_period = std::chrono::milliseconds{10};
 };
 static_assert(work::Model<Work>);
 

@@ -1,5 +1,7 @@
 #include "tiny_core/host_formatter.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <cmath>
 #include <iomanip>
@@ -54,6 +56,13 @@ auto Host_formatter::to_string(double host_value, const Semantics::Any& semantic
                     const auto prefix = (plain_value >= 0 ? "+" : "");
                     const auto suffix = " dB";
                     return prefix + format_double(plain_value, adaptive_prec(plain_value)) + suffix;
+                }
+                case Linear_gain: {
+                    if (!(plain_value > 0)) return std::string{"-inf dB"};
+                    const auto raw_db = 20 * std::log10(plain_value);
+                    const auto db = std::abs(raw_db) < 0.05 ? 0. : raw_db; // Knob round trips land a hair under unity: no "-0.0".
+                    const auto prefix = (db >= 0 ? "+" : "");
+                    return prefix + format_double(db, adaptive_prec(db)) + " dB";
                 }
                 case Hertz: {
                     // Switch to kHz on the *rounded* value, so 999.96 doesn't print "1000.0 Hz"
@@ -130,6 +139,16 @@ auto Host_formatter::to_value(const std::string& string, const Semantics::Any& s
             return std::nullopt;
         },
         [&](const auto& fr) -> std::optional<double> {
+            // Linear gain is typed in dB; "-inf" (any case) mutes.
+            if (fr.units == Units::Linear_gain) {
+                auto lower = string;
+                std::ranges::transform(lower, lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                if (lower.find("inf") != std::string::npos) return 0.;
+                const auto db = parse_double(string);
+                if (!db) return std::nullopt;
+                return std::pow(10., *db / 20.);
+            }
+
             const auto value = parse_double(string);
             if (!value) return std::nullopt;
 

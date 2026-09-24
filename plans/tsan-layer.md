@@ -337,7 +337,7 @@ Applied to what each example actually exercises:
 | `tiny_tsan_worker_demo` | both worker legs concurrently — the richest case |
 | `tiny_tsan_latency_demo` | proposal from the audio thread vs. acceptance from `host_aux` |
 | `tiny_tsan_render_mode` | `Render_mode` flips racing `process` |
-| `tiny_tsan_automation_tester` | delivery under load; also the probe fixture's ancestor |
+| `tiny_tsan_automation_demo` | delivery under load; also the probe fixture's ancestor |
 | `tiny_tsan_gain_demo` | the minimal baseline — a clean run here is the control |
 
 No wrapper, no Skia, no bundle. **No prerequisites beyond Phase 0.**

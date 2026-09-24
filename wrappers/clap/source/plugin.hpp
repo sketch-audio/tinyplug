@@ -350,7 +350,7 @@ private:
 
     // `record` is the document's `state::encode_record`; empty loads the default.
     auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
-                       std::span<const std::byte> record) -> void;
+                       std::span<const std::byte> record, bool bypass_changed = false) -> void;
     auto _handle_host_flushed(bool needs_resync) -> void;
     auto _input(const process::Input& input, uint32_t time) -> void;
     auto _handle_note_event(const clap_event_header* event) -> void;

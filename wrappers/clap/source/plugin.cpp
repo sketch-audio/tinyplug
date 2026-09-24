@@ -600,7 +600,7 @@ bool Plugin::stateSave(const clap_ostream* stream) noexcept
 // MARK: - load state
 
 auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
-                           [[maybe_unused]] std::span<const std::byte> record) -> void
+                           [[maybe_unused]] std::span<const std::byte> record, bool bypass_changed) -> void
 {
     using namespace params;
 
@@ -682,9 +682,9 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_
         .add_param = add_param,
     }});
 
-    // Notify if host values changed.
+    // Notify if host values changed, bypass included.
     const auto settled = _snapshot_knob_params();
-    const auto values_changed = !std::ranges::equal(before, settled);
+    const auto values_changed = bypass_changed || !std::ranges::equal(before, settled);
 
     if (values_changed) {
         if (auto* params_ext = (const clap_host_params_t*)_host->get_extension(_host, CLAP_EXT_PARAMS); params_ext) {
@@ -854,6 +854,7 @@ auto Plugin::_read_state_chunk(const clap_istream* stream) -> bool
     // Try to read the host bypass value.
     auto bypass_value = float{};
     const auto has_bypass = read_value(bypass_value);
+    const auto bypass_before = _bypass.is_bypassed();
     if (has_bypass) {
         const auto bypass = bypass_value >= 0.5f;
         _bypass.set_bypassed(bypass);
@@ -878,7 +879,7 @@ auto Plugin::_read_state_chunk(const clap_istream* stream) -> bool
     }
 #endif
 
-    this->_update_state(stored_values, edit_state, record);
+    this->_update_state(stored_values, edit_state, record, _bypass.is_bypassed() != bypass_before);
 
     return true;
 }

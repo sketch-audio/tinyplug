@@ -1,11 +1,12 @@
 # Latency Demo
-A plug-in that demonstrates how to report latency, change it midstream.
 
-The plug-in:
-- Starts up with a non-zero latency (0.5 ms)
-- Toggles between that and a high-latency path on click. (5.0 ms)
+Changes latency at runtime the way every processor should, and shows the handshake in flight.
 
-The UI should display:
-- Green when the low-latency path is active.
-- Yellow when the high-latency path is active.
-- Red while waiting for the host to accept a proposed latency.
+- Three modes (0, 2 and 20 ms of delay). Choosing one only proposes it; the delay moves when the
+  host accepts (`Reset::Latency`), to exactly what it accepted. `configure` comes up in the
+  selected mode and proposes nothing.
+- The editor shows what the parameter wants, the proposal still waiting (red, with how long),
+  what the processor renders with (green once it matches), and the last steps. Switch quickly
+  through all three to watch a proposal supersede another.
+- Click replaces the input with a click on every second of the timeline. With delay
+  compensation working, a bounce puts each click exactly on the second, in every mode.

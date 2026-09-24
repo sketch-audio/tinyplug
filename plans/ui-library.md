@@ -618,7 +618,7 @@ inside the framework's demo plug-ins.
 
 **Build matrix.** Each PR keeps the framework's existing demo plug-ins
 (`gain_demo`, `worker_demo`, `latency_demo`, `platform_demo`,
-`automation_tester`) compiling for all five wrappers (`aax`, `auv2`,
+`automation_demo`) compiling for all five wrappers (`aax`, `auv2`,
 `auv3-mac`, `auv3-ios`, `clap`, `vst3`). Build serially per the
 framework's recorded no-`--parallel` rule.
 

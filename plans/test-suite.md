@@ -46,7 +46,7 @@ and has to trust. This suite is the statement of what that code guarantees:
 
 | Asset | Where | Reusable as |
 |---|---|---|
-| `automation_tester` demo — one linear gain param, **outputs its param value as DC** | [examples/automation_tester/](../examples/automation_tester/) | The probe fixture, near-verbatim (§4) |
+| `automation_demo` demo — one linear gain param, **outputs its param value as DC** | [examples/automation_demo/](../examples/automation_demo/) | The probe fixture, near-verbatim (§4) |
 | Probe harness: `Fake_host`, `Automation_lane`, `Trace`, `Delivery::{Sample_accurate,Block_start,Immediate_only}`, `Block_plan::jitter` | `all_plugins/tests/harness/` | Tier 1 harness, ported and de-`sketch`-ed |
 | VST3 flush suite — drives real `tiny::vst3::Audio_effect` through `IAudioProcessor` with hand-built `ProcessData`, 5 flush block shapes × 2 assertions | `all_plugins/tests/source/test_vst3_flush.cpp` + `fixtures/vst3/` | Tier 2 VST3 seed — **move it here** |
 | `audio_bench` — single-header registry (`Tests::add`), `Error::*` tolerances, signal generators, `add_expected_failure` (XFAIL/XPASS) | [../audio_bench](../../audio_bench) | The test framework for all tiers |
@@ -150,7 +150,7 @@ under `tests/fixtures/`:
 
 ### `probe` — the workhorse
 
-Lifted from `automation_tester`: **the output is the parameter state**. Left
+Lifted from `automation_demo`: **the output is the parameter state**. Left
 channel carries the observed param's manifested value as DC, so the output buffer
 is a complete per-sample record of the param trajectory. Right channel carries a
 one-sample pulse on each `process` entry — the update grid, directly observable
@@ -672,7 +672,7 @@ dependency, and it's on work that's already planned for its own reasons.
    `TINY_DEPS_PATH` defaults to `../tiny_deps` — consistent with existing
    practice, and CI can fetch.
 3. **Fixtures under `tests/fixtures/` or promoted `examples/`?** Recommendation:
-   `tests/fixtures/`. `automation_tester` stays a demo (it's useful in a DAW); the
+   `tests/fixtures/`. `automation_demo` stays a demo (it's useful in a DAW); the
    probe is a copy that's free to grow test-shaped params without cluttering the
    examples CI builds.
 4. **Do golden traces live per-format, or only at T1?** Recommendation: T1 first;
@@ -692,7 +692,7 @@ dependency, and it's on work that's already planned for its own reasons.
 
 | File | Role |
 |---|---|
-| [examples/automation_tester/](../examples/automation_tester/) | Source of the probe fixture |
+| [examples/automation_demo/](../examples/automation_demo/) | Source of the probe fixture |
 | [wrappers/vst3/source/audio_effect.cpp](../wrappers/vst3/source/audio_effect.cpp) | The reference process loop T1 is modelled on; T2's first target |
 | [wrappers/aax/source/alg_proc.cpp](../wrappers/aax/source/alg_proc.cpp) / [alg_context.hpp](../wrappers/aax/source/alg_context.hpp) | Editor-free, directly drivable — T2 AAX algorithm |
 | [wrappers/aax/source/byte_ring.hpp](../wrappers/aax/source/byte_ring.hpp) | Pure, T0-testable, and the basis of Direct Data's lock-freedom |

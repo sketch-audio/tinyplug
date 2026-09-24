@@ -24,6 +24,10 @@ translate the host's API into framework events and back.
     templates in `cmake/`. Static lib; links core PUBLIC, Skia PRIVATE.
   - [libs/tiny_dsp/](libs/tiny_dsp/) — header-only DSP helpers (`Host_bypass`,
     `Linear_ramper`, `Delay_line`), `<tiny_dsp/...>`. INTERFACE lib, pure leaf.
+  - [libs/tiny_ui/](libs/tiny_ui/) — header-only editor helpers the demos draw with
+    (`Controls`, `Theme`, Skia rects and a pixel font), `<tiny_ui/...>`, namespace `tiny::ui`.
+    INTERFACE on top of tinyplug; Skia stays the consumer's PRIVATE link. Seed of
+    [ui-library.md](plans/ui-library.md).
   - [wrappers/](wrappers/) — one wrapper per format (was `formats/`).
   - [examples/](examples/) — demo plug-ins consumed by CI (was `plugins/`).
   - [cmake/](cmake/) — `helpers.cmake`, `plug_info.hpp.in`, etc.
@@ -484,7 +488,10 @@ the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two
   the param tree, and `aax_id_to_tiny` reverses the map.
 - Custom taper delegates (`Real_semanticsTaperDelegate`, `Fixed_semanticsTaperDelegate`,
   [taper_delegate.hpp](wrappers/aax/source/taper_delegate.hpp)) exist so AAX's
-  normalized-to-plain transform respects our `Knob_adapter`.
+  normalized-to-plain transform respects our `Knob_adapter`. Likewise
+  `Semantics_display_delegate` ([display_delegate.hpp](wrappers/aax/source/display_delegate.hpp))
+  routes every user parameter's text through `Host_formatter`, so AAX shows the same strings as
+  the other formats; only the master bypass keeps an SDK delegate.
 - Latency change protocol: kernel proposes → algorithm pushes onto the return
   ring → Direct Data calls `SetSignalLatency` → AAX delivers
   `AAX_eNotificationEvent_SignalLatencyChanged` → data model reads back what the

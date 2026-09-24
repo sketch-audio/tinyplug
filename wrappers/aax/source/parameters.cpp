@@ -6,13 +6,11 @@
 
 #include "AAX_CBinaryTaperDelegate.h"
 #include "AAX_CBinaryDisplayDelegate.h"
-#include "AAX_CNumberDisplayDelegate.h"
 #include "AAX_CStateTaperDelegate.h"
-#include "AAX_CStateDisplayDelegate.h"
-#include "AAX_CUnitDisplayDelegateDecorator.h"
 #include "AAX_TransportTypes.h"
 
 #include "adapters.hpp"
+#include "display_delegate.hpp"
 #include "taper_delegate.hpp"
 
 namespace tiny::aax {
@@ -38,7 +36,7 @@ AAX_Result Parameters::EffectInit()
                     AAX_CString(param.name.c_str()),
                     b.def_val,
                     AAX_CBinaryTaperDelegate<bool>(),
-                    AAX_CBinaryDisplayDelegate<bool>("False", "True"),
+                    Semantics_display_delegate<bool>(param.semantics),
                     param.policy == params::Policy::Automation
                 ));
                 if (!param.short_name.empty()) {
@@ -50,21 +48,12 @@ AAX_Result Parameters::EffectInit()
             },
             [&](const params::Semantics::List& l) {
                 const auto num_items = static_cast<int32_t>(l.items.size());
-                // The delegate copies each NULL-terminated C string during construction,
-                // but string_view::data() isn't guaranteed NULL-terminated — so materialize
-                // owning std::strings (these outlive the constructor call) and pass their c_str().
-                auto item_storage = std::vector<std::string>{};
-                item_storage.reserve(l.items.size());
-                for (const auto& it : l.items) item_storage.emplace_back(it);
-                auto item_cstrs = std::vector<const char*>{};
-                item_cstrs.reserve(item_storage.size());
-                for (const auto& s : item_storage) item_cstrs.push_back(s.c_str());
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<int32_t>(
                     aax_id.c_str(),
                     AAX_CString(param.name.c_str()),
                     static_cast<int32_t>(l.def_val),
                     AAX_CStateTaperDelegate<int32_t>(0, num_items - 1),
-                    AAX_CStateDisplayDelegate<int32_t>(num_items, item_cstrs.data(), 0), // Yee haw.
+                    Semantics_display_delegate<int32_t>(param.semantics),
                     param.policy == params::Policy::Automation
                 ));
                 if (!param.short_name.empty()) {
@@ -78,15 +67,12 @@ AAX_Result Parameters::EffectInit()
                 mParameterManager.AddParameter(aax_param.release());
             },
             [&](const params::Semantics::Int& i) {
-                using DisplayDelegate = AAX_CNumberDisplayDelegate<int32_t, 0, 1>; // precision: 0, space after: 1
-                const auto units_str = Value_helper::units_label(i.units);
-
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<int32_t>(
                     aax_id.c_str(),
                     AAX_CString(param.name.c_str()),
                     i.def_val,
                     AAX_CStateTaperDelegate<int32_t>(i.min_val, i.max_val),
-                    AAX_CUnitDisplayDelegateDecorator<int32_t>(DisplayDelegate(), units_str.c_str()),
+                    Semantics_display_delegate<int32_t>(param.semantics),
                     param.policy == params::Policy::Automation
                 ));
                 if (!param.short_name.empty()) {
@@ -102,15 +88,12 @@ AAX_Result Parameters::EffectInit()
             },
             [&](const params::Semantics::Fixed& f) {
                 using TaperDelegate = Fixed_semanticsTaperDelegate<double>;
-                using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 2, space after: 1
-                const auto units_str = Value_helper::units_label(f.units);
-
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
                     aax_id.c_str(),
                     AAX_CString(param.name.c_str()),
                     f.def_val,
                     TaperDelegate(f),
-                    AAX_CUnitDisplayDelegateDecorator<double>(DisplayDelegate(), units_str.c_str()),
+                    Semantics_display_delegate<double>(param.semantics),
                     param.policy == params::Policy::Automation
                 ));
                 if (!param.short_name.empty()) {
@@ -127,15 +110,12 @@ AAX_Result Parameters::EffectInit()
             },
             [&](const params::Semantics::Real& r) {
                 using TaperDelegate = Real_semanticsTaperDelegate<double>;
-                using DisplayDelegate = AAX_CNumberDisplayDelegate<double, 1, 1>; // precision: 1, space after: 1
-                const auto units_str = Value_helper::units_label(r.units);
-
                 auto aax_param = std::unique_ptr<AAX_IParameter>(new AAX_CParameter<double>(
                     aax_id.c_str(),
                     AAX_CString(param.name.c_str()),
                     r.def_val,
                     TaperDelegate(r), // So we can use our own control adapter.
-                    AAX_CUnitDisplayDelegateDecorator<double>(DisplayDelegate(), units_str.c_str()),
+                    Semantics_display_delegate<double>(param.semantics),
                     param.policy == params::Policy::Automation
                 ));
                 if (!param.short_name.empty()) {

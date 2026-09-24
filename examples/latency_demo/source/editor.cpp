@@ -1,72 +1,92 @@
 #include "editor.hpp"
 
-#include "include/core/SkCanvas.h"
+#include <tiny_ui/draw.hpp>
+
+#include <string>
 
 namespace tiny::edit {
 
-auto Editor::on_gui_create(Gui_info) -> void
-{
-}
+namespace {
 
-auto Editor::on_gui_show() -> void
-{
-}
+auto ms(double frames, double sr) -> std::string { return ui::fixed(frames * 1000. / sr, 1) + " MS"; }
 
-auto Editor::on_gui_draw(Plugin_state& state) -> void
-{
-    // Update (Send actions).
-    auto& view_context = state.view_context;
-    const auto lsize = view_context.logical_size;
-    auto frame = Frame{.x = 0, .y = 0, .w = static_cast<double>(lsize.w), .h = static_cast<double>(lsize.h)};
-    if (_frame != frame) {
-        _frame = frame;
-        if (_click)
-            _click->set_frame(_frame);
-    }
-
-    const auto& param_values = state.processor_state.params;
-    const auto addr = enum_raw(Address::Latency_mode);
-    _value = param_values[addr];
-
-    if (_click)
-        _click->process_events(view_context.interaction.events);
-
-    // Draw.
-    auto* canvas = view_context.canvas;
-
-    // Calculate real size.
-    const auto scale = view_context.scale;
-    const auto rsize = Rect_size{
-        .w = static_cast<int32_t>(lsize.w * scale),
-        .h = static_cast<int32_t>(lsize.h * scale)
-    };
-
-    // Draw background.
-    auto paint = SkPaint{};
-    paint.setColor(_value == 0 ? SK_ColorGREEN : SK_ColorYELLOW);
-
-    const auto& meter_values = state.processor_state.meters;
-    if (_value != meter_values[enum_raw(models::Meters::Address::Latency_actual)]) {
-        paint.setColor(SK_ColorRED);
-    }
-
-    paint.setStyle(SkPaint::kFill_Style);
-    canvas->drawRect(SkRect::MakeXYWH(0, 0, static_cast<float>(rsize.w), static_cast<float>(rsize.h)), paint);
-}
+} // namespace
 
 auto Editor::notify(const Host_event& notification) -> void
 {
     std::visit(Inline_visitor{
+        [&](const Dark_mode_changed& n) { _dark = n.new_value; },
         [](const auto&) {}
     }, notification);
 }
 
-auto Editor::on_gui_hide() -> void
+auto Editor::on_gui_draw(Plugin_state& state) -> void
 {
-}
+    auto& view = state.view_context;
+    auto* canvas = view.canvas;
+    if (!canvas) return;
 
-auto Editor::on_gui_destroy() -> void
-{
+    const auto t = ui::theme(_dark);
+    const auto& knobs = state.processor_state.params;
+    const auto& hs = state.processor_state.blocks.latest<Block::Handshake>();
+
+    const auto bounds = ui::inset({0, 0, static_cast<double>(view.logical_size.w), static_cast<double>(view.logical_size.h)}, 16);
+    const auto buttons = Frame{bounds.x, bounds.y, bounds.w, 30};
+    const auto boxes = Frame{bounds.x, buttons.y + buttons.h + 16, bounds.w, 70};
+    const auto steps = Frame{bounds.x, boxes.y + boxes.h + 16, bounds.w, bounds.y + bounds.h - (boxes.y + boxes.h + 16)};
+
+    using Kind = ui::Control::Kind;
+    const auto mode = enum_raw(Address::Mode);
+    const auto controls = std::array<ui::Control, 4>{{
+        {ui::column(buttons, 0, 4, 8), mode, Kind::Choice, "0 MS", ui::green, 0.},
+        {ui::column(buttons, 1, 4, 8), mode, Kind::Choice, "2 MS", ui::green, 0.5},
+        {ui::column(buttons, 2, 4, 8), mode, Kind::Choice, "20 MS", ui::green, 1.},
+        {ui::column(buttons, 3, 4, 8), enum_raw(Address::Click), Kind::Toggle, "CLICK", ui::amber},
+    }};
+    _controls.interact(view.interaction, _edit.actions, controls, knobs);
+
+    canvas->save();
+    canvas->scale(static_cast<float>(view.scale), static_cast<float>(view.scale));
+    ui::fill(*canvas, {0, 0, static_cast<double>(view.logical_size.w), static_cast<double>(view.logical_size.h)}, t.background);
+    ui::draw_controls(*canvas, t, controls, knobs);
+
+    // Wanted -> proposed -> rendering. Settled is all green; in flight, the middle box is red.
+    const auto box = [&](int i, const char* title, const std::string& value, SkColor color) {
+        const auto f = ui::column(boxes, i, 3, 12);
+        ui::fill(*canvas, f, color);
+        ui::text(*canvas, f.x + 8, f.y + 8, title, t.background);
+        ui::text(*canvas, f.x + 8, f.y + 30, value, t.background, 3);
+    };
+    const auto sr = hs.sr > 0 ? hs.sr : 48000.;
+    const auto settled = hs.current == hs.wanted && hs.pending < 0;
+    box(0, "WANTED", ms(hs.wanted, sr), ui::blue);
+    box(1, "PROPOSED", hs.pending < 0 ? "NONE" : ms(static_cast<double>(hs.pending), sr), hs.pending < 0 ? t.track : ui::red);
+    box(2, "RENDERING", ms(hs.current, sr), settled ? ui::green : ui::amber);
+    if (hs.pending >= 0) {
+        ui::text(*canvas, boxes.x + boxes.w / 3 + 12, boxes.y + boxes.h + 4, "WAITING " + ui::fixed(static_cast<double>(hs.waiting) / sr, 2) + " S", ui::red);
+    }
+
+    // The last steps, oldest first.
+    ui::fill(*canvas, steps, t.panel);
+    using Step = models::Handshake_frame::Step;
+    constexpr auto size = models::Handshake_frame::size;
+    auto y = steps.y + 8;
+    for (auto i = size_t{}; i < size; ++i) {
+        const auto& s = hs.steps[(hs.next + i) % size];
+        if (s.seq == 0 || y + 10 > steps.y + steps.h) continue;
+        auto line = ui::pad("#" + std::to_string(s.seq), 5) + "  " + ui::pad(std::to_string(s.frame), 10) + "  ";
+        auto color = t.text;
+        switch (s.kind) {
+            case Step::Kind::Configure: line += "CONFIGURE AT " + ms(s.samples, sr); color = t.dim; break;
+            case Step::Kind::Propose: line += "PROPOSE " + ms(s.samples, sr); color = ui::red; break;
+            case Step::Kind::Accept: line += "ACCEPT " + ms(s.samples, sr) + " AFTER " + ui::fixed(static_cast<double>(s.waited) / sr, 2) + " S"; color = ui::green; break;
+            case Step::Kind::Hard: line += "RESET HARD"; color = t.dim; break;
+        }
+        ui::text(*canvas, steps.x + 8, y, line, color);
+        y += 14;
+    }
+
+    canvas->restore();
 }
 
 } // namespace tiny::edit

@@ -46,6 +46,7 @@ add_property(${PLUGIN_TARGET} TINY_VST3_SUBCATEGORIES "Fx")
 # Your plug-in's sources
 # ---
 target_sources(${PLUGIN_TARGET} PRIVATE
+    source/models/meters.hpp
     source/models/params.hpp
     source/editor.cpp
     source/editor.hpp
@@ -71,6 +72,7 @@ target_include_directories(${PLUGIN_TARGET} PUBLIC
 target_link_libraries(${PLUGIN_TARGET} PUBLIC ${TINY_PLUG_LIB}) # plugin headers expose framework types
 target_link_libraries(${PLUGIN_TARGET} PRIVATE ${TINY_PLATFORM_LIB}) # editor may use platform services (dialogs/paths)
 target_link_libraries(${PLUGIN_TARGET} PRIVATE tiny::skia) # editor draws with Skia
+target_link_libraries(${PLUGIN_TARGET} PUBLIC ${TINY_DSP_LIB} ${TINY_UI_LIB}) # processor.hpp and editor.hpp include them
 
 # Build the wrappers
 # ---

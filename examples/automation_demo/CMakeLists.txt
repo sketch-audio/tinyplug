@@ -1,4 +1,4 @@
-set(PLUGIN_TARGET RenderModeDemo_lib) # Generated.
+set(PLUGIN_TARGET AutomationDemo_lib) # Generated.
 
 add_library(${PLUGIN_TARGET} STATIC)
 
@@ -11,19 +11,19 @@ add_property(${PLUGIN_TARGET} TINY_COMPANY_EMAIL "info@tinyplug.com")
 # These need to be four-character codes.
 add_property(${PLUGIN_TARGET} TINY_FRAMEWORK_CODE "tiny")
 add_property(${PLUGIN_TARGET} TINY_MANUFACTURER_CODE "Tiny") # At least one capital letter.
-add_property(${PLUGIN_TARGET} TINY_PLUGIN_CODE "rmod") # Must be unique per manufacturer code!
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_CODE "atmt") # Must be unique per manufacturer code!
 
-add_property(${PLUGIN_TARGET} TINY_PRODUCT_NAME "Render Mode Demo")
-add_property(${PLUGIN_TARGET} TINY_PLUGIN_NAME "Render Mode Demo")
-add_property(${PLUGIN_TARGET} TINY_PLUGIN_SHORT_NAME "RenderMode") # Must be <= 16 chars, for Pro Tools.
+add_property(${PLUGIN_TARGET} TINY_PRODUCT_NAME "Automation Demo")
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_NAME "Automation Demo")
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_SHORT_NAME "AutoDemo") # Must be <= 16 chars, for Pro Tools.
 
-add_property(${PLUGIN_TARGET} TINY_BASE_FILENAME "RenderModeDemo")
-add_property(${PLUGIN_TARGET} TINY_BASE_IDENTIFIER "com.tinyplug.RenderModeDemo")
+add_property(${PLUGIN_TARGET} TINY_BASE_FILENAME "AutomationDemo")
+add_property(${PLUGIN_TARGET} TINY_BASE_IDENTIFIER "com.tinyplug.AutomationDemo")
 add_property(${PLUGIN_TARGET} TINY_VERSION_STRING "1.0.0")
 add_property(${PLUGIN_TARGET} TINY_BUILD_NUMBER "1")
 
 add_property(${PLUGIN_TARGET} TINY_PLUGIN_WANTS_SIDECHAIN "false")
-add_property(${PLUGIN_TARGET} TINY_PLUGIN_CAN_PROCESS_MONO "true")
+add_property(${PLUGIN_TARGET} TINY_PLUGIN_CAN_PROCESS_MONO "false")
 
 # AAX
 # See: AAX_Enums.h for possible values.
@@ -32,10 +32,10 @@ add_property(${PLUGIN_TARGET} TINY_AAX_CATEGORIES "AAX_ePlugInCategory_None")
 # CLAP
 # See: https://github.com/free-audio/clap/blob/main/include/clap/plugin-features.h
 add_property(${PLUGIN_TARGET} TINY_CLAP_DESCRIPTION "Built with tinyplug.")
-add_property(${PLUGIN_TARGET} TINY_CLAP_FEATURES "audio-effect;utility") # Don't put mono or stereo, the framework will do that for you!
+add_property(${PLUGIN_TARGET} TINY_CLAP_FEATURES "audio-effect") # Don't put mono or stereo, the framework will do that for you!
 
 # AUv2
-add_property(${PLUGIN_TARGET} TINY_AUV2_VIEW_CLASS "RenderModeDemo_viewFactory") # Audio Unit must have a unique view factory!
+add_property(${PLUGIN_TARGET} TINY_AUV2_VIEW_CLASS "AutomationDemo_viewFactory") # Audio Unit must have a unique view factory!
 add_property(${PLUGIN_TARGET} TINY_AUV2_TYPE "aufx")
 
 # VST3
@@ -46,7 +46,7 @@ add_property(${PLUGIN_TARGET} TINY_VST3_SUBCATEGORIES "Fx")
 # Your plug-in's sources
 # ---
 target_sources(${PLUGIN_TARGET} PRIVATE
-    source/models/meters.hpp
+    source/models/blocks.hpp
     source/models/params.hpp
     source/editor.cpp
     source/editor.hpp
@@ -72,6 +72,7 @@ target_include_directories(${PLUGIN_TARGET} PUBLIC
 target_link_libraries(${PLUGIN_TARGET} PUBLIC ${TINY_PLUG_LIB}) # plugin headers expose framework types
 target_link_libraries(${PLUGIN_TARGET} PRIVATE ${TINY_PLATFORM_LIB}) # editor may use platform services (dialogs/paths)
 target_link_libraries(${PLUGIN_TARGET} PRIVATE tiny::skia) # editor draws with Skia
+target_link_libraries(${PLUGIN_TARGET} PUBLIC ${TINY_UI_LIB}) # tiny_ui's drawing and controls; editor.hpp includes it
 
 # Build the wrappers
 # ---

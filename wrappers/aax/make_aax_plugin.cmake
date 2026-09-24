@@ -53,6 +53,7 @@ function(make_aax_plugin USER_TARGET)
         ${SOURCE_DIR}/source/alg_proc.hpp
         ${SOURCE_DIR}/source/byte_ring.hpp
         ${SOURCE_DIR}/source/describe.cpp
+        ${SOURCE_DIR}/source/display_delegate.hpp
         ${SOURCE_DIR}/source/direct_data.cpp
         ${SOURCE_DIR}/source/direct_data.hpp
         ${SOURCE_DIR}/source/gui.cpp

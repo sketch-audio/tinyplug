@@ -332,6 +332,7 @@ auto Value_helper::units_label(Units units) -> std::string
         case Hertz:        return "Hz";
         case Milliseconds: return "ms";
         case Degrees:      return "°";
+        case Linear_gain:  return "dB";
         default:           return "";
     }
 }

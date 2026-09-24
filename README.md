@@ -109,11 +109,15 @@ Then in your build, let tinyplug know your preset extension and directory. The f
 - Prefix private member variables with an underscore.
 
 ## Test Plug-ins
-Tinyplug ships with some test plug-ins that can be useful for making sure things are working as advertised.
-- Automation Tester (outputs DC)
-- Gain Demo
-- Latency Demo
-- Platform demo
+tinyplug ships with several demo plug-ins, each small enough to read in one sitting and useful for making sure things work as advertised.
+- Automation Demo: logs every event, reset and render-mode change the processor receives
+- Block Demo, Meter Demo: the processor-to-editor transports
+- Gain Demo: the smallest complete effect
+- Latency Demo: the runtime latency handshake
+- Platform Demo: gestures, raw input, dialogs and window info
+- Sine Synth, Step Sequencer: notes in and out, MPE
+- State Demo: the shared state document
+- Worker Demo: all four worker channels
 
 ## Build
 - Set up dependencies: https://github.com/sketch-audio/tiny_deps

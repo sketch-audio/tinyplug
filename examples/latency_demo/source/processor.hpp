@@ -3,66 +3,44 @@
 #include <array>
 
 #include <tinyplug/tinyplug.hpp>
-#include "models/meters.hpp"
-#include "models/params.hpp"
-
-#include "dsp/latency.hpp"
-#include "dsp/stereo.hpp"
+#include <tiny_dsp/delay_line.hpp>
 
 namespace tiny::process {
 
+// Delays its input by the selected mode, and changes latency the way every processor should:
+// a new mode is only proposed, and the delay moves when the host accepts (`Reset::Latency`),
+// never before. The editor shows the handshake in flight.
 class Processor {
 public:
-    // Receive the sample rate and the parameter values to come up holding.
-    // This a good time to resize some vectors.
+
     auto configure(const Config& config) -> void;
-
-    // Block-boundary sync. Never allocates. `Latency` is the one that matters here: the
-    // mode only ever moves when the host says it has aligned its graph.
     auto reset(const Reset::Any& reset) -> void;
-
-    // Receive a render event such as `Event::Set`.
-    // Events are interleaved with process calls so you can consider them as happening "now".
     auto handle(const Event::Any& event) -> void;
-
-    // This is where you can do your signal processing.
-    // In the DSP context, you have:
-    // - The musical context, e.g. `beat_pos` & `tempo`
-    // - Pointers to the input, output, and sidechain buffers (They could be null!)
-    // - The number of frames to render (It is the plug-in's responsibility to handle any value here.)
-    // - A place to write your exports
-    // - The option to propose a latency change
     auto process(Dsp_context& context) -> void;
 
-    // The framework will check and report this to the host right after calling `configure`.
-    auto latency_samps() const -> uint32_t { return _curr->latency_samps(); }
-
-    // You can get an infinite tail by returning `std::numeric_limits<uint32_t>::max()`.
+    auto latency_samps() const -> uint32_t { return _frame.current; }
     auto tail_samps() const -> uint32_t { return 0; }
 
 private:
 
     using Address = models::Params::Address;
+    using Block = models::Blocks::Address;
+    using Step = models::Handshake_frame::Step;
     static constexpr auto num_params = User_params::num_params;
 
     using enum tiny::params::Space;
     std::array<float, num_params> _values{tiny::params::make_defaults<float, User_params>(Plain)};
+    std::array<Delay_line, 2> _lines{};
 
-    using Latency = Stereo<Latency>;
-    double _sr{48000};
-    Latency _low{0.5f};
-    Latency _high{5};
-    Latency* _curr{&_low};
-    bool _wants_latency_change{};
+    models::Handshake_frame _frame{}; // Also the processor's own record of the handshake.
+    int64_t _clock{};
+    int64_t _proposed_at{};
+    bool _propose{};
 
-    // The mode the parameter currently selects, which may not be the one we are rendering
-    // in: the host owns when the switch happens.
-    auto _wanted_mode() -> Latency*
-    {
-        return _values[enum_raw(Address::Latency_mode)] >= 0.5f ? &_high : &_low;
-    }
+    auto _wanted() const -> uint32_t;
+    auto _step(Step::Kind kind, uint32_t samples, int64_t waited = 0) -> void;
 
 };
-static_assert(Interface<Processor>); // Check your interface.
+static_assert(Interface<Processor>);
 
 } // namespace tiny::process
