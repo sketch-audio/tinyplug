@@ -12,6 +12,8 @@
 #import "BufferedAudioBus.hpp"
 #import "DSPKernel.hpp"
 
+#include <tiny_core/relay.hpp>
+#include <tiny_core/state_image.hpp>
 #include <tiny_platform/platform_paths.hpp>
 #include "plug_info.hpp"
 #include "preset_list.hpp"
@@ -19,6 +21,14 @@
 #if !__has_feature(objc_arc)
 static_assert(false, "ARC must be enabled for this file");
 #endif
+
+// What a save off main answers from: `fullState`, and the model a user preset is written from.
+// Both built on main, where the editor and the document live.
+struct Auv3_state_image {
+    NSDictionary<NSString*, id>* full_state{};
+    tiny::State_adapter::Save_model model{};
+};
+using Auv3_image_ptr = std::shared_ptr<const Auv3_state_image>;
 
 static auto presets_path() -> std::filesystem::path
 {
@@ -31,7 +41,7 @@ static auto presets_path() -> std::filesystem::path
 @property AUAudioUnitBusArray *inputBusArray;
 @property AUAudioUnitBusArray *outputBusArray;
 @property (nonatomic, readonly) AUAudioUnitBus *outputBus;
-@property (nonatomic, readwrite) AUAudioUnitPreset *preset;
+@property (atomic, readwrite) AUAudioUnitPreset *preset; // Atomic: hosts set presets off main.
 - (void)updateReportedLatency;
 @end
 
@@ -71,6 +81,12 @@ static auto presets_path() -> std::filesystem::path
     NSArray<AUAudioUnitPreset*>* _factory_presets;
     
     std::unique_ptr<tiny::State_adapter> _state_adapter;
+
+    // Hosts save and load fullState (and presets) from any thread, but the editor, undo and
+    // document are main's, so off main only `_state_image` is touched; `_state_tick` keeps it
+    // current on main. See State_image.
+    tiny::State_image<Auv3_image_ptr> _state_image;
+    std::optional<tiny::Relay> _state_tick;
     
     std::unique_ptr<AUProcessHelper> _processHelper;
     std::unordered_map<AUParameterAddress, AUParameterObserverToken> _observerTokens;
@@ -129,36 +145,75 @@ static auto presets_path() -> std::filesystem::path
         .save_model = [self_](){
             auto s = self_;
             if (!s) return State_adapter::Save_model{};
-            
-            const auto knob_defaults = params::make_defaults<double, User_params>(params::Space::Knob);
-            auto values = std::vector<double>(knob_defaults.begin(), knob_defaults.end());
-            for (AUParameter *param in s->_parameterTree.allParameters) {
-                const auto addr = static_cast<uint32_t>(param.address);
-                const auto& spec = User_params::param_spec(addr);
-                const auto host = param.value;
-                const auto knob = Value_helper::host_to_knob(host, spec.semantics);
-                values[param.address] = knob;
+            if (![NSThread isMainThread]) {
+                const auto image = s->_state_image.get();
+                return image ? image->model : State_adapter::Save_model{};
             }
-            
-            auto editor_state = s->_editor->save_state();
-            
-            return State_adapter::Save_model{
-                .version = 1,
-                .param_tree = &User_params::param_tree(),
-                .param_values = values,
-                .editor_state = editor_state,
-#if TINY_HAS_STATE
-                .state_record = state::encode_record(s->_state_link.view()),
-#endif
-            };
+            return [s liveSaveModel];
         }
+    });
+
+    [self refreshStateImage]; // A save may come from any thread before main first ticks.
+    __weak Auv3_AUAudioUnit* tick_self = self;
+    _state_tick.emplace(tiny::Relay::Spec{
+        .execute = [tick_self] {
+            if (auto s = tick_self) [s tickStateImage];
+        },
+        .interval = 0.1,
+        .repeating = true,
     });
 
     return self;
 }
 
+// [main] The state-adapter model, from the live parameters, editor and document.
+- (tiny::State_adapter::Save_model)liveSaveModel {
+    using namespace tiny;
+    using namespace params;
+
+    const auto knob_defaults = params::make_defaults<double, User_params>(params::Space::Knob);
+    auto values = std::vector<double>(knob_defaults.begin(), knob_defaults.end());
+    for (AUParameter *param in _parameterTree.allParameters) {
+        const auto addr = static_cast<uint32_t>(param.address);
+        const auto& spec = User_params::param_spec(addr);
+        values[param.address] = Value_helper::host_to_knob(param.value, spec.semantics);
+    }
+
+    return State_adapter::Save_model{
+        .version = 1,
+        .param_tree = &User_params::param_tree(),
+        .param_values = values,
+        .editor_state = _editor ? _editor->save_state() : State_map{},
+#if TINY_HAS_STATE
+        .state_record = state::encode_record(_state_link.view()),
+#endif
+    };
+}
+
+// [main] Rebuild the image, unless a load from off main is waiting to be applied.
+- (void)refreshStateImage {
+    auto image = std::make_shared<Auv3_state_image>();
+    image->full_state = [self buildFullState];
+    image->model = [self liveSaveModel];
+    _state_image.publish(std::move(image));
+}
+
+// [main] A load that arrived off main.
+- (void)applyPendingState {
+    if (const auto load = _state_image.take_load()) {
+        [self applyFullState:(*load)->full_state];
+    }
+}
+
+// [main] Every tick of `_state_tick`.
+- (void)tickStateImage {
+    [self applyPendingState];
+    if (_state_image.due()) [self refreshStateImage];
+}
+
 - (void)dealloc {
     _tasks.shutdown(); // First: no task may outlive the editor or worker it captures.
+    _state_tick.reset();
 #if TINY_HAS_WORKER
     _worker_runner.reset(); // Joins the worker thread before the worker goes.
     _worker.reset();
@@ -244,26 +299,29 @@ static auto presets_path() -> std::filesystem::path
         };
         
         // Most likely the root is a group, don't create a named group for it.
+        AUParameterTree* parameter_tree = nil;
         if (const auto* g = std::get_if<params::Group>(&tree)) {
             NSMutableArray<AUParameterNode*>* rootChildren = [NSMutableArray array];
             for (auto const& child : g->nodes) {
                 [rootChildren addObject:make_node(make_node, child)];
             }
-            AUParameterTree* parameter_tree = [AUParameterTree createTreeWithChildren:rootChildren];
-            _parameterTree = parameter_tree;
+            parameter_tree = [AUParameterTree createTreeWithChildren:rootChildren];
         }
         else if (const auto* s = std::get_if<params::Spec>(&tree)) {
             AUParameter *parameter = [self makeParameterFor:*s];
-            AUParameterTree *parameter_tree = [AUParameterTree createTreeWithChildren:@[parameter]];
-            _parameterTree = parameter_tree;
+            parameter_tree = [AUParameterTree createTreeWithChildren:@[parameter]];
         }
         
         // Send the Parameter default values to the Kernel before setting up the parameter callbacks, so that the defaults set in the Kernel.hpp don't propagate back to the AUParameters via GetParameter
-        for (AUParameter *param in _parameterTree.allParameters) {
+        for (AUParameter *param in parameter_tree.allParameters) {
             _kernel.setParameter(param.address, param.value);
         }
         
-        [self setupParameterCallbacks];
+        [self setupParameterCallbacks:parameter_tree];
+
+        // Publish last and complete: AudioToolbox reads the tree from its own threads, so it must
+        // never see a partial one. Through the setter because hosts KVO-observe the property.
+        self.parameterTree = parameter_tree;
         
         _parameterTreeSetup = true;
     }
@@ -490,7 +548,7 @@ static auto presets_path() -> std::filesystem::path
     return parameter;
 }
 
-- (void)setupParameterCallbacks {
+- (void)setupParameterCallbacks:(AUParameterTree*)tree {
     using namespace tiny;
     using namespace params;
     
@@ -498,24 +556,26 @@ static auto presets_path() -> std::filesystem::path
     __block DSPKernel *kernel = &_kernel;
     
     // implementorValueObserver is called when a parameter changes value.
-    _parameterTree.implementorValueObserver = ^(AUParameter *param, AUValue value) {
+    auto* image = &_state_image;
+    tree.implementorValueObserver = ^(AUParameter *param, AUValue value) {
         kernel->setParameter(param.address, value);
+        image->mark_dirty(); // One relaxed store, so any thread.
     };
     
     // implementorValueProvider is called when the value needs to be refreshed.
-    _parameterTree.implementorValueProvider = ^(AUParameter *param) {
+    tree.implementorValueProvider = ^(AUParameter *param) {
         return kernel->getParameter(param.address);
     };
     
     // A function to provide string representations of parameter values.
-    _parameterTree.implementorStringFromValueCallback = ^(AUParameter *param, const AUValue *__nullable valuePtr) {
+    tree.implementorStringFromValueCallback = ^(AUParameter *param, const AUValue *__nullable valuePtr) {
         AUValue value = valuePtr == nil ? param.value : *valuePtr;
         const auto& spec = User_params::param_spec(static_cast<uint32_t>(param.address));
         const auto str_value = Host_formatter::to_string(value, spec.semantics);
         return [NSString stringWithUTF8String:str_value.c_str()];
     };
     
-    _parameterTree.implementorValueFromStringCallback = ^(AUParameter *param, NSString *string) {
+    tree.implementorValueFromStringCallback = ^(AUParameter *param, NSString *string) {
         const auto addr = static_cast<uint32_t>(param.address);
         const auto& spec = User_params::param_spec(addr);
         const auto str = std::string{[string UTF8String]};
@@ -883,6 +943,18 @@ static auto presets_path() -> std::filesystem::path
 // MARK: - Full State
 
 -(NSDictionary<NSString *,id> *)fullState {
+    // Off main, the image; on main, current, and the image with it.
+    if (![NSThread isMainThread]) {
+        const auto image = _state_image.get();
+        return image ? image->full_state : [super fullState];
+    }
+    [self applyPendingState];
+    [self refreshStateImage];
+    return _state_image.get()->full_state;
+}
+
+// [main] What fullState holds: the base parameter archive plus ours.
+- (NSDictionary<NSString *,id> *)buildFullState {
     using namespace tiny;
     
     // Grab the base implementation.
@@ -909,9 +981,25 @@ static auto presets_path() -> std::filesystem::path
 }
 
 - (void)setFullState:(NSDictionary<NSString *,id> *)fullState {
-    using namespace tiny;
-
     if (fullState == nil) return;
+
+    // Off main, the load becomes the image at once and main applies it at its next tick.
+    if (![NSThread isMainThread]) {
+        auto image = std::make_shared<Auv3_state_image>();
+        image->full_state = [fullState copy];
+        if (const auto current = _state_image.get()) image->model = current->model; // Main replaces it once applied.
+        _state_image.post_load(std::move(image));
+        return;
+    }
+
+    _state_image.drop_load();
+    [self applyFullState:fullState];
+    [self refreshStateImage];
+}
+
+// [main] A load: parameters, document, editor state, one undo step and the notify.
+- (void)applyFullState:(NSDictionary<NSString *,id> *)fullState {
+    using namespace tiny;
 
     const auto num_params = static_cast<int32_t>(User_params::num_params);
 
@@ -929,7 +1017,14 @@ static auto presets_path() -> std::filesystem::path
     // Pre-load snapshot for host-load undo capture (before the base applies values).
     const auto before = snapshot_knob_params();
 
-    [super setFullState:fullState]; // Call base.
+    // AudioToolbox throws (NSInternalInconsistencyException) on a damaged parameter archive, and an
+    // uncaught exception takes the host down with us. Refuse the whole load instead.
+    @try {
+        [super setFullState:fullState];
+    }
+    @catch (NSException*) {
+        return;
+    }
 
     // Clamped: the count comes from the host's plist and indexes param_spec below.
     const auto num_stored_params = [&]() {
@@ -1117,7 +1212,7 @@ static auto presets_path() -> std::filesystem::path
 }
 
 - (AUAudioUnitPreset *)currentPreset {
-    return _preset;
+    return self.preset;
 }
 
 - (NSDictionary<NSString *,id> *)presetDictFor:(const std::string&)path {
@@ -1161,7 +1256,7 @@ static auto presets_path() -> std::filesystem::path
     using namespace tiny;
     
     if (currentPreset == nil) {
-        _preset = nil;
+        self.preset = nil;
         return;
     }
     
@@ -1180,13 +1275,13 @@ static auto presets_path() -> std::filesystem::path
         auto dict = [self presetDictFor:path];
         [self setFullState:dict];
         
-        _preset = currentPreset;
+        self.preset = currentPreset;
     }
     else {
         // User preset.
         auto dict = [self presetStateFor:currentPreset error:nil];
         [self setFullState:dict];
-        _preset = currentPreset;
+        self.preset = currentPreset;
     }
 }
 

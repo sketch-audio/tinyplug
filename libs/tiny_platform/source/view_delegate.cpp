@@ -56,6 +56,13 @@ auto View_delegate::invalidate_context() -> void
     this->destroy_context();
 }
 
+auto View_delegate::detach() -> void
+{
+    _draw = [](View_context&) {};
+    _notify = [](const Dark_mode_changed&) {};
+    this->destroy_context();
+}
+
 auto View_delegate::on_resize(const Rect_size& size) -> void
 {
     // Now we disallow zero size.

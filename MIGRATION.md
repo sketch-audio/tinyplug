@@ -673,3 +673,27 @@ The licensing code in `all_plugins/shared` is the worked example throughout.
 Main tasks still run only while the editor draws, so keep `Delivery::Background` for work that
 must progress with the window closed, like the activation poll. Dialog callbacks may capture
 `this` too: after shutdown a late answer is dropped instead of delivered.
+
+---
+
+## Maximum latency
+
+The bypass delay that compensates a plug-in's own latency is now sized once, at `configure`,
+and never grows on the audio thread. A processor whose latency changes at runtime must say how
+far it can go:
+
+```cpp
+auto max_latency_samps() const -> uint32_t; // Longest latency this configuration can propose.
+```
+
+Compute it from the sample rate in `configure`, not from live parameters: it must hold until the
+next `configure`. Without it the latency is treated as fixed at what `configure` came up with. Any
+integer return type is accepted.
+
+**This one does not break the build.** A plug-in that proposes more than its maximum hits an
+assert in debug builds; in release the proposal is refused, so the host is never asked and the
+kernel never receives `Reset::Latency`. Check every processor that sets
+`Dsp_context::propose_latency`. [examples/latency_demo](examples/latency_demo/) is the reference.
+
+Also fixed along the way: a latency that was an exact power of two used to wrap the bypass delay
+line to zero, so bypass had no compensation at those values.

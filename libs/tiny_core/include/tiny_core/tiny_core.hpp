@@ -17,6 +17,7 @@
 #include "platform_defs.hpp"
 #include "serial_queue.hpp"
 #include "state_adapter.hpp"
+#include "state_image.hpp"
 #include "state_record.hpp"
 #include "task_launcher.hpp"
 #include "task_manager.hpp"

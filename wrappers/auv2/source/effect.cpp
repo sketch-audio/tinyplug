@@ -1,3 +1,5 @@
+#include <cstring>
+#include <pthread.h> // pthread_main_np
 #include "effect.hpp"
 
 #include <AudioUnitSDK/ComponentBase.h>
@@ -65,11 +67,23 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
     const auto str = CFStringCreateWithCString(kCFAllocatorDefault, "Output", kCFStringEncodingUTF8);
     auto defer = Deferred([str]() { CFRelease(str); });
     Outputs().GetElement(0)->SetName(str);
+
+    // A save may come from any thread before main first ticks.
+    _refresh_state();
+    _state_tick.emplace(Relay::Spec{
+        .execute = [this] {
+            _apply_pending();
+            if (_state_image.due()) _refresh_state();
+        },
+        .interval = 0.1,
+        .repeating = true,
+    });
 }
 
 Effect::~Effect()
 {
     _tasks.shutdown(); // First: no task may outlive the editor or worker it captures.
+    _state_tick.reset();
     _relay.reset(); // Last resort; `Cleanup` should already have done it.
     this->_release_presets();
 }
@@ -100,8 +114,10 @@ OSStatus Effect::Initialize()
         .params = config_values
     });
     _latency = _processor->latency_samps();
+    _tail.store(_processor->tail_samps(), std::memory_order_relaxed);
 
     _bypass.reset(static_cast<float>(sample_rate));
+    _bypass.set_max_latency(process::max_latency_of(*_processor));
     _bypass.set_latency(_latency);
 
     _events.reserve(events_size);
@@ -529,6 +545,7 @@ OSStatus Effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
     using namespace params;
 
     if (inID >= num_params) return kAudioUnitErr_InvalidParameter;
+    _state_image.mark_dirty(); // One relaxed store, so any thread, the render thread included.
 
     const auto& params = User_params::param_specs(Param_order::Indexable);
     const auto& param = params[inID];
@@ -709,6 +726,45 @@ auto Effect::_update_state(const Maybe_values<double>& knob_values, const State_
 
 OSStatus Effect::SaveState(CFPropertyListRef* outData)
 {
+    // Off main, the image. A copy, since the caller owns what we return and may change it.
+    if (!pthread_main_np()) {
+        const auto image = _state_image.get();
+        if (image.get() == nullptr) return kAudioUnitErr_Uninitialized;
+        *outData = CFPropertyListCreateDeepCopy(kCFAllocatorDefault, *image, kCFPropertyListMutableContainersAndLeaves);
+        return *outData ? OSStatus{noErr} : OSStatus{kAudioUnitErr_Uninitialized};
+    }
+
+    _apply_pending(); // Or this save would miss a load that arrived off main.
+    const auto result = _build_state(outData);
+    if (result == noErr) {
+        _state_image.publish(ausdk::Owned<CFPropertyListRef>::from_create(
+            CFPropertyListCreateDeepCopy(kCFAllocatorDefault, *outData, kCFPropertyListImmutable)));
+    }
+    return result;
+}
+
+auto Effect::_refresh_state() -> void
+{
+    auto built = CFPropertyListRef{};
+    if (_build_state(&built) != noErr || !built) return;
+    _state_image.publish(ausdk::Owned<CFPropertyListRef>::from_create(
+        CFPropertyListCreateDeepCopy(kCFAllocatorDefault, built, kCFPropertyListImmutable)));
+    CFRelease(built);
+}
+
+auto Effect::_apply_pending() -> void
+{
+    if (const auto load = _state_image.take_load()) {
+        _apply_state(**load);
+    }
+    if (const auto preset = _pending_preset.exchange(-1); preset >= 0) {
+        _apply_factory_preset(static_cast<size_t>(preset));
+        _state_image.mark_dirty();
+    }
+}
+
+auto Effect::_build_state(CFPropertyListRef* outData) -> OSStatus
+{
     const auto result = Super::SaveState(outData);
     if (result != noErr) return result;
 
@@ -809,7 +865,54 @@ OSStatus Effect::SaveState(CFPropertyListRef* outData)
 
 // MARK: - restore state
 
+namespace {
+
+// The AU SDK walks the parameter blob under "data" with no bounds checks (AUElement::RestoreState),
+// so a truncated or corrupted preset makes it read past the end. Each record is scope, element and
+// count, then count (id, value) pairs, all 32-bit; accept only a blob that parses exactly.
+auto parameter_blob_ok(CFPropertyListRef plist) -> bool
+{
+    if (!plist || CFGetTypeID(plist) != CFDictionaryGetTypeID()) return true; // The SDK refuses it itself.
+    const auto* data = CFDictionaryGetValue(static_cast<CFDictionaryRef>(plist), CFSTR(kAUPresetDataKey));
+    if (!data || CFGetTypeID(data) != CFDataGetTypeID()) return true; // Absent: nothing to walk.
+
+    const auto* bytes = CFDataGetBytePtr(static_cast<CFDataRef>(data));
+    const auto size = static_cast<uint64_t>(CFDataGetLength(static_cast<CFDataRef>(data)));
+    auto at = uint64_t{};
+    while (at < size) {
+        if (size - at < 12) return false;
+        auto count = uint32_t{};
+        std::memcpy(&count, bytes + at + 8, sizeof(count));
+        const auto body = static_cast<uint64_t>(CFSwapInt32BigToHost(count)) * 8;
+        if (size - at - 12 < body) return false;
+        at += 12 + body;
+    }
+    return true;
+}
+
+} // namespace
+
 OSStatus Effect::RestoreState(CFPropertyListRef plist)
+{
+    if (!parameter_blob_ok(plist)) return kAudioUnitErr_InvalidPropertyValue;
+
+    // Off main, the load becomes the image at once and main applies it at its next tick.
+    if (!pthread_main_np()) {
+        if (!plist || CFGetTypeID(plist) != CFDictionaryGetTypeID()) return kAudioUnitErr_InvalidPropertyValue;
+        _pending_preset.store(-1); // The later request wins.
+        _state_image.post_load(ausdk::Owned<CFPropertyListRef>::from_create(
+            CFPropertyListCreateDeepCopy(kCFAllocatorDefault, plist, kCFPropertyListImmutable)));
+        return noErr;
+    }
+
+    _state_image.drop_load();
+    _pending_preset.store(-1);
+    const auto result = _apply_state(plist);
+    _refresh_state();
+    return result;
+}
+
+auto Effect::_apply_state(CFPropertyListRef plist) -> OSStatus
 {
     using namespace params;
 
@@ -1035,6 +1138,22 @@ OSStatus Effect::NewFactoryPresetSet(const AUPreset& inNewFactoryPreset)
     const auto preset_number = static_cast<size_t>(inNewFactoryPreset.presetNumber);
     if (preset_number >= Preset_list::num_presets) return kAudioUnitErr_InvalidPropertyValue;
 
+    // Off main, like a load: main applies it at its next tick, and the later request wins.
+    if (!pthread_main_np()) {
+        _state_image.drop_load();
+        _pending_preset.store(static_cast<int32_t>(preset_number));
+        return noErr;
+    }
+
+    _state_image.drop_load();
+    _pending_preset.store(-1);
+    const auto result = _apply_factory_preset(preset_number);
+    _refresh_state();
+    return result;
+}
+
+auto Effect::_apply_factory_preset(size_t preset_number) -> OSStatus
+{
     // The preset is a file in the bundle resources with the native extension.
     const auto preset_name = CFStringCreateWithCString(kCFAllocatorDefault, Preset_list::names[preset_number], kCFStringEncodingUTF8);
     [[maybe_unused]] const auto release_preset_name = Deferred{[&]() { if (preset_name) CFRelease(preset_name); }};
@@ -1114,7 +1233,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     if (accepted_latency) {
         const auto new_latency = static_cast<uint32_t>(*accepted_latency);
         _processor->reset(process::Reset::Latency{new_latency});
-        _bypass.set_latency(new_latency); // Unfortunately this could allocate, to avoid, the user model would need to be able to tell us its max latency.
+        _bypass.set_latency(new_latency);
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
 
@@ -1488,12 +1607,14 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     // delay compensation, and the host recomputing it mid-render interrupts playback.
     // The pending value survives for the next `GetLatency`.
     const auto reported = _reported_latency.load(std::memory_order_relaxed);
-    if (const auto proposed = context.propose_latency; proposed.has_value() && *proposed != reported) {
+    if (const auto proposed = _bypass.admit(context.propose_latency); proposed.has_value() && *proposed != reported) {
         // Set pending latency, mark reported, and post to the relay.
         _pending_latency.store(*proposed, std::memory_order_release);
         _reported_latency.store(*proposed, std::memory_order_relaxed);
         if (!offline && _relay) _relay->post();
     }
+
+    _tail.store(_processor->tail_samps(), std::memory_order_relaxed); // For GetTailTime, off this thread.
 
     return noErr;
 }
@@ -1584,6 +1705,9 @@ auto Effect::_release_presets() const -> void
 }
 
 // MARK: - entry
+
+// The AU SDK constructs the instance inside malloc'd storage (APFactory), 16-byte aligned at best.
+static_assert(alignof(Effect) <= alignof(std::max_align_t), "Effect must not be over-aligned: the AU SDK can't honour it.");
 
 // The factory decides which MIDI entry points the host can reach.
 #if TINY_KIND_INSTRUMENT

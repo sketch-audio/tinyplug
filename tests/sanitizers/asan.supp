@@ -1,0 +1,7 @@
+# AddressSanitizer suppressions. Every entry names its reason.
+
+# AAX SDK bug, to report to Avid: AAX_CChunkDataParser::LoadChunk bounds-checks between elements but
+# not within one, so a truncated or corrupt chunk reads past its end (value memcpys, the name, and a
+# string value read to its NUL). The parser itself is built without ASan (root CMakeLists.txt); this
+# covers the reads it makes through intercepted calls. Our side of SetChunk stays checked.
+interceptor_via_fun:AAX_CChunkDataParser::LoadChunk

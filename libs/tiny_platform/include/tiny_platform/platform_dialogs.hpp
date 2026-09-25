@@ -32,7 +32,8 @@ struct Platform_dialogs {
     //
     // Every one of them fires exactly once, on every path — including "the user
     // cancelled" and "there was no window to present on". A dialog that cannot be
-    // shown degrades to a cancel rather than leaving the caller waiting forever.
+    // shown degrades to a cancel rather than leaving the caller waiting forever, and so does one whose
+    // window closed before it could appear (macOS), rather than blocking the host app-modally.
     // The one exception: once the context's Task_manager has shut down (the plug-in
     // is being destroyed), a late answer is dropped, so a callback may capture `this`.
 

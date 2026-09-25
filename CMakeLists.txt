@@ -73,6 +73,29 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tiny_deps)
 
+# Under a sanitizer, compile the AU SDK from the sources tiny_deps ships instead of linking its
+# prebuilt archive, so the SDK's code is instrumented too.
+if(TINY_SANITIZE AND TARGET ausdk)
+    file(GLOB _ausdk_sources ${TINY_DEPS_PATH}/third_party/AudioUnitSDK/src/AudioUnitSDK/*.cpp)
+    add_library(tiny_ausdk_from_source STATIC ${_ausdk_sources})
+    target_include_directories(tiny_ausdk_from_source SYSTEM PUBLIC ${TINY_DEPS_PATH}/third_party/AudioUnitSDK/include)
+    set_property(TARGET ausdk PROPERTY INTERFACE_LINK_LIBRARIES tiny_ausdk_from_source "-framework AudioToolbox -framework CoreFoundation")
+endif()
+if(TINY_SANITIZE AND APPLE AND TARGET aaxsdk) # Likewise the AAX library, whose chunk parser the data model shares across threads.
+    set(_aax_root ${TINY_DEPS_PATH}/third_party/aax-sdk)
+    file(GLOB _aax_sources ${_aax_root}/Libs/AAXLibrary/source/*.cpp)
+    list(FILTER _aax_sources EXCLUDE REGEX "\\.Win\\.cpp$")
+    add_library(tiny_aaxlib_from_source STATIC ${_aax_sources} ${_aax_root}/Libs/AAXLibrary/source/AAX_CAutoreleasePool.OSX.mm ${_aax_root}/Interfaces/ACF/CACFClassFactory.cpp)
+    target_include_directories(tiny_aaxlib_from_source SYSTEM PRIVATE ${_aax_root}/Libs/AAXLibrary/include ${_aax_root}/Interfaces ${_aax_root}/Interfaces/ACF)
+    target_compile_options(tiny_aaxlib_from_source PRIVATE -w)
+    # Known SDK bug, to report to Avid: LoadChunk over-reads a truncated chunk. Left uninstrumented
+    # for ASan only, so the hostile-chunk scenarios still check our side of SetChunk.
+    if(TINY_SANITIZE MATCHES "address")
+        set_source_files_properties(${_aax_root}/Libs/AAXLibrary/source/AAX_CChunkDataParser.cpp PROPERTIES COMPILE_OPTIONS -fno-sanitize=address)
+    endif()
+    set_property(TARGET aaxsdk PROPERTY INTERFACE_LINK_LIBRARIES tiny_aaxlib_from_source "-framework Foundation")
+endif()
+
 include(cmake/helpers.cmake)
 include(wrappers/wrappers.cmake)
 include(tools/presets/make_preset_exporters.cmake)

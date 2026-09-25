@@ -49,8 +49,9 @@ inline auto unjoin_keys(const std::string& s) -> std::vector<Key_tag> {
         auto pos = token.find(':');
         if (pos != std::string::npos) {
             auto key = token.substr(0, pos);
-            auto tag_str = token.substr(pos + 1);
-            auto tag = static_cast<int32_t>(std::stoi(tag_str));
+            auto tag = int32_t{};
+            const auto [ptr, ec] = std::from_chars(token.data() + pos + 1, token.data() + token.size(), tag);
+            if (ec != std::errc{}) continue; // A corrupt chunk must not throw out of SetChunk.
             result.emplace_back(std::move(key), tag);
         }
     }

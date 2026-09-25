@@ -42,19 +42,10 @@ constexpr auto k_worker_to_processor_id   = "tiny/worker/to_processor";
 
 auto Audio_effect::_setup_worker() -> void
 {
-    // Realtime-safe push from the audio thread: lock-free SPSC push,
-    // no allocation. The shuttle thread forwards over IMessage.
+    // Realtime-safe push from the audio thread: lock-free SPSC push, no allocation. The
+    // worker relay forwards over IMessage (`_send_worker_messages`).
     try_bind_worker(*_processor, Worker_processor_actor{
         [this](const auto& m) -> bool { return _worker_outbound.push(m); }
-    });
-
-    // Shuttle drain: pop pending From_processor messages and send via
-    // IMessage. Runs on the shuttle thread (non-realtime).
-    _shuttle.register_drain([this]() {
-        auto m = typename User_work::From_processor{};
-        while (_worker_outbound.pop(m)) {
-            _to_ctrl.send_variant(k_worker_from_processor_id, m);
-        }
     });
 
     // Worker → processor replies arrive via IMessage on notify().
@@ -62,6 +53,17 @@ auto Audio_effect::_setup_worker() -> void
         using To_proc = typename User_work::To_processor;
         _worker_to_proc_inbox.push(vst3::reconstruct_variant<To_proc>(bytes, tag));
     });
+}
+
+// IConnectionPoint::notify is [UI-thread & Connected]: a host proxy may drop a send from any
+// other thread, so worker traffic leaves through a relay like everything else the processor sends.
+// That is the UI thread on macOS; on Windows a Relay delivers on a pool thread, as the old shuttle did.
+auto Audio_effect::_send_worker_messages() -> void
+{
+    auto m = typename User_work::From_processor{};
+    while (_worker_outbound.pop(m)) {
+        _to_ctrl.send_variant(k_worker_from_processor_id, m);
+    }
 }
 
 #endif // TINY_HAS_WORKER
@@ -150,6 +152,9 @@ Steinberg::tresult PLUGIN_API Audio_effect::terminate()
 #if TINY_HAS_BLOCKS
     _block_relay.reset();
 #endif
+#if TINY_HAS_WORKER
+    _worker_relay.reset();
+#endif
 
     // Do not forget to call parent.
     return Steinberg::Vst::AudioEffect::terminate();
@@ -180,6 +185,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::Proc
         .params = config_values
     });
     _latency = _processor->latency_samps();
+    _tail.store(_processor->tail_samps(), std::memory_order_relaxed);
 
     // The host re-queries `getLatencySamples` after setup ([UI-thread & Setup Done]), so a
     // reconfigure is not a change to announce — but a host that does not re-query still
@@ -192,6 +198,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::Proc
     }
 
     _bypass.reset(static_cast<float>(newSetup.sampleRate));
+    _bypass.set_max_latency(max_latency_of(*_processor));
     _bypass.set_latency(_latency);
 
     const auto max_samples = static_cast<size_t>(newSetup.maxSamplesPerBlock);
@@ -260,7 +267,10 @@ Steinberg::tresult PLUGIN_API Audio_effect::setActive(Steinberg::TBool state)
 #endif
 
 #if TINY_HAS_WORKER
-        _shuttle.start(User_work::update_period);
+        _worker_relay.emplace(Relay::Spec{
+            .execute = [this]() { _send_worker_messages(); },
+            .interval = std::chrono::duration<double>(User_work::update_period).count()
+        });
 #endif
     }
     else {
@@ -273,7 +283,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setActive(Steinberg::TBool state)
         _state_relay.reset();
 #endif
 #if TINY_HAS_WORKER
-        _shuttle.stop();
+        _worker_relay.reset();
 #endif
     }
 
@@ -724,6 +734,9 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     state_block.reset();
     if (_state_relay) _state_relay->post(); // Cheap; the relay sends only if a block published.
 #endif
+#if TINY_HAS_WORKER
+    if (_worker_relay) _worker_relay->post(); // Cheap; the relay drains whatever the processor pushed.
+#endif
 
     // Latency notifications, now only when actually changed. The configure-time path is
     // handled directly in `setupProcessing`; this is only a runtime proposal, and it goes
@@ -735,13 +748,15 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     // value survives, and `getLatencySamples` still completes the handshake whenever the
     // host next asks.
     const auto reported = _reported_latency.load(std::memory_order_relaxed);
-    if (const auto proposed = context.propose_latency; proposed.has_value() && *proposed != reported) {
+    if (const auto proposed = _bypass.admit(context.propose_latency); proposed.has_value() && *proposed != reported) {
         // Set pending, mark reported, & notify.
         _pending_latency.store(*proposed, std::memory_order_release);
         _did_peek.store(false, std::memory_order_relaxed);
         _reported_latency.store(*proposed, std::memory_order_relaxed);
         if (!is_offline_bounce && _relay) _relay->post();
     }
+
+    _tail.store(_processor->tail_samps(), std::memory_order_relaxed); // For getTailSamples, off this thread.
 
     return Steinberg::kResultOk;
 }
@@ -756,6 +771,8 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
     if (!state) {
         return Steinberg::kResultFalse;
     }
+    auto full = vst3::Full_read_stream{state}; // Hosts may return short reads.
+    state = &full;
 
     // Streamer convenience wrapper.
     auto streamer = Steinberg::IBStreamer{state};
@@ -930,7 +947,9 @@ Steinberg::uint32 PLUGIN_API Audio_effect::getTailSamples()
 {
     // Resolve to Steinberg's named constants.
     using namespace Steinberg::Vst;
-    const auto tail = _processor->tail_samps();
+    // The copy `process` keeps: the host asks on its UI thread, and the processor belongs to the
+    // audio thread.
+    const auto tail = _tail.load(std::memory_order_relaxed);
     const auto inf_tail = std::numeric_limits<uint32_t>::max();
     return tail == 0 ? kNoTail : (tail == inf_tail ? kInfiniteTail : tail);
 }

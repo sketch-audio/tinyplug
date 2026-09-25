@@ -5,13 +5,9 @@
 #include <utility> // std::move
 
 #include <tiny_core/platform_defs.hpp>
-#include <tiny_core/tiny_log.hpp>
 
 #if TINY_PLATFORM_APPLE
     #include <dispatch/dispatch.h>
-    #if TINY_LOG_ENABLED
-        #include <pthread.h> // pthread_main_np, for the off-main diagnostic only.
-    #endif
 #elif TINY_PLATFORM_WINDOWS
     #ifndef NOMINMAX
     #define NOMINMAX
@@ -39,6 +35,7 @@ auto Relay::_start(Spec spec) -> void
     if (!spec.execute) return;
 
     _state->execute = std::move(spec.execute);
+    _state->repeating = spec.repeating;
 
     auto queue = dispatch_get_global_queue(QOS_CLASS_UTILITY, 0);
     auto source = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
@@ -55,13 +52,14 @@ auto Relay::_start(Spec spec) -> void
 
         // Handle the post. An idle relay never reaches `execute`, so it never touches the
         // owner — the dangerous window is a posted proposal, not the whole time the timer
-        // runs. Don't "simplify" this check away.
-        if (!state->posted.exchange(false, std::memory_order_acq_rel)) return;
+        // runs. Don't "simplify" this check away; a repeating relay opts out knowingly.
+        if (!state->posted.exchange(false, std::memory_order_acq_rel) && !state->repeating) return;
 
         dispatch_async(dispatch_get_main_queue(), ^{
+            // Held for the whole call: a stop off main waits here rather than tearing the owner
+            // down under us. Recursive, so an `execute` that stops its own relay cannot deadlock.
+            const auto lock = std::lock_guard{state->delivering};
             if (!state->alive.load(std::memory_order_acquire)) return;
-            // Race window: a stop running off the main thread can overlap this call, so
-            // `execute` must tolerate an owner being torn down under it. See `_stop`.
             state->execute();
         });
     });
@@ -78,19 +76,13 @@ auto Relay::_stop() -> void
     // state than doing nothing: any handler not yet started observes this and bails.
     _state->alive.store(false, std::memory_order_release);
 
-    // Stopping on main makes the `alive` check airtight, because the main queue is serial:
-    // a stop running on it cannot interleave with a block already executing there. Off main
-    // that argument is gone and a delivery already inside `execute` can run to completion
-    // alongside us — so the callable must tolerate it. Ableton Live calls AUv3's
-    // `-deallocateRenderResources` off main, so this is a real case, not a host bug; it is
-    // logged rather than asserted because aborting the host over it would be far worse than
-    // the race, and because the clients that can reach it are self-guarding (AUv3's weak
-    // self, and an owner still alive at every other reachable stop point).
-#if TINY_LOG_ENABLED
-    if (pthread_main_np() == 0) {
-        TINY_LOG_WARN(lifecycle, "Relay stopped off the main thread; a delivery may overlap.");
-    }
-#endif
+    // A delivery not yet started sees `alive` and bails. One already inside `execute` is
+    // waited out: on main that cannot happen (the main queue is serial), and off main it is a
+    // real case — Ableton Live calls AUv3's `-deallocateRenderResources` off main, and a host
+    // may dispose of an AUv2 there — so after this returns nothing reaches the owner. It waits
+    // only for a call main is already running, never for main itself, so it cannot hang on a
+    // blocked main thread unless `execute` itself waits on the stopping thread.
+    { const auto lock = std::lock_guard{_state->delivering}; }
 
     auto source = static_cast<dispatch_source_t>(_timer);
     dispatch_source_cancel(source); // Async: never waits, so this cannot hang the host.
@@ -104,14 +96,13 @@ namespace {
 
 // Runs on a pool thread, with no hop — the teardown barrier below is a real rundown, so
 // the callback cannot outlive the owner and needs no serial context. Clients get a pool
-// thread rather than the main thread here; that is the same deal VST3's
-// Outbound_message_shuttle already makes for worker traffic.
+// thread rather than the main thread here, which a client documenting "main" must allow for.
 auto CALLBACK relay_callback(PTP_CALLBACK_INSTANCE, PVOID context, PTP_TIMER) -> VOID
 {
     auto* state = static_cast<Relay::State*>(context);
 
     // Bail before touching `execute` so an idle relay never reaches the owner.
-    if (!state->posted.exchange(false, std::memory_order_acq_rel)) return;
+    if (!state->posted.exchange(false, std::memory_order_acq_rel) && !state->repeating) return;
     if (!state->alive.load(std::memory_order_acquire)) return;
 
     state->execute();
@@ -124,6 +115,7 @@ auto Relay::_start(Spec spec) -> void
     if (!spec.execute) return;
 
     _state->execute = std::move(spec.execute);
+    _state->repeating = spec.repeating;
 
     // The state outlives the timer: `_stop` joins before the shared_ptr can drop.
     auto timer = CreateThreadpoolTimer(&relay_callback, _state.get(), nullptr);

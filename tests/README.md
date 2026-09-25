@@ -22,6 +22,55 @@ audio_bench's `std::format` needs.
 (`generated/` with no models, `work_models/` with a work model), a queued `Pipe`, a toy undo log
 and two example documents.
 
+## Fake hosts
+
+`tests/hosts/` loads the real plug-in bundles each demo builds and drives them through each format's
+host API from the threads a real host uses, so the sanitizers can see the wrappers. Built when the
+plug-ins are, by the `tsan-hosts` and `asan-hosts` presets (label `host`):
+
+```sh
+cmake --preset tsan-hosts && cmake --build --preset tsan-hosts && ctest --preset tsan-hosts
+```
+
+| Host | Loads | Notes |
+|---|---|---|
+| `clap_host` | `.clap` via `dlopen` | Answers `thread_check` honestly; any misbehaving or error log fails. |
+| `vst3_host` | `.vst3` via `dlopen` + `bundleEntry` | Processor and controller kept apart; messages pass a proxy that, like the SDK's, delivers only on the UI thread, and an off-thread send fails. |
+| `auv2_host` | `.component` via `AudioComponentRegister` | In-process only; nothing is installed. |
+| `auv3_host` | a test bundle of the extension's sources (`<Demo>.auv3test`) | Units are created through the view controller, as the system does. |
+| `vst3_validator` | `.vst3` | Steinberg's validator, built from source with the same sanitizer. |
+| `aax_host_<Demo>` | nothing: the wrapper's sources are compiled in, one executable per demo | Fakes the controller, automation delegate, view container and private data; drives the real data model, Direct Data module, GUI and algorithm. |
+
+Every host runs the same scenarios: scan-style create and destroy; activate/process cycles across rates,
+block sizes and offline; state save/load/save identity, including streams that move a byte at a time;
+truncated and corrupted state; parameter text round trips; a chaos run (audio thread processing with
+automation, notes and transport while the main thread loads state, queries, flips bypass and
+reconfigures); and teardown straight after activity. The AU and AAX hosts also save and load state
+from another thread during chaos, and check that a load from off main reads back at once and is
+then applied on main. Each audio block runs with an allocation trap
+armed, and the first few allocations print their stacks. Options: `--seed N`, `--seconds S`.
+
+Editors too, on macOS: each host opens the editor through its format's API (CLAP `gui`, VST3
+`createView`/`attached`, AUv2 `kAudioUnitProperty_CocoaUI`, AUv3 the view controller's `view`) in a real
+window kept at zero alpha, and feeds it synthetic clicks, drags, double and right clicks, moves and
+scrolls (`hosts/gui.mm`, delivered straight to the view under the point). Scenarios: open, use and close,
+idle and while processing, with state loads reaching the open editor; the editor opening and closing
+during chaos; and teardown with the editor open. AUv2 and AUv3 also dispose of the unit while its view
+is still in the window, which hosts do.
+
+AAX has no host to load a bundle into (Avid's validator runs tests in a child process that loses the
+preloaded sanitizer runtime), so `aax_host` stands in for Pro Tools' threads: main is host and GUI
+(chunks, parameter echoes, `GenerateCoefficients`, `TimerWakeup`, notifications, resets), the algorithm
+renders on an audio thread, and the Direct Data timer runs on its own. Private-data copies are acquire
+loads and release stores, except the seqlocked slots (blocks, the state outbox), whose torn reads are
+the protocol and are hidden from TSan. Same scenarios as above, plus `CompareActiveChunk` of a chunk
+just saved, a load from off main, and chaos with three more threads saving, comparing and loading
+chunks concurrently, which the SDK permits unless `AAX_eProperty_RequiresChunkCallsOnMainThread` is set.
+
+Under a sanitizer the AU and AAX SDK libraries are compiled from source (root `CMakeLists.txt`) so
+they are instrumented too. Suppressions live in `tests/sanitizers/tsan.supp`, each with its reason. Not
+covered: Windows. Skia itself is prebuilt, so TSan sees its calls but not inside them.
+
 ## lock_free_queue_test.cpp
 
 All four `Lock_free_queue` modes: exact capacity, FIFO across many trips round the storage, and

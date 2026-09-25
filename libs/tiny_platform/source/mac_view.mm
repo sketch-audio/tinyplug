@@ -27,6 +27,7 @@ static_assert(false, "This is a non-ARC file");
 - (void)startDisplayLink;
 - (void)stopDisplayLink;
 - (void)draw;
+- (void)detach;
 @end
 
 // 
@@ -78,6 +79,14 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     _on_autorelease(); // Need this for AUv2
     [self stopDisplayLink];
     [super dealloc];
+}
+
+// The owner is going away while AppKit still holds this view (AUv2: a host can dispose of the unit
+// with its view on screen). Stop drawing and forget everything that points back at the owner.
+- (void)detach {
+    [self stopDisplayLink];
+    _on_autorelease = []() {};
+    _delegate->detach();
 }
 
 - (void)startDisplayLink {
@@ -397,10 +406,15 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
 {
     NSView* view;
 
+    // An autoreleasing view can die before us or after us; its dealloc tells us which.
+    auto on_view_released = [this, on_release = std::move(on_release)]() {
+        _view = nullptr;
+        on_release();
+    };
     if (@available(macOS 14, *)) {
-        view = [[TINY_MAC_METAL_VIEW alloc] initWithDelegate:_delegate onAutorelease:on_release];
+        view = [[TINY_MAC_METAL_VIEW alloc] initWithDelegate:_delegate onAutorelease:on_view_released];
     } else {
-        view = [[TINY_MAC_VIEW alloc] initWithDelegate:_delegate onAutorelease:on_release];
+        view = [[TINY_MAC_VIEW alloc] initWithDelegate:_delegate onAutorelease:on_view_released];
     }
 
     auto context = std::make_unique<Window_context>();
@@ -415,8 +429,11 @@ Platform_view::~Platform_view()
 {
     Window_registry::remove(_token);
 
-    // The AUv2 view will have been autoreleased by now.
-    if (_owns_view) {
+    // Detached first either way: an autoreleasing view is still in the host's window, and even an
+    // owned one can be deallocated later than this (an autorelease pool), after which nothing may
+    // call back into us or our owner.
+    if (_view) [(TINY_MAC_VIEW*)_view detach];
+    if (_owns_view && _view) {
         [(NSView*)_view removeFromSuperview];
         [(NSView*)_view release];
     }

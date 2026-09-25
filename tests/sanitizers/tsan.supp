@@ -1,0 +1,7 @@
+# ThreadSanitizer suppressions. Every entry names its reason. An entry for our own code needs either a
+# fix or an explanation of synchronization TSan can't see; "benign race" is not a reason.
+
+# AudioToolbox's parameter refresher reads an AUv3's parameterTree on its own thread. The tree is set
+# on main while the unit is created, long before AudioToolbox hands the unit to the refresher, and
+# that hand-off happens inside AudioToolbox, which is uninstrumented, so TSan sees no ordering.
+race:AUScheduledParameterRefresher2::invalidateParameter

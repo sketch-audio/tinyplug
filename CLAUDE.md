@@ -42,7 +42,9 @@ translate the host's API into framework events and back.
   - [tests/](tests/) — one CTest executable per file; presets `tests`, `tsan`, `asan`
     (`cmake --preset tsan && cmake --build --preset tsan && ctest --preset tsan`). New tests use
     audio_bench, fetched at a pinned commit; see [tests/README.md](tests/README.md). Run the
-    `tsan` preset after touching any threading primitive.
+    `tsan` preset after touching any threading primitive. Fake hosts (`tests/hosts/`: CLAP, VST3,
+    AUv2, AUv3, and AAX with the wrapper compiled in) drive the real demo bundles under the `tsan-hosts` / `asan-hosts` presets; run them
+    after touching a wrapper.
 
 ## Build
 
@@ -391,12 +393,12 @@ This has knock-on effects throughout the wrapper:
   value into the editor's meter queue.
 - **Worker has to cross the COM boundary.** Editor↔worker is direct
   (worker lives on the controller side). Processor↔worker must traverse
-  `IMessage`: audio-thread pushes lock-free into `_worker_outbound`, an
-  `Outbound_message_shuttle` thread drains it and calls
-  `sendMessage` to the controller; replies arrive in `Vst3_controller::notify`,
-  get pushed into `_worker_to_proc`, and the controller's worker runner
-  has a `set_post_cycle` that ships them back to the processor via another
-  `IMessage`. See [vst3_messaging.h](formats/vst3/source/vst3_messaging.h)
+  `IMessage`: audio-thread pushes lock-free into `_worker_outbound` and a
+  `Relay` drains it and calls `sendMessage` to the controller (on the UI thread on
+  macOS, so worker traffic stalls while the host's main thread is blocked and the
+  outbound queue can fill); replies arrive in `Controller::notify`, get pushed into
+  `_worker_to_proc`, and the controller's worker runner `set_post_cycle` posts a
+  second relay that ships them back to the processor via another `IMessage`. See [vst3_messaging.h](formats/vst3/source/vst3_messaging.h)
   for the typed payload encoding (`send_variant` + `reconstruct_variant`,
   alternatives must be trivially copyable).
 - **Output parameter changes for state-load events** are required because
@@ -485,8 +487,15 @@ the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two
 - **State chunk** uses `State_rules::Aax::chunk_id = 'tiny'` with named string
   keys (`tinyplug-num-params`, `tinyplug-edit-keys`, `tinyplug-host-bypass`).
   Pure data model — untouched by the two-component split. `CompareActiveChunk`
-  is required for Pro Tools' compare light; current implementation only compares
-  params.
+  is required for Pro Tools' compare light; it compares params and the state record.
+- **Chunk calls arrive on any thread, concurrently** (the SDK default; don't set
+  `AAX_eProperty_RequiresChunkCallsOnMainThread`). Off main the chunk methods touch only
+  `_chunk_image`, a `State_image` (see "State / preset model") that `TimerWakeup` keeps
+  current; a main-thread `GetChunkSize` rebuilds it fresh. A `GetChunkSize`/`GetChunk`
+  pair keeps the image it sized, per thread. Every call uses a local
+  `AAX_CChunkDataParser`; never the SDK's shared `mChunkParser`. The SDK's `LoadChunk`
+  over-reads truncated chunks — an SDK bug (to report to Avid), exempted from ASan in
+  the root `CMakeLists.txt` and `tests/sanitizers/asan.supp`.
 - AAX parameters are addressed by **string IDs**, not integers; `tree_to_aax_ids`
   in [adapters.hpp](wrappers/aax/source/adapters.hpp) builds canonical IDs from
   the param tree, and `aax_id_to_tiny` reverses the map.
@@ -587,6 +596,19 @@ the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two
   `state::Model` record (see "Core abstractions"), and the optional buffer-source persistence from
   [plans/buffer-system.md](plans/buffer-system.md) for large audio buffers
   (not yet implemented).
+- **Saves and loads off main** (AAX chunks, AUv2 ClassInfo and factory presets, AUv3
+  `fullState`, presets and `saveUserPreset`): the state they cover is main's (editor,
+  undo, document), so each of those wrappers keeps a `State_image`
+  ([state_image.hpp](libs/tiny_core/include/tiny_core/state_image.hpp)). Off main a save
+  answers from the image and a load becomes the image at once, then main applies it.
+  Main rebuilds when a parameter or load marked it dirty (at most every 250 ms, so
+  automation can't rebuild every tick) and otherwise once a second: editor state and the
+  document have no change signal, so they are polled. AUv2 and AUv3 tick on a repeating
+  `Relay` (whose stop waits out a delivery in flight); AAX in `TimerWakeup`. CLAP and VST3
+  need none — their specs put state calls on the main/UI thread. Known, by design: a load
+  from off main returns before it applies, so parameter reads lag it by one tick (≈100 ms,
+  one `TimerWakeup` on AAX); an AUv2 factory preset set off main doesn't update the image
+  until then either.
 - `State_adapter` ([state_adapter.hpp](libs/tiny_core/include/tiny_core/state_adapter.hpp))
   is the format-agnostic glue: a JSON document with `version`, `params`,
   `editor` and (with a state model) `state` keys. Editor keys beginning `tinyplug-` are
@@ -652,7 +674,11 @@ Every wrapper implements the same pattern:
 5. Next `process`, wrapper calls `reset(Reset::Latency{N})` on the kernel and
    the kernel must immediately match (assertion checked).
 6. `Host_bypass::set_latency` is updated in lockstep so soft-bypass
-   PDC compensation tracks.
+   PDC compensation tracks. It never allocates: the bypass delays are sized at
+   `configure` by `set_max_latency(process::max_latency_of(processor))`, from the
+   processor's optional `max_latency_samps()` (absent means a fixed latency). A
+   proposal beyond that is refused by `Host_bypass::admit` (assert in debug), never
+   grown into on the audio thread.
 7. A `configure` arriving mid-handshake **supersedes** it: the wrapper clears
    `_pending_latency` / `_accepted_latency` so the old proposal cannot be
    applied against the new configuration, and leaves `_reported_latency` alone
@@ -825,6 +851,16 @@ speculation, they're scheduled work.
 - **[processor-api-migration.md](plans/processor-api-migration.md)** — hand-off guide for
   porting a downstream plug-in repo to the current processor API. Five changes in
   dependency order, with the contracts and the traps.
+
+- **[relay-delivery.md](plans/relay-delivery.md)** — `Relay` with pluggable main-thread
+  delivery: a shared per-DLL message window on Windows (today a pool thread, which breaks VST3's
+  `[UI-thread]` sends), host `request_callback` for CLAP. Prerequisite for the Windows
+  validation pass.
+
+- **[unified-edit-model.md](plans/unified-edit-model.md)** — exploratory. The framework owns
+  all state: editor state behind a handle (a view model or `state::Model`, undecided), one undo
+  step across params and state, no `save_state`/`load_state`/`notify`, and on-demand saves from
+  any thread that retire `State_image` polling.
 
 - **[processor-lifecycle.md](plans/processor-lifecycle.md)** — scheduled next.
   Replaces `reset(double)` with `configure(Config)` so parameter values arrive at

@@ -182,6 +182,7 @@ auto configure_instance(const Alg_context* context, Alg_state& st, double sample
     st.bypass.reset(static_cast<float>(sample_rate));
 
     const auto latency = st.processor.latency_samps();
+    st.bypass.set_max_latency(process::max_latency_of(st.processor));
     st.bypass.set_latency(latency); // Compensates our own delay, so always the kernel's value.
 
     if (st.latency_seq == 0) {
@@ -625,7 +626,7 @@ auto render_instance(Alg_context* ctx) -> void
     // Only act if it actually differs from what we last told the host — otherwise a
     // kernel that re-proposes the same value every block would restart the handshake
     // every block.
-    if (const auto proposed = context.propose_latency) {
+    if (const auto proposed = st->bypass.admit(context.propose_latency)) {
         // A steady intention restated every block is not a new proposal. PDC disabled by
         // the host drops it outright — known unfixed bug: nothing re-proposes if it is
         // switched back on.

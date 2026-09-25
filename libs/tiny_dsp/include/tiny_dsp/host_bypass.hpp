@@ -1,10 +1,12 @@
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 #include "delay_line.hpp"
@@ -61,12 +63,28 @@ public:
         return _bypassed.load(std::memory_order_acquire);
     }
 
+    // At configure, the one place it may allocate: the most latency this configuration can reach.
+    auto set_max_latency(size_t samples) -> void
+    {
+        _max_latency = samples;
+        for (auto& delay : _delays) {
+            delay.resize(samples + 1); // A read `n` back needs n + 1 samples.
+        }
+    }
+
+    // Never allocates, so the render thread may call it: moves the read point only.
     auto set_latency(size_t samples) -> void
     {
-        _latency = static_cast<uint32_t>(samples);
-        for (auto& delay : _delays) {
-            delay.resize(samples);
-        }
+        assert(samples <= _max_latency && "Latency beyond max_latency_samps().");
+        _latency = static_cast<uint32_t>(std::min(samples, _max_latency));
+    }
+
+    // A proposal the delays cannot compensate is refused rather than grown into on the render thread.
+    auto admit(std::optional<uint32_t> proposed) const -> std::optional<uint32_t>
+    {
+        if (!proposed || *proposed <= _max_latency) return proposed;
+        assert(false && "Proposed latency beyond max_latency_samps(); declare it on the processor.");
+        return std::nullopt;
     }
 
     /**
@@ -106,6 +124,7 @@ private:
 
     float _sr{48000};
     uint32_t _latency{0};
+    size_t _max_latency{0};
 
     static constexpr auto max_channels = size_t{2};
     std::array<Delay_line, max_channels> _delays{{{}, {}}};

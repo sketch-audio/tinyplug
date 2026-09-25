@@ -55,6 +55,9 @@ public:
 #if TINY_HAS_STATE
         _state_relay.reset();
 #endif
+#if TINY_HAS_WORKER
+        _worker_relay.reset();
+#endif
     }
 
     Steinberg::tresult PLUGIN_API notify(Steinberg::Vst::IMessage* message) SMTG_OVERRIDE;
@@ -167,6 +170,7 @@ private:
 
     // Latency
     std::atomic<uint32_t> _latency{};
+    std::atomic<uint32_t> _tail{}; // The processor's tail, refreshed by process and setupProcessing.
     std::atomic<uint32_t> _reported_latency{}; // Don't feedback latency changes.
     std::atomic<bool> _did_peek{false}; // Fallback for non-conforming hosts.
     bool _was_moving{};
@@ -219,7 +223,7 @@ private:
 #if TINY_HAS_WORKER
     // Worker channel. The worker lives on the controller side. The audio
     // thread pushes From_processor messages lock-free into _worker_outbound;
-    // a non-realtime shuttle thread drains it and forwards each message to
+    // the worker relay drains it on the UI thread and forwards each message to
     // the controller via IMessage. Replies from the worker come back via
     // IMessage and land in _worker_to_proc_inbox.
     using Worker_outbound_q = Lock_free_queue<typename User_work::From_processor, User_work::inbound_capacity, Queue_concurrency::spsc>;
@@ -228,10 +232,10 @@ private:
     Worker_outbound_q _worker_outbound{};
     Worker_to_proc_inbox_q _worker_to_proc_inbox{};
 
-    // Last so its destructor (which joins the shuttle thread) runs first.
-    vst3::Outbound_message_shuttle _shuttle{};
+    std::optional<Relay> _worker_relay{}; // Scoped to setActive, like the other relays.
 
     auto _setup_worker() -> void;
+    auto _send_worker_messages() -> void;
 #endif
 
 #if TINY_HAS_STATE

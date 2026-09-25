@@ -68,10 +68,26 @@ void when_sheet_free(NSWindow* host, void (^begin)(NSWindow*), int waits_left)
     }];
 }
 
+// The view that asked has closed since, or is no longer in a window (an AUv3 host removes the view
+// controller's view but keeps it). Dialogs are deferred to the main queue, so this happens; presenting
+// now would be app-modal, attached to no plug-in window, blocking the whole host until someone answered.
+auto requester_gone(Window_token token) -> bool
+{
+    if (!token) return false; // Named no window: the guesses in host_window are all we have.
+    auto* view = static_cast<NSView*>(Window_registry::resolve(token));
+    return !view || !view.window;
+}
+
 // Present an alert and hand the response to `done` exactly once. Takes ownership
 // of `alert`.
 void run_alert(NSAlert* alert, Window_token token, void (^done)(NSModalResponse))
 {
+    if (requester_gone(token)) {
+        done(NSModalResponseCancel); // Answered, as every dialog is: as a cancel.
+        [alert release];
+        return;
+    }
+
     auto* host = host_window(token);
 
     if (host) {
@@ -99,6 +115,11 @@ void run_alert(NSAlert* alert, Window_token token, void (^done)(NSModalResponse)
 // block capture is what keeps it alive across the sheet.
 void run_panel(NSSavePanel* panel, Window_token token, void (^done)(NSModalResponse))
 {
+    if (requester_gone(token)) {
+        done(NSModalResponseCancel);
+        return;
+    }
+
     auto* host = host_window(token);
 
     if (host) {

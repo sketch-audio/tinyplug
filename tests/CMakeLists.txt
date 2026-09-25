@@ -69,3 +69,94 @@ tiny_add_test(state_writers_test)
 tiny_add_test(state_record_test)
 tiny_add_test(state_adapter_test)
 tiny_add_test(state_link_test LIBS ${TINY_PLUG_LIB} INCLUDES ${_standin})
+
+# ============================================================================
+# Fake hosts: real plug-in bundles driven through each format's host API, one CTest per demo.
+# Only when the plug-ins are built (the `tsan-hosts` / `asan-hosts` presets).
+# ============================================================================
+
+if(TINY_BUILD_PLUGINS AND NOT WIN32)
+    add_custom_target(tiny_host_tests)
+    set(_demos AutomationDemo BlockDemo GainDemo LatencyDemo MeterDemo PlatformDemo SineSynth StateDemo StepSequencer WorkerDemo)
+
+    # Editor support (a window, synthetic input): macOS for now.
+    set(_gui_sources)
+    if(APPLE)
+        set(_gui_sources hosts/gui.mm)
+        set_source_files_properties(hosts/gui.mm PROPERTIES COMPILE_OPTIONS -fobjc-arc)
+    endif()
+
+    add_executable(clap_host hosts/clap_host.cpp hosts/support.cpp ${_gui_sources})
+    target_link_libraries(clap_host PRIVATE tiny::clap audio_bench Threads::Threads)
+    target_include_directories(clap_host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/hosts)
+    target_compile_options(clap_host PRIVATE -Wall -Wextra -Wconversion -Wshadow)
+    if(APPLE)
+        target_link_libraries(clap_host PRIVATE "-framework CoreFoundation -framework AppKit -framework AudioToolbox") # Run loop, editor window.
+    endif()
+    add_dependencies(tiny_host_tests clap_host)
+
+    if(APPLE)
+        add_executable(vst3_host hosts/vst3_host.cpp hosts/support.cpp ${_gui_sources} ${TINY_DEPS_PATH}/third_party/vst3sdk/public.sdk/source/common/memorystream.cpp)
+        target_link_libraries(vst3_host PRIVATE sdk_hosting audio_bench Threads::Threads "-framework CoreFoundation -framework AppKit -framework AudioToolbox")
+        target_include_directories(vst3_host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/hosts)
+        add_dependencies(tiny_host_tests vst3_host)
+
+        add_executable(auv2_host hosts/auv2_host.cpp hosts/support.cpp ${_gui_sources})
+        target_link_libraries(auv2_host PRIVATE audio_bench Threads::Threads "-framework AudioToolbox -framework CoreFoundation -framework AppKit")
+        target_include_directories(auv2_host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/hosts)
+        target_compile_options(auv2_host PRIVATE -Wall -Wextra -Wshadow)
+        add_dependencies(tiny_host_tests auv2_host)
+
+        # AAX: no bundle loading, so one host per demo with the wrapper's sources compiled in.
+        set(_aax_source ${PROJECT_SOURCE_DIR}/wrappers/aax/source)
+        foreach(demo ${_demos})
+            if(NOT TARGET ${demo}_aax)
+                continue()
+            endif()
+            add_executable(aax_host_${demo} hosts/aax_host.cpp hosts/support.cpp ${_gui_sources}
+                ${_aax_source}/alg_proc.cpp ${_aax_source}/direct_data.cpp ${_aax_source}/gui.cpp ${_aax_source}/parameters.cpp)
+            target_link_libraries(aax_host_${demo} PRIVATE ${demo}_lib tiny::aaxsdk ${TINY_PLATFORM_LIB} ${TINY_DSP_LIB} audio_bench Threads::Threads
+                "-framework AppKit -framework CoreFoundation -framework AudioToolbox")
+            target_include_directories(aax_host_${demo} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/hosts ${_aax_source})
+            configure_mac_view(aax_host_${demo} ${demo} ${PROJECT_VERSION} 1 aax_host_${demo})
+            add_test(NAME aax_host.${demo} COMMAND aax_host_${demo})
+            set_tests_properties(aax_host.${demo} PROPERTIES TIMEOUT 120 LABELS host)
+            add_dependencies(tiny_host_tests aax_host_${demo})
+        endforeach()
+
+        add_executable(auv3_host hosts/auv3_host.mm hosts/support.cpp ${_gui_sources})
+        target_compile_options(auv3_host PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+        target_link_libraries(auv3_host PRIVATE audio_bench Threads::Threads
+            "-framework AppKit -framework AudioToolbox -framework AVFoundation -framework CoreAudioKit -framework Foundation")
+        target_include_directories(auv3_host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/hosts)
+        add_dependencies(tiny_host_tests auv3_host)
+    endif()
+
+    foreach(demo ${_demos})
+        if(TARGET vst3_host AND TARGET ${demo}_vst3)
+            add_test(NAME vst3_host.${demo} COMMAND vst3_host $<TARGET_BUNDLE_DIR:${demo}_vst3>)
+            set_tests_properties(vst3_host.${demo} PROPERTIES TIMEOUT 120 LABELS host)
+            add_dependencies(tiny_host_tests ${demo}_vst3)
+            if(TARGET validator) # Steinberg's own validator, built from source with the same sanitizer.
+                add_test(NAME vst3_validator.${demo} COMMAND validator $<TARGET_BUNDLE_DIR:${demo}_vst3>)
+                set_tests_properties(vst3_validator.${demo} PROPERTIES TIMEOUT 120 LABELS host)
+                add_dependencies(tiny_host_tests validator)
+            endif()
+        endif()
+        if(TARGET auv2_host AND TARGET ${demo}_auv2)
+            add_test(NAME auv2_host.${demo} COMMAND auv2_host $<TARGET_BUNDLE_DIR:${demo}_auv2>)
+            set_tests_properties(auv2_host.${demo} PROPERTIES TIMEOUT 120 LABELS host)
+            add_dependencies(tiny_host_tests ${demo}_auv2)
+        endif()
+        if(TARGET auv3_host AND TARGET ${demo}_auv3_test AND TARGET ${demo}_auv2)
+            add_test(NAME auv3_host.${demo} COMMAND auv3_host $<TARGET_BUNDLE_DIR:${demo}_auv3_test> $<TARGET_BUNDLE_DIR:${demo}_auv2>)
+            set_tests_properties(auv3_host.${demo} PROPERTIES TIMEOUT 120 LABELS host)
+            add_dependencies(tiny_host_tests ${demo}_auv3_test)
+        endif()
+        if(TARGET ${demo}_clap)
+            add_test(NAME clap_host.${demo} COMMAND clap_host $<TARGET_BUNDLE_DIR:${demo}_clap>)
+            set_tests_properties(clap_host.${demo} PROPERTIES TIMEOUT 120 LABELS host)
+            add_dependencies(tiny_host_tests ${demo}_clap)
+        endif()
+    endforeach()
+endif()

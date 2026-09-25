@@ -19,6 +19,7 @@ public:
     auto process(Dsp_context& context) -> void;
 
     auto latency_samps() const -> uint32_t { return _frame.current; }
+    auto max_latency_samps() const -> uint32_t; // The longest mode: the framework sizes bypass for it at configure.
     auto tail_samps() const -> uint32_t { return 0; }
 
 private:

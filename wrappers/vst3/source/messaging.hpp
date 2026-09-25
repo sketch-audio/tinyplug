@@ -1,19 +1,17 @@
 #pragma once
 
-#include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <functional>
 #include <span>
 #include <string>
-#include <thread>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
 
+#include "pluginterfaces/base/ibstream.h"
 #include "pluginterfaces/vst/ivstmessage.h"
 #include "public.sdk/source/vst/vstcomponentbase.h"
 
@@ -73,54 +71,38 @@ private:
 
 };
 
-// MARK: - shuttle
+// MARK: - full reads
 
-// Dedicated non-realtime polling thread that drains caller-supplied
-// queues and forwards their contents over IMessage. Owned by the
-// processor side; lets the audio thread push lock-free into an SPSC
-// queue while all IMessage allocation/send happens off the audio
-// thread. Replaces our (failed) attempt to use the SDK's
-// DataExchangeHandler whose fallback path was unreliable in Bitwig and
-// Live 11.
-class Outbound_message_shuttle {
+// IBStream::read may return fewer bytes than asked, and IBStreamer (and a single `read` call) treat
+// a short read as a failed load. Wraps a host stream so every read loops until it has the bytes or
+// the stream ends. A stack object: point the `state` parameter at it for the rest of the load.
+class Full_read_stream final : public Steinberg::IBStream {
 public:
 
-    using Drain_fn = std::function<void()>;
+    explicit Full_read_stream(Steinberg::IBStream* inner) : _inner{inner} {}
 
-    Outbound_message_shuttle() = default;
-    ~Outbound_message_shuttle() { stop(); }
-
-    Outbound_message_shuttle(const Outbound_message_shuttle&) = delete;
-    auto operator=(const Outbound_message_shuttle&) -> Outbound_message_shuttle& = delete;
-    Outbound_message_shuttle(Outbound_message_shuttle&&) = delete;
-    auto operator=(Outbound_message_shuttle&&) -> Outbound_message_shuttle& = delete;
-
-    auto register_drain(Drain_fn drain) -> void { _drains.push_back(std::move(drain)); }
-
-    auto start(std::chrono::milliseconds poll_interval) -> void
+    Steinberg::tresult PLUGIN_API read(void* buffer, Steinberg::int32 size, Steinberg::int32* bytes_read) SMTG_OVERRIDE
     {
-        if (_running.exchange(true, std::memory_order_acq_rel)) return; // Already running.
-        _poll = poll_interval;
-        _thread = std::thread([this]() {
-            while (_running.load(std::memory_order_acquire)) {
-                for (const auto& drain : _drains) drain();
-                std::this_thread::sleep_for(_poll);
-            }
-        });
+        auto total = Steinberg::int32{};
+        while (total < size) {
+            auto got = Steinberg::int32{};
+            if (_inner->read(static_cast<char*>(buffer) + total, size - total, &got) != Steinberg::kResultOk || got <= 0) break;
+            total += got;
+        }
+        if (bytes_read) *bytes_read = total;
+        return total > 0 || size == 0 ? Steinberg::kResultOk : Steinberg::kResultFalse;
     }
+    Steinberg::tresult PLUGIN_API write(void* buffer, Steinberg::int32 size, Steinberg::int32* written) SMTG_OVERRIDE { return _inner->write(buffer, size, written); }
+    Steinberg::tresult PLUGIN_API seek(Steinberg::int64 pos, Steinberg::int32 mode, Steinberg::int64* result) SMTG_OVERRIDE { return _inner->seek(pos, mode, result); }
+    Steinberg::tresult PLUGIN_API tell(Steinberg::int64* pos) SMTG_OVERRIDE { return _inner->tell(pos); }
 
-    auto stop() -> void
-    {
-        if (!_running.exchange(false, std::memory_order_acq_rel)) return;
-        if (_thread.joinable()) _thread.join();
-    }
+    Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID, void** obj) SMTG_OVERRIDE { *obj = nullptr; return Steinberg::kNoInterface; }
+    Steinberg::uint32 PLUGIN_API addRef() SMTG_OVERRIDE { return 1; }
+    Steinberg::uint32 PLUGIN_API release() SMTG_OVERRIDE { return 1; }
 
 private:
 
-    std::vector<Drain_fn> _drains{};
-    std::thread _thread{};
-    std::atomic<bool> _running{false};
-    std::chrono::milliseconds _poll{16};
+    Steinberg::IBStream* _inner{};
 
 };
 

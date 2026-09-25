@@ -28,6 +28,16 @@ auto View::create_view() -> void*
     return _platform_view->native_handle();
 }
 
+// A host can dispose of the unit with its view still on screen, so the view can outlive us. Close the
+// editor's GUI lifecycle as the view's dealloc would have; ~Platform_view then leaves the view inert.
+View::~View()
+{
+    if (_platform_view && _platform_view->native_handle()) {
+        _deps.editor->on_gui_hide();
+        _deps.editor->on_gui_destroy();
+    }
+}
+
 auto View::on_draw(View_context& view_context) -> void
 {
     using namespace params;

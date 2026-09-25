@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <new> // std::hardware_destructive_interference_size
 #include <type_traits> // std::is_trivially_copyable_v
@@ -15,14 +16,20 @@ template<typename T, Port_direction D = Port_direction::Main>
 class Data_port;
 
 namespace detail {
-template<typename T>
-inline constexpr auto separate_v = std::hardware_destructive_interference_size;
+
+// Hot fields are kept a full line apart by padding, not alignas. An over-aligned member makes its
+// owner over-aligned, and not every allocator honours that: the AU SDK constructs its instance in
+// malloc'd storage, and Objective-C objects are malloc'd. Spacing works at any alignment.
+inline constexpr auto line = std::hardware_destructive_interference_size;
+using Line_pad = std::array<std::byte, line>;
 
 template<typename T>
-struct alignas(separate_v<T>) Slot {
+struct Slot {
     static_assert(std::is_trivially_copyable_v<T>);
     T value{};
+    Line_pad after{};
 };
+
 } // namespace detail
 
 // Writer is wait-free.
@@ -77,7 +84,9 @@ private:
     static constexpr auto FLAG_BUSY = std::uint32_t{1 << 1};
     static constexpr auto FLAG_DIRTY = std::uint32_t{1 << 2};
 
-    alignas(detail::separate_v<T>) std::atomic<std::uint32_t> _control{};
+    detail::Line_pad _before{};
+    std::atomic<std::uint32_t> _control{};
+    detail::Line_pad _after_control{};
     std::array<detail::Slot<T>, 2> _storage{};
 
 };
@@ -116,9 +125,14 @@ private:
     static constexpr auto MASK_INDEX = std::uint32_t{1 << 0};
     static constexpr auto FLAG_BUSY = std::uint32_t{1 << 1};
 
-    alignas(detail::separate_v<T>) std::atomic<std::uint32_t> _control{};
+    detail::Line_pad _before{};
+    std::atomic<std::uint32_t> _control{};
+    detail::Line_pad _after_control{};
     std::array<detail::Slot<T>, 2> _storage{};
 
 };
+
+static_assert(alignof(Data_port<std::uint64_t>) <= alignof(std::max_align_t), "Data_port must not make its owner over-aligned.");
+static_assert(alignof(Data_port<std::uint64_t, Port_direction::Audio>) <= alignof(std::max_align_t), "Data_port must not make its owner over-aligned.");
 
 } // namespace tiny

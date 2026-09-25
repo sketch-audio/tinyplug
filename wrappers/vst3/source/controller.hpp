@@ -1,5 +1,8 @@
 #pragma once
 
+#include <chrono>
+#include <optional>
+
 #include "public.sdk/source/vst/vsteditcontroller.h"
 #include "pluginterfaces/vst/ivstnoteexpression.h"
 #include "pluginterfaces/vst/ivstphysicalui.h"
@@ -12,6 +15,7 @@
 
 #include "tiny_core/change_set.hpp"
 #include "tiny_core/task_manager.hpp"
+#include "tiny_core/relay.hpp"
 
 namespace tiny::vst3 {
 
@@ -204,7 +208,7 @@ protected:
 #if TINY_HAS_WORKER
     // Worker channel. The worker lives on the controller side and uses the
     // editor's Task_manager. Editor↔worker is direct in-process; processor↔
-    // worker crosses the IPC boundary (shuttle + IMessage in both directions).
+    // worker crosses the IPC boundary (relays + IMessage in both directions).
     using Worker_from_proc_q = Lock_free_queue<typename User_work::From_processor, User_work::inbound_capacity, Queue_concurrency::spsc>;
     using Worker_from_edit_q = Lock_free_queue<typename User_work::From_editor,    User_work::inbound_capacity, Queue_concurrency::spsc>;
     using Worker_to_proc_q   = Lock_free_queue<typename User_work::To_processor,   User_work::outbound_capacity>;
@@ -222,6 +226,9 @@ protected:
         },
         _tasks.actor()
     };
+
+    // Worker → processor replies leave on the UI thread; the runner's post-cycle posts it.
+    std::optional<Relay> _worker_reply_relay{};
 
     // Last so its destructor (which joins the worker thread) runs first.
     Worker_runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};

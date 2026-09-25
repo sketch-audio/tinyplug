@@ -1,10 +1,12 @@
 #pragma once
 
+#include <algorithm>
 #include <cassert>
 #include <concepts>
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <type_traits>
 #include <variant>
 
 #include <tiny_core/note_out.hpp>
@@ -207,6 +209,23 @@ concept Interface = requires(T t) {
 }
 #endif
 ;
+
+// The most latency this configuration can ever propose, read straight after `configure`, where
+// what it sizes (the bypass delays) may allocate. Optional: without `max_latency_samps()` the
+// latency is fixed at what `configure` came up with, and any proposal above it is refused. Must
+// hold from `configure` to the next one, so compute it from the rate, not the live parameters.
+template<typename P>
+auto max_latency_of(const P& processor) -> uint32_t
+{
+    if constexpr (requires { processor.max_latency_samps(); }) {
+        // Detected by name, so a size_t or int return is used rather than silently ignored.
+        static_assert(std::is_integral_v<decltype(processor.max_latency_samps())>, "max_latency_samps() must return a sample count.");
+        return std::max(static_cast<uint32_t>(processor.max_latency_samps()), processor.latency_samps());
+    }
+    else {
+        return processor.latency_samps();
+    }
+}
 
 // Hand one delivered input to the processor's matching `handle`.
 template<typename P>

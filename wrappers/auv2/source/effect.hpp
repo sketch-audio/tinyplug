@@ -17,6 +17,7 @@
 
 #include "adapters.hpp"
 #include <tiny_core/relay.hpp>
+#include <tiny_core/state_image.hpp>
 #include "view.hpp"
 
 #include "preset_list.hpp" // Generated.
@@ -106,7 +107,7 @@ public:
         const auto sample_rate = format.mSampleRate;
         if (sample_rate <= 0) return 0.;
 
-        const auto tail = _processor->tail_samps();
+        const auto tail = _tail.load(std::memory_order_relaxed); // Hosts ask from any thread: never the processor itself.
         const auto inf_tail = std::numeric_limits<uint32_t>::max();
         return tail != inf_tail ? tail / sample_rate : std::numeric_limits<double>::infinity();
     }
@@ -127,6 +128,18 @@ private:
     auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
                        std::span<const std::byte> record) -> void;
     auto _load_state_record(std::span<const std::byte> record) -> void;
+
+    // ClassInfo. Hosts may save and load it from any thread, but the editor, undo and document are
+    // main's, so off main only `_state_image` is touched; `_state_tick` keeps it current on main.
+    auto _build_state(CFPropertyListRef* outData) -> OSStatus;
+    auto _apply_state(CFPropertyListRef plist) -> OSStatus;
+    auto _apply_factory_preset(size_t preset_number) -> OSStatus;
+    auto _apply_pending() -> void; // [main] A load or preset that arrived off main.
+    auto _refresh_state() -> void; // [main]
+    State_image<ausdk::Owned<CFPropertyListRef>> _state_image{};
+    std::atomic<int32_t> _pending_preset{-1}; // A factory preset asked for off main.
+    std::optional<Relay> _state_tick{};
+
     auto _input(const process::Input& input, int32_t offset) -> void;
     auto _send_notes(const AudioTimeStamp& time) -> void;
 
@@ -258,6 +271,7 @@ private:
 
     // Latency
     uint32_t _latency{};
+    std::atomic<uint32_t> _tail{}; // The processor's tail, refreshed by render and Initialize.
     std::atomic<uint32_t> _reported_latency{}; // Don't feedback latency changes.
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;

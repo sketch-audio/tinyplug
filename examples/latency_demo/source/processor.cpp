@@ -83,6 +83,11 @@ auto Processor::process(Dsp_context& context) -> void
     context.blocks.publish<Block::Handshake>();
 }
 
+auto Processor::max_latency_samps() const -> uint32_t
+{
+    return static_cast<uint32_t>(std::lround(models::Params::mode_ms.back() * 0.001 * _frame.sr));
+}
+
 auto Processor::_wanted() const -> uint32_t
 {
     const auto index = std::clamp(static_cast<size_t>(_values[enum_raw(Address::Mode)] + 0.5f), size_t{}, models::Params::mode_ms.size() - 1);

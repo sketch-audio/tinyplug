@@ -32,6 +32,9 @@ public:
     };
 
     View(Deps deps) : _deps{deps} {}
+    ~View();
+    View(const View&) = delete;
+    auto operator=(const View&) -> View& = delete;
 
     auto create_view() -> void*;
 

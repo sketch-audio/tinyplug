@@ -253,7 +253,7 @@ private:
     int64_t _free_run_pos{};
 
     // Tail
-    uint32_t _tail{_processor->tail_samps()};
+    std::atomic<uint32_t> _tail{_processor->tail_samps()}; // Written by process, read by tailGet on main.
 
     // Values in host space.
     using Host_value = std::atomic<double>;
@@ -269,6 +269,7 @@ private:
 
     // Values from `paramsFlush`, its only writer: on the audio thread while active, so no mutex.
     Change_set<process::Event::Set, num_params, Producers::One> _from_flush{};
+    Change_set<process::Event::Set, num_params, Producers::One> _from_load{}; // State loads, main thread only: any number between blocks.
     From_ui_queue _from_ui{};
 
 #if TINY_HAS_METERS
@@ -351,12 +352,13 @@ private:
     // `record` is the document's `state::encode_record`; empty loads the default.
     auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
                        std::span<const std::byte> record, bool bypass_changed = false) -> void;
-    auto _handle_host_flushed(bool needs_resync) -> void;
+    auto _handle_host_flushed() -> void;
     auto _input(const process::Input& input, uint32_t time) -> void;
     auto _handle_note_event(const clap_event_header* event) -> void;
     auto _send_notes(const clap_output_events* out) -> void;
     auto _handle_user_actions(const clap_output_events_t* out_events, bool needs_resync) -> void;
     auto _handle_user_action(const User_action& action) -> void;
+    auto _load_param(uint32_t address, double knob) -> void;
 
     // This is where we handle host events from automation or flush.
     // - Kernel needs the plain value.

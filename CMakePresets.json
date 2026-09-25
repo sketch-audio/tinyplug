@@ -42,6 +42,19 @@
       "cacheVariables": { "TINY_SANITIZE": "address,undefined" }
     },
     {
+      "name": "tsan-hosts",
+      "displayName": "Fake hosts under ThreadSanitizer",
+      "description": "Plug-in bundles and the fake hosts that load them, built with TSan.",
+      "inherits": "tsan",
+      "cacheVariables": { "TINY_BUILD_PLUGINS": "ON" }
+    },
+    {
+      "name": "asan-hosts",
+      "displayName": "Fake hosts under AddressSanitizer + UBSan",
+      "inherits": "asan",
+      "cacheVariables": { "TINY_BUILD_PLUGINS": "ON" }
+    },
+    {
       "name": "macos",
       "displayName": "macOS — Xcode (all formats incl. AUv3)",
       "description": "Xcode generator, required for AUv3. Multi-config: pass --config Debug|Release at build time.",
@@ -70,6 +83,8 @@
     { "name": "tests",  "configurePreset": "tests", "jobs": 8, "targets": ["tiny_tests"] },
     { "name": "tsan",   "configurePreset": "tsan",  "jobs": 8, "targets": ["tiny_tests"] },
     { "name": "asan",   "configurePreset": "asan",  "jobs": 8, "targets": ["tiny_tests"] },
+    { "name": "tsan-hosts", "configurePreset": "tsan-hosts", "jobs": 8, "targets": ["tiny_tests", "tiny_host_tests"] },
+    { "name": "asan-hosts", "configurePreset": "asan-hosts", "jobs": 8, "targets": ["tiny_tests", "tiny_host_tests"] },
     { "name": "macos",  "configurePreset": "macos", "configuration": "Debug" },
     { "name": "ios",    "configurePreset": "ios",   "configuration": "Debug" },
     { "name": "windows", "configurePreset": "windows", "configuration": "Debug" }
@@ -78,11 +93,19 @@
     { "name": "tests", "configurePreset": "tests", "output": { "outputOnFailure": true } },
     {
       "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true },
-      "environment": { "TSAN_OPTIONS": "halt_on_error=1:second_deadlock_stack=1:history_size=7" }
+      "environment": { "TSAN_OPTIONS": "halt_on_error=1:second_deadlock_stack=1:history_size=7:suppressions=${sourceDir}/tests/sanitizers/tsan.supp" }
     },
     {
       "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true },
-      "environment": { "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=0", "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1" }
+      "environment": { "ASAN_OPTIONS": "halt_on_error=1:detect_leaks=0:suppressions=${sourceDir}/tests/sanitizers/asan.supp", "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1" }
+    },
+    {
+      "name": "tsan-hosts", "inherits": "tsan", "configurePreset": "tsan-hosts",
+      "filter": { "include": { "label": "host" } }
+    },
+    {
+      "name": "asan-hosts", "inherits": "asan", "configurePreset": "asan-hosts",
+      "filter": { "include": { "label": "host" } }
     }
   ]
 }

@@ -3,8 +3,12 @@
 #include <array>
 #include <atomic>
 #include <charconv>
+#include <memory>
 #include <mutex>
 #include <optional>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include "AAX_CEffectParameters.h"
 
@@ -160,7 +164,19 @@ public:
 
 private:
 
-    auto _build_chunk() const -> void;
+    // Chunks. Pro Tools calls the chunk methods from any thread, several at once, so off main they
+    // touch only `_chunk_image` (see State_image), which main keeps current in TimerWakeup. A
+    // GetChunkSize/GetChunk pair keeps the image it sized. No parser is shared.
+    struct Chunk_image {
+        std::vector<char> bytes{}; // A whole AAX_SPlugInChunk: header, then fSize bytes of data.
+        auto chunk() const -> const AAX_SPlugInChunk* { return reinterpret_cast<const AAX_SPlugInChunk*>(bytes.data()); }
+    };
+    using Chunk_ptr = std::shared_ptr<const Chunk_image>;
+
+    auto _build_chunk(AAX_CChunkDataParser& parser) const -> void;
+    auto _apply_chunk(const AAX_SPlugInChunk* chunk) -> AAX_Result;
+    auto _refresh_chunk() const -> Chunk_ptr; // [main] Rebuilds the image, unless a load is waiting.
+    auto _on_main() const -> bool { return std::this_thread::get_id() == _main_thread; }
 
     // Coefficient staging. One Coef_segment per port; a segment is rebuilt and posted
     // only when one of the parameters packed into it has changed.
@@ -253,6 +269,11 @@ private:
     // Latency. The kernel proposes from the algorithm; the host owns the accepted
     // value and hands it back through a notification.
     std::atomic<bool> _pending_latency{false};
+
+    std::thread::id _main_thread{}; // Where EffectInit ran.
+    mutable State_image<Chunk_ptr> _chunk_image{};
+    mutable std::mutex _chunk_mutex{}; // Guards `_chunk_pairs`.
+    mutable std::vector<std::pair<std::thread::id, Chunk_ptr>> _chunk_pairs{}; // Sized, not yet fetched.
 
 #if TINY_HAS_WORKER
     // Worker channel. Editor <-> worker is direct (both live here). Processor <-> worker

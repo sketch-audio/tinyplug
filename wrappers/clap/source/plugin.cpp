@@ -69,6 +69,7 @@ bool Plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t ma
     _latency = _processor->latency_samps();
 
     _bypass.reset(static_cast<float>(sampleRate));
+    _bypass.set_max_latency(process::max_latency_of(*_processor));
     _bypass.set_latency(_latency);
 
     // Did activate result in a changed latency?
@@ -137,7 +138,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
         // shouldn't see stale values for the whole inactive/sleeping stretch.
         _processor->reset(process::Reset::Soft{});
     }
-    this->_handle_host_flushed(needs_resync);
+    this->_handle_host_flushed();
     this->_handle_user_actions(process->out_events, needs_resync);
 
     // Get ready to process the input events.
@@ -354,7 +355,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // deactivate and reactivate mid-render, and a bounce cannot usefully renegotiate
     // delay compensation. The pending value survives for the next `latencyGet`.
     const auto reported = _reported_latency.load(std::memory_order_relaxed);
-    if (const auto proposed = context.propose_latency; proposed.has_value() && *proposed != reported) {
+    if (const auto proposed = _bypass.admit(context.propose_latency); proposed.has_value() && *proposed != reported) {
         // Set pending latency, mark reported, and request a restart.
         _pending_latency.store(*proposed, std::memory_order_release);
         _reported_latency.store(*proposed, std::memory_order_relaxed);
@@ -362,10 +363,10 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     }
 
     const auto tail = _processor->tail_samps();
-    if (tail != _tail) {
+    if (tail != _tail.load(std::memory_order_relaxed)) {
+        _tail.store(tail, std::memory_order_relaxed); // Before `changed`: the host may read it right away.
         const auto* tail_ext = (const clap_host_tail*)_host->get_extension(_host, CLAP_EXT_TAIL);
         if (tail_ext) tail_ext->changed(_host);
-        _tail = tail;
     }
 
     return CLAP_PROCESS_CONTINUE;
@@ -616,10 +617,7 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_
     auto notify = [&](const auto& param, auto knob_value) {
         const auto can_notify = knob_value.has_value() && State_rules::is_persistent(param);
         if (can_notify) {
-            this->_handle_user_action(Set_param{.address = param.identity.address, .value = *knob_value});
-            if (_view) {
-                _view->set_param(param.identity.address, *knob_value);
-            }
+            this->_load_param(param.identity.address, *knob_value);
         }
     };
 
@@ -672,9 +670,8 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_
         if (addr >= num_params) return;
         const auto& spec = User_params::param_spec(addr);
         const auto from = Value_helper::host_to_knob(_hostvalues[addr].load(std::memory_order_relaxed), spec.semantics);
-        this->_handle_user_action(Set_param{addr, knob}); // Normal host/processor path.
-        if (_view) _view->set_param(addr, knob);           // Keep the UI copy in sync if open.
-        _undo_history.amend_host_load(addr, from, knob);   // Fold into the load's single step.
+        this->_load_param(addr, knob);                   // With the load's own values.
+        _undo_history.amend_host_load(addr, from, knob); // Fold into the load's single step.
     };
     _editor->notify(Host_event{Host_preset_loaded{
         .changes = changes,
@@ -1366,23 +1363,21 @@ uint32_t Plugin::latencyGet() const noexcept
 uint32_t Plugin::tailGet() const noexcept
 {
     // CLAP will interpret anything >= INT32_MAX as infinite.
-    return _tail;
+    return _tail.load(std::memory_order_relaxed);
 }
 
 // MARK: - private
 
-auto Plugin::_handle_host_flushed(bool needs_resync) -> void
+auto Plugin::_handle_host_flushed() -> void
 {
-    // Don't replay stale values: the resync restated everything from _hostvalues.
-    if (needs_resync) {
-        _from_flush.consume([](uint32_t, double) {});
-        return;
-    }
-
-    const auto delivered = _from_flush.consume([this](uint32_t address, double value) {
+    // Delivered after a resync too: a value here was pushed after its `_hostvalues` store, so it
+    // is at least as new as what the resync read, and dropping it could lose that store.
+    const auto deliver = [this](uint32_t address, double value) {
         _processor->handle(process::Event::Set{.address = address, .value = value});
-    });
-    if (delivered) {
+    };
+    const auto loaded = _from_load.consume(deliver);
+    const auto flushed = _from_flush.consume(deliver); // After: a flush is the newer word from the host.
+    if (loaded || flushed) {
         _processor->reset(process::Reset::Soft{});
     }
 }
@@ -1475,9 +1470,20 @@ auto Plugin::_handle_user_action(const User_action& action) -> void
         const auto host_value = Value_helper::knob_to_host(a->value, param.semantics);
         _hostvalues[param.identity.address].store(host_value, std::memory_order_relaxed);
     }
-    [[maybe_unused]] const auto success = _from_ui.push(action);
-    assert(success && "UI to processor queue full, increase queue size!");
-    if (!success) _needs_resync.store(true, std::memory_order_relaxed); // Resync from _hostvalues on the next process.
+    // Full while the host isn't processing (deactivated, asleep) and the editor keeps going. Not an
+    // error: the next process restates everything from _hostvalues.
+    if (!_from_ui.push(action)) _needs_resync.store(true, std::memory_order_relaxed);
+}
+
+// A host load's value: host atomics now, the kernel at the top of the next block. Coalesces, so any
+// number of loads between blocks costs nothing and nothing overflows.
+auto Plugin::_load_param(uint32_t address, double knob) -> void
+{
+    using namespace params;
+    const auto& param = User_params::param_spec(address);
+    _hostvalues[address].store(Value_helper::knob_to_host(knob, param.semantics), std::memory_order_relaxed);
+    _from_load.push(process::Event::Set{.address = address, .value = Value_helper::knob_to_plain(knob, param.semantics)});
+    if (_view) _view->set_param(address, knob);
 }
 
 // MARK: - notes

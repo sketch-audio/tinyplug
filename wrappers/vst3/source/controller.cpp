@@ -27,9 +27,9 @@ constexpr auto k_worker_to_processor_id   = "tiny/worker/to_processor";
 
 auto Controller::_setup_worker() -> void
 {
-    // Processor → worker: decode incoming IMessages (sent by the
-    // processor-side shuttle thread) and push into the from-processor
-    // inbound queue. The worker thread drains and dispatches.
+    // Processor → worker: decode incoming IMessages (sent by the processor's
+    // worker relay) and push into the from-processor inbound queue. The worker
+    // thread drains and dispatches.
     _router.register_handler(k_worker_from_processor_id, [this](std::span<const std::byte> bytes, uint32_t tag) {
         using From_proc = typename User_work::From_processor;
         _worker_from_proc.push(vst3::reconstruct_variant<From_proc>(bytes, tag));
@@ -40,16 +40,11 @@ auto Controller::_setup_worker() -> void
         [this](const auto& m) { return _worker_from_edit.push(m); }
     });
 
-    // Worker → processor: install a post-cycle on the runner that drains
-    // _worker_to_proc and forwards each reply via IMessage. Runs on the
-    // worker thread (non-realtime), so allocation is fine.
+    // Worker → processor: the worker thread only posts; the relay drains _worker_to_proc and
+    // sends on the UI thread (a pool thread on Windows), because IConnectionPoint::notify is
+    // [UI-thread & Connected] and a host proxy may drop a send from the worker thread.
     _worker_runner.set_post_cycle([this]() {
-        if constexpr (!std::is_same_v<typename User_work::To_processor, std::monostate>) {
-            auto reply = typename User_work::To_processor{};
-            while (_worker_to_proc.pop(reply)) {
-                _to_proc.send_variant(k_worker_to_processor_id, reply);
-            }
-        }
+        if (_worker_reply_relay) _worker_reply_relay->post();
     });
 }
 
@@ -122,6 +117,17 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
         return result;
 
 #if TINY_HAS_WORKER
+    _worker_reply_relay.emplace(Relay::Spec{
+        .execute = [this]() {
+            if constexpr (!std::is_same_v<typename User_work::To_processor, std::monostate>) {
+                auto reply = typename User_work::To_processor{};
+                while (_worker_to_proc.pop(reply)) {
+                    _to_proc.send_variant(k_worker_to_processor_id, reply);
+                }
+            }
+        },
+        .interval = std::chrono::duration<double>(User_work::update_period).count()
+    });
     _worker_runner.start(0); // Sample rate unknown to controller; plug-in author
                              // can push it via a From_processor message if needed.
 #endif
@@ -377,6 +383,12 @@ Steinberg::tresult PLUGIN_API Controller::terminate()
 {
     // Here the Plug-in will be de-instantiated, last possibility to remove some memory!
 
+#if TINY_HAS_WORKER
+    // Nothing may send once the host context is gone: messages are allocated through it.
+    _worker_runner.stop();
+    _worker_reply_relay.reset();
+#endif
+
     // Do not forget to call parent.
     return Super::terminate();
 }
@@ -391,6 +403,8 @@ Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream*
     if (!state) {
         return Steinberg::kResultFalse;
     }
+    auto full = vst3::Full_read_stream{state}; // Hosts may return short reads.
+    state = &full;
 
     // Streamer convenience wrapper. 
     auto streamer = Steinberg::IBStreamer{state};
@@ -502,6 +516,8 @@ Steinberg::tresult PLUGIN_API Controller::setState(Steinberg::IBStream* state)
     if (!state) {
         return Steinberg::kResultFalse;
     }
+    auto full = vst3::Full_read_stream{state}; // Hosts may return short reads.
+    state = &full;
 
     // Streamer convenience wrapper.
     auto streamer = Steinberg::IBStreamer{state};

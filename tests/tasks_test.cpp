@@ -408,6 +408,37 @@ auto add_relay() -> void
         expect_true(calls->load() == 0, "a destroyed relay fired");
     });
 
+    Tests::add("Relay: repeating fires every interval without a post", [] {
+        auto calls = std::atomic<int>{};
+        auto relay = tiny::Relay{{.execute = [&] { calls.fetch_add(1); }, .interval = 0.01, .repeating = true}};
+        pump_main(150ms);
+        expect_true(calls.load() >= 3, std::format("a repeating relay fired {} times in 150 ms", calls.load()));
+    });
+
+    Tests::add("Relay: a stop off main waits out a delivery in flight", [] {
+        auto inside = std::atomic<bool>{};
+        auto finished = std::atomic<bool>{};
+        auto finished_at_stop = std::atomic<bool>{};
+        auto relay = std::make_unique<tiny::Relay>(tiny::Relay::Spec{
+            .execute = [&] {
+                if (finished.load()) return;
+                inside = true;
+                std::this_thread::sleep_for(50ms); // The owner is mid-use when the stop arrives.
+                finished = true;
+            },
+            .interval = 0.005,
+            .repeating = true,
+        });
+        auto stopper = std::thread{[&] {
+            while (!inside.load()) std::this_thread::yield();
+            relay.reset(); // Off main, while main is inside `execute`.
+            finished_at_stop = finished.load();
+        }};
+        pump_main(300ms);
+        stopper.join();
+        expect_true(finished_at_stop.load(), "the stop returned while a delivery was still running");
+    });
+
     Tests::add("Relay: posting from the audio side while main destroys it", [] {
         for (auto round = 0; round < 50; ++round) {
             auto calls = std::make_shared<std::atomic<int>>();

@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <array>
+#include <limits>
 #include <optional>
 
 #import <AudioToolbox/AudioToolbox.h>
@@ -52,6 +53,7 @@ public:
         });
         const auto latency = _processor->latency_samps();
         _latency.store(latency, std::memory_order_release);
+        _tail.store(_processor->tail_samps(), std::memory_order_relaxed);
 
         // What the host is about to be told, so a kernel proposal of the same value is a
         // no-op. Any proposal still outstanding was cleared in `deInitialize`: `configure`
@@ -60,6 +62,7 @@ public:
         _reported_latency.store(latency, std::memory_order_relaxed);
 
         _bypass.reset(static_cast<float>(inSampleRate));
+        _bypass.set_max_latency(tiny::process::max_latency_of(*_processor));
         _bypass.set_latency(latency);
         _silence.assign(mMaxFramesToRender, 0.f);
 
@@ -315,7 +318,7 @@ public:
         // usefully renegotiate delay compensation, and the host recomputing it
         // mid-render interrupts playback. The pending value survives for the next
         // `latency` query.
-        if (const auto proposed_latency = context.propose_latency) {
+        if (const auto proposed_latency = _bypass.admit(context.propose_latency)) {
             const auto reported = _reported_latency.load(std::memory_order_relaxed);
             if (*proposed_latency != reported) {
                 // Release publishes `_pending_latency` to the thread that runs `execute`;
@@ -326,10 +329,7 @@ public:
             }
         }
 
-//        const auto tail = _processor->tail_samps();
-//        if (tail != _tail) {
-//            // tail changed
-//        }
+        _tail.store(_processor->tail_samps(), std::memory_order_relaxed); // For tailTime, on the main thread.
         
         const auto beats_per_sample = _context.tempo_real / (60 * mSampleRate);
         _context.beat_pos += frameCount * beats_per_sample;
@@ -429,7 +429,8 @@ public:
     
     auto tail_secs() -> double
     {
-        return _processor->tail_samps() / mSampleRate;
+        const auto tail = _tail.load(std::memory_order_relaxed); // Never the processor: it belongs to the render thread.
+        return tail == std::numeric_limits<uint32_t>::max() ? std::numeric_limits<double>::infinity() : tail / mSampleRate;
     }
     
 #if TINY_HAS_METERS
@@ -524,6 +525,7 @@ private:
 
     // Latency
     std::atomic<uint32_t> _latency{};
+    std::atomic<uint32_t> _tail{}; // The processor's tail, refreshed by process and initialize.
     // Written from `process` (audio) and `initialize` (main), so it cannot be plain.
     std::atomic<uint32_t> _reported_latency{}; // Don't feedback latency changes.
 
@@ -664,3 +666,6 @@ private:
     }
 
 };
+
+// An ivar of the AU, and Objective-C objects are malloc'd: over-alignment can't be honoured.
+static_assert(alignof(DSPKernel) <= alignof(std::max_align_t), "DSPKernel must not be over-aligned.");

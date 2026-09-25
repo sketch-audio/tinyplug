@@ -3,6 +3,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 
 namespace tiny {
 
@@ -24,6 +25,7 @@ public:
     struct Spec {
         Execute execute{[](){}};
         double interval{0.1}; // Seconds.
+        bool repeating{false}; // Fire every interval, posted or not: a tick on the delivery thread (main on Apple, a pool thread on Windows).
     };
 
     explicit Relay(Spec spec);
@@ -48,6 +50,8 @@ public:
     struct State {
         std::atomic<bool> alive{true};
         std::atomic<bool> posted{false};
+        bool repeating{false};
+        std::recursive_mutex delivering{}; // Held around `execute`, so a stop can wait out a delivery in flight.
         Execute execute{};
     };
 

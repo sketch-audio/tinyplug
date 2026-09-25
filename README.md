@@ -1,39 +1,51 @@
 # tinyplug
-*Minimal, modern C++ audio plug-in framework*
+*Modern, declarative C++ audio plug-in framework*
 
-***tinyplug is not version 1.0 yet. I may break it at any time for any reason. I have shipped plug-ins with tinyplug, so backwards compatibility is going to be a priority but not guaranteed and APIs may be changed without notice.***
+***tinyplug is not version 1.0 yet. I may break it at any time for any reason.***
 
-## Features
-Tinyplug is a C++20 audio plug-in framework that makes it easy to write audio plug-ins and build them for different platforms and formats.
+## Overview 
+tinyplug is a C++20 audio plug-in framework that makes it easy to write audio plug-ins and build them for different platforms and formats.
 
+- Supported plug-in types:
+    - Stereo audio in or out
+    - Mono audio in or out
+    - Sidechain input
+    - MIDI events (abstracted to framework types) in or out
 - Supported platforms & formats:
     | Platform | AAX | AUv2 | AUv3 | CLAP | VST3 |
     |---------:|:---:|:----:|:----:|:----:|:----:|
     | iOS      |     |      |  ✅  |      |      |
     | macOS    | ✅  |  ✅  |  ✅  |  ✅  |  ✅  |
     | Windows  | ✅  |      |      |  ✅  |  ✅  |
-- Supported plug-in types:
-    - Stereo in/out effect
-    - Optional sidechain input
-    - Optionally allow mono in/out
-- Sample-accurate events & automation
-    - Host events (including ramps) are interleaved with calls to your process function so you have full control over automation playback.
-- Thread-safe architecture
-    - The framework handles communication between your processor and editor using simple message queues.
-- GPU-backed graphics via Google's Skia Library.
-    - iOS & macOS: Metal
-    - Windows: Direct3D 12 *(NOTE: - Windows uses CPU backend while I can figure out the CPU/GPU synchronization)*
+
+### Highlights
+- Decoupled design
+    - Your editor and processor do not share memory. You write a declarative, compile-time model and tinyplug provides the necessary thread-safe communication channels.
+- Latency handshake
+- Sample-accurate events
+    - Host events are processed transparently, and automatically interleaved with calls to your process function.
 
 ## Architecture
-Your processor (`Plug_processor`) and editor (`Plug_editor`) are fully decoupled. Tinyplug handles communication between these classes and the host via simple message queues. There is no sharing of data between threads. The framework makes the source of truth wherever the plug-in format wants it to be.
+Your processor and editor are fully decoupled. tinyplug handles communication between these classes and the host via thread-safe primitives.
 
-### Processor (`Plug_processor`)
-- Receives parameter changes on real-time thread.
-- Can send data to the UI by writing to an array of meter values.
+### Processor (`process::Processor`)
+- Initial parameter state given at configure time.
+- Receives parameter changes as events interleaved with `process`.
+- Send data to the UI by writing to thread-safe channels.
+    - `Meters` (scalar values)
+    - `Blocks` (structured values)
+- Declare a framework-managed `State` type for non-parameter state (non-audio).
+    - Accessible only through `process::Dsp_context` and static save/load functions
+    - Prefer to express state in terms of parameters wherever possible
 
-### Editor (`Plug_editor`)
-- On draw, receives a read-only copy of the current parameter and meter values.
-- Controls can set parameter values by sending `User_actions`.
+### Editor (`edit::Editor`)
+- Receives the state of the plug-in as a view when it's time to update the UI .
+- Submits parameter changes as `Actions` into a queue.
+- Submits edits to the `State` type.
+
+### Worker (`work::Worker`)
+- Optional class you can use for asynchronous tasks.
+- Available when the editor is closed.
 
 ## Parameters
 Your plug-in implements a static interface (`Param_model`) where you enumerate the parameter identifiers. You declare your parameter infos as a tree structure. The framework preserves this structure where the format allows (e.g. AUv2 clumps). In practice, parameter values are stored as a flat array and the identifier can be used as an index. There are some restrictions to this approach but they are documented.

@@ -1,5 +1,30 @@
+# Test-only: the macOS extension's sources as a loadable bundle, for tests/hosts/auv3_host. The
+# Makefile generator can't make an app extension, but a bundle is all a host needs to create the
+# audio unit through its view controller, the way the system does.
+function(_make_auv3_test_bundle USER_TARGET)
+    read_property(${USER_TARGET} TINY_BASE_FILENAME)
+    read_property(${USER_TARGET} TINY_VERSION_STRING)
+    read_property(${USER_TARGET} TINY_BUILD_NUMBER)
+    set(SOURCE_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
+    set(TEST_TARGET ${TINY_BASE_FILENAME}_auv3_test)
+    add_library(${TEST_TARGET} MODULE
+        ${SOURCE_DIR}/source/extension/audio_unit.mm
+        ${SOURCE_DIR}/source/extension/view_controller.mm
+        ${SOURCE_DIR}/source/extension/view.cpp
+    )
+    target_compile_options(${TEST_TARGET} PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    target_include_directories(${TEST_TARGET} PRIVATE ${SOURCE_DIR}/source/extension ${SOURCE_DIR}/source/shared)
+    target_link_libraries(${TEST_TARGET} PRIVATE ${USER_TARGET} ${TINY_PLATFORM_LIB} ${TINY_DSP_LIB}
+        "-framework AppKit" "-framework AudioToolbox" "-framework AVFoundation" "-framework CoreAudioKit" "-framework Foundation")
+    set_target_properties(${TEST_TARGET} PROPERTIES BUNDLE TRUE BUNDLE_EXTENSION auv3test OUTPUT_NAME ${TINY_BASE_FILENAME})
+    configure_mac_view(${TEST_TARGET} ${TINY_BASE_FILENAME} ${TINY_VERSION_STRING} ${TINY_BUILD_NUMBER} auv3)
+endfunction()
+
 function(make_auv3_plugin USER_TARGET)
     if(NOT APPLE OR NOT CMAKE_GENERATOR STREQUAL "Xcode")
+        if(APPLE AND TINY_BUILD_TESTS AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+            _make_auv3_test_bundle(${USER_TARGET})
+        endif()
         message(STATUS "[tiny] AUv3 build requires Xcode generator.")
         return()
     endif()
