@@ -97,6 +97,7 @@ function(make_clap_plugin USER_TARGET)
             SUFFIX .clap
             LIBRARY_OUTPUT_DIRECTORY_DEBUG ${CLAP_BUNDLE_OUTPUT_DIR}/Contents/x86_64-win
             LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CLAP_BUNDLE_OUTPUT_DIR}/Contents/x86_64-win
+            ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/clap_implib # Formats share OUTPUT_NAME; keep their .lib/.exp apart.
         )
 
         # All we need are the native presets.

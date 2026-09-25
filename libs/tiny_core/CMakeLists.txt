@@ -75,5 +75,11 @@ target_link_libraries(${TINY_CORE_LIB} PUBLIC nlohmann_json::nlohmann_json)
 # sites have to agree with the library about whether the layer exists at all.
 target_compile_definitions(${TINY_CORE_LIB} PUBLIC TINY_LOG_ENABLED=$<BOOL:${TINY_LOG}>)
 
+# The log macros use __VA_OPT__, which MSVC's traditional preprocessor rejects. PUBLIC for
+# the same reason: every TU that expands them needs the conforming preprocessor.
+if(MSVC)
+    target_compile_options(${TINY_CORE_LIB} PUBLIC $<$<COMPILE_LANGUAGE:C,CXX>:/Zc:preprocessor>)
+endif()
+
 # Forward to parent scope.
 set(TINY_CORE_LIB ${TINY_CORE_LIB} PARENT_SCOPE)

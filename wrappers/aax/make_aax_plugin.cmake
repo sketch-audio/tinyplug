@@ -163,6 +163,7 @@ function(make_aax_plugin USER_TARGET)
             LIBRARY_OUTPUT_DIRECTORY ${AAX_BUNDLE_OUTPUT_DIR}/Contents/x64
             LIBRARY_OUTPUT_DIRECTORY_DEBUG ${AAX_BUNDLE_OUTPUT_DIR}/Contents/x64
             LIBRARY_OUTPUT_DIRECTORY_RELEASE ${AAX_BUNDLE_OUTPUT_DIR}/Contents/x64
+            ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/aax_implib # Formats share OUTPUT_NAME; keep their .lib/.exp apart.
         )
 
         # Get icon file from the SDK.

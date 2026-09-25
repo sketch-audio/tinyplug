@@ -99,9 +99,9 @@ if(APPLE)
         )
     endif()
 elseif(WIN32)
-    if (WIN_GRAPHICS_GPU EQUAL 1)
-        target_link_libraries(${TINY_PLATFORM_LIB} PUBLIC d3d12.lib dxgi.lib d3dcompiler.lib)
-    endif()
+    # Unconditional: our Skia build has the D3D backend compiled in, so an editor touching
+    # Ganesh (e.g. recordingContext()->backend()) pulls it in even with the CPU renderer.
+    target_link_libraries(${TINY_PLATFORM_LIB} PUBLIC d3d12.lib dxgi.lib d3dcompiler.lib)
 endif()
 
 # Forward to parent scope.

@@ -109,6 +109,7 @@ function(make_vst3_plugin USER_TARGET)
             LIBRARY_OUTPUT_DIRECTORY ${VST3_BUNDLE_OUTPUT_DIR}/Contents/x86_64-win
             LIBRARY_OUTPUT_DIRECTORY_DEBUG ${VST3_BUNDLE_OUTPUT_DIR}/Contents/x86_64-win
             LIBRARY_OUTPUT_DIRECTORY_RELEASE ${VST3_BUNDLE_OUTPUT_DIR}/Contents/x86_64-win
+            ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/vst3_implib # Formats share OUTPUT_NAME; keep their .lib/.exp apart.
         )
 
         # All we need are the native presets. (We need to place the format ones with the installers.)

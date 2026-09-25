@@ -113,7 +113,7 @@ auto Editor::_press(uintptr_t tag, const Frame& keys, Coords pos) -> void
     const auto key = key_at(keys, pos);
     if (!key) return;
 
-    auto* free = std::find_if(_touches.begin(), _touches.end(), [](const Touch& t) { return !t.used; });
+    auto free = std::find_if(_touches.begin(), _touches.end(), [](const Touch& t) { return !t.used; });
     if (free == _touches.end()) return;
 
     // Low on the key is loud, as on a real one.
