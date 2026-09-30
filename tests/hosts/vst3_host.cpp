@@ -565,9 +565,9 @@ private:
 };
 
 #if defined(_WIN32)
-constexpr auto platform_type = kPlatformTypeHWND;
+const auto platform_type = kPlatformTypeHWND;
 #else
-constexpr auto platform_type = kPlatformTypeNSView;
+const auto platform_type = kPlatformTypeNSView;
 #endif
 
 // The controller's editor, attached to a window for as long as this lives.
