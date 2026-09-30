@@ -44,7 +44,8 @@ translate the host's API into framework events and back.
     audio_bench, fetched at a pinned commit; see [tests/README.md](tests/README.md). Run the
     `tsan` preset after touching any threading primitive. Fake hosts (`tests/hosts/`: CLAP, VST3,
     AUv2, AUv3, and AAX with the wrapper compiled in) drive the real demo bundles under the `tsan-hosts` / `asan-hosts` presets; run them
-    after touching a wrapper.
+    after touching a wrapper. On Windows: `windows-tests`, `windows-asan`, `windows-asan-hosts`
+    (MSVC ASan only; CLAP, VST3 and AAX hosts).
 
 ## Build
 
@@ -144,7 +145,16 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   trivially copyable struct both sides edit, synchronized and undoable; `writers`
   (`Editor`/`Processor`/`Both`) removes whatever the other side may not do. Every change is a
   `{base, next}` patch applied as a **byte merge** ([state_merge.hpp](libs/tiny_core/include/tiny_core/state_merge.hpp)),
-  so a stale edit never erases a concurrent write. The processor side (`Processor_side`,
+  so a stale edit never erases a concurrent write. The ack is two watermarks (`applied`,
+  `rejected`), and that is only sufficient because of a **refusal barrier**: each patch carries
+  the newest refusal the editor had heard of (`Edit_header::seen_rejected`), and the store drops
+  a patch diffed before its latest refusal. Without it a later patch applied past an unseen refusal
+  and retired the refused gesture as landed; don't remove it. Two details keep it from costing more
+  than one round trip: a dropped stale patch is **not** recorded as a refusal (its gestures are
+  re-armed when the editor hears of the real one; recording it made each in-flight patch stale in
+  turn, and a drag through one conflict landed nothing until it stopped), and a patch diffed after
+  a newer refusal **replaces** a staged stale one rather than coalescing with it (coalesced, the
+  pair was dropped as stale and the fresh gestures were lost). The processor side (`Processor_side`,
   `Store` in [state_store.hpp](libs/tiny_core/include/tiny_core/state_store.hpp)) applies a staged
   patch at the top of the block and triple-buffers what it publishes; `Dsp_context::state` is
   a per-block `Access`. The editor side is the wrapper-owned `state::Editor_link`
@@ -394,8 +404,8 @@ This has knock-on effects throughout the wrapper:
 - **Worker has to cross the COM boundary.** Editor↔worker is direct
   (worker lives on the controller side). Processor↔worker must traverse
   `IMessage`: audio-thread pushes lock-free into `_worker_outbound` and a
-  `Relay` drains it and calls `sendMessage` to the controller (on the UI thread on
-  macOS, so worker traffic stalls while the host's main thread is blocked and the
+  `Relay` drains it and calls `sendMessage` to the controller (on the UI thread, so
+  worker traffic stalls while the host's main thread is blocked and the
   outbound queue can fill); replies arrive in `Controller::notify`, get pushed into
   `_worker_to_proc`, and the controller's worker runner `set_post_cycle` posts a
   second relay that ships them back to the processor via another `IMessage`. See [vst3_messaging.h](formats/vst3/source/vst3_messaging.h)
@@ -852,10 +862,12 @@ speculation, they're scheduled work.
   porting a downstream plug-in repo to the current processor API. Five changes in
   dependency order, with the contracts and the traps.
 
-- **[relay-delivery.md](plans/relay-delivery.md)** — `Relay` with pluggable main-thread
-  delivery: a shared per-DLL message window on Windows (today a pool thread, which breaks VST3's
-  `[UI-thread]` sends), host `request_callback` for CLAP. Prerequisite for the Windows
-  validation pass.
+- **[relay-delivery.md](plans/relay-delivery.md)** — `Relay` delivers on main everywhere. The
+  Windows half has landed: a per-DLL hidden message window bound to the thread that constructs the
+  first relay (construct relays on the UI thread), fed by one pool timer. `vst3_host`'s strict proxy
+  proves it. A UI-thread `execute` must drain in bounded batches, never `while (pop())` against the
+  audio thread. Open: the CLAP `request_callback` delivery (CLAP has no relays yet), and the
+  two-DLL and unload-with-a-message-queued tests.
 
 - **[unified-edit-model.md](plans/unified-edit-model.md)** — exploratory. The framework owns
   all state: editor state behind a handle (a view model or `state::Model`, undecided), one undo

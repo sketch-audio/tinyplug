@@ -279,6 +279,147 @@ auto test_refusal_is_not_a_loss() -> void
                        sizeof(Pattern)) == 0, "editor and processor converged");
 }
 
+// A patch the editor diffs before it hears of a refusal assumed the refused one landed, so it
+// carries none of its bytes. Were it applied, the next snapshot's `applied` would pass the refusal
+// and retire the refused gesture as landed: lost, with both sides agreeing. So the processor
+// refuses it too (Edit_header::seen_rejected), and both are retried.
+auto test_refusal_coalesced_with_a_later_apply() -> void
+{
+    std::printf("\na patch diffed before the editor heard of a refusal\n");
+
+    auto rig = Rig{Apply::Retry};
+    seeded(rig);
+
+    rig.editor.edit([](Pattern& p) { p.tracks[0].steps[0].notes[0].key = 111; });
+    rig.record([](Pattern& p) { p.tracks[0].steps[0].notes[0].key = 222; }); // base goes stale
+    rig.editor.flush(rig.down);
+    rig.down.pump();
+    rig.block();                                                            // refused
+
+    // Before any snapshot reaches the editor: another edit, elsewhere, which lands.
+    rig.editor.edit([](Pattern& p) { p.tracks[1].steps[0].notes[0].key = 33; });
+    rig.editor.flush(rig.down);
+    rig.down.pump();
+    rig.block();                                                            // refused too
+
+    expect_eq(key(rig.live(), 1), 0, "the stale patch was not applied past the refusal");
+    rig.proc.pump(rig.up); // One snapshot reporting both.
+    rig.up.pump();
+
+    expect(rig.editor.in_flight(), "the refused gesture is still held after that snapshot");
+    rig.settle();
+    expect_eq(key(rig.live()), 111, "the refused edit is retried and lands");
+    expect_eq(key(rig.live(), 1), 33, "the later edit lands too");
+    expect(!rig.editor.in_flight(), "and both retire");
+}
+
+// The same hole through the store: two patches that arrive before a block are coalesced into one
+// staged patch named by the later sequence, so a refusal of the pair reports only that one. The
+// earlier gesture must still be retried, and a patch diffed before the editor heard must not
+// carry `applied` past it.
+auto test_refusal_of_a_coalesced_pair() -> void
+{
+    std::printf("\na refusal of two coalesced patches, then a stale one\n");
+
+    auto rig = Rig{Apply::Retry};
+    seeded(rig);
+
+    rig.editor.edit([](Pattern& p) { p.tracks[1].steps[5].notes[0].key = 55; });
+    rig.editor.flush(rig.down);                                             // seq 1
+    rig.editor.edit([](Pattern& p) { p.tracks[0].steps[0].notes[0].key = 111; });
+    rig.editor.flush(rig.down);                                             // seq 2
+    rig.record([](Pattern& p) { p.tracks[0].steps[0].notes[0].key = 222; }); // the pair's base goes stale
+    rig.down.pump();                                                        // both staged: one patch, seq 2
+    rig.editor.edit([](Pattern& p) { p.tracks[1].steps[6].notes[0].key = 66; });
+    rig.editor.flush(rig.down);                                             // seq 3, diffed before hearing
+    rig.block();                                                            // the pair refused as seq 2
+    rig.down.pump();
+    rig.block();                                                            // seq 3 refused as stale
+
+    const auto mid = rig.live();
+    expect(key(mid, 1, 5) == 0 && key(mid, 1, 6) == 0, "neither the pair nor the stale patch applied");
+    rig.proc.pump(rig.up);
+    rig.up.pump();
+    rig.settle();
+    expect_eq(key(rig.live(), 1, 5), 55, "the first of the pair lands on retry");
+    expect_eq(key(rig.live()), 111, "the second of the pair lands on retry");
+    expect_eq(key(rig.live(), 1, 6), 66, "the stale patch's gesture lands on retry");
+    expect(!rig.editor.in_flight(), "and all retire");
+}
+
+// A stale patch is still staged when the editor, having heard of the refusal, sends a fresh one.
+// The fresh one carries every re-armed gesture, the stale one's included, so it replaces what is
+// staged. Coalesced instead, the pair would be judged stale and dropped, and nothing would re-arm
+// the fresh gestures: they would retire as landed without ever being applied.
+auto test_fresh_patch_over_a_staged_stale_one() -> void
+{
+    std::printf("\na fresh patch arriving while a stale one is staged\n");
+
+    auto rig = Rig{Apply::Retry};
+    seeded(rig);
+
+    rig.editor.edit([](Pattern& p) { p.tracks[0].steps[0].notes[0].key = 111; });
+    rig.record([](Pattern& p) { p.tracks[0].steps[0].notes[0].key = 222; }); // base goes stale
+    rig.editor.flush(rig.down);
+    rig.down.pump();
+    rig.block();                                                            // refused: seq 1
+
+    rig.editor.edit([](Pattern& p) { p.tracks[1].steps[6].notes[0].key = 66; });
+    rig.editor.flush(rig.down);
+    rig.down.pump();                                                        // seq 2, stale, staged
+    rig.proc.pump(rig.up);
+    rig.up.pump();                                                          // the editor hears of seq 1
+    rig.editor.flush(rig.down);
+    rig.down.pump();                                                        // seq 3 lands on the staged seq 2
+    rig.block();
+
+    expect_eq(key(rig.live()), 111, "the fresh patch applies, carrying the refused gesture");
+    expect_eq(key(rig.live(), 1, 6), 66, "and the stale one's");
+    rig.settle();
+    expect(!rig.editor.in_flight(), "and everything retires");
+}
+
+// A drag through a conflict, with the round trip several flushes long (VST3's snapshot relay, AAX
+// Direct Data). Every patch in flight when the conflict is refused is stale and refused too; those
+// refusals must not count as new ones the editor has to hear of, or each would make the next patch
+// stale in turn and nothing would land until the drag stopped.
+auto test_drag_through_a_refusal() -> void
+{
+    std::printf("\na continuous drag through a refusal, round trip of several flushes\n");
+
+    auto rig = Rig{Apply::Retry};
+    seeded(rig);
+
+    constexpr auto lag = size_t{3}; // Messages in flight each way before the host delivers one.
+    constexpr auto frames = 60;
+    auto value_at = [](int frame) { return static_cast<uint8_t>(1 + frame % 120); };
+    auto frame_landed = -1; // The drag frame whose value the processor last held.
+
+    for (auto frame = 0; frame < frames; ++frame) {
+        rig.editor.edit([v = value_at(frame)](Pattern& p) { p.tracks[0].steps[0].notes[0].key = v; });
+        rig.editor.flush(rig.down);
+        if (rig.down.pending() > lag) rig.down.pump(1);
+        if (frame == 5) rig.record([](Pattern& p) { p.tracks[0].steps[0].notes[0].key = 127; }); // The conflict.
+        else rig.block();
+        rig.proc.pump(rig.up);
+        if (rig.up.pending() > lag) rig.up.pump(1);
+
+        const auto live = key(rig.live());
+        for (auto f = frame; f >= 0 && f > frame - 20; --f) {
+            if (live == value_at(f)) { frame_landed = f; break; }
+        }
+    }
+
+    std::printf("  ....  %zu refusals, %zu retries; the processor last followed frame %d of %d\n",
+                rig.proc.rejections(), rig.editor.retries(), frame_landed, frames - 1);
+    expect(frame_landed >= frames - 1 - 4 * static_cast<int>(lag), "the processor follows the drag while it continues");
+    expect(rig.editor.retries() <= 2, "one conflict costs a retry or two, not one per flush");
+
+    rig.settle();
+    expect_eq(key(rig.live()), value_at(frames - 1), "the drag's last value lands");
+    expect(!rig.editor.in_flight(), "and everything retires");
+}
+
 // MARK: - how rare is rare
 
 // The predicate is scoped to the patch footprint, so only a literal byte overlap can
@@ -356,20 +497,24 @@ auto test_undo_through_refusal() -> void
 
 // MARK: - fuzz
 
-auto test_fuzz() -> void
-{
-    std::printf("\nrandomized interleaving under CAS (20k ops)\n");
+// Portable draws and several seeds, for the reason given in state_stress_test.cpp.
+struct Fuzz_result {
+    int lost_proc{}, lost_edit{}, edits{};
+    std::size_t refusals{};
+    bool converged{true};
+};
 
-    auto rng = std::mt19937{12345};
-    auto ops = std::uniform_int_distribution<int>{0, 5};
+auto run_fuzz(uint32_t seed) -> Fuzz_result
+{
+    auto rng = std::mt19937{seed};
 
     auto rig = Rig{Apply::Retry};
     auto proc_writes = std::vector<uint8_t>(64, 0);
     auto edit_writes = std::vector<int16_t>(64, 0);
-    auto n_edits = 0;
+    auto r = Fuzz_result{};
 
     for (auto i = 0; i < 20000; ++i) {
-        switch (ops(rng)) {
+        switch (rng() % 6) {
             case 0: {
                 const auto st = static_cast<size_t>(rng() % 64);
                 const auto k = static_cast<uint8_t>(1 + rng() % 120);
@@ -382,7 +527,7 @@ auto test_fuzz() -> void
                 const auto v = static_cast<int16_t>(1 + rng() % 30000);
                 rig.editor.edit([st, v](Pattern& p) { p.tracks[1].steps[st].mods[0].value = v; });
                 edit_writes[st] = v;
-                ++n_edits;
+                ++r.edits;
                 break;
             }
             case 2: rig.editor.flush(rig.down); rig.down.pump(1); break;
@@ -394,19 +539,35 @@ auto test_fuzz() -> void
     rig.settle(256);
 
     const auto s = rig.live();
-    auto lost_proc = 0;
-    auto lost_edit = 0;
     for (auto st = size_t{}; st < 64; ++st) {
-        if (proc_writes[st] != 0 && s.tracks[0].steps[st].notes[0].key != proc_writes[st]) ++lost_proc;
-        if (edit_writes[st] != 0 && s.tracks[1].steps[st].mods[0].value != edit_writes[st]) ++lost_edit;
+        if (proc_writes[st] != 0 && s.tracks[0].steps[st].notes[0].key != proc_writes[st]) ++r.lost_proc;
+        if (edit_writes[st] != 0 && s.tracks[1].steps[st].mods[0].value != edit_writes[st]) ++r.lost_edit;
+    }
+    r.refusals = rig.proc.rejections();
+    r.converged = std::memcmp(&rig.editor.view(), &s, sizeof(Pattern)) == 0;
+    return r;
+}
+
+auto test_fuzz() -> void
+{
+    constexpr auto seeds = 8u;
+    std::printf("\nrandomized interleaving under CAS (20k ops x %u seeds)\n", seeds);
+
+    auto total = Fuzz_result{};
+    for (auto seed = 1u; seed <= seeds; ++seed) {
+        const auto r = run_fuzz(seed);
+        total.lost_proc += r.lost_proc;
+        total.lost_edit += r.lost_edit;
+        total.edits += r.edits;
+        total.refusals += r.refusals;
+        total.converged = total.converged && r.converged;
     }
 
     std::printf("  ....  %d lost proc, %d lost edit over %d edits, %zu refusals\n",
-                lost_proc, lost_edit, n_edits, rig.proc.rejections());
-    expect_eq(lost_proc, 0, "every processor value present");
-    expect_eq(lost_edit, 0, "every editor value present");
-    expect(std::memcmp(&rig.editor.view(), &s, sizeof(Pattern)) == 0,
-           "editor view is byte-identical to processor state after draining");
+                total.lost_proc, total.lost_edit, total.edits, total.refusals);
+    expect_eq(total.lost_proc, 0, "every processor value present");
+    expect_eq(total.lost_edit, 0, "every editor value present");
+    expect(total.converged, "editor view is byte-identical to processor state after draining");
 }
 
 // MARK: - cost
@@ -452,6 +613,10 @@ auto main() -> int
     test_editor_replaces_the_document();
     test_coalescing_takes_the_stricter();
     test_refusal_is_not_a_loss();
+    test_refusal_coalesced_with_a_later_apply();
+    test_refusal_of_a_coalesced_pair();
+    test_fresh_patch_over_a_staged_stale_one();
+    test_drag_through_a_refusal();
     test_retry_rate();
     test_undo_through_refusal();
     test_fuzz();

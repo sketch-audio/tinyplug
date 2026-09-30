@@ -41,7 +41,7 @@ auto Controller::_setup_worker() -> void
     });
 
     // Worker → processor: the worker thread only posts; the relay drains _worker_to_proc and
-    // sends on the UI thread (a pool thread on Windows), because IConnectionPoint::notify is
+    // sends on the UI thread, as a Relay does on every platform, because IConnectionPoint::notify is
     // [UI-thread & Connected] and a host proxy may drop a send from the worker thread.
     _worker_runner.set_post_cycle([this]() {
         if (_worker_reply_relay) _worker_reply_relay->post();
@@ -120,8 +120,9 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
     _worker_reply_relay.emplace(Relay::Spec{
         .execute = [this]() {
             if constexpr (!std::is_same_v<typename User_work::To_processor, std::monostate>) {
+                // Bounded, like the processor's side: this runs on the UI thread.
                 auto reply = typename User_work::To_processor{};
-                while (_worker_to_proc.pop(reply)) {
+                for (auto n = size_t{}; n < User_work::outbound_capacity && _worker_to_proc.pop(reply); ++n) {
                     _to_proc.send_variant(k_worker_to_processor_id, reply);
                 }
             }

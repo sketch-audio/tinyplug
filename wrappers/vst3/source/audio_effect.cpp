@@ -57,11 +57,13 @@ auto Audio_effect::_setup_worker() -> void
 
 // IConnectionPoint::notify is [UI-thread & Connected]: a host proxy may drop a send from any
 // other thread, so worker traffic leaves through a relay like everything else the processor sends.
-// That is the UI thread on macOS; on Windows a Relay delivers on a pool thread, as the old shuttle did.
+// A Relay delivers on the UI thread on every platform, which is also why the drain below is bounded.
 auto Audio_effect::_send_worker_messages() -> void
 {
+    // At most one queue's worth per delivery: this runs on the UI thread, and a `while (pop)`
+    // against an audio thread that keeps pushing need never end. The rest goes next tick.
     auto m = typename User_work::From_processor{};
-    while (_worker_outbound.pop(m)) {
+    for (auto n = size_t{}; n < User_work::inbound_capacity && _worker_outbound.pop(m); ++n) {
         _to_ctrl.send_variant(k_worker_from_processor_id, m);
     }
 }

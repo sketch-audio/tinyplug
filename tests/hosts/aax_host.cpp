@@ -227,7 +227,11 @@ public:
     }
     TINY_HOST_NO_REFCOUNT
 
+#if defined(_WIN32)
+    int32_t GetType() override { return AAX_eViewContainer_Type_HWND; }
+#else
     int32_t GetType() override { return AAX_eViewContainer_Type_NSView; }
+#endif
     void* GetPtr() override { return _view; }
     AAX_Result GetModifiers(uint32_t* out) override { *out = 0; return AAX_SUCCESS; }
     AAX_Result SetViewSize(AAX_Point&) override { return AAX_SUCCESS; }
@@ -257,7 +261,7 @@ public:
     };
 
     Private_data() = default;
-    ~Private_data() override { for (auto& b : _blocks) std::free(b.data); }
+    ~Private_data() override { for (auto& b : _blocks) aligned_free(b.data); }
     Private_data(const Private_data&) = delete;
     auto operator=(const Private_data&) -> Private_data& = delete;
 
@@ -265,13 +269,31 @@ public:
     auto add(AAX_CFieldIndex field, uint32_t seqlock_from = UINT32_MAX) -> T*
     {
         const auto size = (sizeof(T) + 63) / 64 * 64;
-        auto* data = static_cast<unsigned char*>(std::aligned_alloc(64, size));
+        auto* data = static_cast<unsigned char*>(aligned_alloc(size));
         std::memset(data, 0, size);
         _blocks.push_back({field, data, static_cast<uint32_t>(sizeof(T)), seqlock_from});
         return reinterpret_cast<T*>(data);
     }
 
     auto blocks() -> std::vector<Block>& { return _blocks; }
+
+    // MSVC has no std::aligned_alloc: its free can't tell an aligned block from any other.
+    static auto aligned_alloc(size_t size) -> void*
+    {
+#if defined(_WIN32)
+        return _aligned_malloc(size, 64);
+#else
+        return std::aligned_alloc(64, size);
+#endif
+    }
+    static auto aligned_free(void* p) -> void
+    {
+#if defined(_WIN32)
+        _aligned_free(p);
+#else
+        std::free(p);
+#endif
+    }
 
     // Traffic, for the chaos report: proof the channels actually carried something.
     std::atomic<long> reads{}, writes{}, state_edits{}, seqlock_reads{};
@@ -296,12 +318,13 @@ public:
         }
         for (auto i = uint32_t{}; i < size;) {
             if ((reinterpret_cast<uintptr_t>(src + i) % 8) == 0 && size - i >= 8) {
-                const auto v = __atomic_load_n(reinterpret_cast<const uint64_t*>(src + i), __ATOMIC_ACQUIRE);
+                // atomic_ref, not the __atomic builtins, for MSVC. It can't take a const T until C++26.
+                const auto v = std::atomic_ref{*reinterpret_cast<uint64_t*>(const_cast<unsigned char*>(src + i))}.load(std::memory_order_acquire);
                 std::memcpy(dst + i, &v, 8);
                 i += 8;
             }
             else {
-                dst[i] = __atomic_load_n(src + i, __ATOMIC_ACQUIRE);
+                dst[i] = std::atomic_ref{*const_cast<unsigned char*>(src + i)}.load(std::memory_order_acquire);
                 i += 1;
             }
         }
@@ -322,11 +345,11 @@ public:
             if ((reinterpret_cast<uintptr_t>(dst + i) % 8) == 0 && size - i >= 8) {
                 auto v = uint64_t{};
                 std::memcpy(&v, src + i, 8);
-                __atomic_store_n(reinterpret_cast<uint64_t*>(dst + i), v, __ATOMIC_RELEASE);
+                std::atomic_ref{*reinterpret_cast<uint64_t*>(dst + i)}.store(v, std::memory_order_release);
                 i += 8;
             }
             else {
-                __atomic_store_n(dst + i, src[i], __ATOMIC_RELEASE);
+                std::atomic_ref{dst[i]}.store(src[i], std::memory_order_release);
                 i += 1;
             }
         }

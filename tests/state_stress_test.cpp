@@ -256,10 +256,14 @@ auto test_commit_gating() -> void
 
 // MARK: - randomized interleaving, disjoint regions
 
-auto run_fuzz() -> std::tuple<int, int, size_t, int, bool>
+// Draws are `rng() % n`, never a <random> distribution: those are implementation-defined, so
+// libc++ and MSVC would replay different histories from one seed. A single seed hid a lost edit
+// for as long as the one libc++ history happened to pass; hence several.
+constexpr auto fuzz_seeds = 16u;
+
+auto run_fuzz(uint32_t seed) -> std::tuple<int, int, size_t, int, bool>
 {
-    auto rng = std::mt19937{12345};
-    auto ops = std::uniform_int_distribution<int>{0, 5};
+    auto rng = std::mt19937{seed};
 
     auto rig = Rig{false};
     auto proc_writes = std::vector<uint8_t>(64, 0);
@@ -267,7 +271,7 @@ auto run_fuzz() -> std::tuple<int, int, size_t, int, bool>
     auto n_edits = 0;
 
     for (auto i = 0; i < 20000; ++i) {
-        switch (ops(rng)) {
+        switch (rng() % 6) {
             case 0: {
                 const auto st = static_cast<size_t>(rng() % 64);
                 const auto key = static_cast<uint8_t>(1 + rng() % 120);
@@ -304,9 +308,19 @@ auto run_fuzz() -> std::tuple<int, int, size_t, int, bool>
 
 auto test_fuzz_interleaving() -> void
 {
-    std::printf("\nrandomized interleaving, disjoint writers (20k ops)\n");
+    std::printf("\nrandomized interleaving, disjoint writers (20k ops x %u seeds)\n", fuzz_seeds);
 
-    const auto [lp, le, conflicts, n_edits, converged] = run_fuzz();
+    auto lp = 0, le = 0, n_edits = 0;
+    auto conflicts = size_t{};
+    auto converged = true;
+    for (auto seed = 1u; seed <= fuzz_seeds; ++seed) {
+        const auto [p, e, c, n, conv] = run_fuzz(seed);
+        lp += p;
+        le += e;
+        conflicts += c;
+        n_edits += n;
+        converged = converged && conv;
+    }
     std::printf("  ....  %d lost proc, %d lost edit, %zu conflicting bytes over %d edits\n",
                 lp, le, conflicts, n_edits);
 

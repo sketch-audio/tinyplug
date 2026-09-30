@@ -12,6 +12,15 @@ cmake --preset asan  && cmake --build --preset asan  && ctest --preset asan   # 
 `TINY_SANITIZE` applies to the whole configure, dependencies included, and builds one
 architecture: a partly instrumented link is where TSan's false reports come from.
 
+On Windows the presets are `windows-tests`, `windows-asan` and `windows-asan-hosts` (Visual Studio,
+Debug). MSVC has ASan only, no TSan or UBSan. Prebuilt Skia and AAX aren't instrumented, so STL
+container annotations are off for the whole build, and the ASan runtime DLL is copied next to each
+test executable.
+
+```sh
+cmake --preset windows-asan && cmake --build --preset windows-asan && ctest --preset windows-asan
+```
+
 New tests use [audio_bench](https://github.com/sketch-audio/audio_bench) (`Tests::add`,
 `expect_true`, `expect_close`), fetched at a pinned commit in `tests/CMakeLists.txt`; `main` returns
 non-zero when `run_all()` reports failures. The older files keep their own `expect` helper. Add a
@@ -49,6 +58,23 @@ reconfigures); and teardown straight after activity. The AU and AAX hosts also s
 from another thread during chaos, and check that a load from off main reads back at once and is
 then applied on main. Each audio block runs with an allocation trap
 armed, and the first few allocations print their stacks. Options: `--seed N`, `--seconds S`.
+
+The trap replaces the host's `operator new`, which is the whole process's on macOS. On Windows each
+plug-in DLL links its own static CRT, so there it's an ASan malloc hook instead: every module's heap
+goes through the one ASan runtime. A Windows build without ASan traps only the host's allocations.
+The hook sees the OS's own heap use too, which `operator new` never does, so an allocation whose
+first caller outside the ASan runtime is ntdll isn't counted: MSVC's debug STL takes a global lock
+in every `vector::clear`, and a contended critical section allocates inside ntdll.
+
+On Windows: `clap_host`, `vst3_host`, `vst3_validator` and `aax_host_<Demo>` (bundle binary via
+`LoadLibrary`, VST3's `InitDll`/`ExitDll`, editors in a Win32 window, `hosts/gui_win.cpp`; AAX links
+the SDK's prebuilt, uninstrumented library). `vst3_host`'s strict proxy is what proves `Relay`'s
+Windows delivery is really the UI thread. Modal dialogs are cancelled as they open (a CBT hook),
+since a synthetic click that opens one would otherwise park the host in its loop. Hosts raise the
+timer resolution to 1 ms, as DAWs do: at the default 15.6 ms tick every short sleep in a host's
+pacing rounds up, and the AAX chaos run rendered an eighth of the blocks it does at 1 ms. The
+`windows-asan` test presets pass `asan.supp` (quoted, since the drive letter's colon is also
+`ASAN_OPTIONS`' separator); `.gitattributes` keeps suppression files LF, which the parser needs.
 
 Editors too, on macOS: each host opens the editor through its format's API (CLAP `gui`, VST3
 `createView`/`attached`, AUv2 `kAudioUnitProperty_CocoaUI`, AUv3 the view controller's `view`) in a real
@@ -142,10 +168,14 @@ The state document, ported from the `tiny_state_idea` prototype:
 
 - `state_store_test`: byte merge semantics, `state::Store` staging and triple buffer, a threaded soak, cost.
 - `state_sequencer_test`: a 26 KB sequencer end to end over coupled and queued links, recording while closed, undo/redo, wire traffic.
-- `state_stress_test`: ordering. Back-to-back edits, out-of-order snapshots, ABA, undo interleaving, commit gating, a 20k-op fuzz, a stalled host.
-- `state_retry_test`: the `Retry` policy: stale read-modify-writes, per-edit policy, coalescing, refusal is not loss.
+- `state_stress_test`: ordering. Back-to-back edits, out-of-order snapshots, ABA, undo interleaving, commit gating, a 20k-op fuzz over 16 seeds, a stalled host.
+- `state_retry_test`: the `Retry` policy: stale read-modify-writes, per-edit policy, coalescing, refusal is not loss, the refusal barrier (a patch diffed before the editor heard of a refusal, and a refused coalesced pair), and a fuzz over 8 seeds.
 - `state_writers_test`: what each `Writers` mode removes from the API, checked at compile time.
 - `state_record_test`: the persistence record: author `save`/`load` round trip, older and future author versions, truncation and foreign headers, a refused or half-done load leaving the target untouched, the raw fallback and its upgrade to functions, the stream reader, and base64.
 - `state_adapter_test`: the record in preset JSON, hostile `"state"` values, reserved editor keys.
 - `state_link_test`: tinyplug's `Editor_link` with the real `Undo_history`: in-process undo/redo, remote `Both` with undo around processor writes, an AAX-style reseed after reset, host loads as one undo step, AAX's resend, an Overwrite over a staged load, a stale snapshot across a load, `load_record`, and the byte budget.
+
+The fuzzes draw with `rng() % n`, not a `<random>` distribution, whose output is implementation-defined:
+with one seed and a distribution, macOS and Windows replayed different histories, and a lost-edit bug
+went unseen for as long as the one libc++ history happened to pass.
 

@@ -1,6 +1,6 @@
-// Editor support for the fake hosts (macOS): a real window for an editor to live in, and synthetic
-// mouse input posted through it the way AppKit delivers a user's. Pointers are NSView* / NSWindow*,
-// opaque so C++ hosts can use them.
+// Editor support for the fake hosts: a real window for an editor to live in, and synthetic mouse
+// input delivered the way the OS delivers a user's. Pointers are NSView* / NSWindow* on macOS
+// (gui.mm) and HWNDs on Windows (gui_win.cpp), opaque so C++ hosts can use them.
 #pragma once
 
 #include "support.hpp"

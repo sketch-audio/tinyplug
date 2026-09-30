@@ -50,7 +50,39 @@ endif()
 
 # Sanitizers instrument everything built from source, deps included: a partly instrumented
 # link is where TSan's false reports come from. One slice, since TSan builds one at a time.
-if(TINY_SANITIZE)
+if(TINY_SANITIZE AND MSVC)
+    # MSVC has ASan only. UBSan is dropped with a note so the `address,undefined` spelling still
+    # configures; TSan has no MSVC equivalent at all.
+    if(TINY_SANITIZE MATCHES "thread")
+        message(FATAL_ERROR "[tiny] MSVC has no ThreadSanitizer.")
+    endif()
+    if(NOT TINY_SANITIZE MATCHES "address")
+        message(FATAL_ERROR "[tiny] MSVC supports TINY_SANITIZE=address only.")
+    endif()
+    if(TINY_SANITIZE MATCHES "undefined")
+        message(STATUS "[tiny] MSVC has no UBSan; building with address only.")
+    endif()
+    # ASan rejects /RTC1 and incremental linking, which the Debug defaults turn on.
+    foreach(_lang C CXX)
+        string(REPLACE "/RTC1" "" CMAKE_${_lang}_FLAGS_DEBUG "${CMAKE_${_lang}_FLAGS_DEBUG}")
+    endforeach()
+    add_compile_options(/fsanitize=address /Zi)
+    add_link_options(/INCREMENTAL:NO /DEBUG)
+    # Otherwise the VST3 SDK adds /ZI (Edit and Continue), which ASan rejects.
+    set(SMTG_ENABLE_ADDRESS_SANITIZER ON CACHE BOOL "" FORCE)
+    # Prebuilt Skia and AAX aren't instrumented. With container annotations on, the STL stamps a
+    # /failifmismatch the prebuilt objects can't match, and a vector touched on both sides of
+    # that line would report false overflows. Off everywhere keeps the link consistent.
+    add_compile_definitions(_DISABLE_VECTOR_ANNOTATION _DISABLE_STRING_ANNOTATION)
+    # The runtime is one DLL beside cl.exe, for /MT and /MD alike. tiny_copy_asan_runtime(<target>)
+    # puts it next to an executable so it runs without a developer prompt's PATH.
+    get_filename_component(_msvc_bin ${CMAKE_CXX_COMPILER} DIRECTORY)
+    set(TINY_ASAN_RUNTIME ${_msvc_bin}/clang_rt.asan_dynamic-x86_64.dll)
+    if(NOT EXISTS ${TINY_ASAN_RUNTIME})
+        message(FATAL_ERROR "[tiny] ASan runtime not found at ${TINY_ASAN_RUNTIME}. Install the MSVC ASan component.")
+    endif()
+    message(STATUS "[tiny] sanitizers: address (MSVC)")
+elseif(TINY_SANITIZE)
     if(APPLE)
         set(CMAKE_OSX_ARCHITECTURES ${CMAKE_HOST_SYSTEM_PROCESSOR})
     endif()
@@ -58,6 +90,13 @@ if(TINY_SANITIZE)
     add_link_options(-fsanitize=${TINY_SANITIZE})
     message(STATUS "[tiny] sanitizers: ${TINY_SANITIZE}")
 endif()
+
+function(tiny_copy_asan_runtime target)
+    if(TINY_ASAN_RUNTIME)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TINY_ASAN_RUNTIME} $<TARGET_FILE_DIR:${target}>)
+    endif()
+endfunction()
 
 # tiny_deps path is required.
 set(TINY_DEPS_PATH "" CACHE PATH "Path to tiny_deps.")

@@ -21,8 +21,9 @@
 #include <thread>
 #include <vector>
 
-#include <dlfcn.h>
+#if defined(__APPLE__)
 #include <CoreFoundation/CoreFoundation.h>
+#endif
 
 #include <audio_bench/audio_bench.hpp>
 
@@ -82,29 +83,38 @@ private:
 // MARK: - bundle
 
 using Factory_proc = IPluginFactory* (PLUGIN_API*)();
+#if defined(__APPLE__)
 using Bundle_entry = bool (*)(CFBundleRef);
 using Bundle_exit = bool (*)();
+#else
+using Bundle_entry = bool (PLUGIN_API*)(); // InitDll
+using Bundle_exit = bool (PLUGIN_API*)();  // ExitDll
+constexpr auto entry_name = "InitDll";
+constexpr auto exit_name = "ExitDll";
+#endif
 
 struct Bundle {
-    void* handle{};
+    tiny::hosts::Library library;
+#if defined(__APPLE__)
     CFBundleRef cf_bundle{};
+#endif
     IPtr<IPluginFactory> factory{};
     FUID processor_cid{};
 
-    explicit Bundle(const std::string& path)
+    explicit Bundle(const std::string& path) : library{path}
     {
-        const auto slash = path.find_last_of('/');
-        const auto name = path.substr(slash + 1, path.find_last_of('.') - slash - 1);
-        handle = dlopen((path + "/Contents/MacOS/" + name).c_str(), RTLD_NOW | RTLD_LOCAL);
-        if (!handle) throw std::runtime_error(std::format("dlopen failed: {}", dlerror()));
-
+#if defined(__APPLE__)
         auto* url = CFURLCreateFromFileSystemRepresentation(nullptr, reinterpret_cast<const UInt8*>(path.c_str()), static_cast<CFIndex>(path.size()), true);
         cf_bundle = CFBundleCreate(nullptr, url);
         CFRelease(url);
-        auto entry = reinterpret_cast<Bundle_entry>(dlsym(handle, "bundleEntry"));
+        auto entry = reinterpret_cast<Bundle_entry>(library.symbol("bundleEntry"));
         if (!entry || !entry(cf_bundle)) throw std::runtime_error("bundleEntry missing or failed");
+#else
+        // Optional on Windows, as in the SDK's own loader.
+        if (auto entry = reinterpret_cast<Bundle_entry>(library.symbol(entry_name)); entry && !entry()) throw std::runtime_error("InitDll failed");
+#endif
 
-        auto get_factory = reinterpret_cast<Factory_proc>(dlsym(handle, "GetPluginFactory"));
+        auto get_factory = reinterpret_cast<Factory_proc>(library.symbol("GetPluginFactory"));
         if (!get_factory) throw std::runtime_error("GetPluginFactory missing");
         factory = owned(get_factory());
 
@@ -119,8 +129,12 @@ struct Bundle {
     ~Bundle()
     {
         factory = nullptr;
-        if (auto exit = reinterpret_cast<Bundle_exit>(dlsym(handle, "bundleExit"))) exit();
+#if defined(__APPLE__)
+        if (auto exit = reinterpret_cast<Bundle_exit>(library.symbol("bundleExit"))) exit();
         if (cf_bundle) CFRelease(cf_bundle);
+#else
+        if (auto exit = reinterpret_cast<Bundle_exit>(library.symbol(exit_name))) exit();
+#endif
     }
 };
 
@@ -550,16 +564,22 @@ private:
     Violations& _violations;
 };
 
+#if defined(_WIN32)
+constexpr auto platform_type = kPlatformTypeHWND;
+#else
+constexpr auto platform_type = kPlatformTypeNSView;
+#endif
+
 // The controller's editor, attached to a window for as long as this lives.
 class Editor_session {
 public:
     Editor_session(Instance& instance, tiny::hosts::Window& window, Violations& violations)
     {
         _view = owned(instance.controller->createView(ViewType::kEditor));
-        if (!_view || _view->isPlatformTypeSupported(kPlatformTypeNSView) != kResultTrue) { _view = nullptr; return; }
+        if (!_view || _view->isPlatformTypeSupported(platform_type) != kResultTrue) { _view = nullptr; return; }
         _frame = owned(new Plug_frame{violations});
         _view->setFrame(_frame);
-        expect_true(_view->attached(window.content(), kPlatformTypeNSView) == kResultOk, "IPlugView::attached failed");
+        expect_true(_view->attached(window.content(), platform_type) == kResultOk, "IPlugView::attached failed");
         _ns_view = window.editor_view();
     }
     ~Editor_session()

@@ -21,6 +21,9 @@
 #if TINY_PLATFORM_APPLE
 #include <CoreFoundation/CoreFoundation.h>
 #include <pthread.h>
+#elif TINY_PLATFORM_WINDOWS
+#define NOMINMAX
+#include <windows.h>
 #endif
 
 namespace {
@@ -372,20 +375,43 @@ auto add_task_manager_shutdown() -> void
 
 // MARK: - Relay
 
-#if TINY_PLATFORM_APPLE
+#if TINY_PLATFORM_APPLE || TINY_PLATFORM_WINDOWS
 
+#if TINY_PLATFORM_APPLE
 // The callback hops to the main dispatch queue, which a CLI only services while its run loop runs.
 auto pump_main(std::chrono::milliseconds duration) -> void
 {
     CFRunLoopRunInMode(kCFRunLoopDefaultMode, std::chrono::duration<double>(duration).count(), false);
 }
 
+auto on_main() -> bool { return pthread_main_np() != 0; }
+#else
+// The callback arrives as a message to the relay's window, created on this thread by the first relay.
+auto pump_main(std::chrono::milliseconds duration) -> void
+{
+    const auto deadline = std::chrono::steady_clock::now() + duration;
+    for (;;) {
+        auto msg = MSG{};
+        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+        if (left.count() <= 0) break;
+        MsgWaitForMultipleObjects(0, nullptr, FALSE, static_cast<DWORD>(left.count()), QS_ALLINPUT);
+    }
+}
+
+const auto g_main_thread = std::this_thread::get_id();
+auto on_main() -> bool { return std::this_thread::get_id() == g_main_thread; }
+#endif
+
 auto add_relay() -> void
 {
     Tests::add("Relay: idle never fires; posts coalesce and run on main", [] {
         auto calls = std::atomic<int>{};
         auto off_main = std::atomic<bool>{};
-        auto relay = tiny::Relay{{.execute = [&] { calls.fetch_add(1); if (pthread_main_np() == 0) off_main = true; }, .interval = 0.01}};
+        auto relay = tiny::Relay{{.execute = [&] { calls.fetch_add(1); if (!on_main()) off_main = true; }, .interval = 0.01}};
 
         pump_main(100ms);
         expect_true(calls.load() == 0, "an idle relay fired");
@@ -454,6 +480,69 @@ auto add_relay() -> void
             expect_true(calls->load() == at_destruction, "fired after destruction");
         }
     });
+
+#if TINY_PLATFORM_WINDOWS
+    // Why a window and not a thread message: modal loops (message boxes, host dialogs) drop thread
+    // messages, and a host can sit in one for as long as the user likes.
+    Tests::add("Relay: delivers on main during a modal loop", [] {
+        auto calls = std::atomic<int>{};
+        auto relay = tiny::Relay{{.execute = [&] { calls.fetch_add(1); }, .interval = 0.01}};
+        auto during = std::atomic<int>{-1};
+        const auto main_thread = GetCurrentThreadId();
+        auto closer = std::thread{[&] {
+            // The box is the dialog window main owns. Bounded, so a miss fails instead of hanging.
+            auto box = HWND{};
+            for (auto tries = 0; !box && tries < 1000; ++tries) {
+                EnumThreadWindows(main_thread, [](HWND w, LPARAM out) -> BOOL {
+                    wchar_t name[16]{};
+                    if (GetClassNameW(w, name, 16) && !wcscmp(name, L"#32770")) { *reinterpret_cast<HWND*>(out) = w; return FALSE; }
+                    return TRUE;
+                }, reinterpret_cast<LPARAM>(&box));
+                if (!box) std::this_thread::sleep_for(5ms);
+            }
+            relay.post();
+            std::this_thread::sleep_for(150ms);
+            during = calls.load(); // Before the box closes.
+            for (auto tries = 0; box && IsWindow(box) && tries < 100; ++tries) {
+                PostMessageW(box, WM_CLOSE, 0, 0);
+                std::this_thread::sleep_for(20ms);
+            }
+        }};
+        MessageBoxW(nullptr, L"Closes itself.", L"tinyplug relay test", MB_OK);
+        closer.join();
+        expect_true(during.load() >= 1, "a post didn't fire while a modal loop ran");
+    });
+
+    Tests::add("Relay: a window lost with a short-lived thread is rebuilt by the next relay", [] {
+        auto first_calls = std::atomic<int>{};
+        auto first = std::unique_ptr<tiny::Relay>{};
+        std::thread{[&] { first = std::make_unique<tiny::Relay>(tiny::Relay::Spec{.execute = [&] { first_calls.fetch_add(1); }, .interval = 0.01}); }}.join();
+        // That thread's exit destroyed the window. The next relay, built here, rebuilds it on main.
+        auto calls = std::atomic<int>{};
+        auto off_main = std::atomic<bool>{};
+        auto second = tiny::Relay{{.execute = [&] { calls.fetch_add(1); if (!on_main()) off_main = true; }, .interval = 0.01}};
+        first->post();
+        second.post();
+        pump_main(100ms);
+        expect_true(calls.load() >= 1 && first_calls.load() >= 1, "relays went silent after their window's thread exited");
+        expect_true(!off_main.load(), "the rebuilt window delivers off main");
+        first.reset();
+    });
+
+    Tests::add("Relay: the last stop off main leaves no window behind, and a new relay works", [] {
+        for (auto round = 0; round < 3; ++round) {
+            auto relay = std::make_unique<tiny::Relay>(tiny::Relay::Spec{.execute = [] {}, .interval = 0.01});
+            auto stopper = std::thread{[&] { relay.reset(); }}; // The window's destruction is deferred to main.
+            stopper.join();
+            pump_main(20ms);
+            auto calls = std::atomic<int>{};
+            auto again = tiny::Relay{{.execute = [&] { calls.fetch_add(1); }, .interval = 0.01}};
+            again.post();
+            pump_main(100ms);
+            expect_true(calls.load() >= 1, "a relay after an off-main teardown never fired");
+        }
+    });
+#endif
 }
 
 #endif
@@ -467,7 +556,7 @@ auto main() -> int
     add_task_launcher();
     add_task_manager();
     add_task_manager_shutdown();
-#if TINY_PLATFORM_APPLE
+#if TINY_PLATFORM_APPLE || TINY_PLATFORM_WINDOWS
     add_relay();
 #endif
     return audio_bench::Tests::run_all() == 0 ? 0 : 1;

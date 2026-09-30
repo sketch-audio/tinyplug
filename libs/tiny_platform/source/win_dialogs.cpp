@@ -774,8 +774,16 @@ auto Platform_dialogs::save_file(const std::string& title, const std::string& de
         }
 
         // 2. Construct the Filter (e.g., "Project Files (*.ext)\0*.ext\0All Files\0*.*\0\0")
-        // Note: Must end with two null terminators.
-        std::wstring filter = L"Supported Files (*." + wext + L")\0*." + wext + L"\0All Files (*.*)\0*.*\0";
+        // Note: Must end with two null terminators. The separators are appended one by one:
+        // concatenating a literal like L")\0*." copies only up to its first null.
+        auto filter = L"Supported Files (*." + wext + L")";
+        filter += L'\0';
+        filter += L"*." + wext;
+        filter += L'\0';
+        filter += L"All Files (*.*)";
+        filter += L'\0';
+        filter += L"*.*";
+        filter += L'\0'; // c_str() supplies the second.
 
         OPENFILENAMEW save_file_name = {};
         save_file_name.lStructSize = sizeof(OPENFILENAMEW);

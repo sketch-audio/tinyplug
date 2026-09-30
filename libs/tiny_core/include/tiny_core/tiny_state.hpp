@@ -44,9 +44,17 @@ struct Ack {
 
 // Edit (editor -> processor): {Edit_header, base, next}, tagged with a sequence. Under
 // Writers::Editor it is just `next`: nothing can contest it.
+//
+// `seen_rejected` is the newest refusal the editor had heard of when it diffed the patch. A patch
+// diffed before the editor heard of a refusal assumed the refused patch landed, so it carries none
+// of its bytes; applying it would let `applied` pass the refusal and retire the refused gesture as
+// if it had landed. The processor drops such a patch, without recording a refusal of its own, which
+// keeps the ack's two watermarks sufficient: until the editor hears of a refusal, nothing after it
+// applies.
 struct Edit_header {
     std::uint8_t apply{};
     std::uint8_t pad[3]{};
+    std::uint32_t seen_rejected{};
 };
 
 template<typename T, Writers W>
@@ -124,7 +132,7 @@ public:
             if (h.apply > static_cast<std::uint8_t>(Apply::Retry)) return false;
 
             const auto* base = bytes.data() + sizeof h;
-            _store.load_bytes(base, base + sizeof(T), seq, static_cast<Apply>(h.apply));
+            _store.load_bytes(base, base + sizeof(T), seq, static_cast<Apply>(h.apply), h.seen_rejected);
         }
         return true;
     }
@@ -307,7 +315,7 @@ public:
             }
 
             _buf.resize(edit_bytes<T, W>);
-            const auto h = Edit_header{static_cast<std::uint8_t>(apply), {}};
+            const auto h = Edit_header{static_cast<std::uint8_t>(apply), {}, _seen_rejected};
             std::memcpy(_buf.data(), &h, sizeof h);
             std::memcpy(_buf.data() + sizeof h, &_sent, sizeof(T));
             std::memcpy(_buf.data() + sizeof h + sizeof(T), &_view, sizeof(T));
@@ -334,16 +342,18 @@ public:
         std::memcpy(&_confirmed, bytes.data() + sizeof(Ack), sizeof(T));
         _gen = gen;
 
+        // Everything up to `applied` landed. The processor refuses any patch diffed before we heard
+        // of its latest refusal (Edit_header::seen_rejected), so `applied` never passes a refusal we
+        // haven't seen: a patch at or below it is in `_confirmed`, and a refusal we haven't seen yet
+        // means nothing still pending landed. Re-arm all of it, to re-run against what exists.
         while (!_pending.empty() && _pending.front().seq != 0 && _pending.front().seq <= ack.applied) {
             _pending.pop_front();
         }
 
         if (ack.rejected > _seen_rejected) {
             _seen_rejected = ack.rejected;
-            if (ack.rejected > ack.applied) {
-                ++_retries;
-                for (auto& a : _pending) a.seq = 0;
-            }
+            ++_retries;
+            for (auto& a : _pending) a.seq = 0;
         }
 
         rebuild();

@@ -1,7 +1,18 @@
 # Plan: Relay with pluggable main-thread delivery
 
-> Status: **design.** Written 2026-09-25, after the fake-host and sanitizer work. The next
-> step is the Windows validation pass, which this plan is meant to unblock.
+> Status: **Windows landed**, 2026-09-25: the message window, one pool timer, the registry and
+> the teardown below are in `relay.cpp`, and `vst3_host` on Windows reports no off-UI-thread sends.
+> Still open: CLAP's `request_callback` delivery (CLAP constructs no relays today), and the tests
+> for two DLLs' dispatchers and for an unload with a message queued.
+>
+> Two things the implementation taught. A window destroyed with a delivery message still queued
+> discards it, so the "one message queued" flag must reset when a window is created, or the next
+> window is never told anything. And moving VST3's worker relay onto main exposed an unbounded
+> `while (pop())` drain: against an audio thread that keeps pushing it never returns, which on a
+> pool thread only burned a thread but on main freezes the host. Drains on main are now capped at
+> one queue's worth per delivery.
+>
+> Written 2026-09-25, after the fake-host and sanitizer work.
 >
 > `Relay` ([relay.hpp](../libs/tiny_core/include/tiny_core/relay.hpp)) promises "the callback runs
 > later, off the audio thread". On Apple it also runs on **main**, and several clients depend on

@@ -1,0 +1,2 @@
+# Sanitizer suppression files are parsed line by line; a CRLF checkout breaks them on Windows.
+*.supp text eol=lf

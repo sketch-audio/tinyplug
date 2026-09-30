@@ -18,8 +18,6 @@
 #include <thread>
 #include <vector>
 
-#include <dlfcn.h>
-
 #include <audio_bench/audio_bench.hpp>
 
 #include "clap/clap.h"
@@ -43,22 +41,18 @@ thread_local bool t_audio_flush = false;
 // MARK: - bundle
 
 struct Bundle {
-    void* handle{};
+    tiny::hosts::Library library;
     const clap_plugin_entry* entry{};
     const clap_plugin_factory* factory{};
 
-    explicit Bundle(const std::string& path)
+    explicit Bundle(const std::string& path) : library{path}
     {
-        const auto slash = path.find_last_of('/');
-        const auto name = path.substr(slash + 1, path.find_last_of('.') - slash - 1);
-        handle = dlopen((path + "/Contents/MacOS/" + name).c_str(), RTLD_NOW | RTLD_LOCAL);
-        if (!handle) throw std::runtime_error(std::format("dlopen failed: {}", dlerror()));
-        entry = static_cast<const clap_plugin_entry*>(dlsym(handle, "clap_entry"));
+        entry = static_cast<const clap_plugin_entry*>(library.symbol("clap_entry"));
         if (!entry || !entry->init(path.c_str())) throw std::runtime_error("clap_entry missing or init failed");
         factory = static_cast<const clap_plugin_factory*>(entry->get_factory(CLAP_PLUGIN_FACTORY_ID));
         if (!factory || factory->get_plugin_count(factory) != 1) throw std::runtime_error("expected one plug-in");
     }
-    ~Bundle() { entry->deinit(); } // Never dlclose: macOS keeps Objective-C images anyway.
+    ~Bundle() { entry->deinit(); }
 };
 
 // MARK: - host
@@ -519,18 +513,26 @@ private:
 
 // MARK: - editor
 
+#if defined(_WIN32)
+constexpr auto window_api = CLAP_WINDOW_API_WIN32;
+auto set_window(clap_window& w, void* native) -> void { w.win32 = native; }
+#else
+constexpr auto window_api = CLAP_WINDOW_API_COCOA;
+auto set_window(clap_window& w, void* native) -> void { w.cocoa = native; }
+#endif
+
 // The plug-in's editor, embedded in a window for as long as this lives: create, set_parent, show,
 // then hide and destroy.
 class Editor_session {
 public:
     Editor_session(Instance& instance, tiny::hosts::Window& window) : _i{instance}
     {
-        if (!_i.gui || !_i.gui->is_api_supported(_i.plugin, CLAP_WINDOW_API_COCOA, false)) return;
-        if (!_i.gui->create(_i.plugin, CLAP_WINDOW_API_COCOA, false)) return;
+        if (!_i.gui || !_i.gui->is_api_supported(_i.plugin, window_api, false)) return;
+        if (!_i.gui->create(_i.plugin, window_api, false)) return;
         _open = true;
         auto parent = clap_window{};
-        parent.api = CLAP_WINDOW_API_COCOA;
-        parent.cocoa = window.content();
+        parent.api = window_api;
+        set_window(parent, window.content());
         expect_true(_i.gui->set_parent(_i.plugin, &parent), "gui set_parent failed");
         _i.gui->show(_i.plugin);
         _view = window.editor_view();

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cassert>
@@ -135,8 +136,12 @@ public:
 
     // [one requester at a time] Stage a patch. A second load before the first is taken
     // keeps the ORIGINAL base and replaces `next`, so the earlier edit is not dropped.
+    // `seen_rejected` is the newest refusal the requester knew of when it diffed the patch
+    // (see Edit_header); a patch diffed before the latest refusal is dropped at the next block. The
+    // default opts out: a requester that tracks no refusals is never stale.
     auto load_bytes(const std::byte* expected, const std::byte* desired,
-                    std::uint32_t seq = 0, Apply apply = Apply::Merge) -> void
+                    std::uint32_t seq = 0, Apply apply = Apply::Merge,
+                    std::uint32_t seen_rejected = UINT32_MAX) -> void
     {
         const auto was = begin_fill();
 
@@ -154,8 +159,9 @@ public:
             _staged.expected.reset();
             _staged.seq = seq;
             _staged.apply = Apply::Overwrite;
+            _staged.seen = UINT32_MAX; // Carries the whole view, refused gestures included: never stale.
         }
-        else if (was == Stage::Staged) {
+        else if (was == Stage::Staged && (_staged.is_replace() || seen_rejected <= _staged.seen)) {
             if (_staged.is_replace()) {
                 merge(as_writable_bytes(_staged.desired), expected, desired, sizeof(T));
             }
@@ -164,13 +170,19 @@ public:
             }
             _staged.seq = seq;
             _staged.apply = stricter(_staged.apply, apply);
+            _staged.seen = std::min(_staged.seen, seen_rejected);
         }
         else {
+            // Nothing staged, or the requester has heard of a refusal since it diffed what is: the
+            // new patch supersedes it. Hearing of a refusal re-arms every gesture not yet applied,
+            // and a staged patch is not applied, so the new patch carries all of the staged one's
+            // gestures. Merging them instead would mark the new patch stale with the old.
             std::memcpy(&_staged.desired, desired, sizeof(T));
             _staged.expected.emplace();
             std::memcpy(&*_staged.expected, expected, sizeof(T));
             _staged.seq = seq;
             _staged.apply = apply;
+            _staged.seen = seen_rejected;
         }
 
         _stage.store(Stage::Staged, std::memory_order_release);
@@ -190,6 +202,7 @@ public:
         if constexpr (processor_writes) _staged.expected.reset();
         _staged.seq = applied;
         _staged.apply = Apply::Overwrite;
+        if constexpr (processor_writes) _staged.seen = UINT32_MAX;
         _stage.store(Stage::Staged, std::memory_order_release);
     }
 
@@ -207,6 +220,7 @@ private:
         [[no_unique_address]] Expected expected{};
         std::uint32_t seq{}; // 0 = the requester is not tracking this one.
         Apply apply{Apply::Merge};
+        std::uint32_t seen{UINT32_MAX}; // The requester's newest known refusal; the oldest, once coalesced.
 
         auto is_replace() const -> bool
         {
@@ -291,6 +305,19 @@ private:
             if (_staged.is_replace()) {
                 current().value = _staged.desired;
                 note_applied();
+                return true;
+            }
+
+            // Diffed before the requester heard of the latest refusal, so it assumed the refused
+            // patch landed and carries none of its bytes. Applying it would move `applied` past the
+            // refusal and retire the refused gesture. Whatever the policy: the retry re-sends it all.
+            //
+            // Dropped, not recorded as a refusal of its own. Its gestures were pending when the
+            // requester heard of the refusal that made it stale, so they are re-armed already;
+            // recording it would make every patch still in flight stale in turn, and a continuous
+            // drag would land nothing until it stopped. `rejected` counts conflicts only.
+            if (_staged.seen < current().rejected) {
+                rejected = true;
                 return true;
             }
 

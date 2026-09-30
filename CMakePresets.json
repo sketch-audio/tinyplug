@@ -72,10 +72,30 @@
     {
       "name": "windows",
       "displayName": "Windows — Visual Studio",
-      "description": "Static-CRT MSVC build (runtime handled in CMakeLists). AUv3/AUv2/AAX-mac excluded by platform.",
+      "description": "Static-CRT MSVC build (runtime handled in CMakeLists). AUv3/AUv2/AAX-mac excluded by platform. CMAKE_BUILD_TYPE picks tiny_deps' Skia libs, so it must match the configuration built.",
       "inherits": "base",
       "generator": "Visual Studio 17 2022",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "windows-tests",
+      "displayName": "Windows tests — Visual Studio, no plug-ins",
+      "inherits": "windows",
+      "cacheVariables": { "TINY_BUILD_PLUGINS": "OFF", "TINY_BUILD_TESTS": "ON" }
+    },
+    {
+      "name": "windows-asan",
+      "displayName": "Windows tests under MSVC AddressSanitizer",
+      "description": "MSVC has ASan only: no UBSan, no TSan.",
+      "inherits": "windows-tests",
+      "cacheVariables": { "TINY_SANITIZE": "address" }
+    },
+    {
+      "name": "windows-asan-hosts",
+      "displayName": "Windows fake hosts under MSVC AddressSanitizer",
+      "inherits": "windows-asan",
+      "cacheVariables": { "TINY_BUILD_PLUGINS": "ON" }
     }
   ],
   "buildPresets": [
@@ -87,7 +107,10 @@
     { "name": "asan-hosts", "configurePreset": "asan-hosts", "jobs": 8, "targets": ["tiny_tests", "tiny_host_tests"] },
     { "name": "macos",  "configurePreset": "macos", "configuration": "Debug" },
     { "name": "ios",    "configurePreset": "ios",   "configuration": "Debug" },
-    { "name": "windows", "configurePreset": "windows", "configuration": "Debug" }
+    { "name": "windows", "configurePreset": "windows", "configuration": "Debug" },
+    { "name": "windows-tests", "configurePreset": "windows-tests", "configuration": "Debug", "targets": ["tiny_tests"] },
+    { "name": "windows-asan", "configurePreset": "windows-asan", "configuration": "Debug", "targets": ["tiny_tests"] },
+    { "name": "windows-asan-hosts", "configurePreset": "windows-asan-hosts", "configuration": "Debug", "targets": ["tiny_tests", "tiny_host_tests"] }
   ],
   "testPresets": [
     { "name": "tests", "configurePreset": "tests", "output": { "outputOnFailure": true } },
@@ -105,6 +128,15 @@
     },
     {
       "name": "asan-hosts", "inherits": "asan", "configurePreset": "asan-hosts",
+      "filter": { "include": { "label": "host" } }
+    },
+    { "name": "windows-tests", "configurePreset": "windows-tests", "configuration": "Debug", "output": { "outputOnFailure": true } },
+    {
+      "name": "windows-asan", "configurePreset": "windows-asan", "configuration": "Debug", "output": { "outputOnFailure": true },
+      "environment": { "ASAN_OPTIONS": "halt_on_error=1:suppressions='${sourceDir}/tests/sanitizers/asan.supp'" }
+    },
+    {
+      "name": "windows-asan-hosts", "inherits": "windows-asan", "configurePreset": "windows-asan-hosts",
       "filter": { "include": { "label": "host" } }
     }
   ]
