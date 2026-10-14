@@ -283,73 +283,77 @@ private:
 #endif
     }
 
-    // AUv2 view adapter.
-    std::unique_ptr<View> _view = std::make_unique<View>(View::Deps{
-        .editor = &(*_editor),
-        .receiver = {
-            .get_param = [this](auto id) {
-                using namespace params;
-                const auto& param = User_params::param_spec(id);
-                const auto host = Globals()->GetParameter(id);
-                const auto knob = Value_helper::host_to_knob(host, param.semantics);
-                return knob;
-            },
-            .read_meters = [this](std::span<meters::Sample> out) {
-                _mailbox.read(out);
-            },
-            .action_handler = [this](auto& action) {
-                std::visit(Inline_visitor{
-                    [&](const Action_start& a) {
-                        auto event = AudioUnitEvent{};
-                        event.mEventType = kAudioUnitEvent_BeginParameterChangeGesture;
-                        event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                        event.mArgument.mParameter.mParameterID = a.address;
-                        event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
-                        event.mArgument.mParameter.mElement = 0;
-                        AUEventListenerNotify(NULL, NULL, &event);
-                    },
-                    [&](const Set_param& a) {
-                        using namespace params;
+    // AUv2 view adapter. Made in the constructor body, once `_editor` holds a value.
+    std::unique_ptr<View> _view{};
+    auto _make_view() -> std::unique_ptr<View>
+    {
+        return std::make_unique<View>(View::Deps{
+            .editor = &(*_editor),
+            .receiver = {
+                .get_param = [this](auto id) {
+                    using namespace params;
+                    const auto& param = User_params::param_spec(id);
+                    const auto host = Globals()->GetParameter(id);
+                    const auto knob = Value_helper::host_to_knob(host, param.semantics);
+                    return knob;
+                },
+                .read_meters = [this](std::span<meters::Sample> out) {
+                    _mailbox.read(out);
+                },
+                .action_handler = [this](auto& action) {
+                    std::visit(Inline_visitor{
+                        [&](const Action_start& a) {
+                            auto event = AudioUnitEvent{};
+                            event.mEventType = kAudioUnitEvent_BeginParameterChangeGesture;
+                            event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
+                            event.mArgument.mParameter.mParameterID = a.address;
+                            event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
+                            event.mArgument.mParameter.mElement = 0;
+                            AUEventListenerNotify(NULL, NULL, &event);
+                        },
+                        [&](const Set_param& a) {
+                            using namespace params;
 
-                        // Notify host
-                        const auto& param = User_params::param_spec(a.address);
-                        const auto plain_value = Value_helper::knob_to_plain(a.value, param.semantics);
-                        const auto host_value = Value_helper::knob_to_host(a.value, param.semantics);
+                            // Notify host
+                            const auto& param = User_params::param_spec(a.address);
+                            const auto plain_value = Value_helper::knob_to_plain(a.value, param.semantics);
+                            const auto host_value = Value_helper::knob_to_host(a.value, param.semantics);
 
-                        Globals()->SetParameter(a.address, static_cast<float>(host_value));
-                        auto event = AudioUnitEvent{};
-                        event.mEventType = kAudioUnitEvent_ParameterValueChange;
-                        event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                        event.mArgument.mParameter.mParameterID = a.address;
-                        event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
-                        event.mArgument.mParameter.mElement = 0;
-                        AUEventListenerNotify(NULL, NULL, &event);
-                        _changes.push(process::Event::Set{a.address, plain_value});
-                    },
-                    [&](const Action_end& a) {
-                        auto event = AudioUnitEvent{};
-                        event.mEventType = kAudioUnitEvent_EndParameterChangeGesture;
-                        event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                        event.mArgument.mParameter.mParameterID = a.address;
-                        event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
-                        event.mArgument.mParameter.mElement = 0;
-                        AUEventListenerNotify(NULL, NULL, &event);
-                    },
-                    [](const auto&) {}
-                }, action);
-            }
-        },
-        .tasks = &_tasks,
-        .undo_history = &_undo_history,
-        .actions = &_actions,
-        .initial_size = [this]() { return _last_size.value_or(plugin::Editor::preferred_size()); },
-        .on_resized = [this](uint32_t w, uint32_t h) {
-            _last_size = Rect_size{static_cast<int32_t>(w), static_cast<int32_t>(h)};
-        },
+                            Globals()->SetParameter(a.address, static_cast<float>(host_value));
+                            auto event = AudioUnitEvent{};
+                            event.mEventType = kAudioUnitEvent_ParameterValueChange;
+                            event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
+                            event.mArgument.mParameter.mParameterID = a.address;
+                            event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
+                            event.mArgument.mParameter.mElement = 0;
+                            AUEventListenerNotify(NULL, NULL, &event);
+                            _changes.push(process::Event::Set{a.address, plain_value});
+                        },
+                        [&](const Action_end& a) {
+                            auto event = AudioUnitEvent{};
+                            event.mEventType = kAudioUnitEvent_EndParameterChangeGesture;
+                            event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
+                            event.mArgument.mParameter.mParameterID = a.address;
+                            event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
+                            event.mArgument.mParameter.mElement = 0;
+                            AUEventListenerNotify(NULL, NULL, &event);
+                        },
+                        [](const auto&) {}
+                    }, action);
+                }
+            },
+            .tasks = &_tasks,
+            .undo_history = &_undo_history,
+            .actions = &_actions,
+            .initial_size = [this]() { return _last_size.value_or(plugin::Editor::preferred_size()); },
+            .on_resized = [this](uint32_t w, uint32_t h) {
+                _last_size = Rect_size{static_cast<int32_t>(w), static_cast<int32_t>(h)};
+            },
 #if TINY_HAS_WORKER
-        .drain_worker_to_editor = [this]() { this->_drain_worker_to_editor(); }
+            .drain_worker_to_editor = [this]() { this->_drain_worker_to_editor(); }
 #endif
-    });
+        });
+    }
 
 #if TINY_HAS_WORKER
     // Last so its destructor (which joins the worker thread) runs first.

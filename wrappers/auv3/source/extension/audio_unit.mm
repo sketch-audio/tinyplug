@@ -150,21 +150,16 @@ static auto presets_path() -> std::filesystem::path
     _outputBus = [[AUAudioUnitBus alloc] initWithFormat:format error:nil];
     _outputBus.maximumChannelCount = 2;
     
-    // Create the input and output busses.
+    // Input buses are the buffered buses themselves, so a host's format change reaches the buffers we allocate.
     _inputBus.init(format, 2);
-    auto numBuses = 1;
+    NSMutableArray *temp = [[NSMutableArray alloc] initWithObjects:_inputBus.bus, nil];
     
 #if TINY_WANTS_SIDECHAIN
     // Sidechain?
     _sidechainBus.init(format, 2);
-    numBuses += 1;
+    [temp addObject:_sidechainBus.bus];
 #endif
     
-    NSMutableArray *temp = [[NSMutableArray alloc] initWithCapacity:numBuses];
-    for (auto i = decltype(numBuses){}; i < numBuses; ++i) {
-        AUAudioUnitBus *bus = [[AUAudioUnitBus alloc] initWithFormat:format error: nil];
-        [temp addObject:bus];
-    }
     _inputBuses = [temp copy];
     
     // Create the input and output bus arrays.
@@ -642,7 +637,8 @@ static auto presets_path() -> std::filesystem::path
         
 #if TINY_WANTS_SIDECHAIN
         {
-            AUAudioUnitStatus err = sidechain->pullInput(&pullFlags, timestamp, frameCount, 1, pullInputBlock);
+            AudioUnitRenderActionFlags sidechainFlags = 0;
+            AUAudioUnitStatus err = sidechain->pullInput(&sidechainFlags, timestamp, frameCount, 1, pullInputBlock);
 
             if (err == 0) { sidechainAudioBufferList = sidechain->mutableAudioBufferList; }
         }
@@ -677,6 +673,7 @@ static auto presets_path() -> std::filesystem::path
                                          timestamp,
                                          frameCount,
                                          realtimeEventListHead);
+        *actionFlags &= ~kAudioUnitRenderAction_OutputIsSilence; // We wrote audio.
         return noErr;
     };
 }

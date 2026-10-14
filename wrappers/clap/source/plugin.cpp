@@ -285,6 +285,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     const auto min_channels = std::min(process->audio_inputs[0].channel_count, process->audio_outputs[0].channel_count);
     const auto num_channels = static_cast<size_t>(min_channels);
     _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, frame_count);
+    process->audio_outputs[0].constant_mask = 0; // We wrote audio; don't rely on the host clearing it.
 
     // Send exports. Quiet during an offline bounce, and quiet on a flush block
     // (frames_count == 0) which ran no audio and so has measured nothing — the

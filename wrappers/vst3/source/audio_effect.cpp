@@ -607,6 +607,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
             {out_buffers.begin(), num_channels},
             static_cast<size_t>(data.numSamples)
         );
+        data.outputs[0].silenceFlags = 0; // We wrote audio; never leave a host's stale flags set.
     }
 
     auto add_output_event = [&](int32_t id, double value) -> bool {
