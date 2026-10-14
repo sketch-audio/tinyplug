@@ -26,6 +26,7 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
         .notes = Note_sender{[this](const midi::Performance& e) { return _notes.post_from_editor(e); }},
 #endif
     });
+    _view = this->_make_view();
 
 #if TINY_HAS_STATE
     state::connect_in_process(_state_link, _state);

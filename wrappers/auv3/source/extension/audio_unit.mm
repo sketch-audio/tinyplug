@@ -248,19 +248,15 @@ static auto presets_path() -> std::filesystem::path
     // a silent output, since AU renders are pulled through one.
     _inputBus.init(format, 2);
     _ownedOutput.init(format, 2);
-    auto numBuses = tiny::Plug_info::Wants::audio_in ? 1 : 0;
+    NSMutableArray *temp = [[NSMutableArray alloc] init]; // The buffered buses themselves, so a host's format change reaches their buffers.
+    if (tiny::Plug_info::Wants::audio_in) { [temp addObject:_inputBus.bus]; }
     
 #if TINY_WANTS_SIDECHAIN
     // Sidechain?
     _sidechainBus.init(format, 2);
-    numBuses += 1;
+    [temp addObject:_sidechainBus.bus];
 #endif
     
-    NSMutableArray *temp = [[NSMutableArray alloc] initWithCapacity:numBuses];
-    for (auto i = decltype(numBuses){}; i < numBuses; ++i) {
-        AUAudioUnitBus *bus = [[AUAudioUnitBus alloc] initWithFormat:format error: nil];
-        [temp addObject:bus];
-    }
     _inputBuses = [temp copy];
     
     // Create the input and output bus arrays.
@@ -627,7 +623,8 @@ static auto presets_path() -> std::filesystem::path
 
 - (NSArray<NSNumber *> *)channelCapabilities {
     using namespace tiny;
-    return Plug_info::can_process_mono ? @[@2, @2, @1, @1] : @[@2, @2];
+    const auto in = [](int n) { return Plug_info::Wants::audio_in ? n : 0; }; // No main input bus, as AUv2 reports it.
+    return Plug_info::can_process_mono ? @[@(in(2)), @2, @(in(1)), @1] : @[@(in(2)), @2];
 }
 
 - (NSTimeInterval)latency {
