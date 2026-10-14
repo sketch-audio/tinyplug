@@ -794,7 +794,8 @@ static auto presets_path() -> std::filesystem::path
 #if TINY_WANTS_SIDECHAIN
         {
             const auto sidechainBus = tiny::Plug_info::Wants::audio_in ? 1 : 0;
-            AUAudioUnitStatus err = sidechain->pullInput(&pullFlags, timestamp, frameCount, sidechainBus, pullInputBlock);
+            AudioUnitRenderActionFlags sidechainFlags = 0;
+            AUAudioUnitStatus err = sidechain->pullInput(&sidechainFlags, timestamp, frameCount, sidechainBus, pullInputBlock);
 
             if (err == 0) { sidechainAudioBufferList = sidechain->mutableAudioBufferList; }
         }
@@ -834,6 +835,7 @@ static auto presets_path() -> std::filesystem::path
                                          timestamp,
                                          frameCount,
                                          realtimeEventListHead);
+        if (tiny::Plug_info::Wants::audio_out) *actionFlags &= ~kAudioUnitRenderAction_OutputIsSilence; // We wrote audio.
         return noErr;
     };
 }

@@ -328,6 +328,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
         const auto num_channels = Plug_info::Wants::audio_in ? std::min(_ichannels, _ochannels) : _ochannels;
         const auto frames = Plug_info::Wants::audio_in ? size_t{frame_count} : std::min<size_t>(frame_count, _silence.size());
         _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, frames);
+        process->audio_outputs[0].constant_mask = 0; // We wrote audio; don't rely on the host clearing it.
     }
 
 #if TINY_HAS_NOTES_OUT

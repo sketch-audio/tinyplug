@@ -1223,9 +1223,15 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 
     this->_drain_worker_to_processor();
 
-    // Pull inputs.
-    for (auto i = decltype(num_inputs){}; i < num_inputs; ++i) {
-        Input(i).PullInput(ioActionFlags, inTimeStamp, i, nFrames);
+    // Pull inputs with our own flags: `ioActionFlags` describes our output, and an upstream "silence" must not leak into it.
+    if constexpr (Plug_info::Wants::audio_in) {
+        auto pull_flags = AudioUnitRenderActionFlags{};
+        if (const auto err = Input(0).PullInput(pull_flags, inTimeStamp, 0, nFrames); err != noErr) return err; // As AUEffectBase does.
+    }
+    auto sidechain_ok = false; // A failed sidechain pull (unconnected, say) reaches the processor as no channels, never a stale buffer.
+    if constexpr (Plug_info::wants_sidechain) {
+        auto pull_flags = AudioUnitRenderActionFlags{};
+        sidechain_ok = Input(sidechain_input).PullInput(pull_flags, inTimeStamp, sidechain_input, nFrames) == noErr;
     }
 
     // Resolve latency handshake.
@@ -1435,7 +1441,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     _notes.drain_editor([this](const process::Input& input) { _input(input, 0); });
 #endif
 
-    auto do_process = [this, &context, &host_data, bypassed](size_t num_frames, size_t offset) {
+    auto do_process = [this, &context, &host_data, bypassed, sidechain_ok](size_t num_frames, size_t offset) {
 #if TINY_HAS_NOTES_OUT
         _notes.outbox().begin_slice(static_cast<int64_t>(offset), static_cast<int64_t>(num_frames));
         context.notes = _notes.writer(bypassed);
@@ -1465,7 +1471,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         }
 
         auto num_schannels = size_t{};
-        if (Plug_info::wants_sidechain && HasInput(sidechain_input)) {
+        if (Plug_info::wants_sidechain && sidechain_ok) {
             num_schannels = Input(sidechain_input).NumberChannels();
             [[maybe_unused]] const auto num_sbuffers = Input(sidechain_input).GetBufferList().mNumberBuffers;
             assert(num_schannels == num_sbuffers && "Channel mismatch!");
@@ -1575,6 +1581,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
             : std::min<size_t>(Output(0).NumberChannels(), max_ichannels);
         const auto frames = Plug_info::Wants::audio_in ? size_t{frame_count} : std::min<size_t>(frame_count, _silence.size());
         _bypass.process({in_buffers.begin(), num_channels}, {out_buffers.begin(), num_channels}, frames);
+        ioActionFlags &= ~kAudioUnitRenderAction_OutputIsSilence; // We wrote audio; a host may have passed the flag in set.
     }
     else {
         for (size_t i = 0; i < std::min<size_t>(Output(0).NumberChannels(), max_ochannels); ++i) {

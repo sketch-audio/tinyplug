@@ -221,6 +221,8 @@ public:
     std::atomic<int> latency_notes{};
 
     // Render-thread state the callbacks read.
+    enum class Input_mode { Noise, Silent, Fail };
+    std::atomic<Input_mode> input_mode{Input_mode::Noise};
     std::atomic<uint32_t> input_seed{1};
     double beat{};
     bool playing{true};
@@ -235,9 +237,16 @@ private:
         if (id == kAudioUnitProperty_Latency) { i.latency_changed = true; i.latency_notes.fetch_add(1); }
     }
 
-    static OSStatus provide_input(void* self, AudioUnitRenderActionFlags*, const AudioTimeStamp*, UInt32, UInt32 frames, AudioBufferList* data)
+    static OSStatus provide_input(void* self, AudioUnitRenderActionFlags* flags, const AudioTimeStamp*, UInt32, UInt32 frames, AudioBufferList* data)
     {
         auto& i = *static_cast<Instance*>(self);
+        const auto mode = i.input_mode.load(std::memory_order_relaxed);
+        if (mode == Input_mode::Fail) return kAudioUnitErr_NoConnection;
+        if (mode == Input_mode::Silent) { // A source that stopped, as SoundSource reports it.
+            for (auto b = UInt32{}; b < data->mNumberBuffers; ++b) if (data->mBuffers[b].mData) std::memset(data->mBuffers[b].mData, 0, frames * sizeof(float));
+            *flags |= kAudioUnitRenderAction_OutputIsSilence;
+            return noErr;
+        }
         auto x = i.input_seed.load(std::memory_order_relaxed);
         for (auto b = UInt32{}; b < data->mNumberBuffers; ++b) {
             auto* samples = static_cast<float*>(data->mBuffers[b].mData);
@@ -485,6 +494,39 @@ auto add_scenarios(const Bundle& bundle) -> void
             instance.uninitialize();
             instance.service();
         }
+    });
+
+    // Silence-optimizing hosts (SoundSource, Audio Hijack) believe the flag: it must describe our output, not our input.
+    Tests::add("render: an upstream silence flag never leaks into ours, and a failed pull fails the render", [&bundle] {
+        if (!bundle.has_audio_input()) return;
+        auto instance = Instance{bundle};
+        expect_true(instance.initialize(48000, 512, false), "AudioUnitInitialize failed");
+        auto storage = std::array<std::array<float, 512>, 2>{};
+        auto* list = static_cast<AudioBufferList*>(std::calloc(1, offsetof(AudioBufferList, mBuffers) + 2 * sizeof(AudioBuffer)));
+        list->mNumberBuffers = 2;
+        auto sample_time = Float64{};
+        const auto render = [&](AudioUnitRenderActionFlags flags_in, AudioUnitRenderActionFlags& flags_out) {
+            for (auto c = 0; c < 2; ++c) list->mBuffers[c] = AudioBuffer{1, 512 * sizeof(float), storage[static_cast<size_t>(c)].data()};
+            auto stamp = AudioTimeStamp{.mSampleTime = sample_time, .mFlags = kAudioTimeStampSampleTimeValid};
+            sample_time += 512;
+            flags_out = flags_in;
+            return AudioUnitRender(instance.unit, &flags_out, &stamp, 0, 512, list);
+        };
+        auto flags = AudioUnitRenderActionFlags{};
+        for (auto n = 0; n < 8; ++n) {
+            instance.input_mode = Instance::Input_mode::Silent;
+            expect_true(render(0, flags) == noErr, "render with a silent input failed");
+            expect_true(!(flags & kAudioUnitRenderAction_OutputIsSilence), "the input's silence flag leaked into our output's");
+            instance.input_mode = Instance::Input_mode::Noise;
+            expect_true(render(kAudioUnitRenderAction_OutputIsSilence, flags) == noErr, "render failed");
+            expect_true(!(flags & kAudioUnitRenderAction_OutputIsSilence), "a host's stale silence flag survived a render");
+        }
+        instance.input_mode = Instance::Input_mode::Fail;
+        expect_true(render(0, flags) != noErr, "a failed input pull must fail the render");
+        instance.input_mode = Instance::Input_mode::Noise;
+        expect_true(render(0, flags) == noErr, "render after a failed pull failed");
+        std::free(list);
+        instance.uninitialize();
     });
 
     Tests::add("state: ClassInfo save, restore, save is identical, idle and while rendering", [&bundle] {
