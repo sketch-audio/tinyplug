@@ -76,6 +76,26 @@ cmake --build build
   copies bundles to `~/Library/Audio/Plug-Ins/...` (or the Windows
   equivalent) after each build.
 
+## Validating AUs with auval
+
+`auval` finds a unit by type/subtype/manufacturer only, and AUv2 and AUv3 share those codes, so
+it validates whichever the system resolves — the AUv3 when both are registered. Make the other one
+unfindable first, and always confirm from the log, which prints `This AudioUnit is a version 2
+implementation.` or `... version 3 ...` (the AUv3 also prints `Loaded AudioUnit out-of-process: true`).
+
+- **AUv2**: macOS discovers an AUv3 `.appex` anywhere on disk — build dirs, copies outside them.
+  Find every matching one (`mdfind 'kMDItemFSName == "<Name>_AUv3.appex"'`), `lsregister -u` its
+  `.app`/`.appex` and delete it, then `killall -9 AudioComponentRegistrar`. `pluginkit -e ignore`
+  is not reliable and persists until `pluginkit -e use -i <bundle id>`.
+- **AUv3**: move `~/Library/Audio/Plug-Ins/Components/<Name>.component` aside, restart the
+  registrar, build the `<Name>_app` + `<Name>_extension` targets (building registers them).
+  Restore the component and delete the AUv3 build afterwards.
+- The Xcode presets set no signing team; a local build takes
+  `cmake --build --preset macos --target <T> -- CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=`.
+- Run `auval -strict -v aufx <subt> <manu>`. A hang with 0% CPU on an AUv3 is a crashed
+  extension: look for `~/Library/Logs/DiagnosticReports/<Name>_AUv3-*.ips`. In zsh, `log` is a
+  builtin — read the unified log with `/usr/bin/log show`.
+
 ## Core abstractions
 
 The plug-in author implements two classes plus a few static models. Concepts
