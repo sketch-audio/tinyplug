@@ -1149,8 +1149,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         UInt32 time_sig_denom{4};
     } host_data{};
 
-    [[maybe_unused]] auto result = OSStatus{noErr};
-    result = [this, &host_data]() {
+    const auto transport_ok = [this, &host_data]() {
         auto info = GetHostCallbackInfo();
         if (info.transportStateProc2) {
             return (*info.transportStateProc2)(
@@ -1174,25 +1173,48 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
                 &host_data.cycle_end
             );
         }
-    }();
+    }() == noErr;
 
-    result = CallHostBeatAndTempo(
+    const auto beats_ok = CallHostBeatAndTempo(
         &host_data.beat_pos,
         &host_data.tempo
-    );
+    ) == noErr;
 
-    result = CallHostMusicalTimeLocation(
+    const auto time_sig_ok = CallHostMusicalTimeLocation(
         nullptr, // sample_offset_to_next_beat
         &host_data.time_sig_numer,
         &host_data.time_sig_denom,
         nullptr // current_measure_downbeat
-    );
+    ) == noErr;
+
+    // A failed call may have written some of its outputs; report it as missing.
+    const auto to_bool = [](auto a) { return a != 0; };
+    using Resolver = process::Timeline_resolver;
+    auto report = Resolver::Report{};
+    if (transport_ok) {
+        report.sample_pos = Resolver::samples(host_data.sample_pos);
+        report.cycle_start = host_data.cycle_start;
+        report.cycle_end = host_data.cycle_end;
+        report.transport_state = {
+            .moving = to_bool(host_data.is_playing),
+            .cycling = to_bool(host_data.is_cycling),
+            .recording = to_bool(host_data.is_recording)
+        };
+    }
+    if (beats_ok) {
+        report.beat_pos = host_data.beat_pos;
+        report.tempo = host_data.tempo;
+    }
+    if (time_sig_ok) {
+        report.time_sig = process::Time_sig{static_cast<int32_t>(host_data.time_sig_numer), static_cast<int32_t>(host_data.time_sig_denom)};
+    }
+    const auto block_context = _timeline.resolve(report, nFrames, _sr);
 
     // Create the context.
     auto context = process::Dsp_context{.meters = _meters.scratch()};
     context.render_mode = render_mode; // Resolved above, where the transition is detected.
 
-    auto do_process = [this, &context, &host_data, sidechain_ok](size_t num_frames, size_t offset) {
+    auto do_process = [this, &context, &block_context, sidechain_ok](size_t num_frames, size_t offset) {
         const auto num_ichannels = Input(0).NumberChannels();
         [[maybe_unused]] const auto num_ibuffers = Input(0).GetBufferList().mNumberBuffers;
         assert(num_ichannels == num_ibuffers && "Channel mismatch!");
@@ -1217,32 +1239,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
             }
         }
 
-        const auto sample_pos = host_data.sample_pos;
-        const auto beat_pos = host_data.beat_pos;
-        const auto cycle_start = host_data.cycle_start;
-        const auto cycle_end = host_data.cycle_end;
-        const auto tempo = host_data.tempo;
-        const auto ts_numer = static_cast<int32_t>(host_data.time_sig_numer);
-        const auto ts_denom = static_cast<int32_t>(host_data.time_sig_denom);
-
-        const auto to_bool = [](auto a) { return a != 0; };
-
-        // Host data sample pos is Float64, round here so values like 127.999 convert to 128.
-        const auto base_pos = static_cast<int64_t>(std::llround(sample_pos));
-
-        context.musical_context = {
-            .sample_pos = base_pos + static_cast<int64_t>(offset),
-            .beat_pos = beat_pos + process::frames_to_beats(static_cast<int64_t>(offset), tempo, _sr),
-            .cycle_start = cycle_start,
-            .cycle_end = cycle_end,
-            .tempo_ideal = tempo,
-            .time_sig = {ts_numer, ts_denom},
-            .transport_state = {
-                .moving = to_bool(host_data.is_playing),
-                .cycling = to_bool(host_data.is_cycling),
-                .recording = to_bool(host_data.is_recording)
-            }
-        };
+        context.musical_context = process::Timeline_resolver::at_offset(block_context, offset, _sr);
 
         context.ibuffers = {_ibuffers.begin(), num_ichannels};
         context.obuffers = {_obuffers.begin(), num_ochannels};

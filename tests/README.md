@@ -63,3 +63,10 @@ posting without ever reaching its falling edge holds its last peak forever, beca
 absence is not observable from the reader's side. It is asserted so that changing it
 is deliberate — see "Falling edges" and the watch list in
 `plans/meter-pipeline.md`.
+
+## timeline_resolver_test.cpp
+
+`process::Timeline_resolver`: the `Musical_context` every wrapper hands the processor when the
+host leaves fields out or reports nonsense. Free-running position (not moving) with no host
+info, beats derived from the position, position derived from beats + host tempo, 120 / 4/4
+defaults, non-finite and zero values treated as missing, sub-block offsets.

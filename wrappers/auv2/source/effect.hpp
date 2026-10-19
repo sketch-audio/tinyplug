@@ -122,6 +122,7 @@ private:
     auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state) -> void;
 
     double _sr{48000};
+    process::Timeline_resolver _timeline{};
 
     mutable std::array<AUPreset, Preset_list::num_presets> _au_presets{}; // Strings will need released.
     //mutable CFArrayRef _presets_array{nullptr};

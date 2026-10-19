@@ -127,6 +127,7 @@ private:
     std::atomic<uint32_t> _reported_latency{}; // Don't feedback latency changes.
     std::atomic<bool> _did_peek{false}; // Fallback for non-conforming hosts.
     bool _was_moving{};
+    process::Timeline_resolver _timeline{}; // Fills what the host leaves out.
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);

@@ -166,6 +166,7 @@ auto configure_instance(const Alg_context* context, Alg_state& st, double sample
     st.processor.configure(process::Config{.sr = sample_rate, .params = config_params});
 
     st.bypass.reset(static_cast<float>(sample_rate));
+    st.sr = sample_rate;
 
     const auto latency = st.processor.latency_samps();
     st.bypass.set_latency(latency); // Compensates our own delay, so always the kernel's value.
@@ -246,13 +247,13 @@ auto construct_instance(const Alg_context* context, Alg_state* st, double sample
     st->constructed = true;
 }
 
-auto read_musical_context(const Alg_context* ctx, bool recording) -> process::Musical_context
+auto read_musical_context(const Alg_context* ctx, bool recording, Alg_state& st, size_t num_frames) -> process::Musical_context
 {
-    auto out = process::Musical_context{};
-    if (ctx->transport_node == nullptr) return out;
+    auto report = process::Timeline_resolver::Report{};
+    report.transport_state.recording = recording;
 
-    auto* transport = ctx->transport_node->GetTransport();
-    if (transport == nullptr) return out;
+    auto* transport = ctx->transport_node != nullptr ? ctx->transport_node->GetTransport() : nullptr;
+    if (transport == nullptr) return st.timeline.resolve(report, num_frames, st.sr);
 
     auto tempo = double{};
     auto ts_numer = int32_t{};
@@ -265,40 +266,27 @@ auto read_musical_context(const Alg_context* ctx, bool recording) -> process::Mu
     auto sample_pos = int64_t{};
     auto ticks_per_beat = uint32_t{};
 
-    // A failed query leaves its local zero-initialised, so each field keeps the
-    // free-running default rather than reporting 0 bpm / 0/0 as if it were real.
+    // A failed query is reported as missing.
     const auto ok = [](AAX_Result r) { return r == AAX_SUCCESS; };
 
-    if (ok(transport->GetCurrentTempo(&tempo))) {
-        out.tempo_ideal = tempo;
-        out.tempo_real = tempo;
-    }
-    if (ok(transport->GetCurrentMeter(&ts_numer, &ts_denom)) && ts_denom != 0) {
-        out.time_sig = {ts_numer, ts_denom};
-    }
-    if (ok(transport->GetCurrentNativeSampleLocation(&sample_pos))) {
-        out.sample_pos = sample_pos;
-    }
+    if (ok(transport->GetCurrentTempo(&tempo))) report.tempo = tempo;
+    if (ok(transport->GetCurrentMeter(&ts_numer, &ts_denom))) report.time_sig = process::Time_sig{ts_numer, ts_denom};
+    if (ok(transport->GetCurrentNativeSampleLocation(&sample_pos))) report.sample_pos = sample_pos;
 
-    auto per_beat = double{1};
     if (ok(transport->GetCurrentTicksPerBeat(&ticks_per_beat)) && ticks_per_beat != 0) {
-        per_beat = static_cast<double>(ticks_per_beat);
+        const auto per_beat = static_cast<double>(ticks_per_beat);
+        if (ok(transport->GetCurrentTickPosition(&tick_pos))) {
+            report.beat_pos = static_cast<double>(tick_pos) / per_beat;
+        }
+        if (ok(transport->GetCurrentLoopPosition(&is_looping, &loop_start_tick, &loop_end_tick))) {
+            report.cycle_start = static_cast<double>(loop_start_tick) / per_beat;
+            report.cycle_end = static_cast<double>(loop_end_tick) / per_beat;
+            report.transport_state.cycling = is_looping;
+        }
     }
+    if (ok(transport->IsTransportPlaying(&is_playing))) report.transport_state.moving = is_playing;
 
-    if (ok(transport->GetCurrentTickPosition(&tick_pos))) {
-        out.beat_pos = static_cast<double>(tick_pos) / per_beat;
-    }
-    if (ok(transport->GetCurrentLoopPosition(&is_looping, &loop_start_tick, &loop_end_tick))) {
-        out.cycle_start = static_cast<double>(loop_start_tick) / per_beat;
-        out.cycle_end = static_cast<double>(loop_end_tick) / per_beat;
-        out.transport_state.cycling = is_looping;
-    }
-    if (ok(transport->IsTransportPlaying(&is_playing))) {
-        out.transport_state.moving = is_playing;
-    }
-    out.transport_state.recording = recording;
-
-    return out;
+    return st.timeline.resolve(report, num_frames, st.sr);
 }
 
 template<int32_t num_channels>
@@ -370,7 +358,7 @@ auto render_instance(Alg_context* ctx) -> void
 #endif
 
     auto context = process::Dsp_context{
-        .musical_context = read_musical_context(ctx, runtime.recording != 0),
+        .musical_context = read_musical_context(ctx, runtime.recording != 0, *st, num_frames),
         .ibuffers = {st->ibuffers.begin(), channels},
         .sbuffers = {st->sbuffers.begin(), Plug_info::wants_sidechain ? max_schannels : 0},
         .obuffers = {st->obuffers.begin(), channels},

@@ -194,10 +194,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
         }
 
         // Advance the block's musical context to this segment's offset.
-        const auto beat_off = process::frames_to_beats(static_cast<int64_t>(offset), block_context.tempo_ideal, _sr);
-        context.musical_context = block_context;
-        context.musical_context.sample_pos = block_context.sample_pos + static_cast<int64_t>(offset);
-        context.musical_context.beat_pos = block_context.beat_pos + beat_off;
+        context.musical_context = process::Timeline_resolver::at_offset(block_context, offset, _sr);
 
         context.ibuffers = {_ibuffers.begin(), _ichannels};
         context.obuffers = {_obuffers.begin(), _ochannels};
@@ -320,38 +317,39 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
 
 auto Plugin::_resolve_transport(const clap_process* process) -> process::Musical_context
 {
+    using Resolver = process::Timeline_resolver;
     const auto* transport = process->transport;
+    auto report = Resolver::Report{};
 
-    // If we can't get a transport, at least keep the sample position advancing.
+    // No transport: stopped, at the host's steady time if it has one.
     if (!transport) {
-        const auto steady = process->steady_time;
-        const auto sample_pos = steady >= 0 ? steady : _free_run_pos;
-        _free_run_pos += static_cast<int64_t>(process->frames_count);
-
-        return process::Musical_context{.sample_pos = sample_pos}; // Defaults: 120bpm, 4/4, stopped.
+        if (process->steady_time >= 0) report.sample_pos = process->steady_time;
+        return _timeline.resolve(report, process->frames_count, _sr);
     }
-
-    // We will derive the sample time from the time in seconds.
-    const auto sec_pos = static_cast<double>(transport->song_pos_seconds) / CLAP_SECTIME_FACTOR;
-    const auto sample_pos = std::round(sec_pos * _sr);
-    const auto tempo = transport->tempo > 0 ? transport->tempo : 120.; // Never divide by zero.
 
     const auto flags = transport->flags;
     const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
 
-    return process::Musical_context{
-        .sample_pos = static_cast<int64_t>(sample_pos),
-        .beat_pos = static_cast<double>(transport->song_pos_beats) / CLAP_BEATTIME_FACTOR,
-        .cycle_start = static_cast<double>(transport->loop_start_beats) / CLAP_BEATTIME_FACTOR,
-        .cycle_end = static_cast<double>(transport->loop_end_beats) / CLAP_BEATTIME_FACTOR,
-        .tempo_ideal = tempo,
-        .time_sig = {transport->tsig_num, transport->tsig_denom},
-        .transport_state = {
-            .moving = has_flag(flags, CLAP_TRANSPORT_IS_PLAYING),
-            .cycling = has_flag(flags, CLAP_TRANSPORT_IS_LOOP_ACTIVE),
-            .recording = has_flag(flags, CLAP_TRANSPORT_IS_RECORDING)
-        }
+    // We will derive the sample time from the time in seconds.
+    if (has_flag(flags, CLAP_TRANSPORT_HAS_SECONDS_TIMELINE)) {
+        const auto sec_pos = static_cast<double>(transport->song_pos_seconds) / CLAP_SECTIME_FACTOR;
+        report.sample_pos = Resolver::samples(sec_pos * _sr);
+    }
+    if (has_flag(flags, CLAP_TRANSPORT_HAS_BEATS_TIMELINE)) {
+        report.beat_pos = static_cast<double>(transport->song_pos_beats) / CLAP_BEATTIME_FACTOR;
+        report.cycle_start = static_cast<double>(transport->loop_start_beats) / CLAP_BEATTIME_FACTOR;
+        report.cycle_end = static_cast<double>(transport->loop_end_beats) / CLAP_BEATTIME_FACTOR;
+    }
+    if (has_flag(flags, CLAP_TRANSPORT_HAS_TEMPO)) report.tempo = transport->tempo;
+    if (has_flag(flags, CLAP_TRANSPORT_HAS_TIME_SIGNATURE)) {
+        report.time_sig = process::Time_sig{transport->tsig_num, transport->tsig_denom};
+    }
+    report.transport_state = {
+        .moving = has_flag(flags, CLAP_TRANSPORT_IS_PLAYING),
+        .cycling = has_flag(flags, CLAP_TRANSPORT_IS_LOOP_ACTIVE),
+        .recording = has_flag(flags, CLAP_TRANSPORT_IS_RECORDING)
     };
+    return _timeline.resolve(report, process->frames_count, _sr);
 }
 
 // The host is about to feed us discontinuous audio (seek, loop jump, un-mute, offline

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <cmath>
 #include <concepts>
 #include <cstdint>
 #include <optional>
@@ -59,6 +60,83 @@ struct Musical_context {
     double tempo_real{tempo_ideal};
     Time_sig time_sig{};
     Transport_state transport_state{};
+};
+
+// What a wrapper read from the host for one buffer, turned into a full `Musical_context`:
+// every field is always supplied. A missing field is `nullopt`; invalid values count as missing.
+struct Timeline_resolver {
+
+    struct Report {
+        std::optional<int64_t> sample_pos{};
+        std::optional<double> beat_pos{};
+        std::optional<double> tempo{};
+        std::optional<Time_sig> time_sig{};
+        std::optional<double> cycle_start{};
+        std::optional<double> cycle_end{};
+        Transport_state transport_state{};
+    };
+
+    // Once per host buffer, at its first frame.
+    auto resolve(const Report& r, size_t num_frames, double sr) -> Musical_context
+    {
+        const auto defaults = Musical_context{};
+        const auto finite = [](const std::optional<double>& x) { return x && std::isfinite(*x); };
+
+        auto mc = Musical_context{};
+        mc.transport_state = r.transport_state;
+
+        const auto host_tempo = finite(r.tempo) && *r.tempo > 0;
+        mc.tempo_ideal = host_tempo ? *r.tempo : defaults.tempo_ideal;
+        mc.tempo_real = mc.tempo_ideal;
+
+        const auto valid_sig = r.time_sig && r.time_sig->numer > 0 && r.time_sig->denom > 0;
+        mc.time_sig = valid_sig ? *r.time_sig : defaults.time_sig;
+
+        // Position: the host's, else from its beats, else free-running (and not moving).
+        if (r.sample_pos) {
+            mc.sample_pos = *r.sample_pos;
+        }
+        else if (finite(r.beat_pos) && host_tempo) {
+            mc.sample_pos = std::llround(*r.beat_pos * 60 * sr / mc.tempo_ideal);
+        }
+        else {
+            mc.sample_pos = _free_pos;
+            mc.transport_state.moving = false;
+        }
+        _free_pos = mc.sample_pos + static_cast<int64_t>(num_frames);
+
+        // Beats: the host's, else from the position.
+        mc.beat_pos = finite(r.beat_pos) ? *r.beat_pos : frames_to_beats(mc.sample_pos, mc.tempo_ideal, sr);
+
+        if (finite(r.cycle_start) && finite(r.cycle_end)) {
+            mc.cycle_start = *r.cycle_start;
+            mc.cycle_end = *r.cycle_end;
+        }
+        else {
+            mc.transport_state.cycling = false;
+        }
+        return mc;
+    }
+
+    // A host position reported in samples as a double; non-finite is missing.
+    static auto samples(double x) -> std::optional<int64_t>
+    {
+        if (!std::isfinite(x)) return std::nullopt;
+        return static_cast<int64_t>(std::llround(x));
+    }
+
+    // The same buffer's context `offset` frames in, for a sub-block.
+    static auto at_offset(Musical_context mc, size_t offset, double sr) -> Musical_context
+    {
+        mc.sample_pos += static_cast<int64_t>(offset);
+        mc.beat_pos += frames_to_beats(static_cast<int64_t>(offset), mc.tempo_ideal, sr);
+        return mc;
+    }
+
+    auto clear() -> void { _free_pos = 0; }
+
+private:
+    int64_t _free_pos{};
 };
 
 // Whether the host is rendering offline (bounce / freeze / export) rather than

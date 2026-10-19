@@ -33,6 +33,7 @@ public:
         AUEventSampleTime now = AUEventSampleTime(timestamp->mSampleTime);
         AUAudioFrameCount framesRemaining = frameCount;
         AURenderEvent const *nextEvent = events; // events is a linked list, at the beginning, the nextEvent is the first event
+        mKernel.beginRender(now, frameCount);
 
         auto callProcess = [this] (AudioBufferList* inBufferListPtr,
                                    AudioBufferList* sidechainBufferList,

@@ -456,8 +456,37 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         }
     }
 
+    // Resolve the musical context. `projectTimeSamples` is always valid; the rest have flags.
+    const auto sr = processSetup.sampleRate;
+    const auto block_context = [&]() {
+        using Resolver = Timeline_resolver;
+        auto report = Resolver::Report{};
+        if (const auto* vst_context = data.processContext; vst_context) {
+            using enum Steinberg::Vst::ProcessContext::StatesAndFlags;
+            const auto state = vst_context->state;
+            const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
+
+            report.sample_pos = vst_context->projectTimeSamples;
+            if (has_flag(state, kProjectTimeMusicValid)) report.beat_pos = vst_context->projectTimeMusic;
+            if (has_flag(state, kTempoValid)) report.tempo = vst_context->tempo;
+            if (has_flag(state, kTimeSigValid)) {
+                report.time_sig = Time_sig{vst_context->timeSigNumerator, vst_context->timeSigDenominator};
+            }
+            if (has_flag(state, kCycleValid)) {
+                report.cycle_start = vst_context->cycleStartMusic;
+                report.cycle_end = vst_context->cycleEndMusic;
+            }
+            report.transport_state = {
+                .moving = has_flag(state, kPlaying),
+                .cycling = has_flag(state, kCycleActive),
+                .recording = has_flag(state, kRecording)
+            };
+        }
+        return _timeline.resolve(report, static_cast<size_t>(std::max(data.numSamples, 0)), sr);
+    }();
+
     // So we can process with an offset.
-    auto do_process = [this, &data, &context, has_inputs, has_outputs, has_sidechain](size_t num_frames, size_t offset) {
+    auto do_process = [this, &data, &context, &block_context, sr, has_inputs, has_outputs, has_sidechain](size_t num_frames, size_t offset) {
         assert(offset + num_frames <= static_cast<size_t>(data.numSamples) && "Offset + num_frames exceeds data.numSamples!");
 
         // Assign buffer ptrs.
@@ -480,36 +509,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
             }
         }
 
-        // Resolve the musical context.
-        context.musical_context = Musical_context{}; // Default in case processContext is null.
-        if (const auto* vst_context = data.processContext; vst_context) {
-            const auto sample_pos = vst_context->projectTimeSamples;
-            const auto beat_pos = vst_context->projectTimeMusic;
-            const auto cycle_start = vst_context->cycleStartMusic;
-            const auto cycle_end = vst_context->cycleEndMusic;
-            const auto tempo = vst_context->tempo;
-            const auto sr = vst_context->sampleRate;
-            const auto ts_numer = vst_context->timeSigNumerator;
-            const auto ts_denom = vst_context->timeSigDenominator;
-
-            using enum Steinberg::Vst::ProcessContext::StatesAndFlags;
-            const auto transport_state = vst_context->state;
-            const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
-
-            context.musical_context = {
-                .sample_pos = sample_pos + static_cast<int64_t>(offset),
-                .beat_pos = beat_pos + frames_to_beats(static_cast<int64_t>(offset), tempo, sr),
-                .cycle_start = cycle_start,
-                .cycle_end = cycle_end,
-                .tempo_ideal = tempo,
-                .time_sig = {ts_numer, ts_denom},
-                .transport_state = {
-                    .moving = has_flag(transport_state, kPlaying),
-                    .cycling = has_flag(transport_state, kCycleActive),
-                    .recording = has_flag(transport_state, kRecording)
-                }
-            };
-        }
+        context.musical_context = Timeline_resolver::at_offset(block_context, offset, sr);
 
         using In = std::span<const float*>;
         using Out = std::span<float*>;
