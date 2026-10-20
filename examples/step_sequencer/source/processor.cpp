@@ -57,10 +57,10 @@ auto Processor::process(Dsp_context& context) -> void
     }
     _num_through = 0;
 
-    const auto& musical = context.musical_context;
+    const auto& timeline = context.timeline;
     auto& step_meter = context.meters[enum_raw(Meter::Step)];
 
-    if (!musical.transport_state.moving) {
+    if (!(timeline.state && timeline.state->moving && timeline.beat_pos)) { // Nothing to step along without beats.
         _release(context, 0); // Stopping closes the sounding note.
         _last_step.reset();
         step_meter = static_cast<float>(num_steps);
@@ -70,11 +70,10 @@ auto Processor::process(Dsp_context& context) -> void
     const auto& pattern = context.state.get();
     const auto gate = static_cast<double>(_values[enum_raw(Address::Gate)]);
     const auto velocity = _values[enum_raw(Address::Velocity)];
-    const auto tempo = musical.tempo_real > 0. ? musical.tempo_real : 120.;
-    const auto beats_per_frame = tempo / (60. * _sr);
+    const auto beats_per_frame = timeline.tempo.value_or(120.) / (60. * _sr);
 
     for (auto frame = size_t{}; frame < context.num_frames; ++frame) {
-        const auto beat = musical.beat_pos + static_cast<double>(frame) * beats_per_frame;
+        const auto beat = *timeline.beat_pos + static_cast<double>(frame) * beats_per_frame;
         const auto f = static_cast<int64_t>(frame);
 
         if (_held && beat >= _held->off_beat) _release(context, f);

@@ -23,7 +23,7 @@ public:
 
     // This is where you can do your signal processing.
     // In the DSP context, you have:
-    // - The musical context, e.g. `beat_pos` & `tempo`
+    // - The host timeline, e.g. `beat_pos` & `tempo` (optional: the host may not say)
     // - Pointers to the input, output, and sidechain buffers (They could be null!)
     // - The number of frames to render (It is the plug-in's responsibility to handle any value here.)
     // - A place to write your exports

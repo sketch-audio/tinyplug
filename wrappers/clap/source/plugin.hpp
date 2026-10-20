@@ -248,9 +248,8 @@ private:
     // read on the audio thread in process.
     std::atomic<bool> _offline{false};
 
-    // Fallback sample clock for a null transport when the host has no steady_time
-    // either. Render-thread only.
-    int64_t _free_run_pos{};
+    // Fills what the host's transport leaves out. Render-thread only.
+    process::detail::Timeline_resolver _timeline{};
 
     // Tail
     std::atomic<uint32_t> _tail{_processor->tail_samps()}; // Written by process, read by tailGet on main.
@@ -346,7 +345,7 @@ private:
 
     // MARK: - private
 
-    auto _resolve_transport(const clap_process* process) -> process::Musical_context;
+    auto _resolve_transport(const clap_process* process) -> process::Timeline;
     auto _read_state_chunk(const clap_istream* stream) -> bool;
 
     // `record` is the document's `state::encode_record`; empty loads the default.

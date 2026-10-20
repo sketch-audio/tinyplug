@@ -697,3 +697,61 @@ kernel never receives `Reset::Latency`. Check every processor that sets
 
 Also fixed along the way: a latency that was an exact power of two used to wrap the bypass delay
 line to zero, so bypass had no compensation at those values.
+
+---
+
+## Timeline
+
+Breaks from `release/0.4`. `Dsp_context::musical_context` is now `Dsp_context::timeline`, a
+`process::Timeline`. A field the host didn't report is now empty, where before it held a default
+you couldn't tell apart from a real value. The defaults move to you.
+
+```cpp
+struct Timeline {
+    std::int64_t sample_pos{};             // Always supplied.
+    std::optional<double> beat_pos{};
+    std::optional<double> tempo{};         // BPM, finite and > 0.
+    std::optional<Signature> signature{};  // {numer, denom}, both > 0.
+    std::optional<Cycle> cycle{};          // {start, end} in beats.
+    std::optional<State> state{};          // {moving, cycling, recording}.
+};
+```
+
+### Breaks
+
+| Before | After |
+|---|---|
+| `musical_context` | `timeline` |
+| `tempo_real`, `tempo_ideal` | `tempo.value_or(120.)` |
+| `time_sig.numer` / `.denom` | `signature.value_or({4, 4}).numer` / `.denom` |
+| `beat_pos` | `beat_pos`, optional |
+| `cycle_start`, `cycle_end` | `cycle->start`, `cycle->end` when `cycle` is set |
+| `transport_state.moving` | `state && state->moving` |
+| `Transport_state`, `Time_sig` | `Timeline::State`, `Timeline::Signature` |
+| `process::frames_to_beats` | removed; `tempo / (60 * sr)` beats per frame |
+
+Don't write `if (t.state->moving)` without checking `t.state`, and don't test an optional where you
+mean its value: `if (t.beat_pos)` is "the host reported beats", not "beats are non-zero".
+
+### What tinyplug guarantees
+
+- **`sample_pos` is always supplied.** It is the host's, else derived from the host's beats and
+  tempo, else free-running from the last known position. It is continuous across the segments of
+  one host buffer (event splits) and may jump between host buffers: seeks, loop wraps, the host's
+  position appearing or disappearing. To detect a jump, keep `sample_pos + num_frames` and compare
+  at the next block, only while `state->moving` (most hosts hold the position still while
+  stopped), and clear it on `Reset::Hard`.
+- **Free-running is never moving.** If the host says it's playing but gives no position,
+  `state->moving` is `false`.
+- **Beats are never invented.** `beat_pos` is empty unless the host reported beats. Derive them
+  from `sample_pos` and a tempo yourself if you want a fallback.
+- **One tempo.** `tempo` is the host's nominal value. `tempo_real` (AUv3's smoothed tempo, for
+  Ableton Link drift) is gone along with the smoothing; the drift shows in `beat_pos` from one
+  block to the next, so smooth there if you need to.
+- **A cycle region can be set while cycling is off.** `cycle` is the region and `state->cycling`
+  says whether it's active. A broken region (non-finite) is empty and forces `cycling` off.
+- **Invalid is missing.** Non-finite values, a tempo ≤ 0 and a zero signature part arrive empty
+  rather than as the host's garbage.
+
+[examples/step_sequencer](examples/step_sequencer/) and [examples/state_demo](examples/state_demo/)
+are the reference: both treat "moving without beats" as stopped, since there is nothing to follow.

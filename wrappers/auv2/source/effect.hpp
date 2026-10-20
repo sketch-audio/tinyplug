@@ -144,6 +144,7 @@ private:
     auto _send_notes(const AudioTimeStamp& time) -> void;
 
     double _sr{48000};
+    process::detail::Timeline_resolver _timeline{}; // Fills what the host leaves out. Render-thread only.
 
     mutable std::array<AUPreset, Preset_list::num_presets> _au_presets{}; // Strings will need released.
     //mutable CFArrayRef _presets_array{nullptr};

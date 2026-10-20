@@ -38,11 +38,10 @@ auto Processor::process(Dsp_context& context) -> void
 {
     const auto& pattern = context.state.get(); // Valid for this block only.
     const auto depth = _values[enum_raw(Address::Depth)];
-    const auto& musical = context.musical_context;
-    const auto tempo = musical.tempo_real > 0. ? musical.tempo_real : 120.;
-    const auto beats_per_sample = tempo / (60. * _sr);
-    const auto moving = musical.transport_state.moving;
-    const auto start = moving ? musical.beat_pos : _free_beats;
+    const auto& timeline = context.timeline;
+    const auto beats_per_sample = timeline.tempo.value_or(120.) / (60. * _sr);
+    const auto moving = timeline.state && timeline.state->moving && timeline.beat_pos;
+    const auto start = moving ? *timeline.beat_pos : _free_beats;
     const auto channels = std::min(context.ibuffers.size(), context.obuffers.size());
 
     auto step = size_t{};

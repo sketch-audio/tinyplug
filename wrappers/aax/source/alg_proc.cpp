@@ -300,13 +300,14 @@ auto publish_state([[maybe_unused]] Processor& processor, [[maybe_unused]] uint3
 }
 #endif
 
-auto read_musical_context(const Alg_context* ctx, bool recording) -> process::Musical_context
+auto read_timeline(const Alg_context* ctx, bool recording, Alg_state& st, size_t num_frames, double sr) -> process::Timeline
 {
-    auto out = process::Musical_context{};
-    if (ctx->transport_node == nullptr) return out;
+    using process::Timeline;
+    auto t = Timeline{};
+    auto host_pos = std::optional<std::int64_t>{};
 
-    auto* transport = ctx->transport_node->GetTransport();
-    if (transport == nullptr) return out;
+    auto* transport = ctx->transport_node != nullptr ? ctx->transport_node->GetTransport() : nullptr;
+    if (transport == nullptr) return st.timeline.resolve(t, host_pos, num_frames, sr);
 
     auto tempo = double{};
     auto ts_numer = int32_t{};
@@ -319,40 +320,28 @@ auto read_musical_context(const Alg_context* ctx, bool recording) -> process::Mu
     auto sample_pos = int64_t{};
     auto ticks_per_beat = uint32_t{};
 
-    // A failed query leaves its local zero-initialised, so each field keeps the
-    // free-running default rather than reporting 0 bpm / 0/0 as if it were real.
+    // A failed query is reported as missing.
     const auto ok = [](AAX_Result r) { return r == AAX_SUCCESS; };
 
-    if (ok(transport->GetCurrentTempo(&tempo))) {
-        out.tempo_ideal = tempo;
-        out.tempo_real = tempo;
-    }
-    if (ok(transport->GetCurrentMeter(&ts_numer, &ts_denom)) && ts_denom != 0) {
-        out.time_sig = {ts_numer, ts_denom};
-    }
-    if (ok(transport->GetCurrentNativeSampleLocation(&sample_pos))) {
-        out.sample_pos = sample_pos;
-    }
+    if (ok(transport->GetCurrentTempo(&tempo))) t.tempo = tempo;
+    if (ok(transport->GetCurrentMeter(&ts_numer, &ts_denom))) t.signature = Timeline::Signature{ts_numer, ts_denom};
+    if (ok(transport->GetCurrentNativeSampleLocation(&sample_pos))) host_pos = sample_pos;
 
-    auto per_beat = double{1};
+    // Without ticks per beat there are no beats, only ticks.
     if (ok(transport->GetCurrentTicksPerBeat(&ticks_per_beat)) && ticks_per_beat != 0) {
-        per_beat = static_cast<double>(ticks_per_beat);
-    }
-
-    if (ok(transport->GetCurrentTickPosition(&tick_pos))) {
-        out.beat_pos = static_cast<double>(tick_pos) / per_beat;
-    }
-    if (ok(transport->GetCurrentLoopPosition(&is_looping, &loop_start_tick, &loop_end_tick))) {
-        out.cycle_start = static_cast<double>(loop_start_tick) / per_beat;
-        out.cycle_end = static_cast<double>(loop_end_tick) / per_beat;
-        out.transport_state.cycling = is_looping;
+        const auto per_beat = static_cast<double>(ticks_per_beat);
+        if (ok(transport->GetCurrentTickPosition(&tick_pos))) {
+            t.beat_pos = static_cast<double>(tick_pos) / per_beat;
+        }
+        if (ok(transport->GetCurrentLoopPosition(&is_looping, &loop_start_tick, &loop_end_tick))) {
+            t.cycle = Timeline::Cycle{static_cast<double>(loop_start_tick) / per_beat, static_cast<double>(loop_end_tick) / per_beat};
+        }
     }
     if (ok(transport->IsTransportPlaying(&is_playing))) {
-        out.transport_state.moving = is_playing;
+        t.state = Timeline::State{.moving = is_playing, .cycling = is_looping, .recording = recording};
     }
-    out.transport_state.recording = recording;
 
-    return out;
+    return st.timeline.resolve(t, host_pos, num_frames, sr);
 }
 
 template<int32_t num_channels>
@@ -449,9 +438,10 @@ auto render_instance(Alg_context* ctx) -> void
     state_block.emplace(&st->state);
 #endif
 
-    const auto block_context = read_musical_context(ctx, runtime.recording != 0);
+    const auto sr = ctx->sample_rate != nullptr && *ctx->sample_rate > 0 ? static_cast<double>(*ctx->sample_rate) : 44100.;
+    const auto block_timeline = read_timeline(ctx, runtime.recording != 0, *st, num_frames, sr);
     auto context = process::Dsp_context{
-        .musical_context = block_context,
+        .timeline = block_timeline,
         .ibuffers = {st->ibuffers.begin(), Plug_info::Wants::audio_in ? channels : 0},
         .sbuffers = {st->sbuffers.begin(), Plug_info::wants_sidechain ? max_schannels : 0},
         .obuffers = {st->obuffers.begin(), channels},
@@ -505,8 +495,7 @@ auto render_instance(Alg_context* ctx) -> void
     st->notes.drain_editor([&](const process::Input& in) { input(in, 0); });
 #endif
 
-    // One slice of the block, from `offset`: pointers, musical position and the outbox move with it.
-    const auto sr = ctx->sample_rate != nullptr && *ctx->sample_rate > 0 ? static_cast<double>(*ctx->sample_rate) : 44100.;
+    // One slice of the block, from `offset`: pointers, timeline and the outbox move with it.
     const auto run = [&](size_t offset, size_t count) {
         if (count == 0 || can_skip) return;
         auto ins = std::array<const float*, max_ichannels>{};
@@ -523,9 +512,7 @@ auto render_instance(Alg_context* ctx) -> void
         context.obuffers = {outs.data(), channels};
         context.sbuffers = {sides.data(), context.sbuffers.size()};
         context.num_frames = count;
-        context.musical_context = block_context;
-        context.musical_context.sample_pos = block_context.sample_pos + static_cast<int64_t>(offset);
-        context.musical_context.beat_pos = block_context.beat_pos + process::frames_to_beats(static_cast<int64_t>(offset), block_context.tempo_ideal, sr);
+        context.timeline = process::detail::Timeline_resolver::at_offset(block_timeline, offset, sr);
 #if TINY_HAS_NOTES_OUT
         st->notes.outbox().begin_slice(static_cast<int64_t>(offset), static_cast<int64_t>(count));
         context.notes = st->notes.writer(bypassed);

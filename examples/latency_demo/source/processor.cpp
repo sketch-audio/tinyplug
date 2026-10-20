@@ -64,11 +64,12 @@ auto Processor::process(Dsp_context& context) -> void
     }
 
     const auto click = _values[enum_raw(Address::Click)] >= 0.5f;
-    const auto& musical = context.musical_context;
+    const auto& timeline = context.timeline;
+    const auto moving = timeline.state && timeline.state->moving;
     const auto second = std::max<int64_t>(1, std::llround(_frame.sr));
     const auto channels = std::min({context.ibuffers.size(), context.obuffers.size(), _lines.size()});
     for (auto frame = size_t{}; frame < context.num_frames; ++frame) {
-        const auto at = (musical.transport_state.moving ? musical.sample_pos : _clock) + static_cast<int64_t>(frame);
+        const auto at = (moving ? timeline.sample_pos : _clock) + static_cast<int64_t>(frame);
         const auto tick = at % second == 0 ? 1.f : 0.f;
         for (auto channel = size_t{}; channel < channels; ++channel) {
             auto& line = _lines[channel];

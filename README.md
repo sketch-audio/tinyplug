@@ -153,7 +153,7 @@ tinyplug ships with several demo plug-ins, each small enough to read in one sitt
 - Figure out GPU synchronization situation on Windows
 - More demo plug-ins
     - Meters
-    - Musical_context
+    - Timeline
     - Sidechain
 - Linux (CLAP & VST3)
 - LV2 plug-ins

@@ -1371,13 +1371,12 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         Float64 cycle_start{};
         Float64 cycle_end{};
         Float64 beat_pos{};
-        Float64 tempo{120};
-        Float32 time_sig_numer{4};
-        UInt32 time_sig_denom{4};
+        Float64 tempo{};
+        Float32 time_sig_numer{};
+        UInt32 time_sig_denom{};
     } host_data{};
 
-    [[maybe_unused]] auto result = OSStatus{noErr};
-    result = [this, &host_data]() {
+    const auto transport_ok = [this, &host_data]() {
         auto info = GetHostCallbackInfo();
         if (info.transportStateProc2) {
             return (*info.transportStateProc2)(
@@ -1401,19 +1400,44 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
                 &host_data.cycle_end
             );
         }
-    }();
+    }() == noErr;
 
-    result = CallHostBeatAndTempo(
+    const auto beats_ok = CallHostBeatAndTempo(
         &host_data.beat_pos,
         &host_data.tempo
-    );
+    ) == noErr;
 
-    result = CallHostMusicalTimeLocation(
+    const auto time_sig_ok = CallHostMusicalTimeLocation(
         nullptr, // sample_offset_to_next_beat
         &host_data.time_sig_numer,
         &host_data.time_sig_denom,
         nullptr // current_measure_downbeat
-    );
+    ) == noErr;
+
+    // A failed call may have written some of its outputs; report it as missing.
+    const auto block_timeline = [&]() {
+        using process::Timeline;
+        const auto to_bool = [](auto a) { return a != 0; };
+        auto t = Timeline{};
+        auto host_pos = std::optional<std::int64_t>{};
+        if (transport_ok) {
+            host_pos = process::detail::Timeline_resolver::samples(host_data.sample_pos);
+            t.cycle = Timeline::Cycle{host_data.cycle_start, host_data.cycle_end};
+            t.state = Timeline::State{
+                .moving = to_bool(host_data.is_playing),
+                .cycling = to_bool(host_data.is_cycling),
+                .recording = to_bool(host_data.is_recording)
+            };
+        }
+        if (beats_ok) {
+            t.beat_pos = host_data.beat_pos;
+            t.tempo = host_data.tempo;
+        }
+        if (time_sig_ok) {
+            t.signature = Timeline::Signature{static_cast<std::int32_t>(host_data.time_sig_numer), static_cast<std::int32_t>(host_data.time_sig_denom)};
+        }
+        return _timeline.resolve(t, host_pos, nFrames, _sr);
+    }();
 
     // Create the context.
     auto context = process::Dsp_context{};
@@ -1442,7 +1466,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     _notes.drain_editor([this](const process::Input& input) { _input(input, 0); });
 #endif
 
-    auto do_process = [this, &context, &host_data, bypassed, sidechain_ok](size_t num_frames, size_t offset) {
+    auto do_process = [this, &context, &block_timeline, bypassed, sidechain_ok](size_t num_frames, size_t offset) {
 #if TINY_HAS_NOTES_OUT
         _notes.outbox().begin_slice(static_cast<int64_t>(offset), static_cast<int64_t>(num_frames));
         context.notes = _notes.writer(bypassed);
@@ -1481,32 +1505,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
             }
         }
 
-        const auto sample_pos = host_data.sample_pos;
-        const auto beat_pos = host_data.beat_pos;
-        const auto cycle_start = host_data.cycle_start;
-        const auto cycle_end = host_data.cycle_end;
-        const auto tempo = host_data.tempo;
-        const auto ts_numer = static_cast<int32_t>(host_data.time_sig_numer);
-        const auto ts_denom = static_cast<int32_t>(host_data.time_sig_denom);
-
-        const auto to_bool = [](auto a) { return a != 0; };
-
-        // Host data sample pos is Float64, round here so values like 127.999 convert to 128.
-        const auto base_pos = static_cast<int64_t>(std::llround(sample_pos));
-
-        context.musical_context = {
-            .sample_pos = base_pos + static_cast<int64_t>(offset),
-            .beat_pos = beat_pos + process::frames_to_beats(static_cast<int64_t>(offset), tempo, _sr),
-            .cycle_start = cycle_start,
-            .cycle_end = cycle_end,
-            .tempo_ideal = tempo,
-            .time_sig = {ts_numer, ts_denom},
-            .transport_state = {
-                .moving = to_bool(host_data.is_playing),
-                .cycling = to_bool(host_data.is_cycling),
-                .recording = to_bool(host_data.is_recording)
-            }
-        };
+        context.timeline = process::detail::Timeline_resolver::at_offset(block_timeline, offset, _sr);
 
         context.ibuffers = {_ibuffers.begin(), num_ichannels};
         context.obuffers = {_obuffers.begin(), num_ochannels};

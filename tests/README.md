@@ -142,6 +142,13 @@ host ids, sources kept apart, editor ids, full table, release by channel), the o
 (slice frames to block frames, ordering, capacity) and MPE (the default zone, member
 expressions, inherited values, bend range, zone configuration and overlap, NRPN deselection).
 
+## timeline_resolver_test.cpp
+
+`process::detail::Timeline_resolver`: the `Timeline` every wrapper hands the processor when the host
+leaves fields out or reports nonsense. Pass-through, a free-running position (not moving) with no host
+info, a position derived from beats + tempo, missing beats left missing, non-finite and out-of-range
+values treated as missing, an inactive cycle region still reported, sub-block offsets.
+
 ## change_set_test.cpp
 
 `Change_set`, both producer modes: coalescing, sparse iteration, empty batches, buffers

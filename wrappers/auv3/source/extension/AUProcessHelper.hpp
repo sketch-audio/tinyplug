@@ -32,7 +32,7 @@ public:
 
         AUEventSampleTime now = AUEventSampleTime(timestamp->mSampleTime);
         AUAudioFrameCount framesRemaining = frameCount;
-        mKernel.begin_block(now);
+        mKernel.begin_block(now, frameCount);
         struct End { DSPKernel& kernel; ~End() { kernel.end_block(); } } end{mKernel};
         AURenderEvent const *nextEvent = events; // events is a linked list, at the beginning, the nextEvent is the first event
 

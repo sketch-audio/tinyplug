@@ -61,6 +61,9 @@ tiny_add_test(tiny_meters_test)
 tiny_add_test(tiny_blocks_test)
 tiny_add_test(notes_test)
 
+# Processor.
+tiny_add_test(timeline_resolver_test LIBS ${TINY_PLUG_LIB} INCLUDES ${_standin})
+
 # State.
 tiny_add_test(state_store_test)
 tiny_add_test(state_sequencer_test)

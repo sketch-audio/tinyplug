@@ -86,9 +86,10 @@ public:
     void setMidiOutput(AUMIDIOutputEventBlock block) { _midi_out = block; }
 #endif
 
-    // Once per render, before any slice: the editor's notes, and the bypass the block renders with.
-    void begin_block(AUEventSampleTime start) {
+    // Once per render, before any slice: the timeline, the editor's notes, and the bypass the block renders with.
+    void begin_block(AUEventSampleTime start, AUAudioFrameCount frameCount) {
         _block_start = start;
+        _block_timeline = resolve_timeline(frameCount);
 #if TINY_HAS_NOTES_OUT
         const auto bypassed = _notes.bypassed(_bypass.is_bypassed());
         _passing = bypassed && tiny::Plug_info::kind == tiny::Plugin_kind::Note_effect;
@@ -240,7 +241,9 @@ public:
 #if TINY_HAS_BLOCKS
         context.blocks = tiny::blocks::Writer{&_blocks};
 #endif
-        context.musical_context = resolve_musical_context(frameCount);
+        // Event-split slices share the render's timeline, offset to where they start.
+        const auto slice_offset = std::max<AUEventSampleTime>(bufferStartTime - _block_start, 0);
+        context.timeline = tiny::process::detail::Timeline_resolver::at_offset(_block_timeline, static_cast<size_t>(slice_offset), mSampleRate);
         context.render_mode = _offline.load(std::memory_order_relaxed)
             ? tiny::process::Render_mode::Offline
             : tiny::process::Render_mode::Realtime;
@@ -330,9 +333,6 @@ public:
         }
 
         _tail.store(_processor->tail_samps(), std::memory_order_relaxed); // For tailTime, on the main thread.
-        
-        const auto beats_per_sample = _context.tempo_real / (60 * mSampleRate);
-        _context.beat_pos += frameCount * beats_per_sample;
     }
     
     // Called by the process helper on the audio thread so we can send events to kernel directly.
@@ -544,7 +544,8 @@ private:
     // Render mode (offline/bounce). Set via setOffline off the audio thread.
     std::atomic<bool> _offline{false};
 
-    tiny::process::Musical_context _context{};
+    tiny::process::detail::Timeline_resolver _timeline{}; // Fills what the host leaves out.
+    tiny::process::Timeline _block_timeline{}; // The render's, at its first frame.
 
     tiny::Host_bypass _bypass{};
 
@@ -585,84 +586,45 @@ private:
 
 private:
     
-    // MARK: - Musical Context Helpers
-    
-    auto frames_to_beats(double frames, double tempo, double sr) -> double
-    {
-        const auto beats_per_frame = tempo / (60 * sr);
-        return frames * beats_per_frame;
-    }
-    
-    auto resolve_musical_context(uint32_t frame_count) -> tiny::process::Musical_context
-    {
-        if (mTransportStateBlock && mMusicalContextBlock) {
-            // Buid the host context.
-            auto flags = AUHostTransportStateFlags{};
-            auto samplePos = double{};
-            auto cycleStart = double{};
-            auto cycleEnd = double{};
-            mTransportStateBlock(&flags, &samplePos, &cycleStart, &cycleEnd);
-            
-            // Resolve flags
-            const auto changed = (flags & AUHostTransportStateChanged) > 0; // If there is a discontinuity, for example.
-            const auto moving = (flags & AUHostTransportStateMoving) > 0;
-            const auto recording = (flags & AUHostTransportStateRecording) > 0;
-            const auto cycling = (flags & AUHostTransportStateCycling) > 0;
-            
-            _context.transport_state.moving = moving;
-            _context.transport_state.recording = recording;
-            _context.transport_state.cycling = cycling;
-            
-            _context.sample_pos = static_cast<int64_t>(samplePos);
-            _context.cycle_start = cycleStart;
-            _context.cycle_end = cycleEnd;
+    // MARK: - Timeline
 
-            //
-            auto tempo = double{};
-            auto timeSigNumer = double{};
-            auto timeSigDenom = long{};
-            auto beatPos = double{};
-            
-            mMusicalContextBlock(&tempo,
-                                 &timeSigNumer,
-                                 &timeSigDenom,
-                                 &beatPos,
-                                 nullptr,     // sampleOffsetToNextBeat
-                                 nullptr);    // currentMeasureDownbeatPosition
-            
-            // Grab the time signature info.
-            _context.time_sig.numer = timeSigNumer;
-            _context.time_sig.denom = static_cast<int32_t>(timeSigDenom);
-            
-            // Resolve tempo and beat time.
-            if (moving) {
-                // At this time, mBeatPos holds the expected beat time for the current buffer.
-                const auto isDiscontinuity = fabs(beatPos - _context.beat_pos) > 1e-3;
-                
-                if (changed || isDiscontinuity) {
-                    // Use the host tempo and beat position.
-                    _context.tempo_ideal = tempo;
-                    _context.tempo_real = tempo;
-                    _context.beat_pos = beatPos;
-                }
-                else {
-                    // Adjust real tempo so we can have a continuous beat position.
-                    const auto idealBufferBeatDur = frames_to_beats(frame_count, tempo, mSampleRate);
-                    const auto hostBeatPosEnd = beatPos + idealBufferBeatDur;
-                    const auto actualBufferBeatDur = hostBeatPosEnd - _context.beat_pos;
-                    const auto rateScalar = actualBufferBeatDur / idealBufferBeatDur;
-                    
-                    // Use the incremented beat position.
-                    _context.tempo_ideal = tempo;
-                    _context.tempo_real = tempo * rateScalar;
-                }
-            } else {
-                _context.tempo_ideal = tempo;
-                _context.tempo_real = tempo;
-            }
+    auto resolve_timeline(AUAudioFrameCount frameCount) -> tiny::process::Timeline
+    {
+        using tiny::process::Timeline;
+        auto t = Timeline{};
+        auto host_pos = std::optional<std::int64_t>{};
+
+        // A failed call may have written some of its outputs; report it as missing.
+        auto flags = AUHostTransportStateFlags{};
+        auto samplePos = double{};
+        auto cycleStart = double{};
+        auto cycleEnd = double{};
+        if (mTransportStateBlock && mTransportStateBlock(&flags, &samplePos, &cycleStart, &cycleEnd)) {
+            host_pos = tiny::process::detail::Timeline_resolver::samples(samplePos);
+            t.cycle = Timeline::Cycle{cycleStart, cycleEnd};
+            t.state = Timeline::State{
+                .moving = (flags & AUHostTransportStateMoving) > 0,
+                .cycling = (flags & AUHostTransportStateCycling) > 0,
+                .recording = (flags & AUHostTransportStateRecording) > 0
+            };
         }
-        
-        return _context; // take a copy.
+
+        auto tempo = double{};
+        auto timeSigNumer = double{};
+        auto timeSigDenom = long{};
+        auto beatPos = double{};
+        if (mMusicalContextBlock && mMusicalContextBlock(&tempo,
+                                                         &timeSigNumer,
+                                                         &timeSigDenom,
+                                                         &beatPos,
+                                                         nullptr,     // sampleOffsetToNextBeat
+                                                         nullptr)) {  // currentMeasureDownbeatPosition
+            t.tempo = tempo;
+            t.beat_pos = beatPos;
+            t.signature = Timeline::Signature{static_cast<std::int32_t>(timeSigNumer), static_cast<std::int32_t>(timeSigDenom)};
+        }
+
+        return _timeline.resolve(t, host_pos, frameCount, mSampleRate);
     }
 
 };

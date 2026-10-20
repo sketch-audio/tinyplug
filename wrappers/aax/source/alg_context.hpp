@@ -365,6 +365,7 @@ struct Alg_state {
     uint32_t accepted_latency{};
     uint32_t reported_latency{}; // Last value proposed to the host — don't feedback latency changes.
     bool was_skipped{}; // Detects the can_skip -> processing edge, for `snap`.
+    process::detail::Timeline_resolver timeline{}; // Fills what the transport leaves out.
     // Latched at reset from Reset_state, never from the per-block Runtime_packet — see
     // Reset_state. The kernel only ever observes this change across a reset.
     process::Render_mode render_mode{process::Render_mode::Realtime};
