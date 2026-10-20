@@ -65,6 +65,7 @@ target_sources(${TINY_CORE_LIB} PRIVATE
     include/tiny_core/tiny_work.hpp
     include/tiny_core/value_helper.hpp
     include/tiny_core/window_token.hpp
+    include/tiny_core/wire.hpp
 )
 
 # Public include root → consumers write <tiny_core/...>.

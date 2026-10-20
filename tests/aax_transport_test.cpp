@@ -1,4 +1,4 @@
-// AAX's private-data transports: Byte_ring and Block_store. Both are standard-library only, so
+// The wire's transports, as AAX uses them: Byte_ring and Block_store. Both are standard-library only, so
 // no SDK. The remote end (Direct Data) reaches them by byte offset through Read/WritePortDirect;
 // the remote readers here follow direct_data.cpp's protocol over the same offsets.
 
@@ -13,7 +13,6 @@
 
 #include <audio_bench/audio_bench.hpp>
 
-#include "block_store.hpp"
 #include "byte_ring.hpp"
 
 #if defined(__has_feature)
@@ -26,7 +25,7 @@ namespace {
 
 using audio_bench::Tests;
 using audio_bench::expect_true;
-using tiny::aax::Block_store;
+using tiny::wire::Block_store;
 using tiny::aax::Byte_ring;
 using tiny::aax::Ring_kind;
 
@@ -120,7 +119,7 @@ auto add_byte_ring() -> void
             std::memcpy(head.data(), base + Ring::offset_write_pos, sizeof(head));
             auto offset = head[1];
             while (offset < head[0]) {
-                auto header = tiny::aax::Ring_header{};
+                auto header = tiny::wire::Entry_header{};
                 auto copy = [&](uint64_t pos, void* dst, size_t n) {
                     for (auto i = size_t{}; i < n; ++i) static_cast<unsigned char*>(dst)[i] = base[Ring::offset_data + ((pos + i) & Ring::mask)];
                 };
@@ -129,7 +128,7 @@ auto add_byte_ring() -> void
                 copy(offset + sizeof(header), payload.data(), header.payload_bytes);
                 expect_true(header.payload_bytes == size_for(next_out) && matches(payload.data(), next_out, header.payload_bytes), "remote read corrupted");
                 ++next_out;
-                offset += sizeof(header) + tiny::aax::ring_align_up(header.payload_bytes);
+                offset += sizeof(header) + tiny::wire::align_up(header.payload_bytes);
             }
             ring->read_pos.store(offset); // WritePortDirect of read_pos.
             expect_true(ring->push(Ring_kind::Worker_from_processor, bytes.data(), size_for(seq)), "push after remote read");
@@ -188,7 +187,7 @@ auto frame_of(uint64_t value) -> Frame
 
 auto add_block_store() -> void
 {
-    static_assert(tiny::aax::block_store_layout_ok<Frame>);
+    static_assert(tiny::wire::block_store_layout_ok<Frame>);
 
     Tests::add("Block_store: nothing published reads as nothing, not a zero frame", [] {
         auto store = std::make_unique<Block_store<Frame>>();

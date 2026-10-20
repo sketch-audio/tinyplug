@@ -117,9 +117,17 @@ hooks, idempotent start/stop, and 100 start/stop cycles with traffic in flight l
 
 ## aax_transport_test.cpp
 
-AAX's `Byte_ring` and `Block_store`, standard library only: framing, wraparound, refusal when
-full, a remote reader by byte offset, a threaded ring, and the block store's seqlock stepped by
-hand. The torn-frame stress runs outside TSan only, since a seqlock copy races by design.
+The wire's `Byte_ring` and `Block_store` (`<tiny_core/wire.hpp>`), with AAX's ring kinds: framing,
+wraparound, refusal when full, a remote reader by byte offset, a threaded ring, and the block store's
+seqlock stepped by hand. The torn-frame stress runs outside TSan only, since a seqlock copy races by design.
+
+## web/wire_test.mjs (web-tests only)
+
+`wrappers/web/js/wire.js` against the C++ layouts. `web/wire_harness.cpp` holds real rings and a store;
+the test instantiates it twice (two memories, as the web format's two modules), with C++ producing and
+checking on both ends and JS pumping between them: order and bytes across wraparound, backpressure with
+nothing lost, JS as producer, the latest store frame. Then the real shape: the pump on its own worker
+thread holding only the two memories (`web/wire_pump_worker.mjs`), against concurrent C++ traffic.
 
 ## value_helper_test.cpp
 

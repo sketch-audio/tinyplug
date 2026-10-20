@@ -493,7 +493,7 @@ the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two
   `Reset_state::state` seeds a **freshly constructed** `Alg_state` with the data model's
   last-sent document, its edit sequence and snapshot generation — never a surviving one.
 - **Blocks bypass the ring.** Each address has its own private-data field (`blocks[I]` in
-  `Alg_context`, a `Block_store`: `seq` + two slots, [block_store.hpp](wrappers/aax/source/block_store.hpp)).
+  `Alg_context`, a `Block_store`: `seq` + two slots, [wire.hpp](libs/tiny_core/include/tiny_core/wire.hpp)).
   The algorithm fills the back slot and bumps `seq`; Direct Data reads `seq`, copies the
   front slot, re-reads `seq` and forwards only if it didn't move, via `SetCustomData`
   (`'tBLK'`). `seq == 0` means nothing published since the store was constructed — hold,

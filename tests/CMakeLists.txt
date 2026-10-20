@@ -78,6 +78,16 @@ tiny_add_test(state_record_test)
 tiny_add_test(state_adapter_test)
 tiny_add_test(state_link_test LIBS ${TINY_PLUG_LIB} INCLUDES ${_standin})
 
+# The web format's JS: wire.js against <tiny_core/wire.hpp>, across two module instances under Node.
+if(EMSCRIPTEN)
+    add_executable(wire_harness web/wire_harness.cpp)
+    target_link_libraries(wire_harness PRIVATE ${TINY_CORE_LIB})
+    target_link_options(wire_harness PRIVATE -sMODULARIZE -sEXPORT_ES6 -sENVIRONMENT=node -sEXPORTED_RUNTIME_METHODS=HEAPU8)
+    set_target_properties(wire_harness PROPERTIES SUFFIX ".mjs")
+    add_test(NAME wire_js_test COMMAND node ${CMAKE_CURRENT_SOURCE_DIR}/web/wire_test.mjs $<TARGET_FILE:wire_harness>)
+    add_dependencies(tiny_tests wire_harness)
+endif()
+
 # ============================================================================
 # Fake hosts: real plug-in bundles driven through each format's host API, one CTest per demo.
 # Only when the plug-ins are built (the `tsan-hosts` / `asan-hosts` presets).

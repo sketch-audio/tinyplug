@@ -70,11 +70,11 @@ auto Direct_data::_drain_returns(AAX_IPrivateDataAccess* access) -> void
     alignas(8) auto block = std::array<unsigned char, sizeof(Return_block) + Return_ring::max_payload_bytes>{};
 
     auto offset = size_t{};
-    while (offset + sizeof(Ring_header) <= to_read) {
-        auto header = Ring_header{};
+    while (offset + sizeof(wire::Entry_header) <= to_read) {
+        auto header = wire::Entry_header{};
         std::memcpy(&header, _scratch.data() + offset, sizeof(header));
 
-        const auto total = sizeof(Ring_header) + ring_align_up(header.payload_bytes);
+        const auto total = sizeof(wire::Entry_header) + wire::align_up(header.payload_bytes);
         if (header.payload_bytes > Return_ring::max_payload_bytes) break; // Corrupt; cannot resync.
         if (offset + total > to_read) break;
 
@@ -111,13 +111,13 @@ auto push_inbound(AAX_IPrivateDataAccess* access, Ring_kind kind, uint32_t paylo
         return;
     }
 
-    const auto total = sizeof(Ring_header) + ring_align_up(payload_bytes);
+    const auto total = sizeof(wire::Entry_header) + wire::align_up(payload_bytes);
     auto write_pos = head.write_pos;
     auto wrote_any = false;
 
-    alignas(8) auto entry = std::array<unsigned char, sizeof(Ring_header) + Inbound_ring::max_payload_bytes>{};
-    while ((write_pos - head.read_pos) + total <= Inbound_ring::capacity && pull(entry.data() + sizeof(Ring_header))) {
-        const auto entry_header = Ring_header{.kind = static_cast<uint32_t>(kind), .payload_bytes = payload_bytes};
+    alignas(8) auto entry = std::array<unsigned char, sizeof(wire::Entry_header) + Inbound_ring::max_payload_bytes>{};
+    while ((write_pos - head.read_pos) + total <= Inbound_ring::capacity && pull(entry.data() + sizeof(wire::Entry_header))) {
+        const auto entry_header = wire::Entry_header{.kind = static_cast<uint32_t>(kind), .payload_bytes = payload_bytes};
         std::memcpy(entry.data(), &entry_header, sizeof(entry_header));
 
         const auto start = static_cast<uint32_t>(write_pos & Inbound_ring::mask);

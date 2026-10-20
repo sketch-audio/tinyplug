@@ -33,3 +33,4 @@
 #include "tiny_work.hpp"
 #include "value_helper.hpp"
 #include "window_token.hpp"
+#include "wire.hpp"

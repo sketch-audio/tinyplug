@@ -11,7 +11,6 @@
 #include "AAX.h"
 #include "AAX_IMIDINode.h"
 
-#include "block_store.hpp"
 #include "byte_ring.hpp"
 
 #include "plug_info.hpp"
@@ -72,7 +71,7 @@ struct State_snapshot_frame {
     uint32_t pad{};
     std::array<std::byte, state::snapshot_bytes<State_model>> bytes{};
 };
-using State_outbox = Block_store<std::conditional_t<State_processor::processor_writes, State_snapshot_frame, uint64_t>>;
+using State_outbox = wire::Block_store<std::conditional_t<State_processor::processor_writes, State_snapshot_frame, uint64_t>>;
 
 // Private data does not survive a reset, so the processor's copy is re-seeded from the data
 // model: what its wire has accepted, the edit sequence that covers, and the snapshot generation.
@@ -262,11 +261,11 @@ inline constexpr auto block_field(uint32_t address) -> AAX_CFieldIndex
 }
 
 template<uint32_t I>
-using Block_store_at = Block_store<blocks::Frame_at<models::Resolved::Blocks, I>>;
+using Block_store_at = wire::Block_store<blocks::Frame_at<models::Resolved::Blocks, I>>;
 
 // Sizes Direct Data's staging buffer: the largest frame across all addresses.
 inline constexpr auto max_block_bytes = []<uint32_t... I>(std::integer_sequence<uint32_t, I...>) {
-    static_assert((block_store_layout_ok<blocks::Frame_at<models::Resolved::Blocks, I>> && ...));
+    static_assert((wire::block_store_layout_ok<blocks::Frame_at<models::Resolved::Blocks, I>> && ...));
     return std::max({size_t{0}, sizeof(blocks::Frame_at<models::Resolved::Blocks, I>)...});
 }(std::make_integer_sequence<uint32_t, num_blocks>{});
 #endif
