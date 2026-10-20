@@ -100,7 +100,7 @@ Mostly the CLAP wrapper's logic with a browser for a host:
 - **Latency.** No delay compensation to negotiate: accept every proposal at once (`Reset::Latency` at the next
   block boundary) so the processor contract holds; report it to the page.
 - **Bypass.** `tiny_dsp::Host_bypass`, latency-aligned, as in the native wrappers (the demos' bug class).
-- **Timeline.** From the page's transport through `detail::Timeline_resolver`, leaving empty what the page doesn't know; tempo-synced
+- **Timeline.** From the page's transport through `Timeline_resolver`, leaving empty what the page doesn't know; tempo-synced
   products need it.
 - **I/O.** Main input from the page's source; a second worklet input for the sidechain; notes from Web MIDI or
   an on-screen keyboard (`TINY_HAS_NOTES_IN`), later.

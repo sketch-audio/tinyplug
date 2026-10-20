@@ -30,11 +30,11 @@ auto Processor::reset(const Reset::Any& reset) -> void
     }, reset);
 }
 
-auto Processor::handle(const Event::Any& event) -> void
+auto Processor::handle(const Event::Param& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Event::Set& e) { _values[e.address] = static_cast<float>(e.value); },
-        [this](const Event::Ramp& e) { _values[e.address] = static_cast<float>(e.target); },
+        [this](const Event::Ramp& e) { _values[e.address] = static_cast<float>(e.value); },
     }, event);
 }
 
@@ -93,7 +93,7 @@ auto Processor::handle(const Control::Any& control) -> void
     }, control);
 }
 
-auto Processor::process(Dsp_context& context) -> void
+auto Processor::process(Context& context) -> void
 {
     const auto attack = _rate(Address::Attack);
     const auto decay = _rate(Address::Decay);
@@ -138,7 +138,7 @@ auto Processor::process(Dsp_context& context) -> void
         }
 
         const auto sample = std::tanh(out * level * 0.5f);
-        for (auto* channel : context.obuffers) channel[frame] = sample;
+        for (auto* channel : context.outputs) channel[frame] = sample;
     }
 
     // What every key is doing, for the editor's keyboard.

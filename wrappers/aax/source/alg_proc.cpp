@@ -56,7 +56,7 @@ auto apply_coefs(const Alg_context* ctx, Alg_state& st) -> void
                 st.bypass.set_bypassed(value >= 0.5);
             }
             else {
-                st.processor.handle(process::Event::Set{.address = address, .value = value});
+                st.processor.handle(process::Event::Set{.value = value, .address = address});
             }
         }
     }
@@ -409,18 +409,18 @@ auto render_instance(Alg_context* ctx) -> void
     const auto channels = note_effect ? size_t{0} : static_cast<size_t>(num_channels);
     auto frames = num_frames;
     for (auto ch = size_t{}; ch < channels; ++ch) {
-        if constexpr (Plug_info::Wants::audio_in) st->ibuffers[ch] = ctx->audio_in[ch];
+        if constexpr (Plug_info::Wants::audio_in) st->inputs[ch] = ctx->audio_in[ch];
         else {
-            st->ibuffers[ch] = st->silence.data();
+            st->inputs[ch] = st->silence.data();
             frames = std::min(frames, st->silence.size());
         }
-        st->obuffers[ch] = ctx->audio_out[ch];
+        st->outputs[ch] = ctx->audio_out[ch];
     }
 #if TINY_WANTS_SIDECHAIN
     if (ctx->sidechain_index != nullptr) {
         const auto sc = static_cast<size_t>(*ctx->sidechain_index);
         for (auto i = size_t{}; i < max_schannels; ++i) {
-            st->sbuffers[i] = ctx->audio_in[sc + i];
+            st->sidechain[i] = ctx->audio_in[sc + i];
         }
     }
 #endif
@@ -440,11 +440,11 @@ auto render_instance(Alg_context* ctx) -> void
 
     const auto sr = ctx->sample_rate != nullptr && *ctx->sample_rate > 0 ? static_cast<double>(*ctx->sample_rate) : 44100.;
     const auto block_timeline = read_timeline(ctx, runtime.recording != 0, *st, num_frames, sr);
-    auto context = process::Dsp_context{
+    auto context = process::Context{
         .timeline = block_timeline,
-        .ibuffers = {st->ibuffers.begin(), Plug_info::Wants::audio_in ? channels : 0},
-        .sbuffers = {st->sbuffers.begin(), Plug_info::wants_sidechain ? max_schannels : 0},
-        .obuffers = {st->obuffers.begin(), channels},
+        .inputs = {st->inputs.begin(), Plug_info::Wants::audio_in ? channels : 0},
+        .sidechain = {st->sidechain.begin(), Plug_info::wants_sidechain ? max_schannels : 0},
+        .outputs = {st->outputs.begin(), channels},
         .num_frames = frames,
     };
 #if TINY_HAS_METERS
@@ -478,12 +478,12 @@ auto render_instance(Alg_context* ctx) -> void
 #endif
 #if TINY_HAS_NOTES_IN
     // One input for the processor, and for the output while a bypassed note effect forwards.
-    const auto input = [st, passing](const process::Input& in, [[maybe_unused]] uint32_t frame) {
+    const auto input = [st, passing](const process::Event::Any& in, [[maybe_unused]] uint32_t frame) {
         process::deliver(st->processor, in);
 #if TINY_HAS_NOTES_OUT
         if (passing) {
             std::visit(Inline_visitor{
-                [](const process::Event::Any&) {},
+                [](const process::Event::Param&) {},
                 [&](const auto& e) { st->notes.outbox().pass(static_cast<int32_t>(frame), e); },
             }, in);
         }
@@ -492,7 +492,7 @@ auto render_instance(Alg_context* ctx) -> void
 #endif
     };
     // The editor's notes land at the top of the block.
-    st->notes.drain_editor([&](const process::Input& in) { input(in, 0); });
+    st->notes.drain_editor([&](const process::Event::Any& in) { input(in, 0); });
 #endif
 
     // One slice of the block, from `offset`: pointers, timeline and the outbox move with it.
@@ -502,17 +502,17 @@ auto render_instance(Alg_context* ctx) -> void
         auto outs = std::array<float*, max_ochannels>{};
         auto sides = std::array<const float*, max_schannels>{};
         for (auto ch = size_t{}; ch < channels; ++ch) {
-            ins[ch] = st->ibuffers[ch] ? st->ibuffers[ch] + offset : nullptr;
-            outs[ch] = st->obuffers[ch] + offset;
+            ins[ch] = st->inputs[ch] ? st->inputs[ch] + offset : nullptr;
+            outs[ch] = st->outputs[ch] + offset;
         }
-        for (auto ch = size_t{}; ch < context.sbuffers.size(); ++ch) {
-            sides[ch] = st->sbuffers[ch] ? st->sbuffers[ch] + offset : nullptr;
+        for (auto ch = size_t{}; ch < context.sidechain.size(); ++ch) {
+            sides[ch] = st->sidechain[ch] ? st->sidechain[ch] + offset : nullptr;
         }
-        context.ibuffers = {ins.data(), context.ibuffers.size()};
-        context.obuffers = {outs.data(), channels};
-        context.sbuffers = {sides.data(), context.sbuffers.size()};
+        context.inputs = {ins.data(), context.inputs.size()};
+        context.outputs = {outs.data(), channels};
+        context.sidechain = {sides.data(), context.sidechain.size()};
         context.num_frames = count;
-        context.timeline = process::detail::Timeline_resolver::at_offset(block_timeline, offset, sr);
+        context.timeline = process::Timeline_resolver::at_offset(block_timeline, offset, sr);
 #if TINY_HAS_NOTES_OUT
         st->notes.outbox().begin_slice(static_cast<int64_t>(offset), static_cast<int64_t>(count));
         context.notes = st->notes.writer(bypassed);
@@ -532,7 +532,7 @@ auto render_instance(Alg_context* ctx) -> void
     }
     const auto deliver = [&](const AAX_CMidiPacket& p) {
         st->notes.from_midi(process::mpe_enabled(st->processor), p.mData[0], p.mLength > 1 ? p.mData[1] : 0, p.mLength > 2 ? p.mData[2] : 0,
-                            [&](const process::Input& in) { input(in, std::min<uint32_t>(p.mTimestamp, static_cast<uint32_t>(frames))); });
+                            [&](const process::Event::Any& in) { input(in, std::min<uint32_t>(p.mTimestamp, static_cast<uint32_t>(frames))); });
     };
     auto now = size_t{};
     auto index = uint32_t{};
@@ -550,7 +550,7 @@ auto render_instance(Alg_context* ctx) -> void
 #endif
 
     if constexpr (!note_effect) {
-        st->bypass.process({st->ibuffers.begin(), channels}, {st->obuffers.begin(), channels}, frames);
+        st->bypass.process({st->inputs.begin(), channels}, {st->outputs.begin(), channels}, frames);
     }
 
 #if TINY_HAS_NOTES_OUT

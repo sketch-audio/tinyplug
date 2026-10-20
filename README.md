@@ -35,7 +35,7 @@ Your processor and editor are fully decoupled. tinyplug handles communication be
     - `Meters` (scalar values)
     - `Blocks` (structured values)
 - Declare a framework-managed `State` type for non-parameter state (non-audio).
-    - Accessible only through `process::Dsp_context` and static save/load functions
+    - Accessible only through `process::Context` and static save/load functions
     - Prefer to express state in terms of parameters wherever possible
 
 ### Editor (`edit::Editor`)

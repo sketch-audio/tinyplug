@@ -124,7 +124,7 @@ private:
 #if TINY_HAS_NOTES_OUT
     bool _passing{};
 #endif
-    auto _input(const process::Input& input, int32_t offset) -> void;
+    auto _input(const process::Event::Any& input, int32_t offset) -> void;
     auto _collect_notes(Steinberg::Vst::ProcessData& data) -> void;
     auto _send_notes(Steinberg::Vst::ProcessData& data) -> void;
 
@@ -132,9 +132,9 @@ private:
     std::array<Channel_data, max_ichannels> _input_data{}; // We might be processing in place.
 
     // Pointers to host io buffers.
-    std::array<const float*, max_ichannels> _ibuffers{};
-    std::array<const float*, max_schannels> _sbuffers{};
-    std::array<float*, max_ochannels> _obuffers{};
+    std::array<const float*, max_ichannels> _inputs{};
+    std::array<const float*, max_schannels> _sidechain{};
+    std::array<float*, max_ochannels> _outputs{};
 #if TINY_HAS_METERS
     meters::Publisher<tiny::models::Resolved::Meters> _meters{}; // Owns the scratch the DSP writes.
 #endif
@@ -150,7 +150,7 @@ private:
     std::array<Host_value, num_params> _host_values{tiny::params::make_defaults<Host_value, User_params>(Knob)};
 
 
-    std::vector<process::Tagged_event> _events{}; // Some fixed size thing.
+    std::vector<process::Event::Ordered> _events{}; // Some fixed size thing.
 
 #if TINY_HAS_NOTES_IN
     // Host notes and mapped controls, unnamed until `_name_notes` reads them in time order: MPE
@@ -174,7 +174,7 @@ private:
     std::atomic<uint32_t> _reported_latency{}; // Don't feedback latency changes.
     std::atomic<bool> _did_peek{false}; // Fallback for non-conforming hosts.
     bool _was_moving{};
-    process::detail::Timeline_resolver _timeline{}; // Fills what the host leaves out.
+    process::Timeline_resolver _timeline{}; // Fills what the host leaves out.
 
     using Latency_flag = std::atomic<std::optional<uint32_t>>;
     static_assert(Latency_flag::is_always_lock_free);

@@ -131,7 +131,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
             const auto host_value = _hostvalues[addr].load(std::memory_order_relaxed);
             const auto& spec = User_params::param_spec(addr);
             const auto plain = Value_helper::host_to_plain(host_value, spec.semantics);
-            _processor->handle(process::Event::Set{.address = addr, .value = plain});
+            _processor->handle(process::Event::Set{.value = plain, .address = addr});
         }
 
         // Manifest immediately — a client reading realized state (e.g. an open editor)
@@ -159,7 +159,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     };
 
     // Create the context.
-    auto context = process::Dsp_context{.propose_latency = {}};
+    auto context = process::Context{.propose_latency = {}};
 #if TINY_HAS_STATE
     auto state_block = _state.begin_block(); // Applies a staged edit now; publishes when process returns.
     context.state = state::Access_for<models::Resolved::State>{&state_block};
@@ -197,7 +197,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
 
 #if TINY_HAS_NOTES_IN
     // The editor's notes land at the top of the block.
-    _notes.drain_editor([this](const process::Input& input) { _input(input, 0); });
+    _notes.drain_editor([this](const process::Event::Any& input) { _input(input, 0); });
 #endif
 
     // So we can process with an offset.
@@ -207,7 +207,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
             const auto& input_port = process->audio_inputs[0];
             assert(input_port.channel_count == static_cast<uint32_t>(_ichannels));
             for (size_t i = 0; i < _ichannels; ++i) {
-                _ibuffers[i] = &input_port.data32[i][offset];
+                _inputs[i] = &input_port.data32[i][offset];
             }
         }
 
@@ -215,7 +215,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
             auto& output_port = process->audio_outputs[0];
             assert(output_port.channel_count == static_cast<uint32_t>(_ochannels));
             for (size_t i = 0; i < _ochannels; ++i) {
-                _obuffers[i] = &output_port.data32[i][offset];
+                _outputs[i] = &output_port.data32[i][offset];
             }
         }
 
@@ -231,15 +231,15 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
             const auto& sidechain_port = process->audio_inputs[sidechain_index];
             assert(sidechain_port.channel_count == static_cast<uint32_t>(_schannels));
             for (size_t i = 0; i < _schannels; ++i) {
-                _sbuffers[i] = &sidechain_port.data32[i][offset];
+                _sidechain[i] = &sidechain_port.data32[i][offset];
             }
         }
 
-        context.timeline = process::detail::Timeline_resolver::at_offset(block_timeline, offset, _sr);
+        context.timeline = process::Timeline_resolver::at_offset(block_timeline, offset, _sr);
 
-        context.ibuffers = {_ibuffers.begin(), _ichannels};
-        context.obuffers = {_obuffers.begin(), _ochannels};
-        context.sbuffers = {_sbuffers.begin(), _schannels};
+        context.inputs = {_inputs.begin(), _ichannels};
+        context.outputs = {_outputs.begin(), _ochannels};
+        context.sidechain = {_sidechain.begin(), _schannels};
         context.num_frames = num_frames;
         
         _processor->process(context);
@@ -388,7 +388,7 @@ auto Plugin::_resolve_transport(const clap_process* process) -> process::Timelin
     // We will derive the sample time from the time in seconds.
     if (has_flag(flags, CLAP_TRANSPORT_HAS_SECONDS_TIMELINE)) {
         const auto sec_pos = static_cast<double>(transport->song_pos_seconds) / CLAP_SECTIME_FACTOR;
-        host_pos = process::detail::Timeline_resolver::samples(sec_pos * _sr);
+        host_pos = process::Timeline_resolver::samples(sec_pos * _sr);
     }
     if (has_flag(flags, CLAP_TRANSPORT_HAS_BEATS_TIMELINE)) {
         t.beat_pos = static_cast<double>(transport->song_pos_beats) / CLAP_BEATTIME_FACTOR;
@@ -1372,7 +1372,7 @@ auto Plugin::_handle_host_flushed() -> void
     // Delivered after a resync too: a value here was pushed after its `_hostvalues` store, so it
     // is at least as new as what the resync read, and dropping it could lose that store.
     const auto deliver = [this](uint32_t address, double value) {
-        _processor->handle(process::Event::Set{.address = address, .value = value});
+        _processor->handle(process::Event::Set{.value = value, .address = address});
     };
     const auto loaded = _from_load.consume(deliver);
     const auto flushed = _from_flush.consume(deliver); // After: a flush is the newer word from the host.
@@ -1437,7 +1437,7 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
                 }
 
                 const auto plain_value = Value_helper::knob_to_plain(a.value, param.semantics);
-                _processor->handle(process::Event::Set{param.identity.address, plain_value});
+                _processor->handle(process::Event::Set{.value = plain_value, .address = param.identity.address});
             },
             [&](const Action_end& a) {
                 const auto& param = User_params::param_spec(a.address);
@@ -1481,7 +1481,7 @@ auto Plugin::_load_param(uint32_t address, double knob) -> void
     using namespace params;
     const auto& param = User_params::param_spec(address);
     _hostvalues[address].store(Value_helper::knob_to_host(knob, param.semantics), std::memory_order_relaxed);
-    _from_load.push(process::Event::Set{.address = address, .value = Value_helper::knob_to_plain(knob, param.semantics)});
+    _from_load.push(process::Event::Set{.value = Value_helper::knob_to_plain(knob, param.semantics), .address = address});
     if (_view) _view->set_param(address, knob);
 }
 
@@ -1505,14 +1505,14 @@ bool Plugin::notePortsInfo(uint32_t index, bool isInput, clap_note_port_info* in
 }
 
 // [audio] One input for the processor, and for the output while a bypassed note effect forwards.
-auto Plugin::_input([[maybe_unused]] const process::Input& input, [[maybe_unused]] uint32_t time) -> void
+auto Plugin::_input([[maybe_unused]] const process::Event::Any& input, [[maybe_unused]] uint32_t time) -> void
 {
 #if TINY_HAS_NOTES_IN
     process::deliver(*_processor, input);
 #if TINY_HAS_NOTES_OUT
     if (_passing) {
         std::visit(Inline_visitor{
-            [](const process::Event::Any&) {},
+            [](const process::Event::Param&) {},
             [&](const auto& e) { _notes.outbox().pass(static_cast<int32_t>(time), e); },
         }, input);
     }
@@ -1525,7 +1525,7 @@ auto Plugin::_handle_note_event([[maybe_unused]] const clap_event_header* event)
 #if TINY_HAS_NOTES_IN
     using namespace process;
     const auto time = event->time;
-    const auto emit = [&](const Input& input) { _input(input, time); };
+    const auto emit = [&](const process::Event::Any& input) { _input(input, time); };
 
     switch (event->type) {
         case CLAP_EVENT_NOTE_ON:
@@ -1563,7 +1563,7 @@ auto Plugin::_handle_note_event([[maybe_unused]] const clap_event_header* event)
             if (!kind || (e->note_id < 0 && e->key < 0)) return; // No per-channel form.
             const auto id = Note::Id{0, static_cast<uint8_t>(std::max<int16_t>(e->channel, 0)), static_cast<uint8_t>(std::max<int16_t>(e->key, 0))};
             auto note = Note::Any{Note::Expression{id, *kind, e->value}};
-            if (_notes.from_host(e->note_id, note)) emit(Input{note});
+            if (_notes.from_host(e->note_id, note)) emit(process::Event::Any{note});
             break;
         }
         case CLAP_EVENT_MIDI: {

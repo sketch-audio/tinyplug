@@ -562,8 +562,8 @@ OSStatus Effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
         // I think we this could still fail here in case where plug-in is
         // - not processing, but also not bypassed (common in Logic)
         // - the user is controlling the plug-in via the host UI
-        [[maybe_unused]] const auto success = _to_processor.push(process::Tagged_event{
-            .event = process::Event::Set{.address = inID, .value = plain_value},
+        [[maybe_unused]] const auto success = _to_processor.push(process::Event::Ordered{
+            .event = process::Event::Set{.value = plain_value, .address = inID},
             .offset = static_cast<int32_t>(inBufferOffsetInFrames),
         });
         assert(success && "Push to processor queue failed! Increase queue size.");
@@ -600,8 +600,8 @@ OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEve
                     _bypass_epoch.fetch_add(1, std::memory_order_relaxed); // See SetParameter.
                 }
                 else {
-                    [[maybe_unused]] const auto success = _to_processor.push(process::Tagged_event{
-                        .event = process::Event::Set{.address = event.parameter, .value = plain_value},
+                    [[maybe_unused]] const auto success = _to_processor.push(process::Event::Ordered{
+                        .event = process::Event::Set{.value = plain_value, .address = event.parameter},
                         .offset = static_cast<int32_t>(offset),
                     });
                     assert(success && "Push to processor queue failed! Increase queue size.");
@@ -627,18 +627,18 @@ OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEve
                 }
                 else {
                     // Do we need to be sending set initial?
-                    [[maybe_unused]] const auto set_success = _to_processor.push(process::Tagged_event{
-                        .event = process::Event::Set{.address = event.parameter, .value = plain_initial},
+                    [[maybe_unused]] const auto set_success = _to_processor.push(process::Event::Ordered{
+                        .event = process::Event::Set{.value = plain_initial, .address = event.parameter},
                         .offset = offset,
                     });
                     assert(set_success && "Push to processor queue failed! Increase queue size.");
                     if (!set_success) _needs_resync.store(true, std::memory_order_relaxed);
 
-                    [[maybe_unused]] const auto ramp_success = _to_processor.push(process::Tagged_event{
+                    [[maybe_unused]] const auto ramp_success = _to_processor.push(process::Event::Ordered{
                         .event = process::Event::Ramp{
+                            .value = plain_target,
                             .address = event.parameter,
-                            .target = plain_target,
-                            .dur_samples = static_cast<int32_t>(duration)
+                            .samples = static_cast<int32_t>(duration)
                         },
                         .offset = offset,
                     });
@@ -684,7 +684,7 @@ auto Effect::_update_state(const Maybe_values<double>& knob_values, const State_
             const auto host = Value_helper::knob_to_host(*knob_value, param.semantics);
             const auto plain = Value_helper::knob_to_plain(*knob_value, param.semantics);
             Globals()->SetParameter(param.identity.address, static_cast<float>(host));
-            change_list.push_back(process::Event::Set{param.identity.address, plain}); // We'll publish as a batch.
+            change_list.push_back(process::Event::Set{.value = plain, .address = param.identity.address}); // We'll publish as a batch.
         }
     };
 
@@ -972,7 +972,7 @@ auto Effect::_apply_state(CFPropertyListRef plist) -> OSStatus
             const auto host_value = Globals()->GetParameter(i);
             const auto plain_value = Value_helper::host_to_plain(host_value, param.semantics);
 
-            change_list.push_back(process::Event::Set{param.identity.address, plain_value});
+            change_list.push_back(process::Event::Set{.value = plain_value, .address = param.identity.address});
         }
 
         _changes.push_n(change_list); // Batch publish everything.
@@ -1106,7 +1106,7 @@ auto Effect::_apply_state(CFPropertyListRef plist) -> OSStatus
             const auto from = Value_helper::host_to_knob(Globals()->GetParameter(addr), spec.semantics);
             const auto host = Value_helper::knob_to_host(knob, spec.semantics);
             Globals()->SetParameter(addr, static_cast<float>(host));
-            _changes.push(process::Event::Set{addr, Value_helper::knob_to_plain(knob, spec.semantics)});
+            _changes.push(process::Event::Set{.value = Value_helper::knob_to_plain(knob, spec.semantics), .address = addr});
             _undo_history.amend_host_load(addr, from, knob);
         };
         _editor->notify(Host_event{Host_preset_loaded{
@@ -1280,7 +1280,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 
     if (needs_resync || skipped_while_bypassed) {
         // Discard queue.
-        auto discarded = process::Tagged_event{};
+        auto discarded = process::Event::Ordered{};
         while (_to_processor.pop(discarded)) {}
 
         // Consume change list.
@@ -1292,10 +1292,10 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
             if (_events.size() == _events.capacity()) break;
             const auto host_value = Globals()->GetParameter(static_cast<AudioUnitParameterID>(addr));
-            _events.push_back(process::Tagged_event{
+            _events.push_back(process::Event::Ordered{
                 .event = process::Event::Set{
-                    .address = static_cast<uint32_t>(addr),
-                    .value = Value_helper::host_to_plain(host_value, specs[addr].semantics)
+                    .value = Value_helper::host_to_plain(host_value, specs[addr].semantics),
+                    .address = static_cast<uint32_t>(addr)
                 },
                 .offset = 0,
             });
@@ -1304,13 +1304,13 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     else {
         _changes.consume([&](auto address, auto value) {
             assert(_events.size() < _events.capacity() && "Events vector full!");
-            _events.push_back(process::Tagged_event{
-                .event = process::Event::Set{.address = address, .value = value},
+            _events.push_back(process::Event::Ordered{
+                .event = process::Event::Set{.value = value, .address = address},
                 .offset = 0,
             });
         });
 
-        auto param_event = process::Tagged_event{};
+        auto param_event = process::Event::Ordered{};
         while (_to_processor.pop(param_event)) {
             assert(_events.size() < _events.capacity() && "Events vector full!");
             _events.push_back(param_event);
@@ -1341,7 +1341,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     auto raw = Raw_midi{};
     const auto mpe = process::mpe_enabled(*_processor);
     while (_midi_in.pop(raw)) {
-        _notes.from_midi(mpe, raw.status, raw.d1, raw.d2, [&](const process::Input& input) {
+        _notes.from_midi(mpe, raw.status, raw.d1, raw.d2, [&](const process::Event::Any& input) {
             if (_events.size() < _events.capacity()) _events.push_back({.event = input, .offset = raw.offset});
         });
     }
@@ -1421,7 +1421,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         auto t = Timeline{};
         auto host_pos = std::optional<std::int64_t>{};
         if (transport_ok) {
-            host_pos = process::detail::Timeline_resolver::samples(host_data.sample_pos);
+            host_pos = process::Timeline_resolver::samples(host_data.sample_pos);
             t.cycle = Timeline::Cycle{host_data.cycle_start, host_data.cycle_end};
             t.state = Timeline::State{
                 .moving = to_bool(host_data.is_playing),
@@ -1440,7 +1440,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     }();
 
     // Create the context.
-    auto context = process::Dsp_context{};
+    auto context = process::Context{};
 #if TINY_HAS_STATE
     auto state_block = _state.begin_block(); // Applies a staged edit now; publishes when Render returns.
     context.state = state::Access_for<models::Resolved::State>{&state_block};
@@ -1463,7 +1463,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 
 #if TINY_HAS_NOTES_IN
     // The editor's notes land at the top of the block.
-    _notes.drain_editor([this](const process::Input& input) { _input(input, 0); });
+    _notes.drain_editor([this](const process::Event::Any& input) { _input(input, 0); });
 #endif
 
     auto do_process = [this, &context, &block_timeline, bypassed, sidechain_ok](size_t num_frames, size_t offset) {
@@ -1480,7 +1480,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
             [[maybe_unused]] const auto num_ibuffers = Input(0).GetBufferList().mNumberBuffers;
             assert(num_ichannels == num_ibuffers && "Channel mismatch!");
             for (size_t i = 0; i < num_ichannels; ++i) {
-                _ibuffers[i] = static_cast<const float*>(Input(0).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
+                _inputs[i] = static_cast<const float*>(Input(0).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
             }
         }
 
@@ -1491,7 +1491,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
             [[maybe_unused]] const auto num_obuffers = Output(0).GetBufferList().mNumberBuffers;
             assert(num_ochannels == num_obuffers && "Channel mismatch!");
             for (size_t i = 0; i < num_ochannels; ++i) {
-                _obuffers[i] = static_cast<float*>(Output(0).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
+                _outputs[i] = static_cast<float*>(Output(0).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
             }
         }
 
@@ -1501,15 +1501,15 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
             [[maybe_unused]] const auto num_sbuffers = Input(sidechain_input).GetBufferList().mNumberBuffers;
             assert(num_schannels == num_sbuffers && "Channel mismatch!");
             for (size_t i = 0; i < num_schannels; ++i) {
-                _sbuffers[i] = static_cast<const float*>(Input(sidechain_input).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
+                _sidechain[i] = static_cast<const float*>(Input(sidechain_input).GetFloat32ChannelData(static_cast<UInt32>(i))) + offset;
             }
         }
 
-        context.timeline = process::detail::Timeline_resolver::at_offset(block_timeline, offset, _sr);
+        context.timeline = process::Timeline_resolver::at_offset(block_timeline, offset, _sr);
 
-        context.ibuffers = {_ibuffers.begin(), num_ichannels};
-        context.obuffers = {_obuffers.begin(), num_ochannels};
-        context.sbuffers = {_sbuffers.begin(), num_schannels};
+        context.inputs = {_inputs.begin(), num_ichannels};
+        context.outputs = {_outputs.begin(), num_ochannels};
+        context.sidechain = {_sidechain.begin(), num_schannels};
         context.num_frames = num_frames;
         _processor->process(context);
     };
@@ -1638,13 +1638,13 @@ OSStatus Effect::MIDIEvent(UInt32 inStatus, UInt32 inData1, UInt32 inData2, UInt
 #endif
 
 // [render] One input for the processor, and for the output while a bypassed note effect forwards.
-auto Effect::_input(const process::Input& input, [[maybe_unused]] int32_t offset) -> void
+auto Effect::_input(const process::Event::Any& input, [[maybe_unused]] int32_t offset) -> void
 {
     process::deliver(*_processor, input);
 #if TINY_HAS_NOTES_OUT
     if (_passing) {
         std::visit(Inline_visitor{
-            [](const process::Event::Any&) {},
+            [](const process::Event::Param&) {},
             [&](const auto& e) { _notes.outbox().pass(offset, e); },
         }, input);
     }

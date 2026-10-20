@@ -140,11 +140,11 @@ private:
     std::atomic<int32_t> _pending_preset{-1}; // A factory preset asked for off main.
     std::optional<Relay> _state_tick{};
 
-    auto _input(const process::Input& input, int32_t offset) -> void;
+    auto _input(const process::Event::Any& input, int32_t offset) -> void;
     auto _send_notes(const AudioTimeStamp& time) -> void;
 
     double _sr{48000};
-    process::detail::Timeline_resolver _timeline{}; // Fills what the host leaves out. Render-thread only.
+    process::Timeline_resolver _timeline{}; // Fills what the host leaves out. Render-thread only.
 
     mutable std::array<AUPreset, Preset_list::num_presets> _au_presets{}; // Strings will need released.
     //mutable CFArrayRef _presets_array{nullptr};
@@ -216,9 +216,9 @@ private:
     static constexpr auto max_ochannels = size_t{2};
 
     // Pointers to host io buffers.
-    std::array<const float*, max_ichannels> _ibuffers{};
-    std::array<const float*, max_schannels> _sbuffers{};
-    std::array<float*, max_ochannels> _obuffers{};
+    std::array<const float*, max_ichannels> _inputs{};
+    std::array<const float*, max_schannels> _sidechain{};
+    std::array<float*, max_ochannels> _outputs{};
 
 #if TINY_HAS_METERS
     meters::Publisher<tiny::models::Resolved::Meters> _meters{}; // Owns the scratch the DSP writes.
@@ -240,7 +240,7 @@ private:
     static constexpr auto events_size = num_params + queue_size + 1 + (Plug_info::Wants::notes_in ? 1024 : 0);
 
     // 
-    using To_processor_queue = Lock_free_queue<process::Tagged_event, queue_size, Queue_concurrency::mpsc>; // I believe SetParameter can happen from a variety of threads.
+    using To_processor_queue = Lock_free_queue<process::Event::Ordered, queue_size, Queue_concurrency::mpsc>; // I believe SetParameter can happen from a variety of threads.
 
 
     Change_set<process::Event::Set, num_params> _changes{}; // Plain space, to the audio thread.
@@ -266,7 +266,7 @@ private:
 #endif
 
     // Render
-    std::vector<process::Tagged_event> _events{}; // Some fixed size thing.
+    std::vector<process::Event::Ordered> _events{}; // Some fixed size thing.
 
     std::unique_ptr<User_processor> _processor = std::make_unique<User_processor>();
 
@@ -387,7 +387,7 @@ private:
                             event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
                             event.mArgument.mParameter.mElement = 0;
                             AUEventListenerNotify(NULL, NULL, &event);
-                            _changes.push(process::Event::Set{a.address, plain_value});
+                            _changes.push(process::Event::Set{.value = plain_value, .address = a.address});
                         },
                         [&](const Action_end& a) {
                             auto event = AudioUnitEvent{};

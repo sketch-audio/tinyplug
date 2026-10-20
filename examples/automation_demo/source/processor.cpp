@@ -51,7 +51,7 @@ auto Processor::reset(const Reset::Any& reset) -> void
     }, reset);
 }
 
-auto Processor::handle(const Event::Any& event) -> void
+auto Processor::handle(const Event::Param& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Event::Set& e) {
@@ -60,14 +60,14 @@ auto Processor::handle(const Event::Any& event) -> void
             _record(Kind::Set, e.address, e.value);
         },
         [this](const Event::Ramp& e) {
-            _values[e.address] = static_cast<float>(e.target);
-            if (e.address == enum_raw(Address::Value)) _value.start(static_cast<float>(e.target), static_cast<int32_t>(e.dur_samples));
-            _record(Kind::Ramp, e.address, e.target, static_cast<int32_t>(e.dur_samples));
+            _values[e.address] = static_cast<float>(e.value);
+            if (e.address == enum_raw(Address::Value)) _value.start(static_cast<float>(e.value), static_cast<int32_t>(e.samples));
+            _record(Kind::Ramp, e.address, e.value, static_cast<int32_t>(e.samples));
         },
     }, event);
 }
 
-auto Processor::process(Dsp_context& context) -> void
+auto Processor::process(Context& context) -> void
 {
     if (_render != context.render_mode) {
         _render = context.render_mode;
@@ -78,9 +78,9 @@ auto Processor::process(Dsp_context& context) -> void
     for (auto frame = size_t{}; frame < context.num_frames; ++frame) {
         const auto value = _value.next();
         _trace_sample(value, _clock + static_cast<int64_t>(frame));
-        for (auto channel = size_t{}; channel < context.obuffers.size(); ++channel) {
-            const auto in = channel < context.ibuffers.size() ? context.ibuffers[channel][frame] : 0.f;
-            context.obuffers[channel][frame] = dc ? value : in;
+        for (auto channel = size_t{}; channel < context.outputs.size(); ++channel) {
+            const auto in = channel < context.inputs.size() ? context.inputs[channel][frame] : 0.f;
+            context.outputs[channel][frame] = dc ? value : in;
         }
     }
     _clock += static_cast<int64_t>(context.num_frames);

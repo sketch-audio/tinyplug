@@ -65,7 +65,7 @@ public:
     auto from_host(bool mpe, int32_t local, Note::Any note, F&& emit) -> void
     {
         if (!from_host(local, note)) return;
-        emit(Input{note});
+        emit(Event::Any{note});
         _inherit(mpe, note, emit);
     }
 
@@ -73,7 +73,7 @@ public:
     template<typename F>
     auto release_host(int32_t channel, F&& emit) -> void
     {
-        _ids.release_all(Note_ids::Source::Host, channel, [&](const Note::Off& e) { emit(Input{Note::Any{e}}); });
+        _ids.release_all(Note_ids::Source::Host, channel, [&](const Note::Off& e) { emit(Event::Any{Note::Any{e}}); });
     }
 
     // One MIDI 1.0 message from the host, named, as zero or more inputs. With `mpe` (see
@@ -89,7 +89,7 @@ public:
         if (mpe) {
             if (const auto x = _mpe.expression(status, d1)) {
                 _ids.each_held(Note_ids::Source::Host, channel, [&](const Note::Id& id) {
-                    emit(Input{Note::Any{Note::Expression{id, x->kind, x->value}}});
+                    emit(Event::Any{Note::Any{Note::Expression{id, x->kind, x->value}}});
                 });
                 return;
             }
@@ -101,12 +101,12 @@ public:
             [](std::monostate) {},
             [&](Note::Any note) {
                 if (!from_host(-1, note)) return;
-                emit(Input{note});
+                emit(Event::Any{note});
                 _inherit(mpe, note, emit);
             },
-            [&](const Control::Any& control) { emit(Input{control}); },
+            [&](const Control::Any& control) { emit(Event::Any{control}); },
             [&](const midi::All_off& off) {
-                _ids.release_all(Note_ids::Source::Host, off.channel, [&](const Note::Off& e) { emit(Input{Note::Any{e}}); });
+                _ids.release_all(Note_ids::Source::Host, off.channel, [&](const Note::Off& e) { emit(Event::Any{Note::Any{e}}); });
             },
         }, midi::decode(status, d1, d2));
     }
@@ -121,9 +121,9 @@ public:
                 [&](Note::Any note) {
                     const auto local = std::visit([](const auto& e) { return e.note.id; }, note);
                     const auto id = local == 0 ? int32_t{-1} : static_cast<int32_t>(local & 0x7fffffff);
-                    if (_ids.name(Note_ids::Source::Editor, id, note)) emit(Input{note});
+                    if (_ids.name(Note_ids::Source::Editor, id, note)) emit(Event::Any{note});
                 },
-                [&](const Control::Any& control) { emit(Input{control}); },
+                [&](const Control::Any& control) { emit(Event::Any{control}); },
             }, event);
         }
     }
@@ -173,7 +173,7 @@ private:
         const auto* on = std::get_if<Note::On>(&note);
         if (!mpe || !on || !_mpe.is_member(on->note.channel)) return;
         _mpe.initial(on->note.channel, [&](Note::Expression::Kind kind, double value) {
-            emit(Input{Note::Any{Note::Expression{on->note, kind, value}}});
+            emit(Event::Any{Note::Any{Note::Expression{on->note, kind, value}}});
         });
 #endif
     }

@@ -39,18 +39,18 @@ auto Processor::reset(const Reset::Any& reset) -> void
     }, reset);
 }
 
-auto Processor::handle(const Event::Any& event) -> void
+auto Processor::handle(const Event::Param& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Event::Set& e) {
             if (e.address == enum_raw(Address::Mode) && static_cast<float>(e.value) != _values[e.address]) _propose = true;
             _values[e.address] = static_cast<float>(e.value);
         },
-        [this](const Event::Ramp& e) { _values[e.address] = static_cast<float>(e.target); },
+        [this](const Event::Ramp& e) { _values[e.address] = static_cast<float>(e.value); },
     }, event);
 }
 
-auto Processor::process(Dsp_context& context) -> void
+auto Processor::process(Context& context) -> void
 {
     // Restate the intention at every change, derived from the parameter: a later proposal
     // supersedes one the host hasn't acted on yet (Logic may wait until playback starts).
@@ -67,14 +67,14 @@ auto Processor::process(Dsp_context& context) -> void
     const auto& timeline = context.timeline;
     const auto moving = timeline.state && timeline.state->moving;
     const auto second = std::max<int64_t>(1, std::llround(_frame.sr));
-    const auto channels = std::min({context.ibuffers.size(), context.obuffers.size(), _lines.size()});
+    const auto channels = std::min({context.inputs.size(), context.outputs.size(), _lines.size()});
     for (auto frame = size_t{}; frame < context.num_frames; ++frame) {
         const auto at = (moving ? timeline.sample_pos : _clock) + static_cast<int64_t>(frame);
         const auto tick = at % second == 0 ? 1.f : 0.f;
         for (auto channel = size_t{}; channel < channels; ++channel) {
             auto& line = _lines[channel];
-            line.write(click ? tick : context.ibuffers[channel][frame]);
-            context.obuffers[channel][frame] = line.read(_frame.current);
+            line.write(click ? tick : context.inputs[channel][frame]);
+            context.outputs[channel][frame] = line.read(_frame.current);
         }
     }
 

@@ -104,8 +104,8 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
 - **`Processor`** ([tiny_processor.hpp](libs/tinyplug/include/tinyplug/tiny_processor.hpp))
   — the whole process side lives in **`tiny::process`**, *including the user's class*, so
   a processor file writes the vocabulary unqualified:
-  `configure(const Config&)`, `reset(const Reset::Any&)`, `handle(const Event::Any&)`,
-  `process(Dsp_context&)`, `latency_samps()`, `tail_samps()`. The concept is
+  `configure(const Config&)`, `reset(const Reset::Any&)`, `handle(const Event::Param&)`,
+  `process(Context&)`, `latency_samps()`, `tail_samps()`. The concept is
   `process::Interface`, and its requirements follow the plug-in's declared capabilities
   (`#if TINY_HAS_*`): notes in requires `handle(Note::Any)` and `handle(Control::Any)`, a
   work model replying to the processor requires `handle_worker_reply`.
@@ -136,8 +136,8 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   (see "Three spaces") — compile silently. `Value_helper` is the bridge, at the wrapper
   boundary where it always was. `Change_set` is the one genuinely two-sided container and
   is templated on the event type so each instance declares its space.
-  *Everything in `process::Event::Any` carries a frame offset*, which is what makes the
-  `Tagged_event` sort meaningful. Anything the host says at a block boundary is a
+  *Everything in `process::Event::Any` (params, notes, controls) carries a frame offset*, which
+  is what makes the `Event::Ordered` sort meaningful. Anything the host says at a block boundary is a
   `Reset::Any`, not an event. Keep that line intact when adding MIDI.
 - **`params::Model`** ([tiny_params.hpp](libs/tiny_core/include/tiny_core/tiny_params.hpp)) —
   enumerates `Address` and provides `build_tree()` returning a
@@ -157,7 +157,7 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   typed frames, processor → editor, latest wins. `Types` is a variant of trivially copyable
   frame types; `num_blocks` + a **constexpr** `make_spec(uint32_t)` whose `kind` picks each
   address's frame type at compile time. `Publisher` stages frames (processor writes through
-  `Dsp_context::blocks`, a `Writer`), `Mailbox` is one lock-free `Data_port` per address,
+  `Context::blocks`, a `Writer`), `Mailbox` is one lock-free `Data_port` per address,
   `Frames` is the editor's retained copy and `View` is what `Processor_state::blocks` hands
   it (`latest<A>()` / `fresh<A>()`). There is no `Host` mailbox for blocks: the VST3
   controller's `notify` can run on the relay's thread. Optional.
@@ -176,7 +176,7 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   a newer refusal **replaces** a staged stale one rather than coalescing with it (coalesced, the
   pair was dropped as stale and the fresh gestures were lost). The processor side (`Processor_side`,
   `Store` in [state_store.hpp](libs/tiny_core/include/tiny_core/state_store.hpp)) applies a staged
-  patch at the top of the block and triple-buffers what it publishes; `Dsp_context::state` is
+  patch at the top of the block and triple-buffers what it publishes; `Context::state` is
   a per-block `Access`. The editor side is the wrapper-owned `state::Editor_link`
   ([tiny_state_link.hpp](libs/tinyplug/include/tinyplug/tiny_state_link.hpp)) — it holds the view,
   retains gestures to re-run on refusal, flushes once per frame (`Ui_receiver::sync_state`),
@@ -197,7 +197,7 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   declared per format, read by `midi::Mpe` in `Note_io`, switched by an optional processor
   `mpe_enabled()`). `midi::Note` and `midi::Control` (a closed set of
   player controls, never arbitrary CC; re-exported into `tiny::process`) arrive through `handle`
-  between slices; output leaves through `Dsp_context::notes`, which also takes `midi::Raw`:
+  between slices; output leaves through `Context::notes`, which also takes `midi::Raw`:
   any channel voice message, output only, since sending can't write the plug-in's own
   parameters. Every wrapper owns a `process::Note_io`
   ([tiny_note_io.hpp](libs/tinyplug/include/tinyplug/tiny_note_io.hpp)): `Note_ids` mints one
@@ -238,7 +238,7 @@ skip `ZERO_CHECK`. Build `ZERO_CHECK` first there. Design:
   gates code, and only discards inside a template.
 - **Meters are gated end to end.** Without `models/meters.hpp`, every wrapper compiles out its
   publisher, mailbox, transport (VST3 output params, AAX ring traffic) and the
-  `Dsp_context::meters` / `Ui_receiver::read_meters` fields. `Processor_state::meters` stays,
+  `Context::meters` / `Ui_receiver::read_meters` fields. `Processor_state::meters` stays,
   empty — it is core. A new meter path must sit behind `TINY_HAS_METERS` too.
 
 ## Parameter permanence
@@ -313,7 +313,7 @@ Communication uses `Lock_free_queue<T, capacity, Queue_concurrency::*>`
 a detemplated farbot port). Common topology:
 
 - **Host → processor**: format-native event stream, normalized into
-  `std::vector<Tagged_event>` per render (with offsets and ramps).
+  `std::vector<Event::Ordered>` per render (with offsets and ramps).
 - **Editor → host → processor**: `User_action` from the editor goes via
   the host's gesture/edit API; the processor receives the resulting
   parameter changes alongside automation.
@@ -384,7 +384,7 @@ This has knock-on effects throughout the wrapper:
   `IMessage` (`tiny/latency/changed`) — no render is in flight there, and
   `_reported_latency.exchange` syncs the shadow whether or not the send
   lands, so a reconfigure can never be mistaken for a mid-render change.
-  A *runtime* proposal (`Dsp_context::propose_latency`, raised on the audio
+  A *runtime* proposal (`Context::propose_latency`, raised on the audio
   thread) stores `_pending_latency` and posts a `tiny::Relay`, which sends
   the same message off the audio thread. This replaced a hidden "latency"
   output parameter that was bumped from `process`: Live mis-ingests output
@@ -694,7 +694,7 @@ restore entry points run on the UI/main thread (they do on all five hosts).
 
 Every wrapper implements the same pattern:
 
-1. Kernel sets `Dsp_context::propose_latency = N` during `process`.
+1. Kernel sets `Context::propose_latency = N` during `process`.
 2. Wrapper stores `_pending_latency = N` (atomic, lock-free
    `optional<uint32_t>`).
 3. Wrapper signals the host "latency may have changed" using the

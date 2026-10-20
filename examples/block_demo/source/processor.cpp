@@ -34,26 +34,26 @@ auto Processor::reset(const Reset::Any& reset) -> void
     }, reset);
 }
 
-auto Processor::handle(const Event::Any& event) -> void
+auto Processor::handle(const Event::Param& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Event::Set& e) { _values[e.address] = static_cast<float>(e.value); },
-        [this](const Event::Ramp& e) { _values[e.address] = static_cast<float>(e.target); },
+        [this](const Event::Ramp& e) { _values[e.address] = static_cast<float>(e.value); },
         [](const auto&) {}
     }, event);
 }
 
-auto Processor::process(Dsp_context& context) -> void
+auto Processor::process(Context& context) -> void
 {
     const auto g = _values[enum_raw(Address::Gain)];
-    const auto channels = std::min(context.ibuffers.size(), context.obuffers.size());
+    const auto channels = std::min(context.inputs.size(), context.outputs.size());
     const auto scale = channels > 0 ? 1.f / static_cast<float>(channels) : 0.f;
 
     for (auto frame = size_t{}; frame < context.num_frames; ++frame) {
         auto mono = 0.f;
         for (auto channel = size_t{}; channel < channels; ++channel) {
-            const auto output = g * context.ibuffers[channel][frame];
-            context.obuffers[channel][frame] = output;
+            const auto output = g * context.inputs[channel][frame];
+            context.outputs[channel][frame] = output;
             mono += output;
         }
         mono *= scale;
@@ -80,7 +80,7 @@ auto Processor::_clear() -> void
     _capturing = false;
 }
 
-auto Processor::_analyze(Dsp_context& context) -> void
+auto Processor::_analyze(Context& context) -> void
 {
     // Oldest sample first, windowed.
     for (auto i = size_t{}; i < fft_size; ++i) {
@@ -100,7 +100,7 @@ auto Processor::_analyze(Dsp_context& context) -> void
     context.blocks.publish<Block::Spectrum>();
 }
 
-auto Processor::_scope(Dsp_context& context, float x) -> void
+auto Processor::_scope(Context& context, float x) -> void
 {
     // Arm on a rising zero crossing; free-run after 50 ms so silence and DC still draw.
     if (!_capturing) {

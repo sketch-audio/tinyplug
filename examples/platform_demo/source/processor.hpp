@@ -19,7 +19,7 @@ public:
 
     // Receive a render event such as `Event::Set`.
     // Events are interleaved with process calls so you can consider them as happening "now".
-    auto handle(const Event::Any& event) -> void;
+    auto handle(const Event::Param& event) -> void;
 
     // This is where you can do your signal processing.
     // In the DSP context, you have:
@@ -28,7 +28,7 @@ public:
     // - The number of frames to render (It is the plug-in's responsibility to handle any value here.)
     // - A place to write your exports
     // - The option to propose a latency change
-    auto process(Dsp_context& context) -> void;
+    auto process(Context& context) -> void;
 
     // The framework will check and report this to the host right after calling `configure`.
     auto latency_samps() const -> uint32_t { return 0; }

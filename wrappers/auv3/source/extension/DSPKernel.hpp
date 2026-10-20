@@ -96,7 +96,7 @@ public:
         _writer = _notes.writer(bypassed);
 #endif
 #if TINY_HAS_NOTES_IN
-        _notes.drain_editor([this](const tiny::process::Input& input) { _input(input, 0); });
+        _notes.drain_editor([this](const tiny::process::Event::Any& input) { _input(input, 0); });
 #endif
     }
 
@@ -143,7 +143,7 @@ public:
         const auto plain = tiny::params::Value_helper::host_to_plain(value, spec.semantics);
 
         // Coalesces, so nothing is lost however long process() goes without running.
-        _param_changes.push(tiny::process::Event::Set{.address = addr, .value = plain});
+        _param_changes.push(tiny::process::Event::Set{.value = plain, .address = addr});
 
         // Maintain host values.
         _hostvalues[address].store(value, std::memory_order_release);
@@ -221,7 +221,7 @@ public:
 
         // Parameter values set off the render thread since the last block.
         const auto delivered = _param_changes.consume([this](uint32_t address, double value) {
-            _processor->handle(tiny::process::Event::Set{.address = address, .value = value});
+            _processor->handle(tiny::process::Event::Set{.value = value, .address = address});
         });
 
         // Changed while bypassed: manifest now rather than ramping through audio nobody hears,
@@ -230,7 +230,7 @@ public:
             _processor->reset(tiny::process::Reset::Soft{});
         }
 
-        auto context = tiny::process::Dsp_context{.propose_latency = {}};
+        auto context = tiny::process::Context{.propose_latency = {}};
 #if TINY_HAS_STATE
         auto state_block = _state.begin_block(); // Applies a staged edit now; publishes when process returns.
         context.state = tiny::state::Access_for<tiny::models::Resolved::State>{&state_block};
@@ -243,7 +243,7 @@ public:
 #endif
         // Event-split slices share the render's timeline, offset to where they start.
         const auto slice_offset = std::max<AUEventSampleTime>(bufferStartTime - _block_start, 0);
-        context.timeline = tiny::process::detail::Timeline_resolver::at_offset(_block_timeline, static_cast<size_t>(slice_offset), mSampleRate);
+        context.timeline = tiny::process::Timeline_resolver::at_offset(_block_timeline, static_cast<size_t>(slice_offset), mSampleRate);
         context.render_mode = _offline.load(std::memory_order_relaxed)
             ? tiny::process::Render_mode::Offline
             : tiny::process::Render_mode::Realtime;
@@ -264,9 +264,9 @@ public:
         
         // Already spans with size set by process helper. A note effect's output is a silent bus
         // the processor never sees.
-        context.ibuffers = inputBuffers;
-        context.obuffers = tiny::Plug_info::Wants::audio_out ? outputBuffers : std::span<float*>{};
-        context.sbuffers = sidechainBuffers;
+        context.inputs = inputBuffers;
+        context.outputs = tiny::Plug_info::Wants::audio_out ? outputBuffers : std::span<float*>{};
+        context.sidechain = sidechainBuffers;
         context.num_frames = frameCount;
 #if TINY_HAS_NOTES_OUT
         context.notes = _writer;
@@ -343,7 +343,7 @@ public:
                 if (address >= num_params) return;
                 const auto& spec = User_params::param_spec(address);
                 const auto plain = tiny::params::Value_helper::host_to_plain(event->parameter.value, spec.semantics);
-                _processor->handle(tiny::process::Event::Set{.address = address, .value = plain});
+                _processor->handle(tiny::process::Event::Set{.value = plain, .address = address});
                 _hostvalues[address].store(event->parameter.value, std::memory_order_relaxed); // Maintain host values.
                 break;
             }
@@ -353,7 +353,7 @@ public:
                 const auto dur_samples = static_cast<int32_t>(event->parameter.rampDurationSampleFrames);
                 const auto& spec = User_params::param_spec(address);
                 const auto plain = tiny::params::Value_helper::host_to_plain(event->parameter.value, spec.semantics);
-                _processor->handle(tiny::process::Event::Ramp{.address = address, .target = plain, .dur_samples = dur_samples});
+                _processor->handle(tiny::process::Event::Ramp{.value = plain, .address = address, .samples = dur_samples});
                 _hostvalues[address].store(event->parameter.value, std::memory_order_relaxed); // Maintain host values.
                 break;
             }
@@ -363,7 +363,7 @@ public:
                 const auto& m = event->MIDI;
                 const auto offset = static_cast<int32_t>(std::max<AUEventSampleTime>(event->head.eventSampleTime - _block_start, 0));
                 _notes.from_midi(tiny::process::mpe_enabled(*_processor), m.data[0], m.length > 1 ? m.data[1] : 0, m.length > 2 ? m.data[2] : 0,
-                                 [&](const tiny::process::Input& input) { _input(input, offset); });
+                                 [&](const tiny::process::Event::Any& input) { _input(input, offset); });
 #endif
                 break;
             }
@@ -373,12 +373,12 @@ public:
     }
 
     // One input for the processor, and for the output while a bypassed note effect forwards.
-    void _input(const tiny::process::Input& input, [[maybe_unused]] int32_t offset) {
+    void _input(const tiny::process::Event::Any& input, [[maybe_unused]] int32_t offset) {
         tiny::process::deliver(*_processor, input);
 #if TINY_HAS_NOTES_OUT
         if (_passing) {
             std::visit(tiny::Inline_visitor{
-                [](const tiny::process::Event::Any&) {},
+                [](const tiny::process::Event::Param&) {},
                 [&](const auto& e) { _notes.outbox().pass(offset, e); },
             }, input);
         }
@@ -478,9 +478,9 @@ private:
     static constexpr auto max_ochannels = size_t{2};
 
     // Pointers to host io buffers.
-    std::array<const float*, max_ichannels> _ibuffers{};
-    std::array<const float*, max_schannels> _sbuffers{};
-    std::array<float*, max_ochannels> _obuffers{};
+    std::array<const float*, max_ichannels> _inputs{};
+    std::array<const float*, max_schannels> _sidechain{};
+    std::array<float*, max_ochannels> _outputs{};
 #if TINY_HAS_METERS
     tiny::meters::Publisher<tiny::models::Resolved::Meters> _meters{}; // Owns the scratch the DSP writes.
 #endif
@@ -544,7 +544,7 @@ private:
     // Render mode (offline/bounce). Set via setOffline off the audio thread.
     std::atomic<bool> _offline{false};
 
-    tiny::process::detail::Timeline_resolver _timeline{}; // Fills what the host leaves out.
+    tiny::process::Timeline_resolver _timeline{}; // Fills what the host leaves out.
     tiny::process::Timeline _block_timeline{}; // The render's, at its first frame.
 
     tiny::Host_bypass _bypass{};
@@ -600,7 +600,7 @@ private:
         auto cycleStart = double{};
         auto cycleEnd = double{};
         if (mTransportStateBlock && mTransportStateBlock(&flags, &samplePos, &cycleStart, &cycleEnd)) {
-            host_pos = tiny::process::detail::Timeline_resolver::samples(samplePos);
+            host_pos = tiny::process::Timeline_resolver::samples(samplePos);
             t.cycle = Timeline::Cycle{cycleStart, cycleEnd};
             t.state = Timeline::State{
                 .moving = (flags & AUHostTransportStateMoving) > 0,

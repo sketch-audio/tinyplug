@@ -144,7 +144,7 @@ expressions, inherited values, bend range, zone configuration and overlap, NRPN 
 
 ## timeline_resolver_test.cpp
 
-`process::detail::Timeline_resolver`: the `Timeline` every wrapper hands the processor when the host
+`process::Timeline_resolver`: the `Timeline` every wrapper hands the processor when the host
 leaves fields out or reports nonsense. Pass-through, a free-running position (not moving) with no host
 info, a position derived from beats + tempo, missing beats left missing, non-finite and out-of-range
 values treated as missing, an inactive cycle region still reported, sub-block offsets.

@@ -18,6 +18,7 @@ target_sources(${TINY_PLUG_LIB} INTERFACE FILE_SET HEADERS BASE_DIRS ${CMAKE_CUR
     include/tinyplug/tiny_state_link.hpp
     include/tinyplug/tiny_view.hpp
     include/tinyplug/tiny_worker.hpp
+    include/tinyplug/timeline_resolver.hpp
     include/tinyplug/tinyplug.hpp
     include/tinyplug/undo_history.hpp
 )

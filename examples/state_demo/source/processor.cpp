@@ -25,16 +25,16 @@ auto Processor::reset(const Reset::Any& reset) -> void
     }, reset);
 }
 
-auto Processor::handle(const Event::Any& event) -> void
+auto Processor::handle(const Event::Param& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Event::Set& e) { _values[e.address] = static_cast<float>(e.value); },
-        [this](const Event::Ramp& e) { _values[e.address] = static_cast<float>(e.target); },
+        [this](const Event::Ramp& e) { _values[e.address] = static_cast<float>(e.value); },
         [](const auto&) {}
     }, event);
 }
 
-auto Processor::process(Dsp_context& context) -> void
+auto Processor::process(Context& context) -> void
 {
     const auto& pattern = context.state.get(); // Valid for this block only.
     const auto depth = _values[enum_raw(Address::Depth)];
@@ -42,7 +42,7 @@ auto Processor::process(Dsp_context& context) -> void
     const auto beats_per_sample = timeline.tempo.value_or(120.) / (60. * _sr);
     const auto moving = timeline.state && timeline.state->moving && timeline.beat_pos;
     const auto start = moving ? *timeline.beat_pos : _free_beats;
-    const auto channels = std::min(context.ibuffers.size(), context.obuffers.size());
+    const auto channels = std::min(context.inputs.size(), context.outputs.size());
 
     auto step = size_t{};
     for (auto frame = size_t{}; frame < context.num_frames; ++frame) {
@@ -55,7 +55,7 @@ auto Processor::process(Dsp_context& context) -> void
         _gain += _glide * (target - _gain);
 
         for (auto channel = size_t{}; channel < channels; ++channel) {
-            context.obuffers[channel][frame] = _gain * context.ibuffers[channel][frame];
+            context.outputs[channel][frame] = _gain * context.inputs[channel][frame];
         }
     }
 

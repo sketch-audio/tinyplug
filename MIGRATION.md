@@ -755,3 +755,36 @@ mean its value: `if (t.beat_pos)` is "the host reported beats", not "beats are n
 
 [examples/step_sequencer](examples/step_sequencer/) and [examples/state_demo](examples/state_demo/)
 are the reference: both treat "moving without beats" as stopped, since there is nothing to follow.
+
+---
+
+## Processor vocabulary
+
+Breaks from `release/0.4`. Renames in `<tinyplug/tiny_processor.hpp>`, now that everything there
+lives in `tiny::process`, plus a field reorder in the parameter events.
+
+### Breaks
+
+| Before | After |
+|---|---|
+| `Dsp_context` | `Context` |
+| `context.ibuffers` / `.sbuffers` / `.obuffers` | `context.inputs` / `.sidechain` / `.outputs` |
+| `handle(const Event::Any&)` (Set or Ramp) | `handle(const Event::Param&)` |
+| `process::Input` (param, note or control) | `process::Event::Any` |
+| `process::Tagged_event` | `process::Event::Ordered` |
+| `Event::Ramp::target` | `Event::Ramp::value` |
+| `Event::Ramp::dur_samples` | `Event::Ramp::samples` |
+| `Event::Set{address, value}` | `Event::Set{.value = value, .address = address}` |
+
+**`Event::Any` changed meaning.** It used to be the param variant, `Set` or `Ramp`, and is now
+the umbrella over params, notes and controls. A processor that keeps `handle(const Event::Any&)`
+fails the `Interface` concept: the param handler must take `Event::Param`. A param handler written
+as a template (`handle(const auto&)`) now also matches notes and controls.
+
+**`value` comes first in `Set` and `Ramp`**, which takes `Ramp` from 24 bytes to 16. Positional
+initializers fail to compile, because the two fields are no longer in the same order. Use
+designated ones, in declaration order: `.value`, `.address`, then `.samples`. Clang only warns
+on out-of-order designators (`-Wreorder-init-list`) but MSVC rejects them, so build with that
+warning visible.
+
+In handlers, `e.target` becomes `e.value`, so a `Set` and a `Ramp` read the same way.

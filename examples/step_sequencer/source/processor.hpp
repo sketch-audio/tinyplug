@@ -16,10 +16,10 @@ public:
 
     auto configure(const Config& config) -> void;
     auto reset(const Reset::Any& reset) -> void;
-    auto handle(const Event::Any& event) -> void;
+    auto handle(const Event::Param& event) -> void;
     auto handle(const Note::Any& note) -> void;
     auto handle(const Control::Any& control) -> void;
-    auto process(Dsp_context& context) -> void;
+    auto process(Context& context) -> void;
 
     auto latency_samps() const -> uint32_t { return 0; }
     auto tail_samps() const -> uint32_t { return 0; }
@@ -53,7 +53,7 @@ private:
     size_t _num_through{};
 
     auto _pass(const Performance& event) -> void;
-    auto _release(Dsp_context& context, int64_t frame) -> void;
+    auto _release(Context& context, int64_t frame) -> void;
 
 };
 static_assert(Interface<Processor>);

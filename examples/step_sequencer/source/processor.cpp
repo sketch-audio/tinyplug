@@ -24,11 +24,11 @@ auto Processor::reset(const Reset::Any& reset) -> void
     }, reset);
 }
 
-auto Processor::handle(const Event::Any& event) -> void
+auto Processor::handle(const Event::Param& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Event::Set& e) { _values[e.address] = static_cast<float>(e.value); },
-        [this](const Event::Ramp& e) { _values[e.address] = static_cast<float>(e.target); },
+        [this](const Event::Ramp& e) { _values[e.address] = static_cast<float>(e.value); },
     }, event);
 }
 
@@ -40,17 +40,17 @@ auto Processor::_pass(const Performance& event) -> void
     if (_num_through < _through.size()) _through[_num_through++] = event;
 }
 
-auto Processor::_release(Dsp_context& context, int64_t frame) -> void
+auto Processor::_release(Context& context, int64_t frame) -> void
 {
     if (!_held) return;
     context.notes.send(frame, Note::Off{_held->note, 0.f});
     _held.reset();
 }
 
-auto Processor::process(Dsp_context& context) -> void
+auto Processor::process(Context& context) -> void
 {
     // Declared as an instrument so every host loads it; the audio it owes is silence.
-    for (auto* channel : context.obuffers) std::fill_n(channel, context.num_frames, 0.f);
+    for (auto* channel : context.outputs) std::fill_n(channel, context.num_frames, 0.f);
 
     for (auto i = size_t{}; i < _num_through; ++i) {
         std::visit([&](const auto& e) { context.notes.send(0, e); }, _through[i]);

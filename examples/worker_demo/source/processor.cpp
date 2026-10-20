@@ -34,11 +34,11 @@ auto Processor::configure(const Config& config) -> void
     _next_beat = 0;
 }
 
-auto Processor::handle(const Event::Any& event) -> void
+auto Processor::handle(const Event::Param& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Event::Set& e) { _drive = e.value; _design = true; },
-        [this](const Event::Ramp& e) { _drive = e.target; _design = true; },
+        [this](const Event::Ramp& e) { _drive = e.value; _design = true; },
     }, event);
 }
 
@@ -57,7 +57,7 @@ auto Processor::handle_worker_reply(const User_work::To_processor& reply) -> voi
     }, reply);
 }
 
-auto Processor::process(Dsp_context& context) -> void
+auto Processor::process(Context& context) -> void
 {
     // Requests go out from here, lock-free; a full queue just means trying again next block.
     if (_design && _worker.push(models::Design{++_seq, _drive})) {
@@ -69,10 +69,10 @@ auto Processor::process(Dsp_context& context) -> void
         ++_frame.heartbeats;
     }
 
-    const auto channels = std::min(context.ibuffers.size(), context.obuffers.size());
+    const auto channels = std::min(context.inputs.size(), context.outputs.size());
     for (auto channel = size_t{}; channel < channels; ++channel) {
         for (auto frame = size_t{}; frame < context.num_frames; ++frame) {
-            context.obuffers[channel][frame] = shape(_frame.table, context.ibuffers[channel][frame]);
+            context.outputs[channel][frame] = shape(_frame.table, context.inputs[channel][frame]);
         }
     }
 

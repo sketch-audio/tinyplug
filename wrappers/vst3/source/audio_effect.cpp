@@ -401,7 +401,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
 
     // Values from a state load.
     _loaded.consume([this](uint32_t address, double value) {
-        _processor->handle(process::Event::Set{address, value});
+        _processor->handle(process::Event::Set{.value = value, .address = address});
     });
 
     // Validate shape up front. Bus indices follow what the plug-in carries: an instrument's
@@ -472,7 +472,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
 
 #if TINY_HAS_NOTES_IN
     // The editor's notes land at the top of the block.
-    _notes.drain_editor([this](const process::Input& input) { _input(input, 0); });
+    _notes.drain_editor([this](const process::Event::Any& input) { _input(input, 0); });
 #endif
 
     _events.clear(); // Events only valid for this render cycle.
@@ -496,7 +496,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     // Create the context. The scratch is NOT blanket-cleared here: what survives a
     // block is per-policy and the publisher decides it at the end (levels persist,
     // peaks and events do not).
-    auto context = Dsp_context{};
+    auto context = Context{};
 #if TINY_HAS_STATE
     // Scoped by hand: the block must publish before the relay is told there is something to send.
     auto state_block = std::optional<state::Processor_for<models::Resolved::State>::Block>{};
@@ -576,29 +576,29 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         if (has_inputs) {
             assert(data.inputs[0].numChannels >= static_cast<Steinberg::int32>(_ichannels));
             for (size_t i = 0; i < _ichannels; ++i) {
-                _ibuffers[i] = &_input_data[i][offset];
+                _inputs[i] = &_input_data[i][offset];
             }
         }
         if (has_outputs) {
             assert(data.outputs[0].numChannels >= static_cast<Steinberg::int32>(_ochannels));
             for (size_t i = 0; i < _ochannels; ++i) {
-                _obuffers[i] = &data.outputs[0].channelBuffers32[i][offset];
+                _outputs[i] = &data.outputs[0].channelBuffers32[i][offset];
             }
         }
         if (has_sidechain) {
             assert(data.inputs[sidechain_bus].numChannels >= static_cast<Steinberg::int32>(_schannels));
             for (size_t i = 0; i < _schannels; ++i) {
-                _sbuffers[i] = &data.inputs[sidechain_bus].channelBuffers32[i][offset]; // Assume sidechain not "in-place"
+                _sidechain[i] = &data.inputs[sidechain_bus].channelBuffers32[i][offset]; // Assume sidechain not "in-place"
             }
         }
 
-        context.timeline = process::detail::Timeline_resolver::at_offset(block_timeline, offset, sr);
+        context.timeline = process::Timeline_resolver::at_offset(block_timeline, offset, sr);
 
         using In = std::span<const float*>;
         using Out = std::span<float*>;
-        context.ibuffers = has_inputs ? In{_ibuffers.begin(), _ichannels} : In{};
-        context.obuffers = has_outputs ? Out{_obuffers.begin(), _ochannels} : Out{};
-        context.sbuffers = has_sidechain ? In{_sbuffers.begin(), _schannels} : In{};
+        context.inputs = has_inputs ? In{_inputs.begin(), _ichannels} : In{};
+        context.outputs = has_outputs ? Out{_outputs.begin(), _ochannels} : Out{};
+        context.sidechain = has_sidechain ? In{_sidechain.begin(), _schannels} : In{};
         context.num_frames = num_frames;
 
         _processor->process(context);
@@ -796,7 +796,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
 
         const auto address = spec.identity.address;
         const auto plain_value = Value_helper::knob_to_plain(knob_value, spec.semantics);
-        loaded.push_back(process::Event::Set{address, plain_value});
+        loaded.push_back(process::Event::Set{.value = plain_value, .address = address});
 
         // Maintain host values.
         _host_values[address].store(knob_value, std::memory_order_relaxed);
@@ -1058,8 +1058,8 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
             if (ramp_dur <= 1) {
                 _events.push_back({
                     .event = process::Event::Set{
-                        .address = id,
-                        .value = Value_helper::knob_to_plain(value, param.semantics)
+                        .value = Value_helper::knob_to_plain(value, param.semantics),
+                        .address = id
                     },
                     .offset = std::max(previous_offset, {}),
                 });
@@ -1068,9 +1068,9 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
             else {
                 _events.push_back({
                     .event = process::Event::Ramp{
+                        .value = Value_helper::knob_to_plain(value, param.semantics),
                         .address = id,
-                        .target = Value_helper::knob_to_plain(value, param.semantics),
-                        .dur_samples = ramp_dur
+                        .samples = ramp_dur
                     },
                     .offset = std::max(previous_offset, {}),
                 });
@@ -1095,13 +1095,13 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
 // MARK: - notes
 
 // [audio] One input for the processor, and for the output while a bypassed note effect forwards.
-auto Audio_effect::_input(const process::Input& input, [[maybe_unused]] int32_t offset) -> void
+auto Audio_effect::_input(const process::Event::Any& input, [[maybe_unused]] int32_t offset) -> void
 {
     process::deliver(*_processor, input);
 #if TINY_HAS_NOTES_OUT
     if (_passing) {
         std::visit(Inline_visitor{
-            [](const process::Event::Any&) {},
+            [](const process::Event::Param&) {},
             [&](const auto& e) { _notes.outbox().pass(offset, e); },
         }, input);
     }
@@ -1192,7 +1192,7 @@ auto Audio_effect::_name_notes() -> void
 
     const auto mpe = process::mpe_enabled(*_processor);
     for (const auto& staged : _staged) {
-        const auto emit = [&](const Input& input) {
+        const auto emit = [&](const process::Event::Any& input) {
             if (_events.size() < _events.capacity()) _events.push_back({.event = input, .offset = staged.offset});
         };
         std::visit(Inline_visitor{

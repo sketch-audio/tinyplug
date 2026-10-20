@@ -1,13 +1,13 @@
 #pragma once
 
 #include <algorithm>
-#include <cassert>
-#include <cmath>
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <type_traits>
+#include <utility>
 #include <variant>
 
 #include <tiny_core/note_out.hpp>
@@ -21,30 +21,30 @@ namespace tiny::process {
 
 struct Event {
     struct Set {
-        uint32_t address{};
         double value{}; // Plain space.
+        std::uint32_t address{};
     };
 
     struct Ramp {
-        uint32_t address{};
-        double target{}; // Plain space.
-        int32_t dur_samples{};
+        double value{}; // Plain space, the ramp's target.
+        std::uint32_t address{};
+        std::int32_t samples{}; // Ramp length.
     };
 
-    using Any = std::variant<Set, Ramp>;
-};
+    using Param = std::variant<Set, Ramp>;
 
-// Anything a wrapper delivers through `handle` at a frame offset.
-using Input = std::variant<Event::Any, Note::Any, Control::Any>;
+    // Anything a wrapper delivers through `handle` at a frame offset.
+    using Any = std::variant<Param, Note::Any, Control::Any>;
 
-struct Tagged_event {
-    Input event{};
-    int32_t offset{std::numeric_limits<decltype(offset)>::max()}; // Frame offset in current buffer.
-    uint32_t order{}; // Arrival order, so events at one offset keep the order they came in.
+    struct Ordered {
+        Any event{};
+        std::int32_t offset{}; // Frame offset in the current buffer; untimed is block start.
+        std::uint32_t order{}; // Arrival order, so events at one offset keep the order they came in.
+    };
 };
 
 // Sorts by offset, keeping arrival order at equal offsets without `std::stable_sort`, which may allocate.
-inline auto before(const Tagged_event& a, const Tagged_event& b) -> bool
+inline auto before(const Event::Ordered& a, const Event::Ordered& b) -> bool
 {
     return a.offset != b.offset ? a.offset < b.offset : a.order < b.order;
 }
@@ -75,73 +75,18 @@ struct Timeline {
     std::optional<State> state{};
 };
 
-namespace detail {
-
-// Turns what a wrapper read from the host into a `Timeline`: invalid values become empty, and `sample_pos` is guaranteed.
-struct Timeline_resolver {
-    // Once per host buffer, at its first frame. `t.sample_pos` is ignored; the host's goes in `host_pos`.
-    auto resolve(Timeline t, std::optional<std::int64_t> host_pos, std::size_t num_frames, double sr) -> Timeline
-    {
-        const auto finite = [](const std::optional<double>& x) { return x && std::isfinite(*x); };
-
-        if (!finite(t.beat_pos)) t.beat_pos.reset();
-        if (!finite(t.tempo) || *t.tempo <= 0) t.tempo.reset();
-        if (t.signature && (t.signature->numer <= 0 || t.signature->denom <= 0)) t.signature.reset();
-        if (t.cycle && !(std::isfinite(t.cycle->start) && std::isfinite(t.cycle->end))) t.cycle.reset();
-        if (!t.cycle && t.state) t.state->cycling = false;
-
-        // Position: the host's, else from its beats and tempo, else free-running (and not moving).
-        if (host_pos) {
-            t.sample_pos = *host_pos;
-        }
-        else if (t.beat_pos && t.tempo) {
-            t.sample_pos = std::llround(*t.beat_pos * 60 * sr / *t.tempo);
-        }
-        else {
-            t.sample_pos = _free_pos;
-            if (t.state) t.state->moving = false;
-        }
-        _free_pos = t.sample_pos + static_cast<std::int64_t>(num_frames);
-        return t;
-    }
-
-    // A host position reported in samples as a double; non-finite is missing.
-    static auto samples(double x) -> std::optional<std::int64_t>
-    {
-        if (!std::isfinite(x)) return std::nullopt;
-        return static_cast<std::int64_t>(std::llround(x));
-    }
-
-    // The same buffer's timeline `offset` frames in, for a sub-block. Beats without a tempo can't advance, so they drop.
-    static auto at_offset(Timeline t, std::size_t offset, double sr) -> Timeline
-    {
-        assert(sr > 0 && "Sample rate must be greater than zero.");
-        t.sample_pos += static_cast<std::int64_t>(offset);
-        if (t.beat_pos && t.tempo) *t.beat_pos += static_cast<double>(offset) * *t.tempo / (60 * sr);
-        else if (offset > 0) t.beat_pos.reset();
-        return t;
-    }
-
-    auto clear() -> void { _free_pos = 0; }
-
-private:
-    std::int64_t _free_pos{};
-};
-
-} // namespace detail
-
 // Whether the host is rendering offline (bounce / freeze / export) rather than
 // in real time. Lets a kernel switch to a higher-quality / non-realtime-safe
 // path during a bounce. Best-effort: a host that never signals offline stays
 // realtime.
 enum class Render_mode { Realtime, Offline };
 
-struct Dsp_context {
+struct Context {
     Timeline timeline{};
-    std::span<const float*> ibuffers{};
-    std::span<const float*> sbuffers{};
-    std::span<float*> obuffers{};
-    size_t num_frames{};
+    std::span<const float*> inputs{};
+    std::span<const float*> sidechain{};
+    std::span<float*> outputs{};
+    std::size_t num_frames{};
 #if TINY_HAS_METERS
     std::span<float> meters{};
 #endif
@@ -151,7 +96,7 @@ struct Dsp_context {
 #if TINY_HAS_STATE
     state::Access<models::Resolved::State, state::writers_of<models::Resolved::State>> state{}; // This block only.
 #endif
-    std::optional<uint32_t> propose_latency{}; // samples.
+    std::optional<std::uint32_t> propose_latency{}; // samples.
     Render_mode render_mode{Render_mode::Realtime};
 #if TINY_HAS_NOTES_OUT
     Note_outbox::Writer notes{}; // Frames count from the start of this `process` call.
@@ -225,7 +170,7 @@ concept Interface = requires(T t) {
     // this configuration and the framework reports it to the host directly, so a processor
     // must come up already in whatever `params` implies: no negotiation, no glide up from
     // defaults on block 1, no dip or cross-fade into it. Concretely, leave
-    // `Dsp_context::propose_latency` disengaged on every block until a *live* parameter
+    // `Context::propose_latency` disengaged on every block until a *live* parameter
     // change moves a structural parameter — re-proposing your own configured latency makes
     // the host renegotiate delay compensation at every reset.
     //
@@ -241,10 +186,10 @@ concept Interface = requires(T t) {
     // initializes (validators do) must find a no-op, not undefined behaviour.
     { t.reset(std::declval<const Reset::Any&>(/*reset*/)) } -> std::same_as<void>;
 
-    { t.handle(std::declval<const Event::Any&>(/*event*/)) } -> std::same_as<void>;
-    { t.process(std::declval<Dsp_context&>(/*context*/)) } -> std::same_as<void>;
-    { t.latency_samps() } -> std::same_as<uint32_t>;
-    { t.tail_samps() } -> std::same_as<uint32_t>;
+    { t.handle(std::declval<const Event::Param&>(/*event*/)) } -> std::same_as<void>;
+    { t.process(std::declval<Context&>(/*context*/)) } -> std::same_as<void>;
+    { t.latency_samps() } -> std::same_as<std::uint32_t>;
+    { t.tail_samps() } -> std::same_as<std::uint32_t>;
 }
 #if TINY_HAS_WORK
 // A work model that replies to the processor means handling the replies. Required rather than
@@ -268,25 +213,25 @@ concept Interface = requires(T t) {
 // latency is fixed at what `configure` came up with, and any proposal above it is refused. Must
 // hold from `configure` to the next one, so compute it from the rate, not the live parameters.
 template<typename P>
-auto max_latency_of(const P& processor) -> uint32_t
+auto max_latency_of(const P& processor) -> std::uint32_t
 {
     if constexpr (requires { processor.max_latency_samps(); }) {
-        // Detected by name, so a size_t or int return is used rather than silently ignored.
+        // Detected by name, so a std::size_t or int return is used rather than silently ignored.
         static_assert(std::is_integral_v<decltype(processor.max_latency_samps())>, "max_latency_samps() must return a sample count.");
-        return std::max(static_cast<uint32_t>(processor.max_latency_samps()), processor.latency_samps());
+        return std::max(static_cast<std::uint32_t>(processor.max_latency_samps()), processor.latency_samps());
     }
     else {
         return processor.latency_samps();
     }
 }
 
-// Hand one delivered input to the processor's matching `handle`.
+// Hand one delivered event to the processor's matching `handle`.
 template<typename P>
-auto deliver(P& processor, const Input& input) -> void
+auto deliver(P& processor, const Event::Any& event) -> void
 {
     std::visit([&](const auto& e) {
         if constexpr (requires { processor.handle(e); }) processor.handle(e);
-    }, input);
+    }, event);
 }
 
 // A processor that switches MPE itself (a player-facing toggle, typically backed by a

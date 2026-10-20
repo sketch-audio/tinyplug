@@ -12,28 +12,28 @@ auto Processor::configure(const Config& config) -> void
     }
 }
 
-auto Processor::handle(const Event::Any& event) -> void
+auto Processor::handle(const Event::Param& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Event::Set& e) {
             _values[e.address] = static_cast<float>(e.value);
         },
         [this](const Event::Ramp& e) {
-            _values[e.address] = static_cast<float>(e.target); // You might want to handle this differently.
+            _values[e.address] = static_cast<float>(e.value); // You might want to handle this differently.
         },
         [this](const auto&) { /* Handle other events as needed. */ }
     }, event);
 }
 
-auto Processor::process(Dsp_context& context) -> void
+auto Processor::process(Context& context) -> void
 {
     const auto g = _values[enum_raw(Address::Gain)];
     
-    for (size_t channel = 0; channel < context.ibuffers.size(); ++channel) {
+    for (size_t channel = 0; channel < context.inputs.size(); ++channel) {
         for (size_t frame = 0; frame < context.num_frames; ++frame) {
-            const auto input = context.ibuffers[channel][frame];
+            const auto input = context.inputs[channel][frame];
             const auto output = g * input;
-            context.obuffers[channel][frame] = output;          
+            context.outputs[channel][frame] = output;          
         }
     }
 }

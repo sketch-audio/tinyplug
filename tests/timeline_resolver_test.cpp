@@ -1,14 +1,13 @@
-// process::detail::Timeline_resolver: what a wrapper hands the processor when the host leaves timeline fields out.
+// process::Timeline_resolver: what a wrapper hands the processor when the host leaves timeline fields out.
 #include <cmath>
 #include <cstdio>
 #include <limits>
 
-#include <tinyplug/tiny_processor.hpp>
+#include <tinyplug/timeline_resolver.hpp>
 
 namespace {
 
 using namespace tiny::process;
-using detail::Timeline_resolver;
 
 auto failures = 0;
 

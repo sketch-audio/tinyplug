@@ -184,9 +184,9 @@ private:
 #endif
 
     // Pointers to host io buffers.
-    std::array<const float*, max_ichannels> _ibuffers{};
-    std::array<const float*, max_schannels> _sbuffers{};
-    std::array<float*, max_ochannels> _obuffers{};
+    std::array<const float*, max_ichannels> _inputs{};
+    std::array<const float*, max_schannels> _sidechain{};
+    std::array<float*, max_ochannels> _outputs{};
 #if TINY_HAS_METERS
     meters::Publisher<tiny::models::Resolved::Meters> _meters{}; // Owns the scratch the DSP writes.
 #endif
@@ -249,7 +249,7 @@ private:
     std::atomic<bool> _offline{false};
 
     // Fills what the host's transport leaves out. Render-thread only.
-    process::detail::Timeline_resolver _timeline{};
+    process::Timeline_resolver _timeline{};
 
     // Tail
     std::atomic<uint32_t> _tail{_processor->tail_samps()}; // Written by process, read by tailGet on main.
@@ -352,7 +352,7 @@ private:
     auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
                        std::span<const std::byte> record, bool bypass_changed = false) -> void;
     auto _handle_host_flushed() -> void;
-    auto _input(const process::Input& input, uint32_t time) -> void;
+    auto _input(const process::Event::Any& input, uint32_t time) -> void;
     auto _handle_note_event(const clap_event_header* event) -> void;
     auto _send_notes(const clap_output_events* out) -> void;
     auto _handle_user_actions(const clap_output_events_t* out_events, bool needs_resync) -> void;
@@ -388,11 +388,11 @@ private:
                 const auto plain_value = Value_helper::host_to_plain(value_event->value, param.semantics);
                 if constexpr (on_audio_thread) {
                     // On the audio thread we can handle the event now.
-                    _processor->handle(process::Event::Set{.address = id, .value = plain_value});
+                    _processor->handle(process::Event::Set{.value = plain_value, .address = id});
                 }
                 else {
                     // On flush, keep it for the next process. Coalesces, so it can't overflow.
-                    _from_flush.push(process::Event::Set{.address = id, .value = plain_value});
+                    _from_flush.push(process::Event::Set{.value = plain_value, .address = id});
                 }
 
                 // Maintain host atomics.

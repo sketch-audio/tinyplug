@@ -19,25 +19,25 @@ auto Processor::reset(const Reset::Any&) -> void
 {
 }
 
-auto Processor::handle(const Event::Any& event) -> void
+auto Processor::handle(const Event::Param& event) -> void
 {
     std::visit(Inline_visitor{
         [this](const Event::Set& e) { _values[e.address] = static_cast<float>(e.value); },
-        [this](const Event::Ramp& e) { _values[e.address] = static_cast<float>(e.target); },
+        [this](const Event::Ramp& e) { _values[e.address] = static_cast<float>(e.value); },
         [this](const auto&) {}
     }, event);
 }
 
-auto Processor::process(Dsp_context& context) -> void
+auto Processor::process(Context& context) -> void
 {
     const auto g = _values[enum_raw(Address::Gain)];
 
     auto block_peak = 0.f;
-    for (size_t channel = 0; channel < context.ibuffers.size(); ++channel) {
+    for (size_t channel = 0; channel < context.inputs.size(); ++channel) {
         for (size_t frame = 0; frame < context.num_frames; ++frame) {
-            const auto input = context.ibuffers[channel][frame];
+            const auto input = context.inputs[channel][frame];
             block_peak = std::max(block_peak, std::abs(input));
-            context.obuffers[channel][frame] = g * input;
+            context.outputs[channel][frame] = g * input;
         }
     }
 

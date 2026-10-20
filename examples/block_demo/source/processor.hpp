@@ -15,8 +15,8 @@ public:
 
     auto configure(const Config& config) -> void;
     auto reset(const Reset::Any& reset) -> void;
-    auto handle(const Event::Any& event) -> void;
-    auto process(Dsp_context& context) -> void;
+    auto handle(const Event::Param& event) -> void;
+    auto process(Context& context) -> void;
 
     auto latency_samps() const -> uint32_t { return 0; }
     auto tail_samps() const -> uint32_t { return 0; }
@@ -55,8 +55,8 @@ private:
     bool _triggered{};
 
     auto _clear() -> void;
-    auto _analyze(Dsp_context& context) -> void;
-    auto _scope(Dsp_context& context, float x) -> void;
+    auto _analyze(Context& context) -> void;
+    auto _scope(Context& context, float x) -> void;
 
 };
 static_assert(Interface<Processor>);
