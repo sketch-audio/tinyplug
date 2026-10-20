@@ -89,6 +89,8 @@ if(EMSCRIPTEN)
     if(TINY_BUILD_PLUGINS AND TARGET GainDemo_web_processor)
         add_test(NAME web_smoke_GainDemo COMMAND node ${CMAKE_CURRENT_SOURCE_DIR}/web/smoke.mjs GainDemo --build ${PROJECT_BINARY_DIR})
         set_tests_properties(web_smoke_GainDemo PROPERTIES LABELS browser TIMEOUT 60 RUN_SERIAL TRUE)
+        add_test(NAME web_persist_GainDemo COMMAND node ${CMAKE_CURRENT_SOURCE_DIR}/web/smoke.mjs GainDemo --build ${PROJECT_BINARY_DIR} --page persist.html --result tiny_persist)
+        set_tests_properties(web_persist_GainDemo PROPERTIES LABELS browser TIMEOUT 60 RUN_SERIAL TRUE)
     endif()
 endif()
 

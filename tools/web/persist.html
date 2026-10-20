@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>tinyplug persistence</title>
+<script type="module">
+  // Writes a file where Platform_paths::shared_writable points, flushes, reloads; the reload must still see it.
+  import { load_controller } from "/js/controller.js";
+  const params = new URLSearchParams(location.search);
+  const name = params.get("plugin") ?? "GainDemo";
+  const ctl = await load_controller(new URL(`/plugins/${name}.web/${name}_controller.mjs`, location.href).href);
+  const FS = ctl.module.FS, path = "/tinyplug/user/persist-check.txt";
+  if (!params.has("read")) {
+    FS.writeFile(path, `written ${Date.now()}`);
+    await new Promise((r) => FS.syncfs(false, r));
+    params.set("read", "1");
+    location.search = params.toString();
+  }
+  else {
+    const exists = FS.analyzePath(path).exists;
+    window.tiny_persist = { ok: exists, text: exists ? FS.readFile(path, { encoding: "utf8" }) : null };
+  }
+</script>
