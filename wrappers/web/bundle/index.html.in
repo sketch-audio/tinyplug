@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>@TINY_PLUGIN_NAME@</title>
+<style>
+  body { font: 14px system-ui; margin: 16px; }
+  canvas { display: block; margin-top: 12px; }
+</style>
+<!-- Serve this folder with Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp. -->
+<button id="start">Start @TINY_PLUGIN_NAME@</button>
+<canvas id="editor"></canvas>
+<script type="module">
+  import { load_plugin } from "./js/host.js";
+  const start = document.getElementById("start");
+  start.onclick = async () => {
+    document.getElementById("start").disabled = true;
+    const context = new AudioContext();
+    const host = await load_plugin({ base_url: new URL("./", location.href), name: "@TINY_BASE_FILENAME@", context, canvas: document.getElementById("editor") });
+    host.node.connect(context.destination);
+    window.plugin = host; // The host API, for the page to wire sources, MIDI and state.
+    window.tiny_ready = { ok: true, name: host.manifest.name, size: host.editor?.size };
+  };
+  if (new URLSearchParams(location.search).has("auto")) start.click();
+</script>

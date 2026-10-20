@@ -37,6 +37,18 @@ function(make_web_plugin USER_TARGET)
         SUFFIX ".mjs"
         RUNTIME_OUTPUT_DIRECTORY ${OUT_DIR})
 
+    # A self-contained bundle: the two modules, manifest.json, the JS package and a page, deployable as one folder.
+    read_property(${USER_TARGET} TINY_PLUGIN_NAME)
+    configure_file(${TINY_WEB_DIR}/bundle/index.html.in ${OUT_DIR}/index.html @ONLY)
+    file(GLOB TINY_WEB_JS ${TINY_WEB_DIR}/js/*.js)
+    find_program(TINY_NODE node REQUIRED)
+    add_custom_command(TARGET ${CTL} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${OUT_DIR}/js
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TINY_WEB_JS} ${OUT_DIR}/js
+        COMMAND ${TINY_NODE} ${PROJECT_SOURCE_DIR}/tools/web/manifest.mjs $<TARGET_FILE:${PROC}> ${OUT_DIR}/manifest.json
+        VERBATIM)
+    add_dependencies(${CTL} ${PROC})
+
     if(TINY_BUILD_TESTS)
         add_test(NAME web_host_${TINY_BASE_FILENAME} COMMAND node ${PROJECT_SOURCE_DIR}/tests/hosts/web_host.mjs ${OUT_DIR})
         set_tests_properties(web_host_${TINY_BASE_FILENAME} PROPERTIES LABELS web_host)

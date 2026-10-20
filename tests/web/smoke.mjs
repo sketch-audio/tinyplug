@@ -18,7 +18,8 @@ const chrome = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/M
 const http_port = 8041, cdp_port = 9241;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const server = spawn("node", [join(root, "tools/web/serve.mjs"), "--port", String(http_port), "--build", build], { stdio: "ignore" });
+const serve_root = arg("--root", null);
+const server = spawn("node", [join(root, "tools/web/serve.mjs"), "--port", String(http_port), "--build", build, ...(serve_root ? ["--root", serve_root] : [])], { stdio: "ignore" });
 const profile = await mkdtemp(join(tmpdir(), "tiny-chrome-"));
 const browser = spawn(chrome, ["--headless=new", "--mute-audio", "--autoplay-policy=no-user-gesture-required", "--no-first-run", "--no-default-browser-check",
     `--user-data-dir=${profile}`, `--remote-debugging-port=${cdp_port}`, "about:blank"], { stdio: "ignore" });

@@ -11,6 +11,7 @@ const root = resolve(new URL("../..", import.meta.url).pathname);
 const arg = (name, fallback) => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : fallback; };
 const port = Number(arg("--port", 8040));
 const build = resolve(root, arg("--build", "build-web"));
+const only = arg("--root", null); // Serve just this directory, e.g. one self-contained <Base>.web bundle.
 
 const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm", ".json": "application/json", ".css": "text/css" };
 
@@ -26,6 +27,7 @@ const bundles = async () => {
 
 const locate = async (path) => {
     const parts = normalize(path).split("/").filter(Boolean);
+    if (only) return join(resolve(only), ...(parts.length ? parts : ["index.html"]));
     if (parts[0] === "js") return join(root, "wrappers/web/js", ...parts.slice(1));
     if (parts[0] === "plugins") { const dir = (await bundles()).get(parts[1]); return dir && join(dir, ...parts.slice(2)); }
     return join(root, "tools/web", ...(parts.length ? parts : ["index.html"]));

@@ -619,6 +619,42 @@ the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two
   reads the new value, and we write `_accepted_latency` for the next
   process.
 
+### Web (wrappers/web/) — TWO MODULES, AAX-SHAPED
+
+The browser splits the plug-in across the AudioWorklet and the page's main thread, and the wrapper keeps the split:
+two wasm modules joined by rings in shared memory, like AAX's algorithm and data model. Design, decisions and
+measurements: [plans/web-format.md](plans/web-format.md).
+
+- **Processor module** (`<Base>_processor.wasm`, [module.cpp](wrappers/web/source/processor/module.cpp)): the
+  processor alone, standalone wasm with no Emscripten JS, on an imported, fixed-size shared memory. Our own
+  [worklet.js](wrappers/web/js/worklet.js) instantiates it. No threads, no Skia. It links with `-sSHARED_MEMORY`
+  and no `-pthread` (standalone wasm can't carry pthreads), so libc++abi's mutex is stubbed in module.cpp.
+- **Controller module** (`<Base>_controller.mjs/.wasm`, [controller.cpp](wrappers/web/source/controller/controller.cpp)):
+  everything else, on the main thread. Param authority (the page is the DAW), editor and view, undo, the remote
+  state link, the worker, `Task_manager` on a prewarmed pthread pool. `tick()` stands in for the view loop while
+  no editor is open; once one is, its `run_frame` takes the editor's half.
+- **The wire** is [`<tiny_core/wire.hpp>`](libs/tiny_core/include/tiny_core/wire.hpp) (AAX's `Byte_ring` and
+  `Block_store`, promoted), laid out per channel in [wire_layout.hpp](wrappers/web/source/wire_layout.hpp) and
+  mirrored in [wire.js](wrappers/web/js/wire.js). **One writer per ring.** The
+  [pump](wrappers/web/js/pump.js) is a dedicated worker holding both memories: it moves frames between them,
+  routing processor messages by kind so each controller ring has one reader, and keeps moving in a hidden tab.
+  Worker traffic moves in `Worker_runner`'s post-cycle, on the worker's thread.
+- **A host load is a session load, not an edit**: its own store, pumped before edits, landing in the processor's
+  `on_session_load`, as CLAP's.
+- **Seqlocks need atomic data in wasm.** Binaryen strips `atomic.fence` at -O2, so `Block_store` copies slots
+  as relaxed atomic words; `publish_with`'s in-place fill is native-only. Don't "simplify" the word copies to
+  `memcpy` — the Release wasm build accepts torn frames if you do.
+- **Latency** needs no negotiation: a proposal is accepted at once and lands as `Reset::Latency` next block.
+- **Platform**: [web_view.cpp](libs/tiny_platform/source/web_view.cpp) draws from requestAnimationFrame, input
+  arrives through exports the page's listeners call ([editor.js](wrappers/web/js/editor.js)); CPU raster with
+  `putImageData` ([web_context.cpp](libs/tiny_platform/source/web_context.cpp)); `Platform_paths` under an
+  IndexedDB mount; browser dialogs. Skia for wasm comes from tiny_deps' `build-skia-web.sh` with its pinned emsdk,
+  which the `web` presets also use — one toolchain for every object in a module.
+- **Build and test**: `cmake --preset web && cmake --build --preset web && ctest --preset web`. Labels:
+  `web_host` (processor module under Node), `web_split` (all three threads under Node), `browser` (headless
+  Chrome, muted and offline where it can be). `node tools/web/serve.mjs` serves `tools/web/editor.html?plugin=<Base>`;
+  each `<Base>.web/` is also a self-contained, deployable bundle with its own index.html.
+
 ## State / preset model
 
 - **Persistence surfaces**: per-param scalar (host-managed),
