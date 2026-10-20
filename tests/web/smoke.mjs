@@ -48,7 +48,7 @@ try {
     await send("Runtime.enable");
     await send("Page.enable");
     await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 700, deviceScaleFactor: 2, mobile: false });
-    await send("Page.navigate", { url: `http://localhost:${http_port}/${page}?plugin=${base}&auto` });
+    await send("Page.navigate", { url: `http://localhost:${http_port}/${page}?plugin=${base}&auto${arg("--query", "")}` });
     let result;
     for (let i = 0; i < 100 && !result; ++i) {
         await sleep(100);
@@ -67,6 +67,7 @@ try {
         await mouse("mouseReleased", x1, y1, 0);
         await sleep(500);
     }
+    await sleep(Number(arg("--wait", 0)));
     if (probe && result?.ok) {
         const r = await send("Runtime.evaluate", { expression: `JSON.stringify(${probe})`, returnByValue: true });
         console.log(`eval: ${r.result?.result?.value ?? JSON.stringify(r.result)}`);
@@ -78,9 +79,15 @@ try {
         await writeFile(shot, Buffer.from(data, "base64"));
         console.log(`screenshot: ${shot}`);
     }
+    let expected = true;
+    if (arg("--expect", null) && result?.ok) {
+        const r = await send("Runtime.evaluate", { expression: `Boolean(${arg("--expect", "true")})`, returnByValue: true });
+        expected = r.result?.result?.value === true;
+        console.log(`expect ${arg("--expect", "")}: ${expected}`);
+    }
     ws.close();
     await cleanup();
-    process.exit(result?.ok ? 0 : 1);
+    process.exit(result?.ok && expected ? 0 : 1);
 }
 catch (e) {
     console.log(String(e));

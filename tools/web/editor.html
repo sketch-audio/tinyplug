@@ -35,6 +35,9 @@
     const play = document.getElementById("play");
     let frame0 = 0;
     play.onchange = () => host.transport({ tempo: 120, playing: play.checked, numer: 4, denom: 4, position: 0, anchor: frame0 });
+    window.tiny_midi = 0; // Notes out, as the page receives them.
+    host.onMidi(() => { ++window.tiny_midi; });
+    if (params.has("play")) { play.checked = true; play.onchange(); }
     await context.resume();
     window.tiny_editor = { ok: true, name: host.manifest.name, size: host.editor?.size, isolated: crossOriginIsolated };
     window.tiny_host = host;

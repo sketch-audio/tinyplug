@@ -57,6 +57,15 @@ export const load_controller = async (url) => {
         redo: () => m._tiny_ctl_redo(),
         meters: () => Array.from(new Float32Array(m.HEAPU8.buffer, m._tiny_ctl_meters(), manifest.num_meters)),
         latency: () => m._tiny_ctl_latency(),
+        // MIDI the processor sent since the last take: [{ frame, bytes }], frame within its quantum.
+        take_midi: () => {
+            const max = 256, p = m._malloc(16 * max);
+            const n = m._tiny_ctl_take_midi(p, max);
+            const v = new DataView(m.HEAPU8.buffer, p, 16 * n), out = [];
+            for (let i = 0; i < n; ++i) out.push({ frame: v.getInt32(16 * i, true), bytes: Array.from(new Uint8Array(m.HEAPU8.buffer, p + 16 * i + 8, v.getUint32(16 * i + 4, true))) });
+            m._free(p);
+            return out;
+        },
         open_view: (selector) => with_string(selector, (p) => { const v = m._tiny_ctl_open_view(p) >>> 0; return { w: v >>> 16, h: v & 0xffff }; }),
         close_view: () => m._tiny_ctl_close_view(),
         pointer: (kind, x, y, button, tag, mods) => m._tiny_web_pointer(kind, x, y, button, tag, mods),

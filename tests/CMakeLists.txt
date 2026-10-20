@@ -91,6 +91,13 @@ if(EMSCRIPTEN)
         set_tests_properties(web_smoke_GainDemo PROPERTIES LABELS browser TIMEOUT 60 RUN_SERIAL TRUE)
         add_test(NAME web_persist_GainDemo COMMAND node ${CMAKE_CURRENT_SOURCE_DIR}/web/smoke.mjs GainDemo --build ${PROJECT_BINARY_DIR} --page persist.html --result tiny_persist)
         set_tests_properties(web_persist_GainDemo PROPERTIES LABELS browser TIMEOUT 60 RUN_SERIAL TRUE)
+        add_test(NAME web_multi COMMAND node ${CMAKE_CURRENT_SOURCE_DIR}/web/smoke.mjs GainDemo --build ${PROJECT_BINARY_DIR} --page multi.html --result tiny_multi)
+        set_tests_properties(web_multi PROPERTIES LABELS browser TIMEOUT 60 RUN_SERIAL TRUE)
+    endif()
+    if(TINY_BUILD_PLUGINS AND TARGET StepSequencer_web_processor)
+        add_test(NAME web_midi_out COMMAND node ${CMAKE_CURRENT_SOURCE_DIR}/web/smoke.mjs StepSequencer --build ${PROJECT_BINARY_DIR}
+                 --page editor.html --result tiny_editor --query &play --wait 2000 --expect "tiny_midi > 0")
+        set_tests_properties(web_midi_out PROPERTIES LABELS browser TIMEOUT 60 RUN_SERIAL TRUE)
     endif()
 endif()
 

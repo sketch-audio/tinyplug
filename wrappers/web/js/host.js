@@ -87,6 +87,7 @@ const start_processor = async (context, processor_url, params) => {
 };
 
 // `base_url`: the bundle directory (".../GainDemo.web/"). `name`: its base name. `canvas`: where the editor draws.
+// The node's input 0 is the main input, input 1 the sidechain (when the manifest declares one); output 0 is stereo.
 export const load_plugin = async ({ base_url, name, context = new AudioContext(), canvas = null }) => {
     const ctl = await load_controller(new URL(`${name}_controller.mjs`, base_url).href);
     ctl.start(context.sampleRate);
@@ -101,12 +102,14 @@ export const load_plugin = async ({ base_url, name, context = new AudioContext()
 
     const by_id = new Map(ctl.manifest.params.map((p) => [p.identifier, p]));
     const address = (id) => (typeof id === "number" ? id : by_id.get(id)?.address);
-    const listeners = { meters: [] };
+    const listeners = { meters: [], midi: [] };
     let running = true;
     const frame = () => {
         if (!running) return;
         ctl.tick();
         if (listeners.meters.length) { const m = ctl.meters(); listeners.meters.forEach((f) => f(m)); }
+        const midi = ctl.take_midi(); // Always taken, so the controller's queue never fills.
+        if (midi.length) listeners.midi.forEach((f) => midi.forEach((e) => f(e)));
         requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
@@ -124,6 +127,7 @@ export const load_plugin = async ({ base_url, name, context = new AudioContext()
         getState: () => ctl.save_state(),
         setState: (text) => ctl.load_state(text),
         onMeters: (f) => listeners.meters.push(f),
+        onMidi: (f) => listeners.midi.push(f), // { frame, bytes }: route to Web MIDI, a synth, the page.
         dispose: () => {
             running = false;
             editor?.close();

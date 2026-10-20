@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>tinyplug, several</title>
+<style> body { background: #888; margin: 16px; } canvas { margin: 8px; vertical-align: top; } </style>
+<div id="editors"></div>
+<script type="module">
+  // Several plug-ins on one page and one AudioContext: two of the same and one other, each with its editor.
+  import { load_plugin } from "/js/host.js";
+  const context = new AudioContext();
+  const source = new OscillatorNode(context, { frequency: 220 });
+  const level = new GainNode(context, { gain: 0.2 });
+  source.connect(level);
+  source.start();
+  const silent = new GainNode(context, { gain: 0 });
+  silent.connect(context.destination);
+  const load = async (name) => {
+    const canvas = document.getElementById("editors").appendChild(document.createElement("canvas"));
+    const host = await load_plugin({ base_url: new URL(`/plugins/${name}.web/`, location.href), name, context, canvas });
+    level.connect(host.node, 0, 0);
+    host.node.connect(silent);
+    return host;
+  };
+  try {
+    const [a, b, c] = [await load("GainDemo"), await load("GainDemo"), await load("MeterDemo")];
+    await context.resume();
+    a.setParam("gain", 2);
+    b.setParam("gain", 0.25);
+    await new Promise((r) => setTimeout(r, 1500));
+    window.tiny_multi = {
+      ok: true,
+      gains: [a.paramKnob("gain"), b.paramKnob("gain")],
+      out: [a.controller.meters()[2], b.controller.meters()[2], c.controller.meters()[0]],
+    };
+  }
+  catch (e) { window.tiny_multi = { ok: false, error: String(e?.stack ?? e) }; }
+</script>
