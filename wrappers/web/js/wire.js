@@ -80,28 +80,35 @@ export const pump_ring = (from, to) => {
 };
 
 // Block_store<Frame>: [seq u64][two frame slots, each frame_bytes, from slot_offset]. seq 0 means never published.
+// The slot copy is per-word Atomics, as the C++'s: a plain copy is unordered against seq, so a torn frame could pass.
 export class Store {
     constructor(buffer, offset, frame_bytes, slot_offset = 8) {
         if (offset % 8 !== 0) throw new Error("Store offset must be 8-aligned.");
         this.frame_bytes = frame_bytes;
         this.seq = new BigUint64Array(buffer, offset, 1);
-        this.slots = new Uint8Array(buffer, offset + slot_offset, 2 * frame_bytes);
+        const W = frame_bytes % 4 === 0 ? Uint32Array : Uint8Array; // As Block_store::Word.
+        this.words = new W(buffer, offset + slot_offset, (2 * frame_bytes) / W.BYTES_PER_ELEMENT);
+        this.per_slot = frame_bytes / W.BYTES_PER_ELEMENT;
+        this.scratch = new W(this.per_slot);
     }
 
-    // Reader: the latest frame into `into`, and its seq; 0 when nothing was published or the copy tore (retry later).
+    // Reader: the latest frame into `into` (bytes), and its seq; 0 when nothing was published or the copy tore.
     read(into) {
         const s = Atomics.load(this.seq, 0);
         if (s === 0n) return 0n;
-        const at = Number((s - 1n) & 1n) * this.frame_bytes;
-        into.set(this.slots.subarray(at, at + this.frame_bytes));
-        return Atomics.load(this.seq, 0) === s ? s : 0n;
+        const at = Number((s - 1n) & 1n) * this.per_slot;
+        for (let i = 0; i < this.per_slot; ++i) this.scratch[i] = Atomics.load(this.words, at + i);
+        if (Atomics.load(this.seq, 0) !== s) return 0n;
+        into.set(new Uint8Array(this.scratch.buffer, 0, this.frame_bytes));
+        return s;
     }
 
     // Producer: fill the back slot, then bump seq.
     publish(frame) {
         const s = Atomics.load(this.seq, 0);
-        const at = Number(s & 1n) * this.frame_bytes;
-        this.slots.set(frame.subarray(0, this.frame_bytes), at);
+        const at = Number(s & 1n) * this.per_slot;
+        new Uint8Array(this.scratch.buffer, 0, this.frame_bytes).set(frame.subarray(0, this.frame_bytes));
+        for (let i = 0; i < this.per_slot; ++i) Atomics.store(this.words, at + i, this.scratch[i]);
         Atomics.store(this.seq, 0, s + 1n);
     }
 }

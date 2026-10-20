@@ -338,6 +338,13 @@ Every layer has a cheap automated check before a browser is involved.
 
 ## Risks and open questions
 
+- **Seqlocks need atomic data in wasm (found in phase 2).** Binaryen strips `atomic.fence` at -O2 and above, since
+  the wasm memory model gives fences no meaning for plain accesses, and V8 compiles atomics on ARM as `ldar` /
+  `stlr`, which let a plain copy drift past them. `wire::Block_store` therefore copies its slots as relaxed atomic
+  words (plain moves natively) and `wire.js` as per-word `Atomics`; before that, the Release wasm build accepted
+  torn frames under a fast publisher. Rings are unaffected: message passing over SC atomics is data-race-free.
+  `Block_store::publish_with`'s in-place fill stays plain, so it is for native readers only.
+
 - **Safari.** `SharedArrayBuffer` needs isolation everywhere, and the controller needs wasm threads on the main
   thread; check current Safari (macOS and iOS) in phase 2 with the processor module alone, before the
   controller depends on it. The two-module shape keeps threads out of the worklet, which was the original risk.

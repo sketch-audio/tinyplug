@@ -215,18 +215,64 @@ struct Block_store {
         return offset_slots + static_cast<std::uint32_t>((s - 1) & 1) * frame_bytes;
     }
 
+    // The copy into the slot is relaxed atomic words: it races with the reader by design, and in wasm only atomic
+    // accesses are ordered at all (Binaryen strips fences at -O2). Natively these are plain moves.
     auto publish(const Frame& frame) -> void
     {
-        publish_with([&frame](unsigned char* slot) { std::memcpy(slot, &frame, sizeof(Frame)); });
+        const auto s = seq.load(std::memory_order_relaxed);
+        // The last publish's seq store must land before this copy: the slot is the one a slow reader may still be
+        // copying, and it only rejects that copy if it sees seq move.
+        std::atomic_thread_fence(std::memory_order_seq_cst);
+        copy_words(slot(s & 1), reinterpret_cast<const unsigned char*>(&frame), Store_words{});
+        seq.store(s + 1, std::memory_order_release);
     }
 
-    // Fill the back slot in place, for a frame too large to stage on the audio thread's stack.
+    // Fill the back slot in place, for a frame too large to stage on the audio thread's stack. The fill is plain
+    // writes, so this is for native readers only (AAX); a wasm reader needs `publish`.
     template<typename Fill>
     auto publish_with(Fill&& fill) -> void
     {
         const auto s = seq.load(std::memory_order_relaxed);
+        std::atomic_thread_fence(std::memory_order_seq_cst);
         fill(slots + (s & 1) * sizeof(Frame));
         seq.store(s + 1, std::memory_order_release);
+    }
+
+    // A local reader: the latest frame and its seq, or 0 when nothing is published or a publish overlapped the copy.
+    auto read(Frame& out) const -> std::uint64_t
+    {
+        const auto s = seq.load(std::memory_order_acquire);
+        if (s == 0) return 0;
+        copy_words(reinterpret_cast<unsigned char*>(&out), slot((s - 1) & 1), Load_words{});
+        std::atomic_thread_fence(std::memory_order_seq_cst); // The copy can't sink past the second load.
+        return seq.load(std::memory_order_relaxed) == s ? s : 0;
+    }
+
+private:
+
+    // Words of 4 bytes where the slot stride allows it, else bytes: atomic_ref needs its type's alignment.
+    using Word = std::conditional_t<sizeof(Frame) % 4 == 0, std::uint32_t, std::uint8_t>;
+    static constexpr auto num_words = sizeof(Frame) / sizeof(Word);
+    struct Store_words {};
+    struct Load_words {};
+
+    auto slot(std::uint64_t i) const -> unsigned char* { return const_cast<unsigned char*>(slots) + i * sizeof(Frame); }
+
+    static auto copy_words(unsigned char* slot, const unsigned char* src, Store_words) -> void
+    {
+        for (auto i = std::size_t{}; i < num_words; ++i) {
+            auto w = Word{};
+            std::memcpy(&w, src + i * sizeof(Word), sizeof(Word));
+            std::atomic_ref<Word>{*reinterpret_cast<Word*>(slot + i * sizeof(Word))}.store(w, std::memory_order_relaxed);
+        }
+    }
+
+    static auto copy_words(unsigned char* dst, unsigned char* slot, Load_words) -> void
+    {
+        for (auto i = std::size_t{}; i < num_words; ++i) {
+            const auto w = std::atomic_ref<Word>{*reinterpret_cast<Word*>(slot + i * sizeof(Word))}.load(std::memory_order_relaxed);
+            std::memcpy(dst + i * sizeof(Word), &w, sizeof(Word));
+        }
     }
 };
 

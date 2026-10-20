@@ -43,6 +43,20 @@ const peak = (channel, frames = quantum) => Math.max(...channel.subarray(0, fram
 const rendered = (channel) => channel.subarray(0, quantum); // Buffers hold max_frames; only a quantum is rendered.
 const passes_through = (p) => p.outputs.every((ch, i) => rendered(ch).every((x, f) => near(x, p.inputs[i][f])));
 
+const noise = (() => { let x = 1; return () => ((x = (Math.imul(x, 1103515245) + 12345) >>> 0) / 2 ** 32 - 0.5) * 0.5; })();
+const finite = (p) => p.outputs.every((ch) => rendered(ch).every(Number.isFinite));
+const published = (store) => store.read(new Uint8Array(store.frame_bytes)) > 0n;
+const param = (p, id) => p.manifest_cache.params.find((x) => x.identifier === id);
+
+// What every demo owes: it configures, renders, and stays finite.
+const basics = (p) => {
+    p.manifest_cache = p.manifest();
+    p.configure(sr);
+    render(p, 50, noise);
+    expect(finite(p), "renders finite audio");
+    return drain(p);
+};
+
 const scenarios = {
     GainDemo: () => {
         const p = load();
@@ -77,6 +91,62 @@ const scenarios = {
         q.configure(sr);
         render(q, 1, () => 0.8);
         expect(rendered(q.outputs[0]).every((x) => near(x, 0.2)), "configure with a param value lands it on the first sample");
+    },
+    MeterDemo: () => {
+        const p = load();
+        const out = basics(p);
+        expect(out.some((m) => m.kind === "meter"), "meters arrive");
+    },
+    PlatformDemo: () => { basics(load()); },
+    StateDemo: () => {
+        const p = load();
+        basics(p);
+        render(p, 50, noise, [encode.set(param(p, "depth").address, 1)]);
+        expect(finite(p), "a depth change renders through the default pattern");
+    },
+    BlockDemo: () => {
+        const p = load();
+        basics(p);
+        expect(p.blocks.length > 0 && p.blocks.every(published), `every block address publishes (${p.blocks.length})`);
+    },
+    AutomationDemo: () => {
+        const p = load();
+        basics(p);
+        const value = param(p, "value");
+        render(p, 20, noise, [encode.ramp(value.address, value.max, 256, 32)]);
+        expect(finite(p) && p.blocks.every(published), "a ramp at an offset renders, and the log publishes");
+    },
+    LatencyDemo: () => {
+        const p = load();
+        const configured = basics(p).findLast((m) => m.kind === "latency")?.samples;
+        const mode = param(p, "mode");
+        render(p, 4, noise, [encode.set(mode.address, mode.max)]);
+        const accepted = drain(p).findLast((m) => m.kind === "latency")?.samples;
+        expect(configured !== undefined && accepted !== undefined && accepted !== configured,
+            `a proposal is accepted at the next block (${configured} -> ${accepted})`);
+        expect(p.blocks.every(published), "the handshake block publishes");
+    },
+    SineSynth: () => {
+        const p = load();
+        basics(p);
+        render(p, 20, () => 0, [encode.midi(0x90, 60, 100)]);
+        expect(peak(p.outputs[0]) > 0.01, "a MIDI note on sounds");
+        render(p, 400, () => 0, [encode.midi(0x80, 60, 0)]);
+        expect(peak(p.outputs[0]) < 1e-3, "and its note off releases it");
+    },
+    StepSequencer: () => {
+        const p = load();
+        basics(p);
+        expect(!drain(p).some((m) => m.kind === "midi"), "stopped: no notes");
+        render(p, 400, () => 0, [encode.transport({ tempo: 120, playing: true, numer: 4, denom: 4 })]);
+        const notes = drain(p).filter((m) => m.kind === "midi" && (m.bytes[0] & 0xf0) === 0x90 && m.bytes[2] > 0);
+        expect(notes.length > 0, `playing at 120 bpm sends notes out (${notes.length} note ons in ~1 s)`);
+    },
+    WorkerDemo: () => {
+        const p = load();
+        basics(p);
+        render(p, 4, noise, [encode.set(param(p, "drive").address, 0.9)]);
+        expect(drain(p).some((m) => m.kind === "worker"), "a drive change asks the worker for a design");
     },
 };
 

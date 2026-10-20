@@ -158,12 +158,15 @@ add_subdirectory(libs/tiny_platform)
 add_subdirectory(libs/tiny_ui)
 
 # Build the plug-ins.
+if(TINY_BUILD_TESTS)
+    enable_testing() # Before the examples: make_web_plugin registers a test per plug-in.
+endif()
+
 if(TINY_BUILD_PLUGINS)
     add_subdirectory(examples)
 endif()
 
 if(TINY_BUILD_TESTS)
-    enable_testing()
     add_subdirectory(tests)
 endif()
 

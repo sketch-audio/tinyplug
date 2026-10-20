@@ -21,4 +21,9 @@ function(make_web_plugin USER_TARGET)
         OUTPUT_NAME ${TINY_BASE_FILENAME}_processor
         SUFFIX ".wasm"
         RUNTIME_OUTPUT_DIRECTORY ${OUT_DIR})
+
+    if(TINY_BUILD_TESTS)
+        add_test(NAME web_host_${TINY_BASE_FILENAME} COMMAND node ${PROJECT_SOURCE_DIR}/tests/hosts/web_host.mjs ${OUT_DIR})
+        set_tests_properties(web_host_${TINY_BASE_FILENAME} PROPERTIES LABELS web_host)
+    endif()
 endfunction()

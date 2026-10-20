@@ -85,4 +85,5 @@ make_auv2_plugin(${PLUGIN_TARGET}) # `aumu`: Logic ignores its MIDI output; the 
 make_auv3_plugin(${PLUGIN_TARGET})
 make_clap_plugin(${PLUGIN_TARGET})
 make_vst3_plugin(${PLUGIN_TARGET})
+make_web_plugin(${PLUGIN_TARGET})
 # ---

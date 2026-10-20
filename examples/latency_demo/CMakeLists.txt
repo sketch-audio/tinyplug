@@ -81,4 +81,5 @@ make_auv2_plugin(${PLUGIN_TARGET}) # Skips build if not Apple.
 make_auv3_plugin(${PLUGIN_TARGET})
 make_clap_plugin(${PLUGIN_TARGET})
 make_vst3_plugin(${PLUGIN_TARGET})
+make_web_plugin(${PLUGIN_TARGET})
 # ---

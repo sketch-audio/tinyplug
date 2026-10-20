@@ -86,6 +86,10 @@ if(EMSCRIPTEN)
     set_target_properties(wire_harness PROPERTIES SUFFIX ".mjs")
     add_test(NAME wire_js_test COMMAND node ${CMAKE_CURRENT_SOURCE_DIR}/web/wire_test.mjs $<TARGET_FILE:wire_harness>)
     add_dependencies(tiny_tests wire_harness)
+    if(TINY_BUILD_PLUGINS AND TARGET GainDemo_web_processor)
+        add_test(NAME web_smoke_GainDemo COMMAND node ${CMAKE_CURRENT_SOURCE_DIR}/web/smoke.mjs GainDemo --build ${PROJECT_BINARY_DIR})
+        set_tests_properties(web_smoke_GainDemo PROPERTIES LABELS browser TIMEOUT 60)
+    endif()
 endif()
 
 # ============================================================================
@@ -93,7 +97,7 @@ endif()
 # Only when the plug-ins are built (the `tsan-hosts` / `asan-hosts` presets).
 # ============================================================================
 
-if(TINY_BUILD_PLUGINS)
+if(TINY_BUILD_PLUGINS AND NOT EMSCRIPTEN)
     add_custom_target(tiny_host_tests)
     set(_demos AutomationDemo BlockDemo GainDemo LatencyDemo MeterDemo PlatformDemo SineSynth StateDemo StepSequencer WorkerDemo)
 

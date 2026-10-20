@@ -171,8 +171,14 @@ auto remote_read(const Store& store, typename Store::Frame_type& out, uint64_t& 
     const auto* base = reinterpret_cast<const unsigned char*>(&store);
     const auto before = store.seq.load(std::memory_order_acquire);
     if (before == 0) return false;
-    std::memcpy(&out, base + Store::offset_front(before), Store::frame_bytes);
-    std::atomic_thread_fence(std::memory_order_acquire);
+    // Word-wise relaxed atomics, as Block_store::read: a plain memcpy isn't ordered by fences in wasm. (The real
+    // remote reader is the host's own byte copy, outside this program.)
+    for (auto i = uint32_t{}; i < Store::frame_bytes / 4; ++i) {
+        auto* word = const_cast<uint32_t*>(reinterpret_cast<const uint32_t*>(base + Store::offset_front(before)) + i);
+        const auto w = std::atomic_ref<uint32_t>{*word}.load(std::memory_order_relaxed);
+        std::memcpy(reinterpret_cast<unsigned char*>(&out) + 4 * i, &w, 4);
+    }
+    std::atomic_thread_fence(std::memory_order_seq_cst); // As wire::Block_store::read: weaker is nothing in wasm.
     const auto after = store.seq.load(std::memory_order_relaxed);
     seq = before;
     return before == after;

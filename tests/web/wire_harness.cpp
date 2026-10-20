@@ -77,11 +77,9 @@ EMSCRIPTEN_KEEPALIVE auto wire_publish(std::uint32_t value) -> void
 // (retry: the protocol working), -2 if a copy that passed the seq check is inconsistent (the protocol failing).
 EMSCRIPTEN_KEEPALIVE auto wire_store_value() -> std::int64_t
 {
-    const auto s = store.seq.load(std::memory_order_acquire);
-    if (s == 0) return 0;
+    if (store.seq.load(std::memory_order_acquire) == 0) return 0;
     auto frame = Frame{};
-    std::memcpy(&frame, store.slots + (s - 1 & 1) * sizeof(Frame), sizeof(Frame));
-    if (store.seq.load(std::memory_order_acquire) != s) return -1;
+    if (store.read(frame) == 0) return -1;
     for (const auto w : frame.words) if (w != frame.words[0]) return -2;
     return frame.words[0];
 }

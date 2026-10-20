@@ -1,6 +1,6 @@
 // The processor module's JS end, shared by the AudioWorklet and the Node host: instantiation with our own imports
 // (no Emscripten JS), the module's buffers and rings, and the channel encodings of source/wire_layout.hpp.
-import { Ring } from "./wire.js";
+import { Ring, Store } from "./wire.js";
 
 export const memory_pages = 512; // -sINITIAL_MEMORY=32MB = -sMAXIMUM_MEMORY in make_web_plugin.cmake.
 
@@ -8,8 +8,8 @@ export const memory_pages = 512; // -sINITIAL_MEMORY=32MB = -sMAXIMUM_MEMORY in 
 export const create_memory = () => new WebAssembly.Memory({ initial: memory_pages, maximum: memory_pages, shared: true });
 
 export const Kind = Object.freeze({
-    Param_set: 0, Param_ramp: 1, Bypass: 2, Reset_hard: 3, Transport: 4,
-    Meter: 64, Latency: 65,
+    Param_set: 0, Param_ramp: 1, Bypass: 2, Reset_hard: 3, Transport: 4, Midi: 5, Editor_note: 6, Worker_reply: 7,
+    Meter: 64, Latency: 65, Midi_out: 66, Worker_message: 67,
 });
 
 // AudioWorkletGlobalScope has no TextDecoder (Chrome) and may have no `performance`.
@@ -56,11 +56,13 @@ export const create_processor = (module, memory, { log = console.log } = {}) => 
     exports._initialize();
 
     const table_at = exports.tiny_web_create();
-    const t = new Uint32Array(memory.buffer, table_at, 12);
+    const t = new Uint32Array(memory.buffer, table_at, 14);
     const table = {
         version: t[0], inbound: t[1], inbound_capacity: t[2], outbound: t[3], outbound_capacity: t[4],
         inputs: t[5], sidechain: t[6], outputs: t[7], max_channels: t[8], max_frames: t[9], params: t[10], num_params: t[11],
+        blocks: t[12], num_blocks: t[13],
     };
+    const entries = new Uint32Array(memory.buffer, table.blocks, 3 * table.num_blocks);
     const channels = (at) => Array.from({ length: table.max_channels },
         (_, ch) => new Float32Array(memory.buffer, at + ch * table.max_frames * 4, table.max_frames));
 
@@ -72,6 +74,7 @@ export const create_processor = (module, memory, { log = console.log } = {}) => 
         params: new Float64Array(memory.buffer, table.params, table.num_params), // Plain: what `configure` comes up holding.
         inbound: new Ring(memory.buffer, table.inbound, table.inbound_capacity),
         outbound: new Ring(memory.buffer, table.outbound, table.outbound_capacity),
+        blocks: Array.from({ length: table.num_blocks }, (_, i) => new Store(memory.buffer, entries[3 * i], entries[3 * i + 1], entries[3 * i + 2])),
         configure: (sample_rate) => exports.tiny_web_configure(sample_rate),
         process: (frames) => exports.tiny_web_process(frames),
         manifest: () => {
@@ -99,6 +102,10 @@ export const encode = {
     })],
     bypass: (on) => [Kind.Bypass, payload(8, (v) => v.setUint32(0, on ? 1 : 0, true))],
     reset_hard: () => [Kind.Reset_hard, new Uint8Array(0)],
+    midi: (status, data1 = 0, data2 = 0, offset = 0) => [Kind.Midi, payload(8, (v) => {
+        v.setUint8(0, status); v.setUint8(1, data1); v.setUint8(2, data2); v.setInt32(4, offset, true);
+    })],
+    worker_reply: (bytes) => [Kind.Worker_reply, bytes], // User_work::To_processor, laid out by the controller.
     transport: ({ tempo = 0, position = 0, anchor = 0, numer = 0, denom = 0, playing = false }) => [Kind.Transport, payload(40, (v) => {
         v.setFloat64(0, tempo, true); v.setBigInt64(8, BigInt(position), true); v.setBigInt64(16, BigInt(anchor), true);
         v.setInt32(24, numer, true); v.setInt32(28, denom, true); v.setUint32(32, playing ? 1 : 0, true);
@@ -110,6 +117,8 @@ export const decode = (kind, bytes) => {
     switch (kind) {
         case Kind.Meter: return { kind: "meter", address: v.getUint32(0, true), value: v.getFloat32(4, true) };
         case Kind.Latency: return { kind: "latency", samples: v.getUint32(0, true) };
+        case Kind.Midi_out: return { kind: "midi", frame: v.getInt32(0, true), bytes: Array.from(bytes.subarray(8, 8 + v.getUint32(4, true))) };
+        case Kind.Worker_message: return { kind: "worker", bytes: bytes.slice() }; // User_work::From_processor.
         default: return { kind: "unknown", id: kind };
     }
 };

@@ -16,10 +16,15 @@ enum class Kind : std::uint32_t {
     Bypass,         // Flag
     Reset_hard,     // (none)
     Transport,      // Transport
+    Midi,           // Midi: from the page or Web MIDI, at an offset.
+    Editor_note,    // midi::Performance, from the editor.
+    Worker_reply,   // User_work::To_processor, as bytes.
 
     // Processor -> controller.
     Meter = 64,     // Meter
     Latency,        // Samples: the latency the processor now has, applied.
+    Midi_out,       // Midi_out
+    Worker_message, // User_work::From_processor, as bytes.
 };
 
 struct Param_set {
@@ -56,6 +61,22 @@ struct Transport {
 };
 static_assert(sizeof(Transport) == 40);
 
+struct Midi {
+    std::uint8_t status{};
+    std::uint8_t data1{};
+    std::uint8_t data2{};
+    std::uint8_t pad{};
+    std::int32_t offset{};
+};
+static_assert(sizeof(Midi) == 8);
+
+struct Midi_out {
+    std::int32_t frame{}; // Within the quantum it was sent in.
+    std::uint32_t size{};
+    std::uint8_t bytes[8]{};
+};
+static_assert(sizeof(Midi_out) == 16);
+
 struct Meter {
     std::uint32_t address{};
     float value{};
@@ -74,6 +95,13 @@ inline constexpr auto outbound_bytes = std::size_t{16 * 1024};
 using Inbound_ring = wire::Byte_ring<inbound_bytes, Kind>;
 using Outbound_ring = wire::Byte_ring<outbound_bytes, Kind>;
 
+// One block address's store, for the JS side: wire::Block_store at `offset`.
+struct Block_entry {
+    std::uint32_t offset{};
+    std::uint32_t frame_bytes{};
+    std::uint32_t slot_offset{};
+};
+
 // What the processor module publishes about its memory, read once by the JS side. Byte offsets into the
 // module's memory; capacities in bytes.
 struct Wire_table {
@@ -89,6 +117,8 @@ struct Wire_table {
     std::uint32_t max_frames{};
     std::uint32_t params{};     // num_params doubles, plain: the values `configure` comes up holding.
     std::uint32_t num_params{};
+    std::uint32_t blocks{};     // num_blocks Block_entry.
+    std::uint32_t num_blocks{};
 };
 
 } // namespace tiny::web
