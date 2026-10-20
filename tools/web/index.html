@@ -7,7 +7,8 @@
   meter { width: 200px; }
 </style>
 <h1 id="name">tinyplug</h1>
-<p>Plug-in: <code id="which"></code>. Audio starts on <button id="start">Start</button>.</p>
+<p>Plug-in: <code id="which"></code>. <button id="start">Start</button>
+  <label style="display:inline"><input type="checkbox" id="listen"> Listen (off: renders silently, meters still move)</label></p>
 <div id="params"></div>
 <div id="meters"></div>
 <script type="module">
@@ -31,7 +32,13 @@
     const osc = new OscillatorNode(context, { frequency: 220 });
     const level = new GainNode(context, { gain: 0.2 });
     osc.connect(level).connect(host.node, 0, 0);
-    host.node.connect(context.destination);
+    // Still connected, so the graph pulls the node, but silent until Listen is ticked.
+    const out = new GainNode(context, { gain: 0 });
+    const listen = document.getElementById("listen");
+    const apply = () => out.gain.setTargetAtTime(listen.checked ? 1 : 0, context.currentTime, 0.01);
+    listen.onchange = apply;
+    apply();
+    host.node.connect(out).connect(context.destination);
     osc.start();
   };
 </script>
