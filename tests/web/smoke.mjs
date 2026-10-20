@@ -68,6 +68,16 @@ try {
         await sleep(500);
     }
     await sleep(Number(arg("--wait", 0)));
+    if (arg("--perf", null) && result?.ok) { // Main-thread busy time over a window, from Chrome's own task metrics.
+        await send("Performance.enable");
+        const metric = async () => Object.fromEntries((await send("Performance.getMetrics")).result.metrics.map((x) => [x.name, x.value]));
+        const ms = Number(arg("--perf", 3000));
+        const a = await metric();
+        await sleep(ms);
+        const b = await metric();
+        const busy = (k) => (((b[k] - a[k]) * 1000) / ms * 100).toFixed(1);
+        console.log(`perf: task ${busy("TaskDuration")}%  script ${busy("ScriptDuration")}%  over ${ms} ms`);
+    }
     if (probe && result?.ok) {
         const r = await send("Runtime.evaluate", { expression: `JSON.stringify(${probe})`, returnByValue: true });
         console.log(`eval: ${r.result?.result?.value ?? JSON.stringify(r.result)}`);

@@ -18,9 +18,10 @@ EM_JS(void, web_put_frame, (const char* selector, const void* pixels, int w, int
     const canvas = document.querySelector(UTF8ToString(selector));
     if (!canvas) return;
     const ctx = canvas._tiny_ctx ?? (canvas._tiny_ctx = canvas.getContext("2d"));
-    const bytes = new Uint8ClampedArray(w * h * 4);
-    bytes.set(HEAPU8.subarray(pixels, pixels + w * h * 4));
-    ctx.putImageData(new ImageData(bytes, w, h), 0, 0);
+    let image = canvas._tiny_image; // Reused while the size holds: no multi-MB garbage per frame.
+    if (!image || image.width !== w || image.height !== h) image = canvas._tiny_image = new ImageData(w, h);
+    image.data.set(HEAPU8.subarray(pixels, pixels + w * h * 4));
+    ctx.putImageData(image, 0, 0);
 });
 
 EM_JS(double, web_device_pixel_ratio, (), { return globalThis.devicePixelRatio || 1; });

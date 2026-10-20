@@ -337,6 +337,18 @@ Every layer has a cheap automated check before a browser is involved.
 6. **Later.** Graphite on WebGPU; size work; the non-isolated fallback; the `web` preset in the release CI
    (`all_plugins/plans/ci-build-system.md`), versioned artifacts per tag, the product site consuming them.
 
+## Measured (phase 5, 2026-10-20, Apple Silicon, Chrome headless, 2x pixel density)
+
+| | Raw | Brotli |
+|---|---|---|
+| processor module | 115-147 KB | 39-49 KB |
+| controller module (editor + Skia CPU raster) | 2.78-2.86 MB | 739-755 KB |
+
+`-Oz` at link saves 1 %; names are already stripped. Skia is most of the controller; a product that decodes no
+images could build Skia without its codecs. Main thread with an editor open at 60 fps: 8 % (Gain) to 11 % (Block,
+Worker), most of it Skia rasterising the whole editor each frame, the cost Graphite on WebGPU removes. Reusing
+one ImageData per size (no per-frame allocation) took Block from 15 % to 10 %.
+
 ## Risks and open questions
 
 - **Seqlocks need atomic data in wasm (found in phase 2).** Binaryen strips `atomic.fence` at -O2 and above, since
