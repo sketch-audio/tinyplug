@@ -39,8 +39,9 @@ if (APPLE)
     set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "") # You will need to set your team ID.
 elseif(EMSCRIPTEN)
     # One compile flavor: atomics everywhere, so any object links into a shared-memory module (plans/web-format.md).
+    # Linking -pthread is per target: only modules that start threads may (the processor module is standalone).
     add_compile_options(-pthread -msimd128 -fwasm-exceptions)
-    add_link_options(-pthread -fwasm-exceptions)
+    add_link_options(-fwasm-exceptions)
 elseif(WIN32)
     # Use the static CRT. (This is how we built skia.)
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")

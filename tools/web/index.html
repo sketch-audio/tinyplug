@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>tinyplug web host</title>
+<style>
+  body { font: 14px system-ui; margin: 16px; }
+  label { display: block; margin: 8px 0; }
+  meter { width: 200px; }
+</style>
+<h1 id="name">tinyplug</h1>
+<p>Plug-in: <code id="which"></code>. Audio starts on <button id="start">Start</button>.</p>
+<div id="params"></div>
+<div id="meters"></div>
+<script type="module">
+  import { load } from "/js/host.js";
+  const base = new URLSearchParams(location.search).get("plugin") ?? "GainDemo";
+  document.getElementById("which").textContent = base;
+  document.getElementById("start").onclick = async () => {
+    const context = new AudioContext();
+    const host = await load({ processor_url: `/plugins/${base}.web/${base}_processor.wasm`, context });
+    document.getElementById("name").textContent = host.manifest.name;
+    for (const p of host.manifest.params) {
+      const label = document.createElement("label");
+      label.textContent = `${p.name} `;
+      const input = Object.assign(document.createElement("input"), { type: "range", min: p.min, max: p.max, step: p.kind === "real" ? "any" : 1, value: p.default });
+      input.oninput = () => host.setParam(p.address, Number(input.value));
+      label.append(input);
+      document.getElementById("params").append(label);
+    }
+    const bars = Array.from({ length: host.manifest.num_meters }, () => document.getElementById("meters").appendChild(Object.assign(document.createElement("meter"), { max: 1 })));
+    host.onMeters((m) => m.forEach((v, i) => { bars[i].value = v; }));
+    const osc = new OscillatorNode(context, { frequency: 220 });
+    const level = new GainNode(context, { gain: 0.2 });
+    osc.connect(level).connect(host.node, 0, 0);
+    host.node.connect(context.destination);
+    osc.start();
+  };
+</script>

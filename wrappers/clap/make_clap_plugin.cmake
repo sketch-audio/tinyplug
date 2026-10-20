@@ -1,6 +1,6 @@
 # Make a CLAP plug-in from a user target.
 function(make_clap_plugin USER_TARGET)
-    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR EMSCRIPTEN)
         return()
     endif()
 

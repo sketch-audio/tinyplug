@@ -55,6 +55,16 @@
       "cacheVariables": { "TINY_BUILD_PLUGINS": "ON" }
     },
     {
+      "name": "web",
+      "displayName": "Web — wasm32 plug-ins (processor and controller modules)",
+      "description": "The web format only, with tiny_deps' pinned emsdk (build-skia-web.sh installs it).",
+      "inherits": "base",
+      "generator": "Unix Makefiles",
+      "toolchainFile": "${sourceDir}/../tiny_deps/build/tmp/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" },
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
       "name": "web-tests",
       "displayName": "Tests for wasm32, run under Node",
       "description": "tests/ built with tiny_deps' pinned emsdk (build-skia-web.sh installs it).",
@@ -115,6 +125,7 @@
     { "name": "asan",   "configurePreset": "asan",  "jobs": 8, "targets": ["tiny_tests"] },
     { "name": "tsan-hosts", "configurePreset": "tsan-hosts", "jobs": 8, "targets": ["tiny_tests", "tiny_host_tests"] },
     { "name": "asan-hosts", "configurePreset": "asan-hosts", "jobs": 8, "targets": ["tiny_tests", "tiny_host_tests"] },
+    { "name": "web", "configurePreset": "web", "jobs": 8 },
     { "name": "web-tests", "configurePreset": "web-tests", "jobs": 8, "targets": ["tiny_tests"] },
     { "name": "macos",  "configurePreset": "macos", "configuration": "Debug" },
     { "name": "ios",    "configurePreset": "ios",   "configuration": "Debug" },

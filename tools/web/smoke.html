@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>tinyplug smoke</title>
+<script type="module">
+  // Offline: no audio device is opened, so nothing can reach the speakers. Results land on window.tiny_smoke.
+  import { load } from "/js/host.js";
+  const base = new URLSearchParams(location.search).get("plugin") ?? "GainDemo";
+  const run = async () => {
+    const sr = 48000;
+    const context = new OfflineAudioContext(2, sr / 2, sr);
+    const host = await load({ processor_url: `/plugins/${base}.web/${base}_processor.wasm`, context });
+    const source = new ConstantSourceNode(context, { offset: 0.5 });
+    source.connect(host.node, 0, 0);
+    host.node.connect(context.destination);
+    source.start();
+    let meters = [];
+    host.onMeters((m) => { meters = Array.from(m); });
+    host.setParam("gain", 2); // Lands at the first quantum; the gain glides from 1 to 2.
+    const rendered = await context.startRendering();
+    const left = rendered.getChannelData(0);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); // Let the host drain the outbound ring.
+    return {
+      isolated: crossOriginIsolated,
+      name: host.manifest.name,
+      first: left[0],
+      last: left[left.length - 1],
+      meters,
+    };
+  };
+  run().then((r) => { window.tiny_smoke = { ok: true, ...r }; }, (e) => { window.tiny_smoke = { ok: false, error: String(e?.stack ?? e) }; });
+</script>

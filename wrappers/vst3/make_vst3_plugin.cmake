@@ -1,6 +1,6 @@
 # Make a VST3 plug-in from a user target.
 function(make_vst3_plugin USER_TARGET)
-    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR EMSCRIPTEN)
         return()
     endif()
 

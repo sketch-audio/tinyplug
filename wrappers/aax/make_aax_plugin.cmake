@@ -1,7 +1,7 @@
 # Make an AAX plug-in from a user target.
 function(make_aax_plugin USER_TARGET)
     # Requires AAX SDK path.
-    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR EMSCRIPTEN)
         return()
     endif()
 
