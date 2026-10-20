@@ -12,7 +12,7 @@ namespace tiny {
 
 // We're gonna need to move this but just stuff it in here for now.
 enum class Format {
-    Aax, Auv2, Auv3, Clap, Vst3
+    Aax, Auv2, Auv3, Clap, Vst3, Web
 };
 
 struct Edit_context {

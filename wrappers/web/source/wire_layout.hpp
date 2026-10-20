@@ -1,9 +1,13 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <tuple>
+#include <utility>
 
 #include <tiny_core/wire.hpp>
+#include <tiny_models.hpp>
 
 // The web format's channels between the processor module (AudioWorklet) and the controller (main thread).
 // Every payload is trivially copyable and laid out for wire.js, which reads the same offsets.
@@ -95,6 +99,41 @@ inline constexpr auto outbound_bytes = std::size_t{16 * 1024};
 using Inbound_ring = wire::Byte_ring<inbound_bytes, Kind>;
 using Outbound_ring = wire::Byte_ring<outbound_bytes, Kind>;
 
+// One store per block address, the same type on both sides of the pump.
+#if TINY_HAS_BLOCKS
+template<typename Seq> struct Stores_of;
+template<std::uint32_t... I> struct Stores_of<std::integer_sequence<std::uint32_t, I...>> {
+    using type = std::tuple<wire::Block_store<blocks::Frame_at<models::Resolved::Blocks, I>>...>;
+};
+using Block_stores = Stores_of<std::make_integer_sequence<std::uint32_t, User_blocks::num_blocks>>::type;
+#endif
+
+#if TINY_HAS_STATE
+using State_model = models::Resolved::State;
+inline constexpr auto state_writers = state::writers_of<State_model>;
+
+// Controller -> processor: the latest edit and its sequence. Latest wins, as AAX's inbox: an edit carries whole
+// documents, and the link retries what the processor refuses.
+struct State_edit_frame {
+    std::uint32_t seq{};
+    std::uint32_t pad{};
+    std::array<std::byte, state::edit_bytes<State_model, state_writers>> bytes{};
+};
+
+// Processor -> controller: {gen, snapshot}, only where the processor writes.
+struct State_snapshot_frame {
+    std::uint32_t gen{};
+    std::uint32_t pad{};
+    std::array<std::byte, state::snapshot_bytes<State_model>> bytes{};
+};
+
+// Controller -> processor: a host load's whole document, for `on_session_load`. Latest wins; the pump moves it
+// before any edit, so an edit that follows a load is applied to the loaded document.
+using State_load_store = wire::Block_store<State_model>;
+using State_edit_store = wire::Block_store<State_edit_frame>;
+using State_snapshot_store = wire::Block_store<State_snapshot_frame>;
+#endif
+
 // One block address's store, for the JS side: wire::Block_store at `offset`.
 struct Block_entry {
     std::uint32_t offset{};
@@ -119,6 +158,9 @@ struct Wire_table {
     std::uint32_t num_params{};
     std::uint32_t blocks{};     // num_blocks Block_entry.
     std::uint32_t num_blocks{};
+    Block_entry state_edit{};   // Zero offsets without a state model.
+    Block_entry state_snapshot{};
+    Block_entry state_load{};
 };
 
 } // namespace tiny::web

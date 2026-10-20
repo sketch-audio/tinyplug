@@ -40,6 +40,7 @@ auto format_name(Format f) -> const char*
         case Format::Auv3: return "AUV3";
         case Format::Clap: return "CLAP";
         case Format::Vst3: return "VST3";
+        case Format::Web: return "WEB";
     }
     return "?";
 }

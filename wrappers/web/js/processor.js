@@ -56,11 +56,14 @@ export const create_processor = (module, memory, { log = console.log } = {}) => 
     exports._initialize();
 
     const table_at = exports.tiny_web_create();
-    const t = new Uint32Array(memory.buffer, table_at, 14);
+    const t = new Uint32Array(memory.buffer, table_at, 23);
     const table = {
         version: t[0], inbound: t[1], inbound_capacity: t[2], outbound: t[3], outbound_capacity: t[4],
         inputs: t[5], sidechain: t[6], outputs: t[7], max_channels: t[8], max_frames: t[9], params: t[10], num_params: t[11],
         blocks: t[12], num_blocks: t[13],
+        state_edit: { offset: t[14], frame_bytes: t[15], slot_offset: t[16] },
+        state_snapshot: { offset: t[17], frame_bytes: t[18], slot_offset: t[19] },
+        state_load: { offset: t[20], frame_bytes: t[21], slot_offset: t[22] },
     };
     const entries = new Uint32Array(memory.buffer, table.blocks, 3 * table.num_blocks);
     const channels = (at) => Array.from({ length: table.max_channels },

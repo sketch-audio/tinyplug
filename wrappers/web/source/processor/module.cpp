@@ -13,12 +13,11 @@
 #include <utility>
 #include <vector>
 
-#include <nlohmann/json.hpp>
-
 #include <tiny_plugin.hpp>
 #include <tiny_dsp/host_bypass.hpp>
 
 #include "plug_info.hpp"
+#include "../manifest.hpp"
 #include "../wire_layout.hpp"
 
 namespace tiny::web {
@@ -29,13 +28,6 @@ constexpr auto max_frames = std::size_t{1024}; // AudioWorklet renders 128 today
 constexpr auto max_events = std::size_t{1024};
 constexpr auto num_params = User_params::num_params;
 
-#if TINY_HAS_BLOCKS
-template<typename Seq> struct Stores_of;
-template<std::uint32_t... I> struct Stores_of<std::integer_sequence<std::uint32_t, I...>> {
-    using type = std::tuple<wire::Block_store<blocks::Frame_at<models::Resolved::Blocks, I>>...>;
-};
-using Block_stores = Stores_of<std::make_integer_sequence<std::uint32_t, User_blocks::num_blocks>>::type; // One per address.
-#endif
 
 struct Processor_module {
     Inbound_ring inbound{};
@@ -58,7 +50,15 @@ struct Processor_module {
     std::array<Block_entry, User_blocks::num_blocks> block_entries{};
 #endif
 #if TINY_HAS_STATE
-    state::Processor_for<models::Resolved::State> state{};
+    state::Processor_for<State_model> state{};
+    State_load_store state_load{};
+    State_edit_store state_edit{};
+    State_snapshot_store state_snapshot{};
+    State_edit_frame edit_scratch{};
+    State_snapshot_frame snapshot_scratch{}; // Staged here, not on the audio thread's stack.
+    std::uint32_t edit_seen{};
+    std::uint64_t load_seen{};
+    State_model load_scratch{};
 #endif
     process::Note_io notes{};
     bool passing{}; // A bypassed note effect forwards what comes in.
@@ -101,6 +101,11 @@ struct Processor_module {
         }(std::make_integer_sequence<std::uint32_t, User_blocks::num_blocks>{});
         table.blocks = address_of(block_entries);
         table.num_blocks = User_blocks::num_blocks;
+#endif
+#if TINY_HAS_STATE
+        table.state_edit = {address_of(state_edit), State_edit_store::frame_bytes, State_edit_store::offset_slots};
+        table.state_snapshot = {address_of(state_snapshot), State_snapshot_store::frame_bytes, State_snapshot_store::offset_slots};
+        table.state_load = {address_of(state_load), State_load_store::frame_bytes, State_load_store::offset_slots};
 #endif
     }
 
@@ -250,8 +255,19 @@ struct Processor_module {
         context.blocks = blocks::Writer{&block_publisher};
 #endif
 #if TINY_HAS_STATE
-        auto state_block = state.begin_block(); // Applies a staged edit now; publishes when it goes out of scope.
-        context.state = state::Access_for<models::Resolved::State>{&state_block};
+        // A host load replaces the document; any edit after it applies to the loaded one.
+        if (const auto seq = state_load.read(load_scratch); seq != 0 && seq != load_seen) {
+            load_seen = seq;
+            state.on_session_load(load_scratch);
+        }
+        // The controller's latest edit, if new. The processor's copy sorts out order and refusal by `seq`.
+        if (const auto seq = state_edit.read(edit_scratch); seq != 0 && seq != edit_seen) {
+            edit_seen = static_cast<std::uint32_t>(seq);
+            state.on_edit(edit_scratch.bytes, edit_scratch.seq);
+        }
+        auto state_block = std::optional<state::Processor_for<State_model>::Block>{};
+        state_block.emplace(&state); // Applies a staged edit now; publishes on reset, below.
+        context.state = state::Access_for<State_model>{&*state_block};
 #endif
 #if TINY_HAS_NOTES_OUT
         const auto bypassed = notes.bypassed(bypass.is_bypassed());
@@ -331,6 +347,16 @@ struct Processor_module {
         });
 #endif
 
+#if TINY_HAS_STATE
+        state_block.reset(); // Publishes what the block changed, then a snapshot if it moved.
+        state::pump(state, [this](std::span<const std::byte> bytes, std::uint32_t gen) {
+            snapshot_scratch.gen = gen;
+            std::copy_n(bytes.begin(), std::min(bytes.size(), snapshot_scratch.bytes.size()), snapshot_scratch.bytes.begin());
+            state_snapshot.publish(snapshot_scratch);
+            return true;
+        });
+#endif
+
 #if TINY_HAS_BLOCKS
         block_publisher.transmit(false, [this](auto i, const auto& frame) {
             std::get<decltype(i)::value>(stores).publish(frame);
@@ -366,37 +392,7 @@ struct Processor_module {
 
     auto build_manifest() -> const char*
     {
-        using Json = nlohmann::ordered_json;
-        auto list = Json::array();
-        for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
-            const auto& spec = User_params::param_spec(addr);
-            auto p = Json{
-                {"address", spec.identity.address},
-                {"identifier", spec.identity.identifier},
-                {"name", spec.name},
-                {"short_name", spec.short_name},
-                {"default", params::Value_helper::default_value(spec, params::Space::Plain)},
-            };
-            std::visit(Inline_visitor{
-                [&](const params::Semantics::Bool&) { p["kind"] = "bool"; p["min"] = 0; p["max"] = 1; },
-                [&](const params::Semantics::List& s) { p["kind"] = "list"; p["min"] = 0; p["max"] = s.items.size() - 1; p["items"] = s.items; },
-                [&](const params::Semantics::Int& s) { p["kind"] = "int"; p["min"] = s.min_val; p["max"] = s.max_val; },
-                [&](const params::Semantics::Fixed& s) { p["kind"] = "fixed"; p["min"] = s.min_val; p["max"] = s.max_val; p["step"] = s.step_size; },
-                [&](const params::Semantics::Real& s) { p["kind"] = "real"; p["min"] = s.min_val; p["max"] = s.max_val; },
-            }, spec.semantics);
-            list.push_back(std::move(p));
-        }
-        const auto doc = Json{
-            {"name", Plug_info::plugin_name},
-            {"identifier", Plug_info::base_identifier},
-            {"version", Plug_info::version_string},
-            {"audio_in", Plug_info::Wants::audio_in},
-            {"audio_out", Plug_info::Wants::audio_out},
-            {"sidechain", Plug_info::wants_sidechain},
-            {"num_meters", User_meters::num_meters},
-            {"params", std::move(list)},
-        };
-        manifest = doc.dump();
+        manifest = web::manifest();
         return manifest.c_str();
     }
 };
