@@ -3,6 +3,12 @@ set(TINY_WEB_DIR ${CMAKE_CURRENT_LIST_DIR})
 # The web format: `<Base>.web/` with the processor module (and, later, the controller module).
 function(make_web_plugin USER_TARGET)
     if(NOT EMSCRIPTEN)
+        # Natively: the processor module as a renderer, for tests/web/compare.mjs. Built on demand only.
+        read_property(${USER_TARGET} TINY_BASE_FILENAME)
+        set(NATIVE ${TINY_BASE_FILENAME}_web_native)
+        add_executable(${NATIVE} EXCLUDE_FROM_ALL ${PROJECT_SOURCE_DIR}/tests/web/native_render.cpp)
+        target_link_libraries(${NATIVE} PRIVATE ${USER_TARGET} ${TINY_DSP_LIB})
+        target_compile_options(${NATIVE} PRIVATE -ffp-contract=off)
         return()
     endif()
 
@@ -57,5 +63,18 @@ function(make_web_plugin USER_TARGET)
         add_test(NAME web_editor_${TINY_BASE_FILENAME} COMMAND node ${PROJECT_SOURCE_DIR}/tests/web/smoke.mjs ${TINY_BASE_FILENAME}
                  --build ${PROJECT_BINARY_DIR} --page editor.html --result tiny_editor)
         set_tests_properties(web_editor_${TINY_BASE_FILENAME} PROPERTIES LABELS browser TIMEOUT 60 RUN_SERIAL TRUE)
+        # Against the native build of the same module: configure with -DTINY_WEB_NATIVE_DIR=<a native build tree>
+        # where `<Base>_web_native` is built. Exact unless the plug-in sets TINY_WEB_COMPARE_DB (libm differs).
+        if(TINY_WEB_NATIVE_DIR)
+            file(RELATIVE_PATH REL ${PROJECT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR})
+            get_target_property(TOLERANCE ${USER_TARGET} TINY_WEB_COMPARE_DB)
+            set(TOLERANCE_ARGS)
+            if(TOLERANCE)
+                set(TOLERANCE_ARGS --tolerance ${TOLERANCE})
+            endif()
+            add_test(NAME web_native_${TINY_BASE_FILENAME} COMMAND node ${PROJECT_SOURCE_DIR}/tests/web/compare.mjs $<TARGET_FILE:${PROC}>
+                     --native-exe ${TINY_WEB_NATIVE_DIR}/${REL}/${TINY_BASE_FILENAME}_web_native ${TOLERANCE_ARGS})
+            set_tests_properties(web_native_${TINY_BASE_FILENAME} PROPERTIES LABELS web_native)
+        endif()
     endif()
 endfunction()

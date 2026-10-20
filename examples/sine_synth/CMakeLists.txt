@@ -80,6 +80,7 @@ target_link_libraries(${PLUGIN_TARGET} PRIVATE tiny::skia) # editor draws with S
 make_aax_plugin(${PLUGIN_TARGET})
 make_clap_plugin(${PLUGIN_TARGET})
 make_vst3_plugin(${PLUGIN_TARGET})
+add_property(${PLUGIN_TARGET} TINY_WEB_COMPARE_DB "-120") # Its oscillator calls sin: musl in wasm, the platform libm natively.
 make_web_plugin(${PLUGIN_TARGET})
 make_auv2_plugin(${PLUGIN_TARGET})
 make_auv3_plugin(${PLUGIN_TARGET})
