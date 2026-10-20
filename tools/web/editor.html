@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>tinyplug editor</title>
+<style>
+  body { font: 14px system-ui; margin: 16px; background: #888; }
+  canvas { display: block; margin-top: 12px; box-shadow: 0 2px 12px #0006; }
+  label { margin-left: 12px; }
+</style>
+<div>
+  <strong id="name">tinyplug</strong>
+  <button id="start">Start</button>
+  <label><input type="checkbox" id="listen"> Listen</label>
+  <label><input type="checkbox" id="play"> Play (transport, 120 bpm)</label>
+</div>
+<canvas id="editor"></canvas>
+<script type="module">
+  // The full format: controller + editor here, processor in the worklet, pump between. Silent until Listen.
+  import { load_plugin } from "/js/host.js";
+  const params = new URLSearchParams(location.search);
+  const name = params.get("plugin") ?? "GainDemo";
+  const start = async () => {
+    document.getElementById("start").disabled = true;
+    const context = new AudioContext();
+    const host = await load_plugin({ base_url: new URL(`/plugins/${name}.web/`, location.href), name, context, canvas: document.getElementById("editor") });
+    document.getElementById("name").textContent = host.manifest.name;
+    if (host.manifest.audio_in) {
+      const osc = new OscillatorNode(context, { frequency: 220 });
+      osc.connect(new GainNode(context, { gain: 0.2 })).connect(host.node, 0, 0);
+      osc.start();
+    }
+    const out = new GainNode(context, { gain: 0 });
+    const listen = document.getElementById("listen");
+    listen.onchange = () => out.gain.setTargetAtTime(listen.checked ? 1 : 0, context.currentTime, 0.01);
+    host.node.connect(out).connect(context.destination);
+    const play = document.getElementById("play");
+    let frame0 = 0;
+    play.onchange = () => host.transport({ tempo: 120, playing: play.checked, numer: 4, denom: 4, position: 0, anchor: frame0 });
+    await context.resume();
+    window.tiny_editor = { ok: true, name: host.manifest.name, size: host.editor?.size, isolated: crossOriginIsolated };
+    window.tiny_host = host;
+  };
+  document.getElementById("start").onclick = () => start().catch((e) => { window.tiny_editor = { ok: false, error: String(e?.stack ?? e) }; });
+  if (params.has("auto")) document.getElementById("start").click();
+</script>

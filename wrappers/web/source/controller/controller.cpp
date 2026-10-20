@@ -14,6 +14,7 @@
 #include <nlohmann/json.hpp>
 
 #include <tiny_plugin.hpp>
+#include <tiny_platform/platform_view.hpp>
 
 #include "plug_info.hpp"
 #include "../manifest.hpp"
@@ -123,7 +124,41 @@ public:
 #endif
     }
 
-    ~Controller() { _tasks.shutdown(); } // First: no task may outlive the editor or worker it captures.
+    ~Controller()
+    {
+        _tasks.shutdown(); // First: no task may outlive the editor or worker it captures.
+        close_view();
+    }
+
+    // The editor on the page's canvas (a CSS selector). Its frame loop then runs the view's `run_frame`.
+    auto open_view(const char* selector) -> Rect_size
+    {
+        close_view();
+        const auto size = User_editor::preferred_size();
+        auto delegate = std::make_shared<View_delegate>(size,
+            [this](View_context& context) { this->_draw(context); },
+            [this](const Dark_mode_changed& n) { _editor->notify(n); });
+        _view = Platform_views::make_owning(delegate);
+        _view->on_create();
+        _editor->on_gui_create(Gui_info{.window = _view->token()});
+        _selector = selector;
+        _view->receive_parent(_selector.data());
+        _view->resize(size.w, size.h);
+        _tasks.bind_main(std::this_thread::get_id());
+        _view->on_show();
+        _editor->on_gui_show();
+        return size;
+    }
+
+    auto close_view() -> void
+    {
+        if (!_view) return;
+        _editor->on_gui_hide();
+        _view->on_hide();
+        _editor->on_gui_destroy();
+        _view->on_destroy();
+        _view = nullptr;
+    }
 
     auto table() const -> const Controller_table* { return &_table; }
 
@@ -179,13 +214,14 @@ public:
         }
         _state_link.sync();
 #endif
-#if TINY_HAS_METERS
-        _mailbox.read(_meters);
-#endif
 #if TINY_HAS_BLOCKS
         [this]<std::uint32_t... I>(std::integer_sequence<std::uint32_t, I...>) {
             (_read_block(std::integral_constant<std::uint32_t, I>{}), ...);
         }(std::make_integer_sequence<std::uint32_t, User_blocks::num_blocks>{});
+#endif
+        if (_view) return; // The view's frame runs the editor's half: actions, undo, main-thread tasks, meters.
+#if TINY_HAS_METERS
+        _mailbox.read(_meters);
 #endif
         _tasks.run_main();
 
@@ -236,7 +272,22 @@ public:
 
 private:
 
+    // The editor's frame, as the native views': `run_frame` with this controller as the receiver.
+    auto _draw(View_context& context) -> void
+    {
+#if TINY_HAS_WORKER
+        try_drain_worker_to_editor(*_editor, _worker_to_edit);
+#endif
+        for (auto addr = decltype(num_params){}; addr < num_params; ++addr) _ui_params[addr] = param_knob(addr);
+        view_impl::run_frame(_receiver, _ui_params, _view_meters, _ui_blocks, context, &*_editor, _actions, _undo_history, _tasks,
+            [this](auto w, auto h) { if (_view) _view->resize(static_cast<std::int32_t>(w), static_cast<std::int32_t>(h)); });
+    }
+
     Controller_table _table{};
+    std::unique_ptr<Platform_view> _view{};
+    std::string _selector{};
+    std::array<double, num_meters> _view_meters{};
+    blocks::Frames<models::Resolved::Blocks> _ui_blocks{}; // Retained between draws.
 
     // The wire, this side. One writer per ring.
     Ring _to_processor{};
@@ -292,6 +343,23 @@ private:
     };
     Worker_runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
 #endif
+
+    Ui_receiver _receiver{
+        .get_param = [this](std::uint32_t id) { return param_knob(id); },
+#if TINY_HAS_METERS
+        .read_meters = [this](std::span<float> out) {
+            _mailbox.read(out);
+            std::copy_n(out.begin(), std::min(out.size(), _meters.size()), _meters.begin()); // The page's copy.
+        },
+#endif
+#if TINY_HAS_BLOCKS
+        .read_blocks = [this](blocks::Frames<models::Resolved::Blocks>& out) { _block_mailbox.read(out); },
+#endif
+        .action_handler = [this](const User_action& action) { this->_handle_action(action); },
+#if TINY_HAS_STATE
+        .sync_state = [this]() { _state_link.sync(); },
+#endif
+    };
 
     State_adapter _state_adapter{{
         .load_model = []() {
@@ -419,6 +487,14 @@ EMSCRIPTEN_KEEPALIVE auto tiny_ctl_create() -> const tiny::web::Controller_table
 }
 
 EMSCRIPTEN_KEEPALIVE auto tiny_ctl_start(double sample_rate) -> void { instance->start(sample_rate); }
+
+// Opens the editor on a canvas; returns its logical size as w << 16 | h.
+EMSCRIPTEN_KEEPALIVE auto tiny_ctl_open_view(const char* selector) -> std::uint32_t
+{
+    const auto size = instance->open_view(selector);
+    return static_cast<std::uint32_t>(size.w) << 16 | static_cast<std::uint32_t>(size.h);
+}
+EMSCRIPTEN_KEEPALIVE auto tiny_ctl_close_view() -> void { instance->close_view(); }
 EMSCRIPTEN_KEEPALIVE auto tiny_ctl_plain_params(double* out) -> void { instance->plain_params(out); }
 EMSCRIPTEN_KEEPALIVE auto tiny_ctl_tick() -> void { instance->tick(); }
 EMSCRIPTEN_KEEPALIVE auto tiny_ctl_set_param(std::uint32_t address, double plain) -> void { instance->set_param(address, plain); }

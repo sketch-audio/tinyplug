@@ -3,7 +3,9 @@
 #include <tiny_ui/draw.hpp>
 #include <tiny_platform/platform_dialogs.hpp>
 
+#if !TINY_PLATFORM_WASM
 #include "include/gpu/ganesh/GrRecordingContext.h"
+#endif
 
 #include <algorithm>
 
@@ -47,6 +49,10 @@ auto format_name(Format f) -> const char*
 
 auto backend_name(SkCanvas& canvas) -> const char*
 {
+#if TINY_PLATFORM_WASM
+    (void)canvas;
+    return "CPU (RASTER)"; // The web build's Skia has no Ganesh.
+#else
     const auto* gpu = canvas.recordingContext();
     if (!gpu) return "CPU (RASTER)";
     switch (gpu->backend()) {
@@ -56,6 +62,7 @@ auto backend_name(SkCanvas& canvas) -> const char*
         case GrBackendApi::kVulkan: return "GPU VULKAN";
         default: return "GPU OTHER";
     }
+#endif
 }
 
 } // namespace

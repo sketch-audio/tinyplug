@@ -788,3 +788,27 @@ on out-of-order designators (`-Wreorder-init-list`) but MSVC rejects them, so bu
 warning visible.
 
 In handlers, `e.target` becomes `e.value`, so a `Set` and a `Ramp` read the same way.
+
+---
+
+## Web format
+
+New on `main`: a sixth format, `make_web_plugin(<target>)`, beside the other `make_*_plugin` calls. It does nothing
+outside an Emscripten build, so adding it to a plug-in's CMakeLists is safe everywhere. The design is in
+[plans/web-format.md](plans/web-format.md).
+
+### Breaks
+
+- **`Format::Web`** joins `Edit_context::format`. An editor that switches over `Format` exhaustively gets a
+  `-Wswitch` warning until it handles it, as [examples/platform_demo](examples/platform_demo/) now does. Use it
+  to hide what doesn't apply in a browser: licensing, host-only menus, file dialogs.
+
+### What a plug-in must hold to for the web build
+
+- **No platform assumptions in DSP or editor code.** `TINY_PLATFORM_WASM` is defined there; wasm has no FP
+  control register (`Denormal_guard` is a no-op), and Emscripten defines `__SSE__` for its SSE headers, so code
+  that reads x86 registers under `__SSE__` breaks.
+- **Dialogs are thin for now.** Message, confirm and text input are the browser's own; the file dialogs report
+  cancelled. Paths are in-memory (MEMFS) and don't survive a reload.
+- **Main-thread tasks never call back into the main thread synchronously.** The browser's main thread can't
+  block; a `Task_manager` shutdown that waits on such a task hangs the tab rather than the host.

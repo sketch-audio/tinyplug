@@ -35,6 +35,10 @@ export const load_controller = async (url) => {
         redo: () => m._tiny_ctl_redo(),
         meters: () => Array.from(new Float32Array(m.HEAPU8.buffer, m._tiny_ctl_meters(), manifest.num_meters)),
         latency: () => m._tiny_ctl_latency(),
+        open_view: (selector) => with_string(selector, (p) => { const v = m._tiny_ctl_open_view(p) >>> 0; return { w: v >>> 16, h: v & 0xffff }; }),
+        close_view: () => m._tiny_ctl_close_view(),
+        pointer: (kind, x, y, button, tag, mods) => m._tiny_web_pointer(kind, x, y, button, tag, mods),
+        wheel: (dx, dy, precise, mods) => m._tiny_web_wheel(dx, dy, precise, mods),
         save_state: () => string(m._tiny_ctl_save_state()),
         load_state: (text) => with_string(text, (p) => m._tiny_ctl_load_state(p)),
     };

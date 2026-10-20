@@ -36,6 +36,13 @@ if(APPLE)
             source/mac_paths.cpp
         )
     endif()
+elseif(EMSCRIPTEN)
+    set(PLATFORM_SOURCES
+        source/web_context.cpp
+        source/web_dialogs.cpp
+        source/web_paths.cpp
+        source/web_view.cpp
+    )
 elseif(WIN32)
     set(WIN_GRAPHICS_GPU "0") # GPU renderer not ready for prime time. Need to figure out some wait-free synchronization mechanism.
     configure_file(

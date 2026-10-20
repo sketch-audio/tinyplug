@@ -41,5 +41,8 @@ function(make_web_plugin USER_TARGET)
         set_tests_properties(web_host_${TINY_BASE_FILENAME} PROPERTIES LABELS web_host)
         add_test(NAME web_split_${TINY_BASE_FILENAME} COMMAND node ${PROJECT_SOURCE_DIR}/tests/hosts/web_split_host.mjs ${OUT_DIR})
         set_tests_properties(web_split_${TINY_BASE_FILENAME} PROPERTIES LABELS web_split TIMEOUT 60)
+        add_test(NAME web_editor_${TINY_BASE_FILENAME} COMMAND node ${PROJECT_SOURCE_DIR}/tests/web/smoke.mjs ${TINY_BASE_FILENAME}
+                 --build ${PROJECT_BINARY_DIR} --page editor.html --result tiny_editor)
+        set_tests_properties(web_editor_${TINY_BASE_FILENAME} PROPERTIES LABELS browser TIMEOUT 60 RUN_SERIAL TRUE)
     endif()
 endfunction()

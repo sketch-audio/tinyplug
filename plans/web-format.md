@@ -1,6 +1,7 @@
 # Plan: Web format — tinyplug plug-ins in the browser
 
-> Status: **design, direction agreed 2026-10-20.** A sixth format beside AAX, AUv2, AUv3, CLAP and VST3: the
+> Status: **phases 0-4 landed on `web-format` (2026-10-20)**: every demo runs in the browser with its own editor.
+> Phase 5 (Safari, mobile, polish) and 6 (GPU, size, CI) remain. Direction agreed 2026-10-20. A sixth format beside AAX, AUv2, AUv3, CLAP and VST3: the
 > same `Processor` / `Editor` pair, compiled with Emscripten, running in a web page. **Two modules, AAX-shaped**:
 > the processor in an AudioWorklet, everything else (param authority, editor, undo, state, worker) in a
 > controller module on the page's main thread, joined by rings in shared memory. The editor draws through Skia,
