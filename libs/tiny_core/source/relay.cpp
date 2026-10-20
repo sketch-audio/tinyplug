@@ -19,6 +19,9 @@
     #define WIN32_LEAN_AND_MEAN
     #endif
     #include <windows.h>
+#elif TINY_PLATFORM_WASM
+    #include <emscripten/eventloop.h>
+    #include <emscripten/threading.h>
 #endif
 
 namespace tiny {
@@ -353,6 +356,66 @@ auto Relay::_stop() -> void
     { const auto lock = std::lock_guard{_state->delivering}; }
 
     Main_dispatcher::instance().remove(_state.get());
+    _timer = nullptr;
+}
+
+#elif TINY_PLATFORM_WASM
+
+// The browser's main thread is the main queue: an interval set there fires there, between the page's other
+// tasks, as GCD's main queue does. Construct relays on the main thread. Hidden tabs throttle the interval,
+// as an occluded native editor's main-queue work stalls.
+
+namespace {
+
+// The interval's own reference to the state, freed when the interval is cleared.
+struct Web_timer {
+    std::shared_ptr<Relay::State> state{};
+    long id{};
+};
+
+auto deliver(void* user) -> void
+{
+    const auto& state = static_cast<Web_timer*>(user)->state;
+    if (!state->alive.load(std::memory_order_acquire)) return;
+    if (!state->posted.exchange(false, std::memory_order_acq_rel) && !state->repeating) return;
+
+    const auto lock = std::lock_guard{state->delivering};
+    if (!state->alive.load(std::memory_order_acquire)) return;
+    state->execute();
+}
+
+auto clear(void* user) -> void
+{
+    auto* timer = static_cast<Web_timer*>(user);
+    emscripten_clear_interval(timer->id);
+    delete timer;
+}
+
+} // namespace
+
+auto Relay::_start(Spec spec) -> void
+{
+    if (!spec.execute) return;
+
+    _state->execute = std::move(spec.execute);
+    _state->repeating = spec.repeating;
+
+    auto* timer = new Web_timer{_state};
+    timer->id = emscripten_set_interval(&deliver, spec.interval * 1000., timer);
+    _timer = timer;
+}
+
+auto Relay::_stop() -> void
+{
+    if (_timer == nullptr) return; // Idempotent: never started, or already stopped.
+
+    // The same order as on Apple: a delivery not yet started sees `alive` and bails; one already
+    // inside `execute` is waited out. An interval can only be cleared from the thread that set it.
+    _state->alive.store(false, std::memory_order_release);
+    { const auto lock = std::lock_guard{_state->delivering}; }
+
+    if (emscripten_is_main_runtime_thread()) clear(_timer);
+    else emscripten_async_run_in_main_runtime_thread(EM_FUNC_SIG_VI, &clear, _timer);
     _timer = nullptr;
 }
 

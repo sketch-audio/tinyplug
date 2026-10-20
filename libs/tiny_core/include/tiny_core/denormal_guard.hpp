@@ -4,7 +4,9 @@
 
 #include "platform_defs.hpp"
 
-#if defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+// Wasm has no FP control register, and Emscripten defines __SSE2__ for its SSE headers: no guard there.
+#if TINY_PLATFORM_WASM
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
     #define TINY_DENORMALS_SSE 1
     #include <xmmintrin.h>
     #include <pmmintrin.h>

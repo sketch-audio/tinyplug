@@ -55,6 +55,16 @@
       "cacheVariables": { "TINY_BUILD_PLUGINS": "ON" }
     },
     {
+      "name": "web-tests",
+      "displayName": "Tests for wasm32, run under Node",
+      "description": "tests/ built with tiny_deps' pinned emsdk (build-skia-web.sh installs it).",
+      "inherits": "base",
+      "generator": "Unix Makefiles",
+      "toolchainFile": "${sourceDir}/../tiny_deps/build/tmp/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "TINY_BUILD_PLUGINS": "OFF", "TINY_BUILD_TESTS": "ON" },
+      "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
       "name": "macos",
       "displayName": "macOS — Xcode (all formats incl. AUv3)",
       "description": "Xcode generator, required for AUv3. Multi-config: pass --config Debug|Release at build time.",
@@ -105,6 +115,7 @@
     { "name": "asan",   "configurePreset": "asan",  "jobs": 8, "targets": ["tiny_tests"] },
     { "name": "tsan-hosts", "configurePreset": "tsan-hosts", "jobs": 8, "targets": ["tiny_tests", "tiny_host_tests"] },
     { "name": "asan-hosts", "configurePreset": "asan-hosts", "jobs": 8, "targets": ["tiny_tests", "tiny_host_tests"] },
+    { "name": "web-tests", "configurePreset": "web-tests", "jobs": 8, "targets": ["tiny_tests"] },
     { "name": "macos",  "configurePreset": "macos", "configuration": "Debug" },
     { "name": "ios",    "configurePreset": "ios",   "configuration": "Debug" },
     { "name": "windows", "configurePreset": "windows", "configuration": "Debug" },
@@ -114,6 +125,7 @@
   ],
   "testPresets": [
     { "name": "tests", "configurePreset": "tests", "output": { "outputOnFailure": true } },
+    { "name": "web-tests", "configurePreset": "web-tests", "output": { "outputOnFailure": true } },
     {
       "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true },
       "environment": { "TSAN_OPTIONS": "halt_on_error=1:second_deadlock_stack=1:history_size=7:suppressions=${sourceDir}/tests/sanitizers/tsan.supp" }

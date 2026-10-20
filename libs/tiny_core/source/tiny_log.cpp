@@ -20,6 +20,8 @@
     #include <fcntl.h>
     #include <os/log.h>
     #include <unistd.h>
+#elif TINY_PLATFORM_WASM
+    #include <unistd.h>
 #elif TINY_PLATFORM_WINDOWS
     #ifndef NOMINMAX
         #define NOMINMAX

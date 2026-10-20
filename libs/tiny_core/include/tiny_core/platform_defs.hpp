@@ -20,6 +20,10 @@
     #ifndef TINY_PLATFORM_WINDOWS
     #define TINY_PLATFORM_WINDOWS 1
     #endif
+#elif defined(__EMSCRIPTEN__)
+    #ifndef TINY_PLATFORM_WASM
+    #define TINY_PLATFORM_WASM 1
+    #endif
 #else
     #error "Unsupported platform."
 #endif

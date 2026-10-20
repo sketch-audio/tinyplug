@@ -34,6 +34,10 @@ function(tiny_add_test name)
         target_compile_options(${name} PRIVATE -Wall -Wextra -Wconversion -Wshadow)
     endif()
     tiny_copy_asan_runtime(${name})
+    if(EMSCRIPTEN)
+        # Under Node: `main` on a pthread so it may block, and the real filesystem.
+        target_link_options(${name} PRIVATE -sPROXY_TO_PTHREAD -sEXIT_RUNTIME -sNODERAWFS -sALLOW_MEMORY_GROWTH -sSTACK_SIZE=1MB -sDEFAULT_PTHREAD_STACK_SIZE=1MB)
+    endif()
     add_test(NAME ${name} COMMAND ${name})
     set_tests_properties(${name} PROPERTIES TIMEOUT 120) # A hang fails instead of stalling the run.
     add_dependencies(tiny_tests ${name})

@@ -37,6 +37,10 @@ if (APPLE)
     # If you want to run AUv3 on device.
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer")
     set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "") # You will need to set your team ID.
+elseif(EMSCRIPTEN)
+    # One compile flavor: atomics everywhere, so any object links into a shared-memory module (plans/web-format.md).
+    add_compile_options(-pthread -msimd128 -fwasm-exceptions)
+    add_link_options(-pthread -fwasm-exceptions)
 elseif(WIN32)
     # Use the static CRT. (This is how we built skia.)
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")

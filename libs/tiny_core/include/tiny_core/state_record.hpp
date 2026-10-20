@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <optional>
 #include <span>
 #include <type_traits>
@@ -260,7 +261,9 @@ inline auto record_size(std::span<const std::byte> header) -> std::optional<std:
     if (header.size() < sizeof h) return std::nullopt;
     std::memcpy(&h, header.data(), sizeof h);
     if (h.magic != record_magic || h.record_version != record_version) return std::nullopt;
-    return sizeof h + std::size_t{h.payload_length};
+    const auto total = std::uint64_t{sizeof h} + h.payload_length; // In 64 bits: wraps where size_t is 32 (wasm32).
+    if (total > std::numeric_limits<std::size_t>::max()) return std::nullopt;
+    return static_cast<std::size_t>(total);
 }
 
 // A record from a stream, where `read(std::byte*, size) -> bool` fills exactly `size` bytes. Empty
