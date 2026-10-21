@@ -1,7 +1,7 @@
 # Plan: Web format — tinyplug plug-ins in the browser
 
-> Status: **phases 0-4 landed on `web-format` (2026-10-20)**: every demo runs in the browser with its own editor.
-> Phase 5 (Safari, mobile, polish) and 6 (GPU, size, CI) remain. Direction agreed 2026-10-20. A sixth format beside AAX, AUv2, AUv3, CLAP and VST3: the
+> Status: **phases 0-5 landed on `web-format` (2026-10-20)**: every demo runs in the browser with its own editor,
+> checked by hand in Chrome and Safari (macOS). Phase 6 (GPU, the non-isolated fallback, CI) remains. A sixth format beside AAX, AUv2, AUv3, CLAP and VST3: the
 > same `Processor` / `Editor` pair, compiled with Emscripten, running in a web page. **Two modules, AAX-shaped**:
 > the processor in an AudioWorklet, everything else (param authority, editor, undo, state, worker) in a
 > controller module on the page's main thread, joined by rings in shared memory. The editor draws through Skia,
@@ -333,7 +333,11 @@ Every layer has a cheap automated check before a browser is involved.
    through the pump, `Task_manager` on pthreads; conformance for state and worker_demo.
 4. **The web platform layer**, CPU raster: view, input, draw loop, relay, paths, dialogs, dark mode. gain_demo's
    editor in Chrome.
-5. **Every demo in the browser**, the CDP smoke tests, a by-hand Safari pass. *(Weeks, with 3-4.)*
+5. **Complete the framework's half.** Persistent `Platform_paths` (IndexedDB) and file dialogs; several plug-ins
+   on one page; `onMidi` and the sidechain input on the host API; the size and main-thread pass; a
+   self-contained `<Base>.web/` bundle (manifest.json, JS, index.html); the docs; the processor module against
+   its own native build (bit-identical for nine demos). What a DAW owns is the page's: where sessions are stored,
+   audio sources and routing, Web MIDI devices, which presets a product offers. *(Done.)*
 6. **Later.** Graphite on WebGPU; size work; the non-isolated fallback; the `web` preset in the release CI
    (`all_plugins/plans/ci-build-system.md`), versioned artifacts per tag, the product site consuming them.
 
