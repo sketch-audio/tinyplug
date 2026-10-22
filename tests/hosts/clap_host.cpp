@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -593,6 +594,192 @@ auto service_main(Instance& i, Fake_host& host, bool active) -> void
 constexpr auto rates = std::array{44100., 48000., 88200., 96000.};
 constexpr auto block_sizes = std::array{32u, 64u, 128u, 512u, 1024u, 4096u};
 
+// MARK: - bounces
+
+// Reproducible bounces, against the AutomationDemo's Phase Out probe (a sine whose frequency follows
+// Value, with a phase that never forgets). CLAP sends values in-band, so a render's first value arrives
+// at time 0 of its first block: the restart has to land it, not glide to it from a stale one. Each take
+// runs on its own audio thread, block by block, so the same take is the same sequence of calls.
+class Bouncer {
+public:
+
+    struct Profile {
+        const char* name{};
+        bool reset{};          // `reset` at the start, as a host does on a locate.
+        int64_t start{};
+        uint32_t frames{512};
+    };
+
+    static constexpr auto rate = 48000.;
+    static constexpr auto length = int64_t{24000};
+
+    Bouncer(Instance& instance, Fake_host& host) : _i{instance}, _host{host}
+    {
+        for (const auto& info : instance.param_infos) {
+            if (std::string_view{info.name} == "Value") _value = &info;
+            if (std::string_view{info.name} == "Phase Out") _phase_out = &info;
+        }
+        for (const auto& port : instance.inputs) {
+            auto& ptrs = _in_ptrs.emplace_back();
+            for (auto c = uint32_t{}; c < port.channels; ++c) ptrs.push_back(_in_storage.emplace_back(4096).data());
+        }
+        for (const auto& port : instance.outputs) {
+            auto& ptrs = _out_ptrs.emplace_back();
+            for (auto c = uint32_t{}; c < port.channels; ++c) ptrs.push_back(_out_storage.emplace_back(4096).data());
+        }
+        for (auto p = size_t{}; p < instance.inputs.size(); ++p) _in_buffers.push_back(clap_audio_buffer{_in_ptrs[p].data(), nullptr, instance.inputs[p].channels, 0, 0});
+        for (auto p = size_t{}; p < instance.outputs.size(); ++p) _out_buffers.push_back(clap_audio_buffer{_out_ptrs[p].data(), nullptr, instance.outputs[p].channels, 0, 0});
+    }
+
+    auto probed() const -> bool { return _value && _phase_out; }
+
+    static auto lane(int64_t position) -> double
+    {
+        return 0.5 + 0.4 * std::sin(2. * 3.141592653589793 * static_cast<double>(std::max<int64_t>(position, 0)) / 12000.);
+    }
+
+    auto set_offline(bool on) -> void
+    {
+        if (const auto* render = static_cast<const clap_plugin_render*>(_i.plugin->get_extension(_i.plugin, CLAP_EXT_RENDER))) {
+            render->set(_i.plugin, on ? CLAP_RENDER_OFFLINE : CLAP_RENDER_REALTIME);
+        }
+    }
+
+    // The playhead parked at `parked`, realtime, Value left at `stale`.
+    auto history(int64_t parked, double stale) -> void
+    {
+        set_offline(false);
+        run(parked, 512, 6, false, false, [&](Event_list& e, int64_t, bool first) {
+            if (!first) return;
+            e.param(0, *_phase_out, 1.);
+            e.param(0, *_value, stale);
+        }, 0, nullptr);
+    }
+
+    // An offline render from `p.start`, the lane's value sent at time 0 of every block. Returns the
+    // output from `from`, `length` samples.
+    auto bounce(const Profile& p, int64_t from, bool send_phase_out = false) -> std::vector<float>
+    {
+        set_offline(true);
+        auto out = std::vector<float>{};
+        const auto blocks = static_cast<int>((from + length - p.start + p.frames - 1) / p.frames);
+        run(p.start, p.frames, blocks, true, p.reset, [&](Event_list& e, int64_t position, bool first) {
+            if (first && send_phase_out) e.param(0, *_phase_out, 1.);
+            e.param(0, *_value, lane(position));
+        }, from, &out);
+        set_offline(false);
+        return out;
+    }
+
+private:
+
+    Instance& _i;
+    Fake_host& _host;
+    const clap_param_info* _value{};
+    const clap_param_info* _phase_out{};
+    std::vector<std::vector<float>> _in_storage{}, _out_storage{};
+    std::vector<std::vector<float*>> _in_ptrs{}, _out_ptrs{};
+    std::vector<clap_audio_buffer> _in_buffers{}, _out_buffers{};
+    Event_list _events{};
+    Out_events _out{};
+    int64_t _steady{};
+
+    template<typename Values>
+    auto run(int64_t start, uint32_t frames, int blocks, bool moving, bool reset, Values&& values, int64_t from, std::vector<float>* capture) -> void
+    {
+        auto thread = std::thread{[&] {
+            _host.set_audio_thread(std::this_thread::get_id());
+            _i.plugin->start_processing(_i.plugin);
+            if (reset) _i.plugin->reset(_i.plugin);
+            auto position = start;
+            for (auto b = 0; b < blocks; ++b) {
+                _events.clear();
+                values(_events, position, b == 0);
+                _events.seal();
+                _out.reset(frames);
+                for (auto& buffer : _in_storage) std::fill(buffer.begin(), buffer.begin() + frames, 0.f);
+                auto transport = clap_event_transport{};
+                transport.header = {sizeof(transport), 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_TRANSPORT, 0};
+                transport.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | (moving ? CLAP_TRANSPORT_IS_PLAYING : 0);
+                transport.tempo = 120;
+                transport.song_pos_beats = static_cast<clap_beattime>(static_cast<double>(position) / rate * 2. * CLAP_BEATTIME_FACTOR);
+                auto process = clap_process{
+                    .steady_time = _steady,
+                    .frames_count = frames,
+                    .transport = &transport,
+                    .audio_inputs = _in_buffers.data(),
+                    .audio_outputs = _out_buffers.data(),
+                    .audio_inputs_count = static_cast<uint32_t>(_in_buffers.size()),
+                    .audio_outputs_count = static_cast<uint32_t>(_out_buffers.size()),
+                    .in_events = &_events.clap,
+                    .out_events = &_out.clap,
+                };
+                _steady += frames;
+                expect_true(_i.plugin->process(_i.plugin, &process) != CLAP_PROCESS_ERROR, "process failed");
+                if (capture && !_out_storage.empty()) {
+                    for (auto f = uint32_t{}; f < frames; ++f) {
+                        const auto at = position + static_cast<int64_t>(f);
+                        if (at >= from && at < from + length) capture->push_back(_out_storage[0][f]);
+                    }
+                }
+                if (moving) position += frames;
+            }
+            _i.plugin->stop_processing(_i.plugin);
+            _host.set_audio_thread({});
+        }};
+        thread.join();
+    }
+};
+
+auto first_difference(const std::vector<float>& a, const std::vector<float>& b) -> std::string
+{
+    if (a.size() != b.size()) return std::format("lengths {} and {}", a.size(), b.size());
+    for (auto i = size_t{}; i < a.size(); ++i) {
+        if (a[i] != b[i]) return std::format("first at sample {}: {} vs {}", i, a[i], b[i]);
+    }
+    return "none";
+}
+
+auto add_bounce_scenarios(const Bundle& bundle) -> void
+{
+    {
+        auto host = std::make_unique<Fake_host>();
+        auto instance = Instance{bundle, *host};
+        if (!Bouncer{instance, *host}.probed()) return; // The probe is the AutomationDemo's.
+    }
+
+    using Profile = Bouncer::Profile;
+    for (const auto& profile : {Profile{.name = "from the origin", .start = 0},
+                                Profile{.name = "midstream", .start = 48000, .frames = 384},
+                                Profile{.name = "midstream, after a reset", .reset = true, .start = 48000}}) {
+        Tests::add(std::format("bounce: {}: two takes after different histories are identical, and equal a fresh instance", profile.name), [&bundle, profile] {
+            auto host = std::make_unique<Fake_host>();
+            auto a = std::vector<float>{}, b = std::vector<float>{}, reference = std::vector<float>{};
+            {
+                auto instance = Instance{bundle, *host};
+                expect_true(instance.plugin->activate(instance.plugin, Bouncer::rate, 1, 4096), "activate failed");
+                auto bouncer = Bouncer{instance, *host};
+                bouncer.history(123456, 0.1);
+                a = bouncer.bounce(profile, profile.start);
+                bouncer.history(987654, 0.9);
+                b = bouncer.bounce(profile, profile.start);
+                instance.plugin->deactivate(instance.plugin);
+            }
+            {
+                auto instance = Instance{bundle, *host};
+                auto bouncer = Bouncer{instance, *host};
+                bouncer.set_offline(true);
+                expect_true(instance.plugin->activate(instance.plugin, Bouncer::rate, 1, 4096), "activate failed");
+                reference = bouncer.bounce(profile, profile.start, true);
+                instance.plugin->deactivate(instance.plugin);
+            }
+            expect_true(a == b, std::format("takes differ: {}", first_difference(a, b)));
+            expect_true(a == reference, std::format("a take differs from a fresh instance: {}", first_difference(a, reference)));
+            check_clean(*host, "bounce");
+        });
+    }
+}
+
 // MARK: - scenarios
 
 auto add_scenarios(const Bundle& bundle) -> void
@@ -891,6 +1078,7 @@ auto main(int argc, char** argv) -> int
     try {
         const auto bundle = Bundle{g_options.bundle};
         add_scenarios(bundle);
+        add_bounce_scenarios(bundle);
         return audio_bench::Tests::run_all() == 0 ? 0 : 1;
     }
     catch (const std::exception& e) {

@@ -1,4 +1,6 @@
+#include <array>
 #include <cstring>
+#include <span>
 #include <pthread.h> // pthread_main_np
 #include "effect.hpp"
 
@@ -114,6 +116,7 @@ OSStatus Effect::Initialize()
         .sr = sample_rate,
         .params = config_values
     });
+    _sync.configured(sample_rate); // No render is in flight while initializing.
     _latency = _processor->latency_samps();
     _tail.store(_processor->tail_samps(), std::memory_order_relaxed);
 
@@ -1242,36 +1245,21 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
 
-    // Discontinuity requested by the host — forget history before anything this block
-    // delivers lands.
-    if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
-        _processor->reset(process::Reset::Hard{});
-        _notes.clear();
-        _bypass.clear();    // Its delay lines hold pre-seek dry audio.
-        _bypass.snap();
-    }
-
     // Resolve events.
 
     // Events are only valid for the current render cycle.
     _events.clear();
 
-    // Computed early (pure query) so the resync branch below and the can_skip-edge check
-    // can both use it before the _events array is finalized and sorted.
+    // Computed early (pure query): `_sync` needs it before the _events array is finalized and sorted.
     const auto can_skip = _bypass.can_skip_effect();
-    const auto resumed_from_skip = _was_skipped && !can_skip;
-    _was_skipped = can_skip;
-
-    // Render mode changed? 
     const auto render_mode = _offline.load(std::memory_order_relaxed) ? process::Render_mode::Offline : process::Render_mode::Realtime;
-    const auto render_mode_changed = (_last_render_mode != render_mode);
-    _last_render_mode = render_mode;
 
     // Set only when a param couldn't be pushed to the queue: "the queue lost something,
-    // restate from Globals()". Every other trigger is derivable from the edges above.
+    // restate from Globals()". The values go as plain `Set`s, realized as any edit is.
     const auto needs_resync = _needs_resync.exchange(false, std::memory_order_relaxed);
 
-    // If bypassed, have parameters changed since the last render?
+    // If bypassed, have parameters changed since the last render? SetParameter doesn't queue while
+    // bypassed (the effect may be skipped or crossfading), so they're restated from Globals().
     const auto epoch = _bypass_epoch.load(std::memory_order_relaxed);
     const auto skipped_while_bypassed = epoch != _seen_epoch;
     _seen_epoch = epoch;
@@ -1315,50 +1303,13 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         }
     }
 
-    // Realtime <-> offline is a discontinuity: the audio either side is unrelated, so
-    // forget history as well as manifesting values. `Hard` already lands values, which is
-    // why the resync branch below is an `else`.
-    if (render_mode_changed) {
-        _processor->reset(process::Reset::Hard{});
-        _notes.clear();
-        _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
-        _bypass.snap();
-    }
-
-    // Tell the client to manifest realized values immediately: either we just restated
-    // targets from the truth store above, or we're resuming from a stretch where
-    // advance_rampers() didn't run (can_skip skips process()). Delivery isn't
-    // manifestation. Called here, ahead of the drain below, so it lands before this
-    // block's own automation.
-    else if (needs_resync || skipped_while_bypassed || resumed_from_skip) {
-        _processor->reset(process::Reset::Soft{});
-    }
-
 #if TINY_HAS_NOTES_IN
-    // Host MIDI, named now, on the render thread, in the order it came.
-    auto raw = Raw_midi{};
-    const auto mpe = process::mpe_enabled(*_processor);
-    while (_midi_in.pop(raw)) {
-        _notes.from_midi(mpe, raw.status, raw.d1, raw.d2, [&](const process::Event::Any& input) {
-            if (_events.size() < _events.capacity()) _events.push_back({.event = input, .offset = raw.offset});
-        });
-    }
+    // Host MIDI, taken now and named after any restart: a restart forgets the names, so a note-on
+    // named first would lose its off. What doesn't fit waits for the next block.
+    auto raw_midi = std::array<Raw_midi, 256>{};
+    auto raw_count = size_t{};
+    while (raw_count < raw_midi.size() && _midi_in.pop(raw_midi[raw_count])) ++raw_count;
 #endif
-
-    // Sort by offset, keeping arrival order at equal offsets: a fresh Set at an offset still
-    // precedes its own Ramp, and a note's Off still precedes a retrigger's On.
-    for (auto i = size_t{}; i < _events.size(); ++i) _events[i].order = static_cast<uint32_t>(i);
-    std::ranges::sort(_events, process::before);
-
-    // Not thrilled with this, by the way.
-    const auto event_count = _events.size();
-    auto event_index = size_t{};
-    const auto* event = event_count > 0 ? &_events[event_index] : nullptr;
-
-    auto next_event = [&]() {
-        ++event_index;
-        event = (event_index < event_count) ? &_events[event_index] : nullptr;
-    };
 
     // Get host data.
     struct {
@@ -1413,13 +1364,12 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     ) == noErr;
 
     // A failed call may have written some of its outputs; report it as missing.
+    const auto host_pos = transport_ok ? process::Timeline_resolver::samples(host_data.sample_pos) : std::optional<std::int64_t>{};
     const auto block_timeline = [&]() {
         using process::Timeline;
         const auto to_bool = [](auto a) { return a != 0; };
         auto t = Timeline{};
-        auto host_pos = std::optional<std::int64_t>{};
         if (transport_ok) {
-            host_pos = process::Timeline_resolver::samples(host_data.sample_pos);
             t.cycle = Timeline::Cycle{host_data.cycle_start, host_data.cycle_end};
             t.state = Timeline::State{
                 .moving = to_bool(host_data.is_playing),
@@ -1436,6 +1386,83 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
         }
         return _timeline.resolve(t, host_pos, nFrames, _sr);
     }();
+
+    // Restart wherever the processor's input is discontinuous, with the values the host holds now.
+    // Offline, a discontinuity holds the processor back until the render reaches the timeline:
+    // Logic sends no automation for its pre-roll, and `Globals()` is the last locate's until it does.
+    const auto plan = _sync.next({
+        .host_reset = _needs_clear.exchange(false, std::memory_order_relaxed),
+        .render_mode = render_mode,
+        .skipping = can_skip,
+        .position = host_pos,
+        .frames = nFrames,
+    }, [&] {
+#if TINY_HAS_NOTES_IN
+        auto content = raw_count > 0;
+#else
+        auto content = false;
+#endif
+        if constexpr (Plug_info::Wants::audio_in) {
+            for (auto i = UInt32{}; !content && i < Input(0).NumberChannels(); ++i) {
+                const auto* channel = static_cast<const float*>(Input(0).GetFloat32ChannelData(i));
+                content = process::any_signal({&channel, 1}, nFrames);
+            }
+        }
+        if (Plug_info::wants_sidechain && sidechain_ok) {
+            for (auto i = UInt32{}; !content && i < Input(sidechain_input).NumberChannels(); ++i) {
+                const auto* channel = static_cast<const float*>(Input(sidechain_input).GetFloat32ChannelData(i));
+                content = process::any_signal({&channel, 1}, nFrames);
+            }
+        }
+        return content;
+    });
+    if (plan.restart != process::Stream_sync::Restart::None) {
+        const auto values = process::restart_values<num_params>([this](uint32_t address) {
+            const auto host = Globals()->GetParameter(static_cast<AudioUnitParameterID>(address));
+            return params::Value_helper::host_to_plain(host, User_params::param_spec(address).semantics);
+        }, _events);
+        _processor->reset(process::Reset::Restart{values});
+        if (plan.restart == process::Stream_sync::Restart::Stream) {
+            _notes.clear();
+            _bypass.clear(); // Its delay lines hold audio from before the discontinuity.
+            _bypass.snap();
+        }
+    }
+    if (plan.hold) {
+        // Pre-roll on values nobody has sent: silence, and the processor doesn't advance. The block's
+        // parameter events are dropped: `Globals()` already holds them, and the restart will read it.
+        for (auto i = UInt32{}; i < Output(0).NumberChannels(); ++i) {
+            auto* channel = static_cast<float*>(Output(0).GetFloat32ChannelData(i));
+            std::fill(channel, channel + nFrames, 0.f);
+        }
+        ioActionFlags |= kAudioUnitRenderAction_OutputIsSilence;
+        return noErr;
+    }
+
+#if TINY_HAS_NOTES_IN
+    // Host MIDI, named now, in the order it came.
+    const auto mpe = process::mpe_enabled(*_processor);
+    for (const auto& raw : std::span{raw_midi.data(), raw_count}) {
+        _notes.from_midi(mpe, raw.status, raw.d1, raw.d2, [&](const process::Event::Any& input) {
+            if (_events.size() < _events.capacity()) _events.push_back({.event = input, .offset = raw.offset});
+        });
+    }
+#endif
+
+    // Sort by offset, keeping arrival order at equal offsets: a fresh Set at an offset still
+    // precedes its own Ramp, and a note's Off still precedes a retrigger's On.
+    for (auto i = size_t{}; i < _events.size(); ++i) _events[i].order = static_cast<uint32_t>(i);
+    std::ranges::sort(_events, process::before);
+
+    // Not thrilled with this, by the way.
+    const auto event_count = _events.size();
+    auto event_index = size_t{};
+    const auto* event = event_count > 0 ? &_events[event_index] : nullptr;
+
+    auto next_event = [&]() {
+        ++event_index;
+        event = (event_index < event_count) ? &_events[event_index] : nullptr;
+    };
 
     // Create the context.
     auto context = process::Context{};
@@ -1516,8 +1543,8 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     auto now = decltype(frame_count){};
     auto remaining = frame_count;
 
-    // can_skip computed earlier, before _events was built.
-    if (can_skip) {
+    // Asked again: a stream restart snaps the bypass, which can change the answer.
+    if (_bypass.can_skip_effect()) {
         // Manifest events until end of block.
         while (event) {
             _input(event->event, event->offset);

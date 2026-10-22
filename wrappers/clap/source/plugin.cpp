@@ -66,6 +66,7 @@ bool Plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t ma
         .sr = sampleRate,
         .params = config_values
     });
+    _sync.configured(sampleRate); // The audio thread is stopped while activating.
     _latency = _processor->latency_samps();
 
     _bypass.reset(static_cast<float>(sampleRate));
@@ -112,13 +113,34 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
 
-    // Discontinuity requested by the host — forget history before anything this block
-    // delivers lands.
-    if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
-        _processor->reset(process::Reset::Hard{});
-        _notes.clear();
-        _bypass.clear();    // Its delay lines hold pre-seek dry audio.
-        _bypass.snap();
+    // Restart wherever the processor's input is discontinuous (`reset`, the render-mode edge, a
+    // fresh activate, resuming after the skip), with the host's values at the top of this block.
+    // Before anything this block delivers, so flushed values and editor edits land after it as events.
+    const auto render_mode = _offline.load(std::memory_order_relaxed) ? process::Render_mode::Offline : process::Render_mode::Realtime;
+    const auto plan = _sync.next({
+        .host_reset = _needs_clear.exchange(false, std::memory_order_relaxed),
+        .render_mode = render_mode,
+        .skipping = _bypass.can_skip_effect(),
+        .frames = process->frames_count,
+    }, [] { return false; });
+    if (plan.restart != process::Stream_sync::Restart::None) {
+        auto values = process::restart_values<num_params>([this](uint32_t address) {
+            const auto host = _hostvalues[address].load(std::memory_order_relaxed);
+            return params::Value_helper::host_to_plain(host, User_params::param_spec(address).semantics);
+        }, {});
+        for (auto i = uint32_t{}; i < process->in_events->size(process->in_events); ++i) {
+            const auto* header = process->in_events->get(process->in_events, i);
+            if (header->time > 0 || header->space_id != CLAP_CORE_EVENT_SPACE_ID || header->type != CLAP_EVENT_PARAM_VALUE) continue;
+            const auto* value_event = reinterpret_cast<const clap_event_param_value*>(header);
+            if (value_event->param_id >= num_params) continue;
+            values[value_event->param_id] = params::Value_helper::host_to_plain(value_event->value, User_params::param_spec(value_event->param_id).semantics);
+        }
+        _processor->reset(process::Reset::Restart{values});
+        if (plan.restart == process::Stream_sync::Restart::Stream) {
+            _notes.clear();
+            _bypass.clear(); // Its delay lines hold audio from before the discontinuity.
+            _bypass.snap();
+        }
     }
 
     // Resolved once so both queues agree on whether this block is a resync.
@@ -133,10 +155,6 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
             const auto plain = Value_helper::host_to_plain(host_value, spec.semantics);
             _processor->handle(process::Event::Set{.value = plain, .address = addr});
         }
-
-        // Manifest immediately — a client reading realized state (e.g. an open editor)
-        // shouldn't see stale values for the whole inactive/sleeping stretch.
-        _processor->reset(process::Reset::Soft{});
     }
     this->_handle_host_flushed();
     this->_handle_user_actions(process->out_events, needs_resync);
@@ -170,18 +188,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
 #if TINY_HAS_BLOCKS
     context.blocks = blocks::Writer{&_blocks};
 #endif
-    context.render_mode = _offline.load(std::memory_order_relaxed) ? process::Render_mode::Offline : process::Render_mode::Realtime;
-
-    // We need to resync on render mode edge.
-    // Realtime <-> offline is a discontinuity: the audio either side is unrelated, so
-    // forget history as well as manifesting values.
-    if (_last_render_mode != context.render_mode) {
-        _processor->reset(process::Reset::Hard{});
-        _notes.clear();
-        _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
-        _bypass.snap();
-        _last_render_mode = context.render_mode;
-    }
+    context.render_mode = render_mode;
 
     // Resolve transport.
     const auto block_timeline = this->_resolve_transport(process);
@@ -255,23 +262,12 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // Interpret zero frame count as a flush.
     const auto renders_audio = frame_count > 0;
 
-    // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
-    // process()) — settle before this block's own automation lands, not after.
-    if (_was_skipped && !can_skip) {
-        _processor->reset(process::Reset::Soft{});
-    }
-    _was_skipped = can_skip;
-
     if (can_skip || !renders_audio) {
-        // Manifest events until end of block.
-        auto delivered = false;
+        // Deliver events until end of block. Realized at the next block that renders, or landed
+        // exactly by a restart if a gap comes first.
         while (event) {
             this->_handle_host_event<true>(event);
             next_event();
-            delivered = true;
-        }
-        if (!renders_audio && delivered) {
-            _processor->reset(process::Reset::Soft{});
         }
     }
     else {
@@ -1372,11 +1368,9 @@ auto Plugin::_handle_host_flushed() -> void
     const auto deliver = [this](uint32_t address, double value) {
         _processor->handle(process::Event::Set{.value = value, .address = address});
     };
-    const auto loaded = _from_load.consume(deliver);
-    const auto flushed = _from_flush.consume(deliver); // After: a flush is the newer word from the host.
-    if (loaded || flushed) {
-        _processor->reset(process::Reset::Soft{});
-    }
+    // Loads and flushes are edits: the processor realizes them as it does any other.
+    _from_load.consume(deliver);
+    _from_flush.consume(deliver); // After: a flush is the newer word from the host.
 }
 
 auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool needs_resync) -> void

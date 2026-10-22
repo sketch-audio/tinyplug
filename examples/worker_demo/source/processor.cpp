@@ -27,11 +27,26 @@ auto shape(const models::Curve_table& table, float x) -> float
 
 auto Processor::configure(const Config& config) -> void
 {
-    _frame = models::Channel_frame{.drive = 1., .table = identity(), .sr = config.sr};
-    _drive = config.params[enum_raw(Address::Drive)];
+    _frame.sr = config.sr;
+    _adopt(config.params);
+}
+
+// Back to the identity curve, asking the worker for Drive's: a restart owes what `configure` leaves.
+auto Processor::_adopt(std::span<const double> params) -> void
+{
+    _frame = models::Channel_frame{.drive = 1., .table = identity(), .sr = _frame.sr};
+    _drive = params[enum_raw(Address::Drive)];
     _design = true;
     _clock = 0;
     _next_beat = 0;
+}
+
+auto Processor::reset(const Reset::Any& reset) -> void
+{
+    std::visit(Inline_visitor{
+        [this](const Reset::Restart& r) { _adopt(r.params); },
+        [](const Reset::Latency&) {}
+    }, reset);
 }
 
 auto Processor::handle(const Event::Param& event) -> void

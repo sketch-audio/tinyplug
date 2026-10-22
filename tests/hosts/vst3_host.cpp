@@ -17,6 +17,7 @@
 #include <format>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -634,6 +635,178 @@ auto deactivate(Instance& i) -> void
 constexpr auto rates = std::array{44100., 48000., 88200., 96000.};
 constexpr auto block_sizes = std::array{32, 64, 128, 512, 1024, 4096};
 
+// MARK: - bounces
+
+// Reproducible bounces, against the AutomationDemo's Phase Out probe (a sine whose frequency follows
+// Value, with a phase that never forgets). VST3 sends values in-band, so an export's first value arrives
+// at offset 0 of its first block: the restart has to land it, not glide to it from a stale one. Each take
+// runs on its own audio thread, block by block, so the same take is the same sequence of calls.
+class Bouncer {
+public:
+
+    struct Profile {
+        const char* name{};
+        bool resetup{};   // The host re-runs setupProcessing in offline mode, as an export does.
+        int64 start{};
+        int32 frames{512};
+    };
+
+    static constexpr auto rate = 48000.;
+    static constexpr auto length = int64{24000};
+
+    explicit Bouncer(Instance& instance) : _i{instance}, _inputs{8}, _outputs{static_cast<int32>(instance.params.size()) + 64}
+    {
+        const auto title = [](const ParameterInfo& info) {
+            auto out = std::string{};
+            for (auto c = 0; c < 128 && info.title[c]; ++c) out.push_back(static_cast<char>(info.title[c]));
+            return out;
+        };
+        for (const auto& info : instance.params) {
+            if (title(info) == "Value") _value = info.id;
+            if (title(info) == "Phase Out") _phase_out = info.id;
+        }
+        _data.prepare(*instance.component, 4096, kSample32);
+        _data.inputParameterChanges = &_inputs;
+        _data.outputParameterChanges = &_outputs;
+    }
+
+    auto probed() const -> bool { return _value && _phase_out; }
+
+    static auto lane(int64 position) -> double
+    {
+        return 0.5 + 0.4 * std::sin(2. * 3.141592653589793 * static_cast<double>(std::max<int64>(position, 0)) / 12000.);
+    }
+
+    // The playhead parked at `parked`, realtime, Value left at `stale`.
+    auto history(int64 parked, double stale) -> void
+    {
+        run(parked, 512, 6, kRealtime, false, [&](int64, bool first) {
+            if (!first) return;
+            point(*_phase_out, 1.);
+            point(*_value, stale);
+        }, 0, nullptr);
+    }
+
+    // An offline render from `p.start`, the lane's value at offset 0 of every block.
+    auto bounce(const Profile& p, bool send_phase_out = false) -> std::vector<float>
+    {
+        if (p.resetup) resetup(true);
+        auto out = std::vector<float>{};
+        const auto blocks = static_cast<int>((length + p.frames - 1) / p.frames);
+        run(p.start, p.frames, blocks, kOffline, true, [&](int64 position, bool first) {
+            if (first && send_phase_out) point(*_phase_out, 1.);
+            point(*_value, lane(position));
+        }, p.start, &out);
+        if (p.resetup) resetup(false);
+        return out;
+    }
+
+    auto resetup(bool offline) -> void
+    {
+        _i.component->setActive(false);
+        _i.setup(rate, 4096, offline);
+        _i.component->setActive(true);
+    }
+
+private:
+
+    Instance& _i;
+    std::optional<ParamID> _value{}, _phase_out{};
+    HostProcessData _data{};
+    ParameterChanges _inputs;
+    ParameterChanges _outputs;
+    ProcessContext _context{};
+
+    auto point(ParamID id, double value) -> void
+    {
+        auto index = int32{};
+        if (auto* queue = _inputs.addParameterData(id, index)) queue->addPoint(0, value, index);
+    }
+
+    template<typename Values>
+    auto run(int64 start, int32 frames, int blocks, int32 mode, bool moving, Values&& values, int64 from, std::vector<float>* capture) -> void
+    {
+        auto thread = std::thread{[&] {
+            _i.processor->setProcessing(true);
+            auto position = start;
+            for (auto b = 0; b < blocks; ++b) {
+                _inputs.clearQueue();
+                _outputs.clearQueue();
+                values(position, b == 0);
+                _data.numSamples = frames;
+                _data.processMode = mode;
+                for (auto bus = 0; bus < _data.numInputs; ++bus)
+                    for (auto c = 0; c < _data.inputs[bus].numChannels; ++c) std::fill_n(_data.inputs[bus].channelBuffers32[c], frames, 0.f);
+                _context.state = ProcessContext::kTempoValid | ProcessContext::kProjectTimeMusicValid | (moving ? ProcessContext::kPlaying : 0);
+                _context.sampleRate = rate;
+                _context.tempo = 120;
+                _context.projectTimeSamples = position;
+                _context.projectTimeMusic = static_cast<double>(position) * 2 / rate;
+                _data.processContext = &_context;
+                expect_true(_i.processor->process(_data) == kResultOk, "process failed");
+                if (capture && _data.numOutputs > 0) {
+                    for (auto f = 0; f < frames; ++f) {
+                        const auto at = position + f;
+                        if (at >= from && at < from + length) capture->push_back(_data.outputs[0].channelBuffers32[0][f]);
+                    }
+                }
+                if (moving) position += frames;
+            }
+            _i.processor->setProcessing(false);
+        }};
+        thread.join();
+    }
+};
+
+auto first_difference(const std::vector<float>& a, const std::vector<float>& b) -> std::string
+{
+    if (a.size() != b.size()) return std::format("lengths {} and {}", a.size(), b.size());
+    for (auto i = size_t{}; i < a.size(); ++i) {
+        if (a[i] != b[i]) return std::format("first at sample {}: {} vs {}", i, a[i], b[i]);
+    }
+    return "none";
+}
+
+auto add_bounce_scenarios(const Bundle& bundle) -> void
+{
+    {
+        auto violations = Violations{};
+        auto instance = Instance{bundle, violations};
+        if (!Bouncer{instance}.probed()) return; // The probe is the AutomationDemo's.
+    }
+
+    using Profile = Bouncer::Profile;
+    for (const auto& profile : {Profile{.name = "an export that re-runs setupProcessing", .resetup = true, .start = 0},
+                                Profile{.name = "a host that only flips the block's processMode", .start = 48000, .frames = 384}}) {
+        Tests::add(std::format("bounce: {}: two takes after different histories are identical, and equal a fresh instance", profile.name), [&bundle, profile] {
+            auto violations = Violations{};
+            auto a = std::vector<float>{}, b = std::vector<float>{}, reference = std::vector<float>{};
+            {
+                auto instance = Instance{bundle, violations};
+                activate(instance, Bouncer::rate, 4096, false);
+                auto bouncer = Bouncer{instance};
+                bouncer.history(123456, 0.1);
+                a = bouncer.bounce(profile);
+                bouncer.history(987654, 0.9);
+                b = bouncer.bounce(profile);
+                deactivate(instance);
+            }
+            {
+                auto instance = Instance{bundle, violations};
+                activate(instance, Bouncer::rate, 4096, true);
+                auto bouncer = Bouncer{instance};
+                auto fresh = profile;
+                fresh.resetup = false;
+                reference = bouncer.bounce(fresh, true);
+                deactivate(instance);
+            }
+            expect_true(a == b, std::format("takes differ: {}", first_difference(a, b)));
+            expect_true(a == reference, std::format("a take differs from a fresh instance: {}", first_difference(a, reference)));
+            check_clean(violations, "bounce");
+        });
+    }
+}
+
 // MARK: - scenarios
 
 auto add_scenarios(const Bundle& bundle) -> void
@@ -662,6 +835,57 @@ auto add_scenarios(const Bundle& bundle) -> void
         }
         tiny::hosts::pump_main(20ms);
         check_clean(violations, "lifecycle");
+    });
+
+    // A restart forgets note names, so a note named before it would lose its off and sound forever.
+    Tests::add("notes: a note-on in the first block after setProcessing still ends at its note-off", [&bundle] {
+        auto violations = Violations{};
+        {
+            auto instance = Instance{bundle, violations};
+            if (instance.event_inputs == 0) return;
+            activate(instance, 48000, 512, false);
+            auto data = HostProcessData{};
+            data.prepare(*instance.component, 512, kSample32);
+            data.processMode = kRealtime;
+            auto events = EventList{8};
+            data.inputEvents = &events;
+            auto thread = std::thread{[&] {
+                const auto render = [&] {
+                    data.numSamples = 512;
+                    for (auto b = 0; b < data.numInputs; ++b)
+                        for (auto c = 0; c < data.inputs[b].numChannels; ++c) std::fill_n(data.inputs[b].channelBuffers32[c], 512, 0.f);
+                    expect_true(instance.processor->process(data) == kResultOk, "process failed");
+                    events.clear();
+                    auto peak = 0.f;
+                    for (auto b = 0; b < data.numOutputs; ++b)
+                        for (auto c = 0; c < data.outputs[b].numChannels; ++c)
+                            for (auto f = 0; f < 512; ++f) peak = std::max(peak, std::abs(data.outputs[b].channelBuffers32[c][f]));
+                    return peak;
+                };
+                const auto note = [&](bool on) {
+                    auto e = Event{};
+                    e.busIndex = 0;
+                    e.type = on ? Event::kNoteOnEvent : Event::kNoteOffEvent;
+                    if (on) e.noteOn = {0, 60, 0.f, 0.8f, 0, -1};
+                    else e.noteOff = {0, 60, 0.f, -1, 0.f};
+                    events.addEvent(e);
+                };
+                for (auto take = 0; take < 2; ++take) {
+                    instance.processor->setProcessing(true);
+                    note(true);
+                    auto sounding = 0.f;
+                    for (auto b = 0; b < 20; ++b) sounding = std::max(sounding, render());
+                    note(false);
+                    for (auto b = 0; b < 48000 * 4 / 512; ++b) (void)render(); // Past any release.
+                    const auto left = render();
+                    if (sounding > 0.f) expect_true(left == 0.f, std::format("take {}: still sounding at {} four seconds after the note-off", take, left));
+                    instance.processor->setProcessing(false);
+                }
+            }};
+            thread.join();
+            deactivate(instance);
+        }
+        check_clean(violations, "notes");
     });
 
     Tests::add("state: save, load, save is identical, whole and trickled, inactive and active", [&bundle] {
@@ -884,6 +1108,7 @@ auto main(int argc, char** argv) -> int
     try {
         const auto bundle = Bundle{g_options.bundle};
         add_scenarios(bundle);
+        add_bounce_scenarios(bundle);
         return audio_bench::Tests::run_all() == 0 ? 0 : 1;
     }
     catch (const std::exception& e) {

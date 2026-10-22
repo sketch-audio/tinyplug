@@ -11,7 +11,9 @@ namespace tiny::process {
 // parameter sets and ramps, `configure`, every reset and the render mode (realtime or offline). The editor draws the realized Value
 // and the log; with logging compiled in (Debug), each entry also goes to the tinyplug log
 // (category `params`). With DC Out on, the output is the realized Value, so a bounce is the
-// automation curve; off, audio passes through.
+// automation curve; off, audio passes through. Phase Out is the history probe: a sine whose frequency
+// follows Value through a slew limiter, with a phase that never forgets, so the output is a function
+// of every value the processor ever rendered on since the last restart.
 class Processor {
 public:
 
@@ -58,6 +60,12 @@ private:
     std::array<float, num_params> _values{tiny::params::make_defaults<float, User_params>(Plain)};
     Ramp _value{};
 
+    // The probe: Value slewed at most `slew` per sample, integrated into a phase.
+    static constexpr auto slew = 1.f / 256.f;
+    float _smooth{};
+    double _phase{};
+    double _sr{48000.};
+
     int64_t _clock{}; // Frames since `configure`.
     std::optional<Render_mode> _render{}; // Logged on the first block and at every change.
     models::Log_frame _log{};
@@ -66,6 +74,7 @@ private:
     float _hi{0.f};
     int32_t _filled{};
 
+    auto _adopt(std::span<const double> params) -> void;
     auto _record(Kind kind, uint32_t address, double value, int32_t dur = 0) -> void;
     auto _trace_sample(float value, int64_t at) -> void;
 

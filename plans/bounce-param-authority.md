@@ -1,666 +1,428 @@
-# Bounce Parameter Authority — deferred
+# Plan: Reproducible bounces — `Restart` replaces `Hard`/`Soft`, and offline renders hold until the timeline
 
-_Sessions 2026-09-16 and 2026-09-18. **Deferred by Ryan 2026-09-18.** Both repos returned to
-a clean state; nothing from this work is in the tree. This document is the whole record —
-it carries the diagnosis, the measured fix, the exact diff to re-apply, and the risk list
-that has to be worked through before it ships._
+> Status: **in the tree, 2026-10-22, unmeasured in a real DAW.** Steps 1–4 of "Order of work" are done:
+> `Reset::Restart{params}` (`Soft` gone), `process::Stream_sync` in every wrapper but AAX, the hold in AUv2,
+> bounce profiles in the CLAP, VST3, AUv2 and AUv3 fake hosts, and the contract checks (tools/contract_checks) on every demo. What remains
+> is real Logic (step 5), the all_plugins port (step 6), and the decisions below. Replaces the plan deferred on
+> 2026-09-18 (diagnosis and evidence kept below) and settles the reset-API rethink from 2026-10-01.
 
-Lives in `tinyplug` because the fix is wrapper-side. `all_plugins` needs **no changes at all**.
+## Goal
 
----
+A plug-in built on tinyplug renders **perfectly repeatable bounces by default**, given a host that provides a
+reproducible environment. The property is **history independence**: two offline renders of the same range,
+started after different histories (playhead parked elsewhere, other bounces before it), are bit-identical from
+the timeline origin on.
 
-## Status
+The defect that breaks it today is Logic's pre-roll: a render from the timeline origin starts ~288 samples before
+0, and for those samples Logic delivers no automation while its own parameter store still holds whatever the last
+playhead locate left. The plug-in renders on undefined parameter state. Fixing that motivated the reset rethink,
+so both are one plan.
 
-| | |
-|---|---|
-| Diagnosis | **Complete.** Root cause understood and measured. |
-| Fix | **Written and verified twice** (AUv2/Logic), then reverted. |
-| API impact | **None.** `Reset::Hard`/`Soft` preserved. |
-| Blocking issue | Risk #1 below — the deferral also fires on realtime transport, where it is audible. |
-| Tree state | Clean. Autolog instrumentation deleted (see "Re-adding the instrumentation"). |
+## Principles
 
-**To resume:** apply the diff in "The fix", rebuild with `-DTINY_AUTOLOG=1`, work the risk
-list in "Recommended order" — starting by gating the deferral on `Render_mode::Offline`.
+- **The processor is dumb.** It receives what it needs to render correctly and nothing about why: no "this was a
+  preset", "a session load", "a bypass", "a bounce". Two kinds of input reach it:
+  - **events** (`handle`): live, at a frame offset. How it realizes them (ramps, smoothing, jumps) is its policy.
+  - **commands** (`reset`): block-boundary facts it must adopt for correctness, each with a contract a test can
+    check.
+- **A command is issued only where correctness needs one**: the processor's input stream is discontinuous, or the
+  host made a decision the processor must adopt. Everything else is events.
+- **The framework owns when; the processor owns how.** Which situations are discontinuities, and when the values
+  are known, is wrapper knowledge. It moves out of five hand-rolled copies into one helper.
 
----
+## Design
 
-## TL;DR
-
-Two bounces of the same Logic project produce different audio. The cause is **not** our
-automation handling — the host's automation delivery is byte-identical between takes. The
-plug-in renders the first block of every render with **whatever parameter values the last
-playhead locate left behind**, because neither the host's store nor our own ramper targets
-have been updated for the render-start position yet.
-
-The damage is permanent only for state that integrates without decay (Galaxy Brain's
-frequency-shifter carrier phase). Everything else forgets within milliseconds, which is why
-this shipped.
-
-**Solved for AUv2/Logic, verified twice, in two different shapes.** The final shape needs no
-API change: at the first block reaching the timeline, restate every parameter from the
-host's store as ordinary `Event::Set`s, then issue the existing `Reset::Hard{}`.
-
----
-
-## The defect, precisely
-
-1. At the start of an offline render, the plug-in's parameters **and** Logic's own
-   `Globals()` store hold the automation value at the **playhead** — not at the render-start
-   position. The two agree with each other, so no host<->plug-in resync can detect it. The
-   staleness is internal to Logic, between its live parameter state and its own lane.
-
-2. Logic implements sample-accurate plug-in automation by **subdividing the render buffer**
-   (multiples of 32 samples, max 384; 1024 when no automation is active) and calling
-   `SetParameter` at offset 0 between sub-blocks. It never calls `ScheduleParameter`. It
-   delivers from its first 32-sample grid boundary onward — the render's initial alignment
-   remainder gets nothing. **This is specific to a render starting at the timeline origin**:
-   a midstream render's first block arrives carrying events (see Verification).
-
-3. That first block is therefore rendered on the playhead's value. Its input and output are
-   **bit-exact silence**, but it still advances effect state.
-
-4. The playhead is usually parked somewhere different before each take, so the stale value
-   differs — which is what makes the renders differ. Park the playhead identically and two
-   bounces match, while both remain wrong relative to a proper chase.
-
-### What the committed code actually depends on
-
-Worth stating precisely, because it is easy to get wrong. The committed path at a bounce
-edge is:
+### 1. The processor API
 
 ```cpp
-if (render_mode_changed) {
-    _processor->reset(process::Reset::Hard{});   // = clear(); snap();
+struct Reset {
+    // Your input stream is discontinuous: a seek, a host reset, the render-mode edge, resuming after the bypass
+    // skip. Output from here on must not depend on anything before, and the parameters are exactly `params`
+    // (plain space, indexed by address, borrowed for the call, always filled).
+    //
+    // Owes: the processor ends where `configure(sr, params)` would leave it, except `latency_samps()`, which keeps
+    // the accepted value. If `params` imply another latency, propose it from `process`; the host owns the number.
+    // "Forget history" means transient processing state only: recorded content (a looper's loop, a loaded sample)
+    // is persisted state, not history, and survives.
+    struct Restart { std::span<const double> params{}; };
+
+    // The host accepted a latency proposal: `latency_samps() == samples` on return. Exactly once per acceptance.
+    struct Latency { std::uint32_t samples{}; };
+
+    using Any = std::variant<Restart, Latency>;
+};
 ```
 
-`snap()` settles the adapter's **own held ramper targets**. `Globals()` is never consulted.
-Those targets are nothing but the accumulated residue of every `SetParameter` delivered so
-far — i.e. the value at wherever the playhead last sat. So the dependency is **not** "the
-host synchronised its store". It is:
+- **`Soft` is deleted.** Every case it served is a live change (see the mapping), so it becomes events and the
+  processor's own smoothing. A processor no longer judges "what must land exactly now".
+- **`params` is always filled**, never optional. An optional span would give every processor two code paths and
+  make the contract ("equals `configure(params)`") unconditional only half the time. Every wrapper holds the
+  values.
+- **Carrying the values removes the call-order trap.** Today the wrapper sends `Set`s and *then* `Hard`, and
+  `Hard` settles whatever the processor holds; reversed, it settles stale values. That order was load-bearing in
+  the old fix. It also restores the old `_adopt_params` latency fold for free (old risk 3).
+- **Per block, in this order:** `Latency`, then `Restart`, then the block's events. The usual processor pattern is
+  one private `_adopt(params, forget_history)` that both `configure` and `Restart` call.
 
-> The host must have **delivered** the render-start values as parameter events **before the
-> first offline `Render` call**.
+### 2. What `params` holds
 
-The window closes at the first offline block, not at the first event: `Hard{}` fires at
-`effect.cpp:1095` while the event drain (`_processor->handle`) is at 1255/1282. An event at
-offset 0 of the bounce's own first block is already too late — `snap()` has settled the
-stale target, and the correct value arrives afterwards as a new target the ramper **glides
-into from stale**.
+The host's stored values, in plain space, with **this block's offset-0 `Set`s folded in** and consumed. `Ramp`s
+carry only a target, so they stay events. Folding is what lands the first automation point of an in-band format
+(VST3, CLAP, AUv3), which today arrives after `Hard` and glides in from stale.
 
-This is exactly why Option 1 (read `Globals()` at the render-mode edge) measured no
-improvement: at that edge in Logic both the store *and* our targets are stale.
-
-### Hosts where the committed code is already correct
-
-- **Ableton — measured.** Two bounces bit-identical under committed code: render starts at
-  pos 0, no pre-roll, store already holds the render-start value at the reset. It chases
-  *before* the render begins, so delivery lands inside the window.
-- **Logic, midstream renders — inferred.** The bar 5-9 run showed block 0 carrying 4 events
-  with `GLOBALS addr 1 = -1.99999809` correct and identical in both takes, so the chase was
-  delivered before that block. Committed code should reproduce there for the same reason.
-  *Not directly measured* — the midstream run was done with the fix applied.
-
-So the shipped defect is narrow: **Logic, on a render that starts at the timeline origin** —
-the one case where Logic behaves like a cycle wrap rather than a locate and delivers no
-chase at all.
-
-### Why it survived to ship
-
-On most effects it is a sub-20 ms transient at the head of a file. And reproducibility
-testing that bounces twice without touching the transport **passes**, because bounce 2 and
-bounce 3 both start from bounce 1's end value. Only bounce 1 differs. (Predicted, not yet
-verified — see "Open questions".)
-
----
-
-## Evidence
-
-Measured with `TINY_AUTOLOG` instrumentation (see "Re-adding the instrumentation").
-
-- **Automation delivery is identical between takes.** Offline-only APPLY streams: 1357
-  events (Galaxy Brain) / 1693 (Scissor Hands), same values at the same absolute timeline
-  positions, both bounces. The early "delivery race" hypothesis is **dead**.
-- **`GLOBALS` differs in exactly one parameter — the automated one.**
-- **Block 0 is silence in, silence out.** Its `ohash` matches a synthetic all-zeros FNV to
-  the bit (2048 / 2304 zero bytes). It primes nothing and cannot.
-- **Logic has a chase and skips it here.** In realtime, pressing play delivers **88 events
-  in the first block** — every parameter, `addr 87->0`, at `pos=-428`. A **cycle wrap**
-  delivers **0**. An **offline bounce start** delivers **0**. So a bounce behaves like a
-  wrap, not like a locate. Logic isn't missing the machinery; a bounce start isn't a locate.
-- **Looped playback has the same gap** — every lap begins with ~428 samples on the previous
-  lap's final value.
-- **Cycle on vs cycle off made no difference.** Logic reports `cyc=0` during an offline
-  render either way, same block layout.
-
-### Host comparison (same plug-in, same wrapper)
-
-| | Logic | Ableton |
+| Format | Store | Space |
 |---|---|---|
-| Render start | pos **-284** (pre-roll) | pos **0** — none |
-| Block sizes | subdivided 32...384, 1024 idle | fixed **2048**, never split |
-| Automation offsets | always `off=0` | **real offsets** — 4, 260, 332, 388, 428, 908... |
-| First block | `events=0` | **`events=1`** |
-| Stale window | **288 samples** | **4 samples** (= reported latency) |
-| `Globals()` at the reset | playhead value — **stale** | **correct render-start value** |
-| Two bounces | diverged | bit-identical |
+| AUv2 | `Globals()` | host |
+| VST3 | `_host_values` | knob |
+| AUv3 | `_hostvalues` (DSPKernel) | host |
+| CLAP | `_hostvalues` | host |
+| AAX | `Alg_state::shadow` | plain, already what the algorithm has seen |
+| Web | the processor module's param mirror | plain |
 
----
+`num_params` is compile-time, so the vector is a stack array in the render call: no member state.
 
-## The three layers
+### 3. When: one helper, `Stream_sync`
 
-Contamination from the stale-parameter window lands in three distinct places. Any fix has
-to be evaluated against all three.
-
-| # | Layer | Fix | Recovers on its own? |
-|---|---|---|---|
-| 1 | Adapter's parameter ramper glides from the stale value | land the first post-discontinuity value | **yes, exactly, in finite time** — see correction below |
-| 2 | The **effect's own internal smoothers** (fed by `prepare()`, glide regardless of input) | `snap()` reaches them | decays — Scissor Hands' 14.7 ms residual |
-| 3 | **Non-decaying state** — Galaxy Brain's carrier phase | must not advance on unauthoritative params | **never** |
-
-> **Correction (2026-09-18).** An earlier revision of this plan said layer 1 "never exactly
-> converges, with `One_pole`". That is wrong for the shipping catalogue. Every product
-> delegates to `default_ramp_policy` (`shared/processor/effect_shared.hpp`), which returns
-> `Linear` for `Real`/`Fixed` and `Instant` for everything else. **No product selects
-> `One_pole`** — the overrides in `galaxy_brain` and `scissor_hands` go the *other* way,
-> toward `Instant`, so modulation rates don't smear phase. Layer 1 therefore converges
-> exactly after the ramp duration. The permanent damage is layer 3 alone.
-
-Layer 3 needs no dedicated fix. `clear()` sets `_moving = false`, so a deferred discontinuity
-makes the next `process()` see the `!_moving && moving` edge again and re-fire
-`timeline_started()` -> `_shifter.restart()`. The carrier re-anchors *after* the parameters
-are authoritative instead of before the stale pre-roll. (This re-fire is also risk #2 — see
-Risks.)
-
-Layer 2 was the surprise — pre-roll is silence, so no filter *history* is excited. The
-residual is **coefficient** history.
-
-> **The invariant worth keeping:** *no state that integrates without decay may advance on
-> unauthoritative parameters.*
-
-### Practical severity, by product
-
-- **Layers 1-2 only:** a head transient that dies within tens of milliseconds; the rest of
-  the file is bit-identical. Two bounces differ only at the very start.
-- **Layer 3 present (Galaxy Brain; Doctor Vibe, cause unidentified):** the whole render is
-  offset. Permanent. This is the real bug.
-
-Discrete params (`Bool`/`List`/`Int`) are `Instant`, so a stale mode doesn't glide — but
-whatever the DSP did while holding the wrong mode can still feed layer 3.
-
----
-
-## Options tried, and why they were rejected
-
-**Option 1 — restate from `Globals()` at the render-mode edge.** Implemented, measured, no
-improvement. `Globals()` is stale in exactly the same way in Logic; it swapped one stale
-source for another. *Still useful under Ableton*, where the store is correct.
-
-**Option 2 — snap-on-first-value latch in the client.** A per-parameter "next `set` lands"
-flag armed by `clear()`. Worked: Scissor Hands 1.115 s -> **14.7 ms**. Rejected on design
-grounds — Ryan wanted the client to blindly follow directions, not carry hidden state.
-
-**Option 3 — defer only the `snap()`.** Rejected: `clear()` at block 0 doesn't prevent
-pre-roll contamination (the damage happens *after* the clear), and `Ramped_params::clear()`
-was a **no-op**, so clear/snap didn't partition parameter state the way the names suggest.
-
-**Option 4 — defer the whole discontinuity until the first block reaching the timeline.**
-**The mechanism that works.** Bit-identical on both instrumented products, twice.
-
-**Option 5 — a reset that carries the values.** Correct and necessary: deferral alone is not
-enough (see below). First expressed as a `Clear`/`Sync{params}` API rewrite, then — in the
-final shape — as a plain restatement through `handle()`, which needs no API change at all.
-
-**Option 6 — wrapper applies offset-0 events, then resets.** Rejected: relies on call
-ordering, which tinyplug's own AAX source warns against — *"an unenforceable rule with a
-silent, format-specific failure mode."* Also only covers parameters whose first event is at
-offset 0, and the equal-offset sort is `std::ranges::sort` (not stable).
-
-**Option 7 — one-block lookahead** (buffer pre-roll, re-run once values land). Correct but
-costs latency/PDC churn and scales badly. Not pursued.
-
-**Option 8 — PLL / position-derived carrier phase.** Rejected for audio-rate oscillators:
-slewing carrier phase *is* frequency modulation and would be audible. The requirement is
-only that phase be a deterministic function of the timeline — **anchoring** achieves that
-exactly, with no approximation.
-
-### Why both halves are load-bearing
-
-- **Deferral alone is not enough.** `_set_param` sets ramper *targets*; `snap()` settles
-  them. A deferred `Hard{}` with no restatement settles the *stale playhead* targets, and
-  the block's own event then sets a new target the ramper glides into from stale.
-- **Restatement alone is not enough.** That is Option 1: at the pre-roll block Logic's store
-  is stale too, so there is nothing good to read.
-
----
-
-## API decision: `Hard`/`Soft` stays
-
-An intermediate version renamed `Reset::Hard`/`Soft` to `Clear`/`Sync{std::span params}` so
-the reset could carry the host's values. It worked, but it cost a migration across **26 call
-sites** — vst3 (4), clap (6), auv3 (4), aax (1), 2 examples, and 8 files in
-`all_plugins/tests/`, several of which deliberately exercise the Hard-vs-Soft distinction
-and need thought rather than a rename.
-
-**That rewrite is unnecessary.** The wrapper can restate the values as ordinary
-`Event::Set`s through `handle()` before issuing the existing `Reset::Hard{}`. Measured
-identical (see Verification). Keep `Hard`/`Soft`.
-
-Two things that make this safe, both verified in code:
-
-- `_request_quality` is **edge-guarded** (`if (quality == _target_quality.value_or(_quality))
-  return;`), so restating a quality value the adapter already holds schedules nothing.
-- `clear()` touches none of `_param_manager`, `_pending_gains`, `_abp_ctrl.state` or
-  `_param_change_flush_ctr`, so reordering to `restate; clear; snap` is inert versus
-  `clear; restate; snap`.
-
-If the API is ever revisited anyway, `struct Hard { std::span<const double> params{}; }` is
-strictly additive — `Reset::Hard{}` keeps compiling and behaving identically everywhere —
-and it restores the `_target_quality` fold for free (risk #3).
-
----
-
-## The fix
-
-Entirely within `wrappers/auv2/source/effect.{hpp,cpp}`. Shown stripped of the autolog
-instrumentation that surrounded it.
-
-### `effect.hpp` — private section
+Header-only in `libs/tinyplug`. Each wrapper reports facts per block; the helper returns what to do. It replaces
+`_needs_clear`, `_last_render_mode` / `_last_process_mode`, `_was_skipped` and `_needs_resync` in every wrapper.
 
 ```cpp
-// Restate every parameter from the host's store straight into the processor, ahead
-// of the `Reset::Hard` that settles them. Render thread only.
-auto _restate_params_from_globals(const char* reason) -> void;
+struct Facts {
+    bool host_reset{};                       // Reset(), setProcessing, clap reset, the page
+    process::Render_mode render_mode{};      // resolved: VST3 reports data OR setup processMode
+    bool skipping{};                         // Host_bypass::can_skip_effect()
+    std::optional<std::int64_t> position{};  // timeline sample position, if the host gave a valid one
+    std::uint32_t frames{};
+};
 
-// A render that opens with pre-roll gets no automation for it, and the host's store is
-// still the last locate's, so neither half of a discontinuity can be resolved there.
-// Both wait for the first block that reaches the timeline proper. Render thread only.
-bool _pending_reset{};
-int _pending_reset_blocks{};
-const char* _pending_reset_reason{"?"};
+enum class Action {
+    Run,              // process normally
+    Hold,             // offline only: silence out, fold events into the store, don't call the processor
+    Restart,          // seek-like: Restart, clear notes, clear and snap the bypass
+    Restart_resume,   // after the skip: Restart only; the bypass is mid-crossfade and Note_io already sent all-off
+};
 ```
 
-### `effect.cpp` — the two discontinuity sites only raise a flag
+This fixes by construction the VST3 bug where the reset keys on `data.processMode` alone, and the per-format
+inconsistencies (state loads land with `Soft` in CLAP, as plain events in VST3). It gets a host-free unit test:
+facts in, actions out.
 
-```cpp
-// was: _processor->reset(process::Reset::Hard{});
-if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
-    _pending_reset = true; _pending_reset_blocks = 0; _pending_reset_reason = "host reset";
-    _bypass.clear();    // Its delay lines hold pre-seek dry audio.
-    _bypass.snap();
-}
-```
+### 4. The fix: hold offline renders until they reach the timeline
 
-```cpp
-// was: _processor->reset(process::Reset::Hard{});
-if (render_mode_changed) {
-    _pending_reset = true; _pending_reset_blocks = 0; _pending_reset_reason = "render-mode change";
-    _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
-    _bypass.snap();
-}
-```
+1. In an **offline** render, a discontinuity (host reset, render-mode edge) puts the stream in **Hold**. The
+   wrapper still pulls input, writes silence and folds events into its store, but doesn't call the processor.
+2. The hold ends at the first block reaching the timeline: `position + frames > 0`. In Logic that is the first
+   block the host has sent values for.
+3. There the helper issues `Restart{params}` and the block processes normally.
 
-### `effect.cpp` — the restatement
+A midstream render reaches the timeline at block 0 and restarts at once, as today. **Realtime never holds**, which
+removes old risk 1 (an audible deferral when pressing play from bar 1).
 
-```cpp
-// Restate every parameter from the host's store, as the events the processor already
-// understands. Whether the store is authoritative at this moment is the host's business:
-// Ableton resyncs it to the render start before the bounce edge, Logic leaves it holding
-// the value at the playhead — which is why the caller defers this to a block where Logic
-// has spoken. Same restatement the resync branch in `Render` performs, applied directly
-// rather than queued, because it has to land before the reset that settles it.
-auto Effect::_restate_params_from_globals(const char* reason) -> void
-{
-    using namespace params;
+Why it works: the pre-roll is the only window where the processor would run on stale values. Holding it back means
+nothing advances on them: not the ramps, not the processor's smoothers, not non-decaying state (Galaxy Brain's
+carrier phase). Transport-start logic fires once, at a real position, which removes old risk 2 (a second
+`timeline_started()`, the first on a stale position). The old fix ran pre-roll then wiped it; the hold gives the
+same output without the processor ever seeing the stale block.
 
-    const auto& specs = User_params::param_specs(Param_order::Indexable);
+Guards:
+- **Real content ends the hold at once.** If any input or sidechain sample is non-zero, or a note arrives, the
+  helper restarts at that block instead of waiting. So the hold can never delete material: if negative time is
+  silence (Logic's default project) it runs to position 0 as designed; if anything real arrives early (content
+  before 0, a position shifted the wrong way under latency) it ends there, and behaviour is no worse than today.
+  "Negative time isn't the song" stops being an assumption about every host and becomes a checked condition.
+- **No valid position** (status ignored today, 0, NaN, garbage): restart immediately, which is today's behaviour.
+- **A cap on the hold** (about one second of frames), so a host stuck reporting negative positions can't produce a
+  silent bounce. Offline, holding costs nothing audible.
+- **Notes during the hold are dropped.** The `Restart` sends all-notes-off anyway, and Logic sends none there.
 
-    for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
-        const auto host_value = Globals()->GetParameter(static_cast<AudioUnitParameterID>(addr));
-        const auto plain_value = Value_helper::host_to_plain(host_value, specs[addr].semantics);
+**Scope: AUv2 first; widen only on evidence.** AUv3 in Logic very likely pre-rolls the same way: measure, then
+enable. VST3 and CLAP only if a host is found that renders from negative positions without sending values. AAX
+stays out: it rebuilds the processor through `configure` with `Config::params`, which already solves this.
 
-        _processor->handle(process::Event::Set{.address = static_cast<uint32_t>(addr), .value = plain_value});
-    }
-}
-```
+## Mapping from today
 
-### `effect.cpp` — resolution, in `Render`, after `host_data` is gathered and **before** the event drain
+**`Hard` → `Restart`** (with the hold in an offline render, where the format has it):
 
-```cpp
-const auto base_pos = static_cast<int64_t>(std::llround(host_data.sample_pos));
+| Site | Trigger |
+|---|---|
+| [auv2 effect.cpp:1248](../wrappers/auv2/source/effect.cpp) | host `Reset()` |
+| [auv2 effect.cpp:1322](../wrappers/auv2/source/effect.cpp) | render-mode edge |
+| [vst3 audio_effect.cpp:396](../wrappers/vst3/source/audio_effect.cpp) | `setProcessing` |
+| [vst3 audio_effect.cpp:524](../wrappers/vst3/source/audio_effect.cpp) | `processMode` edge, now on the resolved mode |
+| [auv3 DSPKernel.hpp:216](../wrappers/auv3/source/extension/DSPKernel.hpp) | host reset |
+| [auv3 DSPKernel.hpp:255](../wrappers/auv3/source/extension/DSPKernel.hpp) | render-mode edge |
+| [clap plugin.cpp:118](../wrappers/clap/source/plugin.cpp) | `clap_plugin::reset` |
+| [clap plugin.cpp:179](../wrappers/clap/source/plugin.cpp) | render-mode edge |
+| [web module.cpp:244](../wrappers/web/source/processor/module.cpp) | the page's reset |
 
-// Resolve the discontinuity here rather than where it was raised. A render that opens
-// with pre-roll is handed no automation for it and the host's store still holds the
-// last locate's values, so a reset there would clear to a state nobody has described.
-// The first block reaching the timeline proper is the first at which the host has
-// spoken. Clearing late also discards what pre-roll advanced — which is the point: it is
-// silence in and silence out, and what it advanced was advanced on stale values.
-// Bounded, so a render that never reaches the timeline still resolves.
-if (_pending_reset) {
-    const auto reaches_timeline = (base_pos + static_cast<int64_t>(nFrames)) > 0;
-    if (reaches_timeline || ++_pending_reset_blocks >= 16) {
-        // Order is load-bearing. `Hard` is `clear(); snap();` and `snap` settles
-        // whatever targets are held, so the restatement has to set them first —
-        // reversed, `snap` lands the stale playhead values and the restated ones are
-        // left to glide in from them, which is the divergence this exists to close.
-        _restate_params_from_globals(_pending_reset_reason);
-        _processor->reset(process::Reset::Hard{});
-        _pending_reset = false;
-    }
-}
-```
+**`Soft` after the bypass skip → `Restart_resume`.** The processor missed a stretch of input, which is a gap like
+a seek. Freezing state across it brings back a stale tail (a compressor's gain reduction, an LFO mid-cycle, a
+delay's pre-bypass echo) and makes output after an automated un-bypass depend on where the render started. The
+bypass crossfade brings the wet signal in from the cleared state, so nothing clicks. A product that wants its tail
+kept should not be skipped at all (an opt-in that keeps processing while bypassed, 100% dry); left out until one
+asks.
 
-No latency adjustment is needed. The trigger uses the host-reported position, which already
-carries the plug-in's PDC shift (Galaxy Brain `lat=4` reports `-284` where Scissor Hands
-`lat=0` reports `-288`). Both land on block 1, before any exported audio and after the
-host's first automation delivery.
+| Site |
+|---|
+| [auv2 effect.cpp:1334](../wrappers/auv2/source/effect.cpp), the `resumed_from_skip` trigger |
+| [vst3 audio_effect.cpp:617](../wrappers/vst3/source/audio_effect.cpp) |
+| [auv3 DSPKernel.hpp:280](../wrappers/auv3/source/extension/DSPKernel.hpp) |
+| [clap plugin.cpp:261](../wrappers/clap/source/plugin.cpp) |
+| [aax alg_proc.cpp:469](../wrappers/aax/source/alg_proc.cpp) |
+| [web module.cpp:308](../wrappers/web/source/processor/module.cpp) |
 
-**Behaviour change to keep in mind:** deferring means block 0 is no longer cleared, so it
-renders with pre-bounce state and its output is no longer silence. In an offline render it
-is pre-roll and never reaches the file, and block 1's clear wipes it. **In realtime it is
-heard** — see risk #1.
+**Other `Soft` → deleted; the values go as events.** Nothing reads realized state between `process` calls (meters,
+blocks and the state document publish only from `process`), so landing early buys nothing. A bounce right after
+any of these opens with `Restart{params}`, which lands everything regardless.
 
----
+| Site | Trigger |
+|---|---|
+| [auv2 effect.cpp:1334](../wrappers/auv2/source/effect.cpp), `needs_resync` | queue overflow; the re-read values still go out as `Set`s |
+| [auv2 effect.cpp:1334](../wrappers/auv2/source/effect.cpp), `skipped_while_bypassed` | values changed while bypassed |
+| [vst3 audio_effect.cpp:632](../wrappers/vst3/source/audio_effect.cpp) | flush block carrying events |
+| [auv3 DSPKernel.hpp:230](../wrappers/auv3/source/extension/DSPKernel.hpp) | values changed while bypassed |
+| [clap plugin.cpp:139](../wrappers/clap/source/plugin.cpp) | resync after an overflow or sleep; the `Set`s stay |
+| [clap plugin.cpp:274](../wrappers/clap/source/plugin.cpp) | flush block carrying events |
+| [clap plugin.cpp:1378](../wrappers/clap/source/plugin.cpp) | state load or `paramsFlush` |
+
+AUv2's `_bypass_epoch` / `skipped_while_bypassed` machinery stays: `SetParameter` doesn't queue while bypassed,
+and the effect can be bypassed but still crossfading, so values changed then are restated from `Globals()` as
+`Set`s. Only its `Soft` went.
+
+**`Latency`**: every site unchanged.
+
+**Processors** (demos; all_plugins has 129 `Reset::` sites in 63 files, most behind its shared adapter):
+
+| Today | Becomes |
+|---|---|
+| `Hard` handler | `Restart` handler that also adopts `params` (those used to arrive as `Set`s first) |
+| `Soft` handler | deleted |
+| `Latency` handler | unchanged |
 
 ## Verification
 
-### 2026-09-16 — `Clear`/`Sync{params}` shape (API rewrite, since abandoned)
+1. **A contract check for processor authors**, header-only so products run it downstream. Fuzzed histories,
+   bit-compared output:
+   - `configure(a)`, any history, `Restart{b}` ≡ `configure(b)`, when `a` and `b` imply the same latency
+   - `Restart{b}` twice ≡ once
+   - `Latency{n}` leaves `latency_samps() == n`
 
-| Test | Product | Result |
+   This catches what no wrapper test can: per-product state that survives a restart (Galaxy Brain's carrier,
+   Doctor Vibe's unidentified one, a non-idempotent `timeline_started()`).
+2. **`Stream_sync` unit test**: fact sequences in, actions out, including hold, cap, missing position and
+   realtime-never-holds.
+3. **A history-sensitive probe**: a mode in `automation_demo` that smooths `Value` and integrates it into a phase
+   accumulator, so one stale sample changes the output from then on.
+4. **Bounce profiles in `auv2_host`** (which already drives the offline flag and a transport position). One
+   scenario per profile: two bounces after different histories are bit-identical from position 0, and equal a
+   freshly configured instance.
+   - **Logic from the origin**: ~288 samples of negative pre-roll, `Globals()` stale, `SetParameter` between
+     sub-blocks from the first block reaching 0. **Red today**, green after the fix.
+   - **Logic midstream**: values sent before block 0. Must stay green.
+   - **Ableton**: no pre-roll, store correct before the render. Must stay green.
+   - **Logic realtime play from bar 1** (`pos = -428`): must not hold.
+
+   A profile encodes what we believe Logic does; it guards the policy, it doesn't prove Logic does it.
+5. **Real Logic, by hand** (AUv2, then AUv3): the latency/click test below, three consecutive bounces, a
+   midstream bounce, a track freeze, and one bounce with a different Process Buffer Range (if the 288 moves, it is
+   grid alignment). Compare WAV `data` chunks, not whole files. Two products, two latencies and one Logic version
+   is a small sample; widen it before enabling the hold in other formats.
+
+## Order of work
+
+1. ~~Probe, bounce profiles and the contract check.~~ Done. Each was checked against a deliberately broken
+   build: the AUv2 Logic-origin and second-bounce profiles fail with the hold off; the CLAP and VST3 profiles
+   fail without the offset-0 fold; `check_restart` fails on a processor that keeps its phase.
+2. ~~The API.~~ Done, with MIGRATION.md.
+3. ~~`Stream_sync` in every wrapper.~~ Done (AAX keeps its own skip resume). The AUv3 profile found an ordering
+   bug on the way: values set off the render thread were delivered after the render's own events, so an older
+   value could overwrite a newer one. The kernel now delivers them, and restarts, in `begin_block`, before any
+   event. The TSan chaos runs found one of the refit's own: AUv2 and VST3 decided to skip the processor before
+   a stream restart snapped the bypass, so a block un-bypassed at a discontinuity mixed in an unwritten output
+   buffer (NaN). Both ask `can_skip_effect()` again after the restart now. Review found another: VST3, AUv2
+   and web named a block's notes before restarting, and the restart's `Note_io::clear` dropped those names, so
+   a note-on in a restart block (bar 1 of an instrument bounce) lost its note-off. They restart first now, and
+   the AUv2 and VST3 hosts check it. A discontinuity inside a hold no longer restarts the hold's cap.
+4. ~~The hold, AUv2 only.~~ Done.
+5. Real Logic measurements; widen the hold per format on evidence.
+6. Port all_plugins: 129 `Reset::` sites in 63 files, most behind its shared adapter. Add `make_contract_checks` for
+   every product; Galaxy Brain's carrier and Doctor Vibe's unidentified state should show there.
+
+## Considerations
+
+1. **Is the reported position in input time? The biggest risk.** The hold assumes everything before position 0 is
+   silence, measured for block 0 at latencies 0 and 4. If Logic shifts reported positions by the plug-in's latency,
+   a large-latency plug-in could hold while real input from bar 1 arrives, and the hold would delete it (the data
+   hints at a shift: latency 4 reports -284 against -288). Test: bounce `latency_demo` at several large latencies
+   with a click exactly at bar 1; the click must survive at the right sample. Only real Logic can answer it.
+2. **"Negative time isn't the song" is an assumption** about the host: right for Logic's default project, wrong for
+   a host that puts audio before 0 (a moved project start, an exported count-in). The early exit on real content
+   covers the audio; per-format enabling covers the rest.
+   **Plug-ins that make sound from silence** (a hiss or drone generator) output silence during a hold instead of
+   their pre-roll. Deterministic, and it only matters if pre-roll reaches the file, which the measurements say it
+   doesn't.
+3. **Hosts that don't send values before a midstream render** aren't fixed, and can't be detected.
+4. **In-band formats need their held blocks' events folded into the store.** AUv2 gets it free (`SetParameter`
+   writes `Globals()`).
+5. **A realtime bounce** isn't marked offline, so it never holds. Logic's realtime play sends every value up front
+   (88 events measured), so it probably doesn't need to; unmeasured.
+6. **Back-to-back bounces and freeze** may keep the offline flag set and arrive as `Reset()` instead of a mode edge.
+   Any discontinuity while offline holds, so that's covered.
+7. **The processor's first block may sit slightly before 0** (−28 at latency 4 in the old log: the block where
+   Logic's first value arrived). Its transport sees one start, at a real position.
+8. **A restart reads the store at the top of its block**, folding in offset-0 `Set`s. Two stores run ahead of
+   that: AUv2's `Globals()` holds a `ScheduleParameter` value (or a ramp's endpoint) from the moment it's
+   scheduled, and AUv3's `_hostvalues` a ramp's target. A restart in the same block as such an event lands it at
+   the block's start rather than its offset. Deterministic, a few samples at most, and Logic never schedules.
+9. **Logic's realtime cycle wrap** (~428 stale samples per lap) is monitoring, not a bounce. Out of scope.
+
+## Decisions for Ryan
+
+- **Keep the method name `reset`, or rename it `sync`?** With `Soft` gone the variant is `{Restart, Latency}`, and
+  `Latency` was never a reset. Leaning `reset`: every format calls its discontinuity call reset, and the 129 client
+  sites change anyway, so the name costs nothing either way.
+- **A `process_while_bypassed` opt-in** (follow-up, when a product asks): a processor that wants its tail kept
+  across a bypass declares it statically; the framework then never skips it and runs it 100% dry, so there is no
+  gap and no `Restart`. The way to give clients control without a "reason" field, which would let a processor
+  treat restarts differently by cause and undo history independence.
+- **Should `Restart` carry the render mode**, so the processor only ever sees a mode change across a restart? AAX
+  already latches it that way.
+
+## Rejected
+
+- **`Settle{params}`** (a second, history-keeping command): every case it would serve is live.
+- **An optional `params` span**: see Design §1.
+- **Run pre-roll, then wipe** (the 2026-09-18 fix): the processor sees the stale block, fires transport-start
+  twice, and in realtime the deferral is audible.
+- **Anchor on "the first block carrying parameter events"** (the old plan's structural recommendation): with no
+  automation no events ever come, so it needs a timeout, and CLAP/VST3 blocks carry unrelated events (notes).
+  "Negative project time isn't the song" is a statement about the project, not about one host's habits.
+- **Restating `Set`s before `Hard{}`**: the call-order trap; carrying the values is the same measurement without it.
+- **Snap-on-first-value latch in the processor**: hidden per-parameter state in the client.
+- **One-block lookahead**: latency and PDC churn. **PLL / position-derived phase**: slewing an audio-rate carrier's
+  phase is audible FM; anchoring at one restart is exact.
+
+---
+
+# Diagnosis and evidence (2026-09-16 / 18)
+
+Measured in Logic with AUv2 builds of Galaxy Brain and Scissor Hands, Doctor Vibe as an uninstrumented control.
+Code references in this half describe the tree as it was then.
+
+## The defect, precisely
+
+1. At the start of an offline render, the plug-in's parameters **and** Logic's own `Globals()` store hold the
+   automation value at the **playhead**, not at the render-start position. The two agree, so no host↔plug-in
+   resync can detect it.
+2. Logic implements sample-accurate automation by **subdividing the render buffer** (multiples of 32 samples, max
+   384; 1024 when no automation is active) and calling `SetParameter` at offset 0 between sub-blocks. It never
+   calls `ScheduleParameter`, and delivers from its first 32-sample grid boundary onward. **This is specific to a
+   render starting at the timeline origin**: a midstream render's first block arrives carrying events.
+3. That first block is rendered on the playhead's value. Its input and output are **bit-exact silence**, but it
+   still advances effect state.
+4. The playhead is usually parked somewhere different before each take, so the stale value differs, which is what
+   makes renders differ. Park it identically and two bounces match while both remain wrong.
+
+At the time, `Hard{}` settled the adapter's own held ramper targets, the residue of every `SetParameter` so far;
+`Globals()` was never read. So the dependency was: *the host must deliver the render-start values as events before
+the first offline `Render` call.* An event at offset 0 of the first block was already too late: it became a new
+target the ramper glided into from stale.
+
+### Hosts already correct
+
+- **Ableton (measured):** two bounces bit-identical. Render starts at pos 0, no pre-roll, the store already holds
+  the render-start value at the reset.
+- **Logic midstream (inferred):** block 0 carried 4 events with `GLOBALS addr 1 = -1.99999809` in both takes. Not
+  directly measured on committed code.
+
+### Why it shipped
+
+On most effects it's a sub-20 ms transient at the head of a file. And bouncing twice without touching the
+transport passes, because bounces 2 and 3 both start from bounce 1's end value (predicted, not verified).
+
+## Evidence
+
+- **Automation delivery is identical between takes**: 1357 events (Galaxy Brain) / 1693 (Scissor Hands), same
+  values at the same positions. The "delivery race" hypothesis is dead.
+- **`GLOBALS` differs in exactly one parameter**, the automated one.
+- **Block 0 is silence in, silence out** (bit-identical to an all-zeros hash).
+- **Logic has a chase and skips it here.** Realtime play delivers 88 events in the first block (every parameter,
+  at `pos=-428`). A cycle wrap delivers 0. An offline bounce start delivers 0: a bounce behaves like a wrap.
+- **Cycle on or off made no difference**: Logic reports `cyc=0` during an offline render either way.
+
+| | Logic | Ableton |
 |---|---|---|
-| SINE | Galaxy Brain | **BIT-IDENTICAL** |
-| SAW | Scissor Hands | **BIT-IDENTICAL** |
-| NOISE | Doctor Vibe — *uninstrumented control* | differs |
+| Render start | pos **-284** (pre-roll) | pos **0** |
+| Block sizes | subdivided 32…384, 1024 idle | fixed **2048** |
+| Automation offsets | always `off=0` | real offsets: 4, 260, 332, … |
+| First block | `events=0` | `events=1` |
+| Stale window | **288 samples** | **4 samples** (= latency) |
+| `Globals()` at the reset | playhead value, **stale** | render-start value |
+| Two bounces | diverged | bit-identical |
 
-```
-phash over OFFLINE blocks:  1/2277 differ (Galaxy Brain)   — block 0 only
-                            1/2598 differ (Scissor Hands)  — block 0 only
-```
+### Why Logic pre-rolls
 
-**Midstream bounce (bars 5-9, cycle range) — also bit-identical**, with no divergence at all,
-not even block 0. Logic chases for a midstream render: block 0 is a 32-sample sliver at
-pos 383716 arriving with 4 events, and `GLOBALS addr 1 = -1.99999809` in both takes. So
-Logic's failure to chase is **specific to a render starting at the timeline origin**.
+Best reading: **block-grid alignment**, not priming. It is 288 samples regardless of latency (latency only shifts
+the reported position: 0 → -288, 4 → -284), block 0 ends exactly at 0 like a remainder block, it carries silence,
+and Ableton does none of it. One experiment would settle it: change Logic's Process Buffer Range and re-bounce.
 
-### 2026-09-18 — `restate; Hard{}` shape (the one in "The fix")
+## The three layers of contamination
 
-Region-start bounce, playhead parked differently before each take.
-
-| File | Product | WAV `data` chunk |
+| # | Layer | Recovers? |
 |---|---|---|
-| SINE | Galaxy Brain | **IDENTICAL** `4009b756ae91` |
-| SAW | Scissor Hands | **IDENTICAL** `473f0e7b0d86` |
-| NOISE | Doctor Vibe — *control* | differs — `0c6775006fde` vs `c5fea432b817` |
+| 1 | Parameter ramps glide from the stale value | yes, after the ramp time (every product's policy is `Linear` or `Instant`) |
+| 2 | The effect's own smoothers (coefficient history) | decays: Scissor Hands' 14.7 ms residual |
+| 3 | **Non-decaying state**: Galaxy Brain's carrier phase | **never** |
 
-> Compare the **`data` chunk**, not the whole file. Logic stamps `bext`, `ResU` and `LGWV`
-> (waveform overview cache) per bounce, so whole-file hashes always differ.
+> The invariant: *no state that integrates without decay may advance on unauthoritative parameters.* The hold
+> enforces it by not running the processor at all until the parameters are authoritative.
 
-```
-phash / ohash over OFFLINE blocks:  1/2117 differ (Galaxy Brain)   — block 0 only, pos -284
-                                    1/2438 differ (Scissor Hands)  — block 0 only, pos -288
-```
+Discrete parameters are `Instant`, so a stale mode doesn't glide, but what the DSP did in the wrong mode can still
+feed layer 3.
 
-A hard test: the stale values were far apart — `addr 1: 11.4599943 vs -25.4599988` and
-`addr 11: 812.513173 vs 5482.17358` (a 6.7x cutoff gap). APPLY streams identical
-(1357 / 1693 events), so delivery was the same and the divergence was purely the
-stale-value path.
+## Measurements of the old fix
 
-**The two shapes produce identical internal state.** Block 1's canonical `phash` is
-`f50ba0ca4437557b` in *both* the Clear/Sync run and the restate/Hard run — so the
-`restate; clear; snap` reordering is confirmed inert by measurement, not by argument.
+Defer the discontinuity to the first block reaching the timeline, restate from `Globals()`, then `Hard{}`:
 
-The mechanism, from the log:
+| Bounce | Product | WAV `data` chunk |
+|---|---|---|
+| SINE | Galaxy Brain | **identical** `4009b756ae91` |
+| SAW | Scissor Hands | **identical** `473f0e7b0d86` |
+| NOISE | Doctor Vibe (control) | differs |
+
+Only block 0 (pre-roll, never in the file) differed internally. The stale values were far apart (`addr 11`: 812
+vs 5482, a 6.7× cutoff gap), so this was a hard test. A midstream bounce (bars 5–9) was bit-identical with no
+divergence at all. An earlier API-rewrite shape (`Clear`/`Sync{params}`) produced the same internal state hash at
+block 1 (`f50ba0ca4437557b`) as the restate shape: carrying the values and restating them are equivalent.
 
 ```
 BLK 0 pos=-284 events=0
-  ADPT timeline_started spos=35412     <- old transport state, pre-clear
+  ADPT timeline_started spos=35412     <- stale transport state: what the hold removes
 BLK 1 pos=-28 events=1
-  RESTATE+HARD (render-mode change)    <- restatement fires
-  ADPT reset Hard spos=-28
-  APPLY SET addr=1 val=0 abs=-28       <- host's own event lands after; already 0, no-op
-  ADPT timeline_started spos=0         <- re-fires -> shifter re-anchors (layer 3)
-  phash=f50ba0ca4437557b
+  RESTATE+HARD (render-mode change)
+  APPLY SET addr=1 val=0 abs=-28
+  ADPT timeline_started spos=0         <- the start that should be the only one
 ```
 
----
+## Open questions carried over
 
-## Risks and unintended side effects
+1. **Bounce 1 vs bounces 2/3**: predicted `A != B`, `B == C == D`. Three consecutive bounces would confirm.
+2. **Rejected-event logging**: `SetParameter`/`ScheduleParameter` filters `continue` silently, so "Logic never calls
+   `ScheduleParameter`" is an inference.
+3. **Doctor Vibe** never converged; its non-decaying state is unidentified. The contract check should find it.
+4. **Ableton column provenance**: confirm it was the AUv2 build in Live.
 
-Worked through 2026-09-18 against the code, ahead of propagating to the other wrappers.
-**This list is why the work was deferred.** Numbered by severity.
+## Instrumentation and reproducing
 
-### High
+The 2026-09 measurements used a header-only `tiny_autolog.hpp` (deleted; stdio + mutex, diagnostic builds only,
+`-DTINY_AUTOLOG=1`) writing per-render files with these tags: `INGEST` (host → wrapper), `BLK` (position, frames,
+event count), `APPLY` (absolute position of each applied event), `GLOBALS` (the host's store at a discontinuity),
+`phash` (hash of every distilled DSP parameter per grid tick — the measurement that mattered) and `ohash` (output
+buffer). `scratch/auto_probe/compare_autolog.py` in all_plugins diffed two logs over offline blocks; count divergent
+blocks rather than reading its first-divergence verdict. tinyplug's `log::Probe` layer (CLAUDE.md, "Logging") is
+the realtime-safe home if this is rebuilt.
 
-**1. The deferral is not bounce-only — it fires on realtime transport, where it is audible.**
-
-`_needs_clear` is set by `Effect::Reset()` (`effect.cpp:141`), which hosts call on transport
-stop/start/seek and un-bypass — not only at bounce edges. Logic's realtime play from the
-song start reports `pos=-428`, so pressing play at bar 1 takes the deferral path, and
-realtime output is **heard**; there is no pre-roll to discard.
-
-Worse, `_bypass.clear()/snap()` still runs *immediately* at the edge while the processor's
-clear waits. For that block the dry path is cleared and the wet path is not, so cleared dry
-mixes with a fragment of the previous position's delay line — roughly 6.5 ms at 44.1k.
-
-*Mitigation:* gate the deferral on `render_mode == Offline`, or apply it only to the
-`render_mode_changed` trigger and leave `_needs_clear` immediate. **Do this first.**
-
-**2. `timeline_started()` now fires twice per bounce, the first time on a stale position.**
-
-Visible in the log above: `spos=35412`, then `spos=0`. Committed code fires it once. The fix
-*depends* on the second fire — that is the layer-3 mechanism — but any `Principal_effect`
-whose `timeline_started()` is not idempotent now runs it twice, once on garbage. One-shots,
-counters and parity flips are exposed; that is the shape of the `Crackle::Pop` flip bug.
-Propagating across 4 wrappers x every product multiplies this, and **no wrapper-level test
-will catch it** — it is per-product.
-
-**3. The `_adopt_params` latency guard was dropped.**
-
-`_adopt_params` force-folded `_target_quality` into `_quality` and cleared `_propose_latency`
-— its own comment calls that "exactly what `configure` must not do". A raw `handle(Set)`
-stream does not. `_request_quality` is edge-guarded, so this only bites when the host's
-store disagrees with the adapter's held quality value — but when it does, the result is a
-**latency renegotiation mid-bounce**, which hosts handle badly. Narrow trigger, bad outcome.
-
-*Mitigation:* the additive `Hard{std::span params}` form restores the fold for free.
-
-### Medium
-
-**4. The trigger reads an unvalidated host value.** In `Render`, `result` from
-`transportStateProc2` / `CallHostTransportState` is `[[maybe_unused]]` — the status is never
-checked. Same class as the Galaxy Brain tempo-0 NaN. On failure `sample_pos` stays `0`, so
-`0 + nFrames > 0` fires immediately, which degrades safely to committed behaviour. But a
-host returning a large negative defers to the 16-block bound (~186 ms of un-cleared realtime
-audio), and NaN through `std::llround` is UB.
-
-**5. Store semantics differ per wrapper.** VST3's is `_host_values` in **knob** space, so a
-restatement needs `knob_to_plain` — the loop already exists at `audio_effect.cpp:145-153`.
-The old "setState doesn't update the cache" bug **is fixed** (line 692 maintains it), so
-VST3 is viable. CLAP and AUv3 need the same audit before being touched.
-
-**6. Do not propagate to AAX.** It has **no `Reset::Hard` site at all** — one `Reset::Soft`
-at `alg_proc.cpp:390` — because it bounces through a full reconstruct with `Config::params`,
-which already solves this. Forcing a restatement there risks colliding with the
-ResetFieldData rule and the known private-data wipe.
-
-**7. VST3's gating bug blocks propagation.** `is_offline_bounce` checks
-`data.processMode || processSetup.processMode`, but the Hard reset is gated only on
-`data.processMode != _last_process_mode`. On a host that sets only the latter the reset never
-fires — so the deferral never fires either. Fix that first or the propagation is a no-op.
-
-### Low, but worth recording
-
-- **Unstable sort** (see "Concrete defect found"): the fix lands a restated value immediately
-  before an unstably-sorted equal-offset burst, making that latent bug *more* likely to bite.
-- **`_param_change_flush_ctr`** is armed once per address (88x) when auto-bypassed or
-  disabled. Same value each time, harmless, but it is a state change the committed path did
-  not make at that moment.
-- **Meters** show the pre-seek level for one block.
-- **Cost**: `num_params` x (`GetParameter` + conversion + `handle`) on the render thread per
-  discontinuity. Established — the existing resync path does the same — but it now runs on
-  every bounce edge and every seek, not only on queue overflow.
-
-### Checked and *not* a risk
-
-A restatement does **not** stomp an in-flight `ScheduleParameter` ramp. The Ramped branch
-calls `Super::SetParameter(..., target, off + duration)`, so `Globals()` holds the ramp's
-endpoint — and committed `snap()` settles the adapter's ramper to that same target. Same
-behaviour either way. Recorded so it isn't re-litigated.
-
-### Structural
-
-`pos >= 0` is keyed to the **project origin**, not to whether the host has spoken. A bar-5
-bounce has every block at `pos >= 0`, so it fires at block 0 regardless — the midstream run
-came out right because the host had delivered, not because the trigger reasoned about it.
-**"First block carrying parameter events"** is the version that is actually about the thing
-we care about. Switch triggers *before* multiplying this across four wrappers and many more
-hosts, not after.
-
----
-
-## Recommended order when resumed
-
-1. **Gate the deferral on `Render_mode::Offline`** (risk #1). Non-negotiable; without it the
-   change introduces an audible realtime artifact.
-2. **Switch to the events-based trigger** — first block carrying parameter events (structural
-   risk). Cheaper now than after propagation.
-3. **Restore the `_target_quality` / `_propose_latency` fold** (risk #3), most simply via the
-   additive `Hard{std::span params}`.
-4. ~~Fix `std::stable_sort`~~ — done (arrival order in `Event::Ordered`).
-5. **Fix VST3's `is_offline_bounce` gating** (risk #7) before touching VST3.
-6. **Propagate wrapper by wrapper**: VST3, CLAP, AUv3. Skip AAX (risk #6).
-7. **Add a per-product idempotence check on `timeline_started()`** (risk #2) — wrapper tests
-   cannot catch it.
-8. Re-measure in Logic and Ableton after each step.
-
----
-
-## Concrete defect found: the equal-offset sort was not stable — fixed
-
-Logic delivered four `Set` events for one address at one offset, in a different order between
-takes, and an unstable sort let either value win. Fixed since: `Event::Ordered` carries an arrival
-`order` and `process::before` breaks ties on it
-([tiny_processor.hpp](../libs/tinyplug/include/tinyplug/tiny_processor.hpp)).
-
----
-
-## Why does Logic pre-roll at all?
-
-No definitive answer; the evidence points at **block-grid alignment**, not priming:
-
-- It is **288 samples in both products regardless of reported latency** (Scissor Hands
-  latency 0 -> starts at -288; Galaxy Brain latency 4 -> starts at -284 = -288+4). Latency
-  only shifts the reported position, it doesn't buy pre-roll.
-- Scissor Hands' block 0 ends **exactly at 0**, which is what a remainder block for grid
-  alignment looks like.
-- It carries **silence**, so it primes nothing and cannot.
-- Ableton does none of it and is fine, which argues it isn't serving any DSP purpose.
-
-Best reading: Logic starts the render at whatever offset makes the following blocks land on
-its internal 384/32-sample grid, and the remainder becomes block 0. Worth one experiment
-(change **Settings -> Audio -> Devices -> Process Buffer Range** and re-bounce — if the 288
-is alignment-derived it should move).
-
----
-
-## Open questions
-
-1. **Bounce 1 vs bounces 2/3.** Predicted `A != B`, `B == C == D...` with no transport
-   activity between. Three consecutive bounces would confirm, and would explain how this
-   shipped.
-2. **Committed code on a midstream Logic bounce.** Inferred correct (the host chases), never
-   directly measured — the midstream run was done with the fix applied.
-3. **VST3 / CLAP / AUv3.** Structurally identical to AUv2 (`Reset::Hard` ->
-   `clear(); snap();` settling to adapter-held targets). Expect the same defect with a
-   shorter window.
-4. **Rejected-event logging.** `SetParameter`/`ScheduleParameter` filters (`scope`,
-   `element`, `>= num_params`) `continue` silently, so "Logic never calls
-   `ScheduleParameter`" is an inference from absent log lines, not proof.
-5. **Doctor Vibe** also never converged — it has non-decaying state too. Not yet identified.
-6. **Ableton column provenance.** The host-comparison table is labelled "same plug-in, same
-   wrapper"; confirm it was the AUv2 build in Live before leaning on it further.
-
----
-
-## Re-adding the instrumentation
-
-Deleted 2026-09-18 with the rest of the work. It was two pieces, both easy to rebuild.
-
-**`libs/tinyplug/include/tinyplug/tiny_autolog.hpp`** (~145 lines, untracked, header-only).
-Compiles away entirely unless `-DTINY_AUTOLOG=1`: `inline constexpr auto on = false;` and
-`line(...)` becomes empty, with call sites guarded by `if constexpr (autolog::on)`. Not
-RT-safe (stdio + mutex, flushes every line) — diagnostic builds only. Writes
-`~/Desktop/autolog_<Plugin>_<pid>_<NN>.txt`, rolling a new file at each offline-render start,
-tagged per plug-in via `set_tag` (call it in `Initialize`) so two plug-ins in one process
-don't collide. Needs `line(fmt, ...)`, `roll(tag)`, `set_tag(tag)`, `hash_init/hash_add/hash_value`.
-
-Call sites that earned their keep:
-
-| Tag | Where | What |
-|---|---|---|
-| `INGEST` | `SetParameter` / `ScheduleParameter` | host -> wrapper, with thread id |
-| `BLK` | top of `Render` | position, frames, transport, cycle, event count |
-| `APPLY` | the event drain | absolute timeline position of each applied event |
-| `GLOBALS` | at a discontinuity | the host's full parameter store |
-| `ADPT ... phash` | `Effect_adapter::process`, per grid tick | **hash of every distilled DSP param** |
-| `OUT ohash` | after `_bypass.process` | per-block hash of the output buffer |
-
-`phash` is the measurement that matters and the one the `auto_probe` never took — the probe
-overwrites the distilled value with the raw event value in `Processor::process`, so it can
-measure the event stream and the grid but never what the DSP is actually handed. **A green
-probe is consistent with a broken plug-in.** Worth widening the probe to emit the distilled
-value as its own channel.
-
-**`scratch/auto_probe/compare_autolog.py`** in `all_plugins` (~144 lines, untracked, deleted).
-Diffed two logs scoped to offline blocks and reported the `GLOBALS` delta plus the first
-`phash`/`ohash` divergence. Verdict rule: *phash first* -> parameter path; *ohash while phash
-matches* -> client DSP.
-
-Note it reported the **first** divergence, which for this fix is always block 0 (pre-roll,
-expected, never reaches the file) — so its verdict line was misleading here. What actually
-matters is the **count**:
-
-```python
-import re
-def blocks(path):
-    out=[]; cur=None
-    for line in open(path, encoding='latin1'):
-        m = re.search(r'BLK (\d+) frames=(\d+) pos=(-?\d+).*?offline=(\d)', line)
-        if m:
-            if cur: out.append(cur)
-            cur = [int(m.group(1)), int(m.group(3)), None, None] if m.group(4)=='1' else None
-            continue
-        if cur is None: continue
-        m = re.search(r'ADPT spos=.*phash=([0-9a-f]+)', line)
-        if m: cur[2]=m.group(1)
-        m = re.search(r'OUT ohash=([0-9a-f]+)', line)
-        if m: cur[3]=m.group(1)
-    if cur: out.append(cur)
-    return out
-# pass => exactly one divergent block, and it is block 0 at a negative pos.
-```
-
----
-
-## Reproducing
-
-Build instrumented, separate dir so `build-debug` is untouched:
-
-```sh
-cmake -S . -B build-autolog -DCMAKE_BUILD_TYPE=Debug \
-  -DFETCHCONTENT_SOURCE_DIR_TINYPLUG=/Users/ryan/Developer/tinyplug \
-  -DCMAKE_CXX_FLAGS="-DTINY_AUTOLOG=1"
-cmake --build build-autolog --target GalaxyBrain_auv2 ScissorHands_auv2 --parallel 8
-```
-
-These **auto-install to `~/Library/Audio/Plug-Ins/Components/`** and replace the normal
-builds — rebuild from `build-debug` or re-run the installer afterwards to restore them.
-
-Bounce twice, **stopping playback at a different position before each** — the bug hides
-whenever the leftover value happens to match. Use Galaxy Brain (SINE) and Scissor Hands
-(SAW) as the instrumented pair, and Doctor Vibe (NOISE) as an uninstrumented **control**:
-it should keep failing while the pair passes. Compare WAV `data` chunks, not whole files.
-
-> `scratch/auto_probe/data/` is gitignored, and some files in it are duplicate copies of one
-> render (`sine_freq_00`/`01` and `saw_lpf_00`/`01` are byte-identical and not even Logic
-> output). Check whole-file hashes before trusting a pair — `validate.py` reports
-> `IDENTICAL` for a file compared against a copy of itself.
+To reproduce in Logic: bounce twice, **stopping playback at a different position before each** (the bug hides when
+the leftover value happens to match). Instrumented builds auto-install to `~/Library/Audio/Plug-Ins/Components/`
+and replace the normal ones. Compare WAV `data` chunks: Logic stamps `bext`, `ResU` and `LGWV` per bounce, so
+whole-file hashes always differ.

@@ -16,18 +16,22 @@ constexpr auto two_pi = 2. * std::numbers::pi;
 
 auto Processor::configure(const Config& config) -> void
 {
-    for (auto i = size_t{}; i < num_params; ++i) _values[i] = static_cast<float>(config.params[i]);
     _sr = config.sr;
-    _silence();
+    _adopt(config.params);
 }
 
 auto Processor::reset(const Reset::Any& reset) -> void
 {
     std::visit(Inline_visitor{
-        [this](const Reset::Hard&) { _silence(); }, // Every voice released, every control back to rest.
-        [](const Reset::Soft&) {},
+        [this](const Reset::Restart& r) { _adopt(r.params); },
         [](const Reset::Latency&) {}
     }, reset);
+}
+
+auto Processor::_adopt(std::span<const double> params) -> void
+{
+    for (auto i = size_t{}; i < num_params; ++i) _values[i] = static_cast<float>(params[i]);
+    _silence(); // Every voice released, every control back to rest.
 }
 
 auto Processor::handle(const Event::Param& event) -> void

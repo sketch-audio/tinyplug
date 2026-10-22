@@ -7,22 +7,24 @@ namespace tiny::process {
 
 auto Processor::configure(const Config& config) -> void
 {
-    for (auto i = size_t{}; i < num_params; ++i) {
-        _values[i] = static_cast<float>(config.params[i]);
-    }
     _sr = config.sr;
     _glide = static_cast<float>(1. - std::exp(-1. / (0.003 * _sr)));
-    _free_beats = 0.;
-    _gain = 1.f;
+    _adopt(config.params);
 }
 
 auto Processor::reset(const Reset::Any& reset) -> void
 {
     std::visit(Inline_visitor{
-        [this](const Reset::Hard&) { _free_beats = 0.; },
-        [](const Reset::Soft&) {},
+        [this](const Reset::Restart& r) { _adopt(r.params); },
         [](const Reset::Latency&) {}
     }, reset);
+}
+
+auto Processor::_adopt(std::span<const double> params) -> void
+{
+    for (auto i = size_t{}; i < num_params; ++i) _values[i] = static_cast<float>(params[i]);
+    _free_beats = 0.;
+    _gain = 1.f;
 }
 
 auto Processor::handle(const Event::Param& event) -> void

@@ -12,6 +12,7 @@
 #include <format>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -83,7 +84,7 @@ struct Bundle {
 
 // MARK: - instance
 
-struct Param { AudioUnitParameterID id{}; AudioUnitParameterInfo info{}; };
+struct Param { AudioUnitParameterID id{}; AudioUnitParameterInfo info{}; std::string name{}; };
 
 class Instance {
 public:
@@ -102,6 +103,11 @@ public:
                 auto p = Param{.id = id};
                 auto info_size = static_cast<UInt32>(sizeof(p.info));
                 if (AudioUnitGetProperty(unit, kAudioUnitProperty_ParameterInfo, kAudioUnitScope_Global, id, &p.info, &info_size) == noErr) {
+                    if (p.info.cfNameString) {
+                        char name[128]{};
+                        CFStringGetCString(p.info.cfNameString, name, sizeof(name), kCFStringEncodingUTF8);
+                        p.name = name;
+                    }
                     if (p.info.flags & kAudioUnitParameterFlag_CFNameRelease && p.info.cfNameString) CFRelease(p.info.cfNameString);
                     params.push_back(p);
                 }
@@ -200,6 +206,16 @@ public:
         AudioUnitGetProperty(unit, kAudioUnitProperty_TailTime, kAudioUnitScope_Global, 0, &seconds, &size);
         return seconds;
     }
+    auto set_offline(bool on) -> void
+    {
+        auto value = UInt32{on ? 1u : 0u};
+        AudioUnitSetProperty(unit, kAudioUnitProperty_OfflineRender, kAudioUnitScope_Global, 0, &value, sizeof(value));
+    }
+    auto param(const std::string& name) const -> const Param*
+    {
+        const auto found = std::find_if(params.begin(), params.end(), [&](const Param& p) { return p.name == name; });
+        return found == params.end() ? nullptr : &*found;
+    }
     auto set_bypass(bool on) -> void
     {
         auto value = UInt32{on ? 1u : 0u};
@@ -226,6 +242,7 @@ public:
     std::atomic<uint32_t> input_seed{1};
     double beat{};
     bool playing{true};
+    std::optional<Float64> position{}; // A scripted timeline position (the bounce scenarios); else derived from `beat`.
 
 private:
 
@@ -263,7 +280,7 @@ private:
     static OSStatus beat_and_tempo(void* self, Float64* beat, Float64* tempo)
     {
         auto& i = *static_cast<Instance*>(self);
-        if (beat) *beat = i.beat;
+        if (beat) *beat = i.position ? *i.position / i.rate * 2. : i.beat;
         if (tempo) *tempo = 120;
         return noErr;
     }
@@ -273,7 +290,7 @@ private:
         auto& i = *static_cast<Instance*>(self);
         if (playing) *playing = i.playing;
         if (changed) *changed = false;
-        if (sample_pos) *sample_pos = i.beat * 60. / 120. * i.rate;
+        if (sample_pos) *sample_pos = i.position ? *i.position : i.beat * 60. / 120. * i.rate;
         if (cycling) *cycling = false;
         return noErr;
     }
@@ -473,6 +490,217 @@ auto corrupt(CFPropertyListRef plist, Random& random) -> CFPropertyListRef
 constexpr auto rates = std::array{44100., 48000., 88200., 96000.};
 constexpr auto slice_sizes = std::array{64u, 128u, 512u, 1024u, 4096u};
 
+// MARK: - bounces
+
+// Reproducible bounces, against the AutomationDemo's Phase Out probe: a sine whose frequency follows
+// Value and whose phase never forgets, so one sample rendered on a stale value shifts everything
+// after it. Rendered on the main thread, block by block, with a scripted position and automation:
+// the same take is the same sequence of calls, so outputs compare bit for bit.
+class Bouncer {
+public:
+
+    struct Probe { AudioUnitParameterID value{}, phase_out{}; };
+
+    // How a host starts a bounce. Positions are timeline samples; values are sent with SetParameter
+    // at offset 0 between blocks, as Logic does.
+    struct Profile {
+        const char* name{};
+        bool offline{true};
+        bool reset{};              // AudioUnitReset at the start, as Logic does on play or a second bounce.
+        int64_t start{};           // The first block's position.
+        UInt32 first_frames{};     // The first block's length, else `frames`: a pre-roll remainder.
+        UInt32 frames{384};
+        bool values_before_start{};// The host sends the start's values before the first block (a chase).
+        bool values_in_preroll{};  // ...and for every block, negative positions included.
+        bool input_in_preroll{};   // Real input before position 0.
+        bool offline_history{};    // The session was already offline before this bounce (a previous one).
+    };
+
+    static constexpr auto rate = 48000.;
+    static constexpr auto length = int64_t{24000}; // Samples compared, from the first at position >= `from`.
+
+    Bouncer(Instance& instance, Probe probe) : _i{instance}, _probe{probe}
+    {
+        _list = static_cast<AudioBufferList*>(std::calloc(1, offsetof(AudioBufferList, mBuffers) + 2 * sizeof(AudioBuffer)));
+        _list->mNumberBuffers = 2;
+    }
+    ~Bouncer() { std::free(_list); }
+    Bouncer(const Bouncer&) = delete;
+    auto operator=(const Bouncer&) -> Bouncer& = delete;
+
+    static auto lane(int64_t position) -> AudioUnitParameterValue
+    {
+        const auto at = static_cast<double>(std::max<int64_t>(position, 0));
+        return static_cast<AudioUnitParameterValue>(0.5 + 0.4 * std::sin(2. * 3.141592653589793 * at / 12000.));
+    }
+
+    auto set(AudioUnitParameterID id, AudioUnitParameterValue value) -> void
+    {
+        AudioUnitSetParameter(_i.unit, id, kAudioUnitScope_Global, 0, value, 0);
+    }
+
+    // What the session did before the bounce: the playhead parked at `parked`, Value left at `stale`.
+    auto history(int64_t parked, AudioUnitParameterValue stale, bool offline) -> void
+    {
+        _i.set_offline(offline);
+        _i.playing = false;
+        _i.input_mode = Instance::Input_mode::Noise;
+        set(_probe.phase_out, 1);
+        set(_probe.value, stale);
+        for (auto n = 0; n < 6; ++n) render(parked, 512, nullptr, 0);
+    }
+
+    struct Take { std::vector<float> from_zero{}; bool preroll_silent{true}; };
+
+    auto bounce(const Profile& p, int64_t from) -> Take
+    {
+        auto take = Take{};
+        _i.set_offline(p.offline);
+        _i.playing = true;
+        if (p.reset) AudioUnitReset(_i.unit, kAudioUnitScope_Global, 0);
+        if (p.values_before_start) set(_probe.value, lane(p.start));
+
+        auto position = p.start;
+        auto first = true;
+        while (position < from + length) {
+            const auto frames = first && p.first_frames ? p.first_frames : p.frames;
+            if (!first && (position >= 0 || p.values_in_preroll)) set(_probe.value, lane(position));
+            first = false;
+            _i.input_mode = position < 0 && !p.input_in_preroll ? Instance::Input_mode::Silent : Instance::Input_mode::Noise;
+            render(position, frames, &take, from);
+            position += frames;
+        }
+        _i.set_offline(false);
+        _i.position.reset();
+        return take;
+    }
+
+    // A freshly initialized instance rendering the same range: what a restart owes.
+    static auto fresh(const Bundle& bundle, Probe probe, const Profile& p, int64_t from) -> std::vector<float>
+    {
+        auto instance = Instance{bundle};
+        AudioUnitSetParameter(instance.unit, probe.phase_out, kAudioUnitScope_Global, 0, 1, 0);
+        AudioUnitSetParameter(instance.unit, probe.value, kAudioUnitScope_Global, 0, lane(from), 0);
+        expect_true(instance.initialize(rate, 4096, p.offline), "AudioUnitInitialize failed");
+        auto bouncer = Bouncer{instance, probe};
+        auto profile = p;
+        profile.start = from;
+        profile.first_frames = 0;
+        profile.reset = false;
+        profile.values_before_start = true;
+        auto take = bouncer.bounce(profile, from);
+        instance.uninitialize();
+        return take.from_zero;
+    }
+
+private:
+
+    Instance& _i;
+    Probe _probe;
+    AudioBufferList* _list{};
+    std::array<std::array<float, 4096>, 2> _storage{};
+    Float64 _sample_time{};
+
+    auto render(int64_t position, UInt32 frames, Take* take, int64_t from) -> void
+    {
+        _i.position = static_cast<Float64>(position);
+        for (auto c = 0; c < 2; ++c) _list->mBuffers[c] = AudioBuffer{1, frames * static_cast<UInt32>(sizeof(float)), _storage[static_cast<size_t>(c)].data()};
+        auto stamp = AudioTimeStamp{.mSampleTime = _sample_time, .mFlags = kAudioTimeStampSampleTimeValid};
+        _sample_time += frames;
+        auto flags = AudioUnitRenderActionFlags{};
+        expect_true(AudioUnitRender(_i.unit, &flags, &stamp, 0, frames, _list) == noErr, "render failed");
+        if (!take) return;
+        for (auto f = UInt32{}; f < frames; ++f) {
+            const auto at = position + static_cast<int64_t>(f);
+            const auto sample = _storage[0][f];
+            if (at < 0 && sample != 0.f) take->preroll_silent = false;
+            if (at >= from && at < from + length) take->from_zero.push_back(sample);
+        }
+    }
+};
+
+// Where two takes first differ, for the failure message.
+auto first_difference(const std::vector<float>& a, const std::vector<float>& b) -> std::string
+{
+    if (a.size() != b.size()) return std::format("lengths {} and {}", a.size(), b.size());
+    for (auto i = size_t{}; i < a.size(); ++i) {
+        if (a[i] != b[i]) return std::format("first at sample {}: {} vs {}", i, a[i], b[i]);
+    }
+    return "none";
+}
+
+auto add_bounce_scenarios(const Bundle& bundle) -> void
+{
+    {
+        auto instance = Instance{bundle};
+        if (!instance.param("Phase Out") || !instance.param("Value")) return; // The probe is the AutomationDemo's.
+    }
+
+    using Profile = Bouncer::Profile;
+    // Logic, from the timeline origin: a 288-sample pre-roll remainder with nothing sent for it, then
+    // values between 384-sample sub-blocks. Its store is the last locate's until position 0.
+    const auto logic_origin = Profile{.name = "Logic from the origin", .start = -288, .first_frames = 288};
+    // Logic, from bar 5: it chases first, so block 0 already has the right values.
+    const auto logic_midstream = Profile{.name = "Logic midstream", .start = 48000, .values_before_start = true};
+    // Ableton: no pre-roll, 2048-sample blocks, its store set before the render.
+    const auto ableton = Profile{.name = "Ableton", .start = 0, .frames = 2048, .values_before_start = true};
+    // A second bounce straight after the first: the offline flag stays set, and the host resets.
+    const auto back_to_back = Profile{.name = "Logic, a second bounce", .reset = true, .start = -288, .first_frames = 288, .offline_history = true};
+
+    for (const auto& profile : {logic_origin, logic_midstream, ableton, back_to_back}) {
+        Tests::add(std::format("bounce: {}: two takes after different histories are identical, and equal a fresh instance", profile.name), [&bundle, profile] {
+            auto instance = Instance{bundle};
+            const auto probe = Bouncer::Probe{instance.param("Value")->id, instance.param("Phase Out")->id};
+            expect_true(instance.initialize(Bouncer::rate, 4096, false), "AudioUnitInitialize failed");
+            auto bouncer = Bouncer{instance, probe};
+            const auto from = std::max<int64_t>(profile.start, 0);
+
+            bouncer.history(123456, 0.1f, profile.offline_history);
+            const auto a = bouncer.bounce(profile, from);
+            bouncer.history(987654, 0.9f, profile.offline_history);
+            const auto b = bouncer.bounce(profile, from);
+            instance.uninitialize();
+
+            expect_true(a.from_zero == b.from_zero, std::format("takes differ: {}", first_difference(a.from_zero, b.from_zero)));
+            const auto reference = Bouncer::fresh(bundle, probe, profile, from);
+            expect_true(a.from_zero == reference, std::format("a take differs from a fresh instance: {}", first_difference(a.from_zero, reference)));
+            if (profile.start < 0) expect_true(a.preroll_silent && b.preroll_silent, "the pre-roll must be held: silent");
+        });
+    }
+
+    // Real input before position 0 ends the hold at once: a hold never deletes material.
+    Tests::add("bounce: input in the pre-roll ends the hold", [&bundle, logic_origin] {
+        auto instance = Instance{bundle};
+        const auto probe = Bouncer::Probe{instance.param("Value")->id, instance.param("Phase Out")->id};
+        expect_true(instance.initialize(Bouncer::rate, 4096, false), "AudioUnitInitialize failed");
+        auto bouncer = Bouncer{instance, probe};
+        auto profile = logic_origin;
+        profile.input_in_preroll = true;
+        bouncer.history(123456, 0.1f, false);
+        const auto take = bouncer.bounce(profile, 0);
+        instance.uninitialize();
+        expect_true(!take.preroll_silent, "the processor must run as soon as real input arrives");
+    });
+
+    // Realtime never holds: what's heard is never delayed. Logic resets on play and sends every value up
+    // front, so a realtime start from the origin restarts at once, on the right values.
+    Tests::add("bounce: realtime play from the origin restarts at once and never holds", [&bundle] {
+        auto instance = Instance{bundle};
+        const auto probe = Bouncer::Probe{instance.param("Value")->id, instance.param("Phase Out")->id};
+        expect_true(instance.initialize(Bouncer::rate, 4096, false), "AudioUnitInitialize failed");
+        auto bouncer = Bouncer{instance, probe};
+        const auto play = Bouncer::Profile{.name = "Logic realtime play", .offline = false, .reset = true, .start = -428,
+                                           .first_frames = 428, .frames = 512, .values_before_start = true, .values_in_preroll = true};
+        bouncer.history(123456, 0.1f, false);
+        const auto a = bouncer.bounce(play, 0);
+        bouncer.history(987654, 0.9f, false);
+        const auto b = bouncer.bounce(play, 0);
+        instance.uninitialize();
+        expect_true(!a.preroll_silent, "realtime must not hold");
+        expect_true(a.from_zero == b.from_zero, std::format("takes differ: {}", first_difference(a.from_zero, b.from_zero)));
+    });
+}
+
 // MARK: - scenarios
 
 auto add_scenarios(const Bundle& bundle) -> void
@@ -525,6 +753,40 @@ auto add_scenarios(const Bundle& bundle) -> void
         expect_true(render(0, flags) != noErr, "a failed input pull must fail the render");
         instance.input_mode = Instance::Input_mode::Noise;
         expect_true(render(0, flags) == noErr, "render after a failed pull failed");
+        std::free(list);
+        instance.uninitialize();
+    });
+
+    // A restart forgets note names, so a note named before it would lose its off and sound forever.
+    Tests::add("notes: a note-on in the block of a reset still ends at its note-off", [&bundle] {
+        if (!bundle.takes_midi()) return;
+        auto instance = Instance{bundle};
+        expect_true(instance.initialize(48000, 512, false), "AudioUnitInitialize failed");
+        instance.input_mode = Instance::Input_mode::Silent;
+        auto storage = std::array<std::array<float, 512>, 2>{};
+        auto* list = static_cast<AudioBufferList*>(std::calloc(1, offsetof(AudioBufferList, mBuffers) + 2 * sizeof(AudioBuffer)));
+        list->mNumberBuffers = 2;
+        auto sample_time = Float64{};
+        const auto render = [&] {
+            for (auto c = 0; c < 2; ++c) list->mBuffers[c] = AudioBuffer{1, 512 * sizeof(float), storage[static_cast<size_t>(c)].data()};
+            auto stamp = AudioTimeStamp{.mSampleTime = sample_time, .mFlags = kAudioTimeStampSampleTimeValid};
+            sample_time += 512;
+            auto flags = AudioUnitRenderActionFlags{};
+            expect_true(AudioUnitRender(instance.unit, &flags, &stamp, 0, 512, list) == noErr, "render failed");
+            auto peak = 0.f;
+            for (const auto& channel : storage) for (const auto x : channel) peak = std::max(peak, std::abs(x));
+            return peak;
+        };
+        for (auto take = 0; take < 2; ++take) {
+            AudioUnitReset(instance.unit, kAudioUnitScope_Global, 0);
+            MusicDeviceMIDIEvent(instance.unit, 0x90, 60, 100, 0);
+            auto sounding = 0.f;
+            for (auto b = 0; b < 20; ++b) sounding = std::max(sounding, render());
+            MusicDeviceMIDIEvent(instance.unit, 0x80, 60, 0, 0);
+            for (auto b = 0; b < 48000 * 4 / 512; ++b) (void)render(); // Past any release.
+            const auto left = render();
+            if (sounding > 0.f) expect_true(left == 0.f, std::format("take {}: still sounding at {} four seconds after the note-off", take, left));
+        }
         std::free(list);
         instance.uninitialize();
     });
@@ -762,6 +1024,7 @@ auto main(int argc, char** argv) -> int
     try {
         const auto bundle = Bundle{g_options.bundle};
         add_scenarios(bundle);
+        add_bounce_scenarios(bundle);
         return audio_bench::Tests::run_all() == 0 ? 0 : 1;
     }
     catch (const std::exception& e) {

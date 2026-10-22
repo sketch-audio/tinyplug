@@ -149,7 +149,7 @@ public:
     }
 #endif
 
-    // At `Reset::Hard`: the processor releases its voices, so the names go too.
+    // At a stream `Restart`: the processor releases its voices, so the names go too.
     auto clear() -> void
     {
 #if TINY_HAS_NOTES_IN

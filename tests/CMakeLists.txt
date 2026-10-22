@@ -79,6 +79,7 @@ tiny_add_test(notes_test)
 
 # Processor.
 tiny_add_test(timeline_resolver_test LIBS ${TINY_PLUG_LIB} INCLUDES ${_standin})
+tiny_add_test(stream_sync_test LIBS ${TINY_PLUG_LIB} INCLUDES ${_standin})
 
 # State.
 tiny_add_test(state_store_test)
@@ -163,6 +164,16 @@ if(TINY_BUILD_PLUGINS AND NOT EMSCRIPTEN)
         tiny_copy_asan_runtime(vst3_host)
         add_dependencies(tiny_host_tests vst3_host)
     endif()
+
+    # Each demo's contract checks (tools/contract_checks), no host.
+    foreach(demo ${_demos})
+        if(NOT TARGET ${demo}_lib)
+            continue()
+        endif()
+        make_contract_checks(${demo}_lib)
+        set_tests_properties(contract.${demo} PROPERTIES LABELS "host;contract")
+        add_dependencies(tiny_host_tests ${demo}_contract_checks)
+    endforeach()
 
     # AAX: no bundle loading, so one host per demo with the wrapper's sources compiled in.
     if(APPLE OR WIN32)

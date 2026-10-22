@@ -51,6 +51,7 @@ public:
             .sr = mSampleRate,
             .params = config_params
         });
+        _sync.configured(mSampleRate); // Render resources are being allocated: nothing renders.
         const auto latency = _processor->latency_samps();
         _latency.store(latency, std::memory_order_release);
         _tail.store(_processor->tail_samps(), std::memory_order_relaxed);
@@ -86,8 +87,51 @@ public:
     void setMidiOutput(AUMIDIOutputEventBlock block) { _midi_out = block; }
 #endif
 
-    // Once per render, before any slice: the timeline, the editor's notes, and the bypass the block renders with.
-    void begin_block(AUEventSampleTime start, AUAudioFrameCount frameCount) {
+    // Once per render, before any slice and before its events: the latency the host accepted, values set
+    // off the render thread, a restart where the input is discontinuous, the timeline, the editor's notes,
+    // and the bypass the block renders with.
+    void begin_block(AUEventSampleTime start, AUAudioFrameCount frameCount, AURenderEvent const* events) {
+        const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
+        if (accepted_latency) {
+            const auto new_latency = *accepted_latency;
+            _processor->reset(tiny::process::Reset::Latency{new_latency});
+            _bypass.set_latency(new_latency);
+            assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
+        }
+
+        // Older than anything this render's events carry, so delivered first.
+        _param_changes.consume([this](uint32_t address, double value) {
+            _processor->handle(tiny::process::Event::Set{.value = value, .address = address});
+        });
+
+        // Restart wherever the processor's input is discontinuous (a host reset, the render-mode edge,
+        // fresh render resources, resuming after the skip): the store, with the values this render's
+        // events set at its start folded in. The events still arrive after it, as events.
+        const auto plan = _sync.next({
+            .host_reset = _needs_clear.exchange(false, std::memory_order_relaxed),
+            .render_mode = _offline.load(std::memory_order_relaxed) ? tiny::process::Render_mode::Offline : tiny::process::Render_mode::Realtime,
+            .skipping = _bypass.can_skip_effect(),
+            .frames = frameCount,
+        }, [] { return false; });
+        if (plan.restart != tiny::process::Stream_sync::Restart::None) {
+            auto values = tiny::process::restart_values<num_params>([this](uint32_t address) {
+                const auto host = _hostvalues[address].load(std::memory_order_relaxed);
+                return tiny::params::Value_helper::host_to_plain(host, User_params::param_spec(address).semantics);
+            }, {});
+            for (const auto* e = events; e; e = e->head.next) {
+                if (e->head.eventSampleTime > start) break;
+                if (e->head.eventType != AURenderEventParameter || e->parameter.parameterAddress >= num_params) continue;
+                const auto address = static_cast<uint32_t>(e->parameter.parameterAddress);
+                values[address] = tiny::params::Value_helper::host_to_plain(e->parameter.value, User_params::param_spec(address).semantics);
+            }
+            _processor->reset(tiny::process::Reset::Restart{values});
+            if (plan.restart == tiny::process::Stream_sync::Restart::Stream) {
+                _notes.clear();
+                _bypass.clear(); // Its delay lines hold audio from before the discontinuity.
+                _bypass.snap();
+            }
+        }
+
         _block_start = start;
         _block_timeline = resolve_timeline(frameCount);
 #if TINY_HAS_NOTES_OUT
@@ -202,33 +246,10 @@ public:
         drain_worker_to_processor();
 #endif
 
-        const auto accepted_latency = _accepted_latency.exchange(std::nullopt, std::memory_order_acq_rel);
-        if (accepted_latency) {
-            const auto new_latency = *accepted_latency;
-            _processor->reset(tiny::process::Reset::Latency{new_latency});
-            _bypass.set_latency(new_latency);
-            assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
-        }
-
-        // Discontinuity requested by the host — forget history before anything this block
-        // delivers lands.
-        if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
-            _processor->reset(tiny::process::Reset::Hard{});
-            _notes.clear();
-            _bypass.clear();    // Its delay lines hold pre-seek dry audio.
-            _bypass.snap();
-        }
-
-        // Parameter values set off the render thread since the last block.
-        const auto delivered = _param_changes.consume([this](uint32_t address, double value) {
-            _processor->handle(tiny::process::Event::Set{.value = value, .address = address});
-        });
-
-        // Changed while bypassed: manifest now rather than ramping through audio nobody hears,
-        // so a client reading realized state (an open editor) doesn't see stale values.
-        if (delivered && _bypass.is_bypassed()) {
-            _processor->reset(tiny::process::Reset::Soft{});
-        }
+        const auto render_mode = _offline.load(std::memory_order_relaxed)
+            ? tiny::process::Render_mode::Offline
+            : tiny::process::Render_mode::Realtime;
+        const auto can_skip = _bypass.can_skip_effect();
 
         auto context = tiny::process::Context{.propose_latency = {}};
 #if TINY_HAS_STATE
@@ -244,20 +265,7 @@ public:
         // Event-split slices share the render's timeline, offset to where they start.
         const auto slice_offset = std::max<AUEventSampleTime>(bufferStartTime - _block_start, 0);
         context.timeline = tiny::process::Timeline_resolver::at_offset(_block_timeline, static_cast<size_t>(slice_offset), mSampleRate);
-        context.render_mode = _offline.load(std::memory_order_relaxed)
-            ? tiny::process::Render_mode::Offline
-            : tiny::process::Render_mode::Realtime;
-
-        // We need to resync on render mode edge.
-        // Realtime <-> offline is a discontinuity: the audio either side is unrelated, so
-        // forget history as well as manifesting values.
-        if (_last_render_mode != context.render_mode) {
-            _processor->reset(tiny::process::Reset::Hard{});
-            _notes.clear();
-            _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
-            _bypass.snap();
-            _last_render_mode = context.render_mode;
-        }
+        context.render_mode = render_mode;
         
         assert(inputBuffers.size() == static_cast<size_t>(mInputChannelCount));
         assert(outputBuffers.size() == static_cast<size_t>(mOutputChannelCount));
@@ -272,15 +280,6 @@ public:
         context.notes = _writer;
 #endif
         
-        const auto can_skip = _bypass.can_skip_effect();
-
-        // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
-        // process()) — settle before this block's own automation lands, not after.
-        if (_was_skipped && !can_skip) {
-            _processor->reset(tiny::process::Reset::Soft{});
-        }
-        _was_skipped = can_skip;
-
         if (!can_skip) {
             _processor->process(context);
         }
@@ -504,9 +503,8 @@ private:
     bool _passing{};
 #endif
 
-    std::atomic<bool> _needs_clear{false}; // Set by clear(), consumed at the top of process().
-    bool _was_skipped{}; // process()-thread only. Detects the can_skip -> processing edge.
-    std::optional<tiny::process::Render_mode> _last_render_mode{}; // process()-thread only. Detects the realtime <-> offline edge.
+    std::atomic<bool> _needs_clear{false}; // Set by clear(), consumed by `_sync` in process().
+    tiny::process::Stream_sync _sync{}; // process()-thread only. When to restart the processor.
 
 #if TINY_HAS_METERS
     tiny::meters::Mailbox<tiny::models::Resolved::Meters> _mailbox{};

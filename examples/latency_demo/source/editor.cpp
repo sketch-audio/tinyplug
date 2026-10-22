@@ -80,7 +80,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
             case Step::Kind::Configure: line += "CONFIGURE AT " + ms(s.samples, sr); color = t.dim; break;
             case Step::Kind::Propose: line += "PROPOSE " + ms(s.samples, sr); color = ui::red; break;
             case Step::Kind::Accept: line += "ACCEPT " + ms(s.samples, sr) + " AFTER " + ui::fixed(static_cast<double>(s.waited) / sr, 2) + " S"; color = ui::green; break;
-            case Step::Kind::Hard: line += "RESET HARD"; color = t.dim; break;
+            case Step::Kind::Restart: line += "RESTART"; color = t.dim; break;
         }
         ui::text(*canvas, steps.x + 8, y, line, color);
         y += 14;

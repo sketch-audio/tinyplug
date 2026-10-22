@@ -13,9 +13,10 @@ public:
     // This a good time to resize some vectors.
     auto configure(const Config& config) -> void;
 
-    // Block-boundary sync: `Hard` restarts the stream, `Soft` lands deferred values,
-    // `Latency` hands over a latency the host accepted. Nothing to do here. Never allocates.
-    auto reset(const Reset::Any&) -> void {}
+    // Block-boundary commands: `Restart` says the input stream is discontinuous and hands over the
+    // exact parameter values (come out as `configure` would leave you); `Latency` hands over a
+    // latency the host accepted. Never allocates.
+    auto reset(const Reset::Any& reset) -> void;
 
     // Receive a render event such as `Event::Set`.
     // Events are interleaved with process calls so you can consider them as happening "now".
@@ -43,6 +44,8 @@ private:
 
     using enum tiny::params::Space;
     std::array<float, num_params> _values{tiny::params::make_defaults<float, User_params>(Plain)};
+
+    auto _adopt(std::span<const double> params) -> void; // What `configure` and `Restart` share.
 
 };
 static_assert(Interface<Processor>); // Check your interface.

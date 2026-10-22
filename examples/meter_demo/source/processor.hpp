@@ -36,6 +36,8 @@ private:
     uint32_t _trig_count{}; // Magnitude carried by the trigger, 1..8 and wrapping.
     float _sparse_ramp{};   // Advances only while signal is present.
 
+    auto _adopt(std::span<const double> params) -> void; // What `configure` and `Restart` share.
+
 };
 static_assert(Interface<Processor>);
 

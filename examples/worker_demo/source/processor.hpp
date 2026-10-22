@@ -11,7 +11,7 @@ class Processor {
 public:
 
     auto configure(const Config& config) -> void;
-    auto reset(const Reset::Any&) -> void {}
+    auto reset(const Reset::Any& reset) -> void;
     auto handle(const Event::Param& event) -> void;
     auto process(Context& context) -> void;
 
@@ -33,6 +33,8 @@ private:
     uint32_t _seq{};
     int64_t _clock{};
     int64_t _next_beat{};
+
+    auto _adopt(std::span<const double> params) -> void; // What `configure` and `Restart` share.
 
 };
 static_assert(Interface<Processor>);

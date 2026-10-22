@@ -59,6 +59,31 @@ from another thread during chaos, and check that a load from off main reads back
 then applied on main. Each audio block runs with an allocation trap
 armed, and the first few allocations print their stacks. Options: `--seed N`, `--seconds S`.
 
+### Reproducible bounces
+
+Against AutomationDemo, whose Phase Out parameter is a probe (a sine whose frequency follows Value, with
+a phase that never forgets, so one sample rendered on a stale value shifts everything after it), the CLAP,
+VST3, AUv2 and AUv3 hosts also bounce. Each scenario renders a host's bounce twice, after different
+histories (the playhead parked elsewhere, Value left elsewhere), on one thread, block by block: the two
+takes must be bit-identical, and equal a fresh instance rendering the same range.
+
+| Host | Profiles |
+|---|---|
+| `auv2_host` | Logic from the origin (a 288-sample pre-roll with nothing sent for it: the hold), Logic midstream, Ableton, a second bounce straight after the first; plus input in the pre-roll ends the hold, and realtime play never holds |
+| `clap_host` | values in-band at time 0: from the origin, midstream, midstream after a `reset` |
+| `vst3_host` | an export that re-runs `setupProcessing`; a host that only flips the block's `processMode` |
+| `auv3_host` | after a `reset`, values as render events |
+
+A profile encodes what we believe a host does; it guards the policy, it doesn't prove the host does it.
+
+For instruments, the AUv2 and VST3 hosts also play a note-on in the very block that restarts (after a
+reset or `setProcessing`) and its note-off later: four seconds on, the output must be silent. A restart
+forgets note names, so a note named before it would sound forever.
+
+`contract.<Demo>` (labels `host` and `contract`, built with the hosts) runs each demo's contract checks
+([tools/contract_checks](../tools/contract_checks/)): the processor alone, configured, played through a
+history of noise and automation, restarted, and compared with a freshly configured one, bit for bit.
+
 The trap replaces the host's `operator new`, which is the whole process's on macOS. On Windows each
 plug-in DLL links its own static CRT, so there it's an ASan malloc hook instead: every module's heap
 goes through the one ASan runtime. A Windows build without ASan traps only the host's allocations.

@@ -2,6 +2,7 @@
 // Emscripten JS; its memory is imported and shared, so the controller's pump reaches the rings by byte offset.
 #include <algorithm>
 #include <array>
+#include <span>
 #include <cassert>
 #include <cstdint>
 #include <memory>
@@ -68,8 +69,8 @@ struct Processor_module {
     std::uint32_t latency{};
     std::int64_t frame{}; // Frames rendered since configure.
     double sr{48000};
-    bool needs_hard{};
-    bool was_skipped{};
+    bool host_reset{}; // The page asked for a reset; `sync` consumes it.
+    process::Stream_sync sync{};
     std::string manifest{};
 
     Processor_module()
@@ -118,6 +119,7 @@ struct Processor_module {
         sr = sample_rate;
         processor = std::make_unique<User_processor>();
         processor->configure(process::Config{.sr = sr, .params = params});
+        sync.configured(sr);
 #if TINY_HAS_WORKER
         try_bind_worker(*processor, Worker_processor_actor{
             [this](const auto& m) { return outbound.push(Kind::Worker_message, &m, static_cast<std::uint32_t>(sizeof(m))); }
@@ -134,12 +136,28 @@ struct Processor_module {
         outbound.push_value(Kind::Latency, Samples{.samples = latency});
     }
 
-    auto drain_inbound() -> void
+    // Host MIDI set aside by `drain_inbound`, named after any restart: a restart forgets the names, so
+    // a note-on named first would lose its off.
+    struct Pending_midi {
+        std::array<Midi, 256> midi{};
+        std::size_t count{};
+    };
+
+    auto add(process::Event::Any event, std::int32_t offset) -> void
     {
-        auto order = std::uint32_t{};
-        const auto add = [&](process::Event::Any event, std::int32_t offset) {
-            if (events.size() < events.capacity()) events.push_back({.event = event, .offset = std::max(offset, 0), .order = order++});
-        };
+        if (events.size() < events.capacity()) events.push_back({.event = event, .offset = std::max(offset, 0)});
+    }
+
+    auto name_midi([[maybe_unused]] const Midi& m) -> void
+    {
+#if TINY_HAS_NOTES_IN
+        notes.from_midi(process::mpe_enabled(*processor), m.status, m.data1, m.data2,
+                        [&](const process::Event::Any& e) { add(e, m.offset); });
+#endif
+    }
+
+    auto drain_inbound([[maybe_unused]] Pending_midi& pending) -> void
+    {
         inbound.drain([&](Kind kind, const void* payload, std::uint32_t) {
             switch (kind) {
                 case Kind::Param_set: {
@@ -159,13 +177,13 @@ struct Processor_module {
                     break;
                 }
                 case Kind::Bypass: bypass.set_bypassed(static_cast<const Flag*>(payload)->on != 0); break;
-                case Kind::Reset_hard: needs_hard = true; break;
+                case Kind::Host_reset: host_reset = true; break;
                 case Kind::Transport: transport = *static_cast<const Transport*>(payload); break;
 #if TINY_HAS_NOTES_IN
                 case Kind::Midi: {
                     const auto& m = *static_cast<const Midi*>(payload);
-                    notes.from_midi(process::mpe_enabled(*processor), m.status, m.data1, m.data2,
-                                    [&](const process::Event::Any& e) { add(e, m.offset); });
+                    if (pending.count < pending.midi.size()) pending.midi[pending.count++] = m;
+                    else name_midi(m); // Past what fits, named at once: right unless this quantum restarts.
                     break;
                 }
                 case Kind::Editor_note: {
@@ -186,10 +204,6 @@ struct Processor_module {
                 default: break;
             }
         });
-#if TINY_HAS_NOTES_IN
-        notes.drain_editor([&](const process::Event::Any& e) { add(e, 0); }); // The editor's notes land at the top.
-#endif
-        std::sort(events.begin(), events.end(), process::before);
     }
 
     // One event to the processor; a note or control also passes through a bypassed note effect.
@@ -238,14 +252,33 @@ struct Processor_module {
             accepted.reset();
         }
 
+        // Restart wherever the processor's input is discontinuous (the page's reset, a fresh configure,
+        // resuming after the skip), with the values at the top of this quantum: draining moves `params` on.
+        const auto top = params;
         events.clear();
-        drain_inbound();
-        if (std::exchange(needs_hard, false)) {
-            processor->reset(process::Reset::Hard{});
-            notes.clear();
-            bypass.clear();
-            bypass.snap();
+        auto pending = Pending_midi{};
+        drain_inbound(pending);
+        const auto plan = sync.next({
+            .host_reset = std::exchange(host_reset, false),
+            .render_mode = process::Render_mode::Realtime,
+            .skipping = bypass.can_skip_effect(),
+            .frames = static_cast<std::uint32_t>(frames),
+        }, [] { return false; });
+        if (plan.restart != process::Stream_sync::Restart::None) {
+            const auto values = process::restart_values<num_params>([&top](std::uint32_t address) { return top[address]; }, events);
+            processor->reset(process::Reset::Restart{values});
+            if (plan.restart == process::Stream_sync::Restart::Stream) {
+                notes.clear();
+                bypass.clear();
+                bypass.snap();
+            }
         }
+#if TINY_HAS_NOTES_IN
+        for (const auto& m : std::span{pending.midi.data(), pending.count}) name_midi(m);
+        notes.drain_editor([&](const process::Event::Any& e) { add(e, 0); }); // The editor's notes land at the top.
+#endif
+        for (auto i = std::size_t{}; i < events.size(); ++i) events[i].order = static_cast<std::uint32_t>(i);
+        std::sort(events.begin(), events.end(), process::before);
 
         auto context = process::Context{};
 #if TINY_HAS_METERS
@@ -305,8 +338,6 @@ struct Processor_module {
         };
 
         const auto can_skip = bypass.can_skip_effect();
-        if (was_skipped && !can_skip) processor->reset(process::Reset::Soft{});
-        was_skipped = can_skip;
 
         auto next = events.begin();
         if (can_skip) {

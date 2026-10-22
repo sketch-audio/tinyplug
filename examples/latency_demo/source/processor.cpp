@@ -7,11 +7,11 @@ namespace tiny::process {
 
 auto Processor::configure(const Config& config) -> void
 {
-    for (auto i = size_t{}; i < num_params; ++i) _values[i] = static_cast<float>(config.params[i]);
     _frame.sr = config.sr;
 
     const auto longest = static_cast<size_t>(std::ceil(models::Params::mode_ms.back() * 0.001 * config.sr));
     for (auto& line : _lines) line.resize(longest + 1);
+    _adopt(config.params);
 
     // Come up in the mode the values ask for: `configure` is final, so nothing is proposed.
     // A proposal still outstanding is superseded; the framework clears its side of it too.
@@ -25,11 +25,12 @@ auto Processor::configure(const Config& config) -> void
 auto Processor::reset(const Reset::Any& reset) -> void
 {
     std::visit(Inline_visitor{
-        [this](const Reset::Hard&) {
-            for (auto& line : _lines) line.clear();
-            _step(Step::Kind::Hard, _frame.current);
+        // Keep the accepted latency; if the values want another mode, propose it from `process`.
+        [this](const Reset::Restart& r) {
+            _adopt(r.params);
+            _propose = _wanted() != _frame.current;
+            _step(Step::Kind::Restart, _frame.current);
         },
-        [](const Reset::Soft&) {},
         // The host has aligned its graph: move now, to exactly what it accepted.
         [this](const Reset::Latency& e) {
             _frame.current = e.samples;
@@ -37,6 +38,13 @@ auto Processor::reset(const Reset::Any& reset) -> void
             if (_frame.pending == static_cast<int64_t>(e.samples)) _frame.pending = -1;
         },
     }, reset);
+}
+
+// What `configure` and `Restart` share. The latency they don't: `configure`'s is final, a restart's is the host's.
+auto Processor::_adopt(std::span<const double> params) -> void
+{
+    for (auto i = size_t{}; i < num_params; ++i) _values[i] = static_cast<float>(params[i]);
+    for (auto& line : _lines) line.clear();
 }
 
 auto Processor::handle(const Event::Param& event) -> void

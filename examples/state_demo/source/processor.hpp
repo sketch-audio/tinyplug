@@ -33,6 +33,8 @@ private:
     float _gain{1.f};
     float _glide{};       // One-pole coefficient: ~3 ms, so steps don't click.
 
+    auto _adopt(std::span<const double> params) -> void; // What `configure` and `Restart` share.
+
 };
 static_assert(Interface<Processor>);
 

@@ -35,8 +35,11 @@ translate the host's API into framework events and back.
     "My Plug" --manu Acme --id plg1`. Generates `examples/<snake_name>/` and appends
     it to [examples/CMakeLists.txt](examples/CMakeLists.txt).
   - [tools/](tools/) — author helper utilities: the scaffold above, preset exporters
-    ([tools/presets/](tools/presets/)), and AAX page-table generation
-    ([tools/pagetables/](tools/pagetables/)). All opt-in; demos don't use them.
+    ([tools/presets/](tools/presets/)), AAX page-table generation
+    ([tools/pagetables/](tools/pagetables/)), and **contract checks**
+    ([tools/contract_checks/](tools/contract_checks/)): `make_contract_checks(<lib>)` builds a
+    per-plug-in program checking what the framework requires of a plug-in, without a host. It's the
+    home for any new check of that kind; its README lists the planned ones. All opt-in.
   - [plans/](plans/) — design docs for work not yet landed (see "Plans"). A plan is deleted once
     it lands; what it taught moves into this file.
   - [tests/](tests/) — one CTest executable per file; presets `tests`, `tsan`, `asan`
@@ -44,7 +47,10 @@ translate the host's API into framework events and back.
     audio_bench, fetched at a pinned commit; see [tests/README.md](tests/README.md). Run the
     `tsan` preset after touching any threading primitive. Fake hosts (`tests/hosts/`: CLAP, VST3,
     AUv2, AUv3, and AAX with the wrapper compiled in) drive the real demo bundles under the `tsan-hosts` / `asan-hosts` presets; run them
-    after touching a wrapper. On Windows: `windows-tests`, `windows-asan`, `windows-asan-hosts`
+    after touching a wrapper. Against AutomationDemo's Phase Out probe they also **bounce**: scripted
+    host profiles (Logic's pre-roll, a midstream chase, an export that re-runs setup, ...) rendered
+    twice after different histories must be bit-identical and equal a fresh instance. Reproducible
+    bounces are a hallmark; a change that breaks one fails there. On Windows: `windows-tests`, `windows-asan`, `windows-asan-hosts`
     (MSVC ASan only; CLAP, VST3 and AAX hosts).
 
 ## Build
@@ -118,14 +124,39 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   Two axes, and the split is what to remember: **`configure` allocates** (sample rate
   plus the parameter values to come up holding, plain space) and is the only tier
   permitted to; **`reset` never does**. `Reset::Any` is a closed sum of block-boundary
-  syncs — `Hard` (stream restarting, forget history, land everything), `Soft` (land what
-  must be exact, history and long musical glides survive), `Latency{samples}` (the host
-  accepted a proposal — adopt it now, `latency_samps()` must match on return). An
-  exhaustive `std::visit` is the idiom, and it is what stops a kernel from silently
-  ignoring an accepted latency.
+  commands, facts the processor must adopt to render correctly: `Restart{params}` (the input
+  stream is discontinuous — forget transient history and come out exactly as
+  `configure(sr, params)` would, except the accepted latency, which it keeps and proposes
+  away from) and `Latency{samples}` (the host accepted a proposal — adopt it now,
+  `latency_samps()` must match on return). An exhaustive `std::visit` is the idiom, and it
+  is what stops a kernel from silently ignoring an accepted latency.
+  **The processor is told what, never why.** Everything live — automation, preset and state
+  loads, flushes, edits — is events, realized by the processor's own policy; a restart carries
+  no reason, so it can't treat history differently by cause. The contract checks tool
+  ([tools/contract_checks](tools/contract_checks/)) checks it on a processor alone (any history,
+  then `Restart{b}` ≡ `configure(b)`); every demo runs it.
   Events are interleaved with `process` calls by the wrapper so DSP code
   always sees them at the right sample offset (sample-accurate automation
   including ramps).
+- **When to restart is one rule, `process::Stream_sync`**
+  ([stream_sync.hpp](libs/tinyplug/include/tinyplug/stream_sync.hpp)), used by every wrapper but
+  AAX: a restart at a host reset, the render-mode edge, a fresh `configure`, and on resuming
+  after the bypass skip (the processor missed that audio: a gap like a seek) — and nowhere else.
+  `restart_values` builds the values: the store at the top of the block with that block's
+  offset-0 `Set`s folded in, so an in-band first value lands exactly instead of gliding in from a
+  stale one. **A stream restart forgets note names** (`Note_io::clear`), so it must come before the
+  block names any note: a note-on named first loses its note-off and sounds forever. VST3 collects
+  parameters, restarts, then names notes; AUv2 and web set raw MIDI aside and name it after.
+  A stream restart also clears and snaps `Host_bypass`, so **ask `can_skip_effect()` again
+  after it** before deciding whether to run the processor: asked before, a block un-bypassed at a
+  discontinuity skips the processor and the snapped bypass mixes in an unwritten output buffer.
+  **AUv2 holds offline renders**: after a discontinuity the processor isn't run (silence
+  out) until the first block reaching timeline position 0, because Logic sends no automation for
+  its pre-roll while `Globals()` still holds the last locate's values. Real input or a note, a
+  missing position, leaving offline and a one-second cap each end a hold. Realtime never holds.
+  Enable it in another format only on evidence. AAX rebuilds the processor through `configure`
+  at its resets, so its one restart is the skip resume. Design and the Logic measurements:
+  [bounce-param-authority.md](plans/bounce-param-authority.md).
 - **`edit::Editor`** — receives `Plugin_state` (read-only params + meters)
   on draw, emits `User_action` events (Action_start/Set_param/Action_end/
   Request_resize). Wrappers translate gestures into host-native begin/edit/end
@@ -203,7 +234,7 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   parameters. Every wrapper owns a `process::Note_io`
   ([tiny_note_io.hpp](libs/tinyplug/include/tinyplug/tiny_note_io.hpp)): `Note_ids` mints one
   id per note whatever the format supplied, the editor's pipe (`Edit_context::notes`) lands
-  at the top of the next block, and a stream break (hard reset, bypass edge, deactivate)
+  at the top of the next block, and a stream break (a restart, bypass edge, deactivate)
   sends all-notes-off. MIDI 1.0 goes through one codec
   ([midi_codec.hpp](libs/tiny_core/include/tiny_core/midi_codec.hpp)). Per format: CLAP note
   ports, VST3 event buses plus `IMidiMapping` onto 144 hidden parameters for controls, AUv2
@@ -602,6 +633,10 @@ undo, and state chunks). The GUI hangs off the data model.
 - Param values cached locally in `_hostvalues` atomics (host space)
   because AUv3 sends per-param values and the controller view needs them
   fast.
+- **Per render, `DSPKernel::begin_block` runs before any of the render's events**: the accepted
+  latency, then values set off the render thread (`_param_changes`), then any restart (folding in
+  the render's own events at its start). Off-thread values are older than the render's events, so
+  delivered after them they overwrote newer ones; the AUv3 bounce scenario caught exactly that.
 - Presets: a generated `preset_list.hpp` enumerates factory presets;
   AUv3 hosts can also save **user presets**. When loaded, the editor
   state map gets an extra key `preset-name` (string) by convention — see
@@ -915,7 +950,7 @@ From the README, enforced informally:
 - Herb Sutter "AAA"/left-to-right: most lines start with `const auto`;
   functions use trailing return types (`-> ReturnType`).
 - Stroustrup naming with snake_case for multi-word names; types and
-  scoped-enum members capitalized (`Value_helper`, `Reset::Hard`).
+  scoped-enum members capitalized (`Value_helper`, `Reset::Restart`).
 - Opening brace on a new line only for function definitions.
 - Private members prefixed with `_`.
 
@@ -937,8 +972,9 @@ its rules are in this file and its history in git.
   still refuses a missing `editor.hpp`.
 - **[param-lockfile.md](plans/param-lockfile.md)** — deferred. A checked-in `params.lock` per plug-in so the
   permanence rules above become build-time enforcement.
-- **[bounce-param-authority.md](plans/bounce-param-authority.md)** — deferred. The first block of an
-  offline render runs on the playhead's parameter values; diagnosis, the fix and its risk list.
+- **[bounce-param-authority.md](plans/bounce-param-authority.md)** — in the tree, unmeasured in a real DAW.
+  `Restart{params}`, `Stream_sync` and the AUv2 hold are in; real Logic measurements and the all_plugins port
+  remain. Holds the Logic diagnosis and evidence.
 - **[linux-feasibility.md](plans/linux-feasibility.md)** — feasibility. CLAP and VST3 on Linux.
 - **[roadmap-misc.md](plans/roadmap-misc.md)** — design. Windows multitouch, a macOS CPU backend, Windows
   GPU sync.

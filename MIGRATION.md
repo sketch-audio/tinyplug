@@ -845,3 +845,46 @@ specs instead of three.
   `build_tree()`'s locals.
 - `Spec::description`, for tooltips, the web manifest and manuals. No plug-in API passes it to a host.
 
+
+---
+
+## `Restart` replaces `Hard` and `Soft`
+
+New on `main`. The processor gets two block-boundary commands instead of three, and the restart carries the
+values. Driven by reproducible bounces: see [plans/bounce-param-authority.md](plans/bounce-param-authority.md).
+
+### Breaks
+
+- **`Reset::Hard{}` → `Reset::Restart{params}`.** `params` is every parameter's exact value, plain space,
+  indexed by address, borrowed for the call — the same shape as `Config::params`. A restart owes what
+  `configure(sr, params)` would leave, except `latency_samps()`, which keeps the accepted value (propose from
+  `process` if `params` imply another). Those values used to arrive as `Set`s before the reset, so a `Hard`
+  handler that only cleared history now has to adopt them too. The usual shape is one private
+  `_adopt(params)` that both `configure` and the `Restart` handler call:
+  ```cpp
+  [this](const Reset::Restart& r) { _adopt(r.params); _clear_history(); },
+  ```
+- **`Reset::Soft` is gone.** Delete its handler. Everything it covered (a flush, values changed while
+  bypassed, a state load, re-reading values after lost events) now arrives as plain `Set`s, realized as any
+  edit is.
+- **Resuming after the bypass skip is a `Restart`**, where it used to be a `Soft`: the processor missed the
+  audio that passed while it was skipped, so its history is stale. The bypass crossfade brings the wet signal
+  in from the cleared state.
+- **"Forget history" is transient state only.** Recorded content (a looper's loop, a loaded sample) is
+  persisted state and survives a restart.
+- **No reason is given**, on purpose: a seek, a bounce start and a resume all owe the same thing.
+- The web wire's `Reset_hard` message is `Host_reset` (`encode.host_reset()` in `processor.js`): a request, which `Stream_sync` turns into a restart.
+
+### Checking a processor
+
+Add one line next to the `make_*_plugin` calls:
+
+```cmake
+make_contract_checks(MyPlug_lib) # <Base>_contract_checks, the CTest contract.<Base>
+```
+
+It builds a small program against the plug-in's library ([tools/contract_checks](tools/contract_checks/)).
+Among its checks: configure with one set of values, play a history of noise and automation, restart with
+another, and compare with a processor freshly configured with the second set, bit for bit; then a second
+restart must change nothing. A product's state that survives a restart (an oscillator's phase, a one-shot
+`timeline_started()`) shows up there and nowhere else.

@@ -58,6 +58,8 @@ private:
     auto _analyze(Context& context) -> void;
     auto _scope(Context& context, float x) -> void;
 
+    auto _adopt(std::span<const double> params) -> void; // What `configure` and `Restart` share.
+
 };
 static_assert(Interface<Processor>);
 

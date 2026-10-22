@@ -9,7 +9,7 @@ export const memory_pages = 512; // -sINITIAL_MEMORY=32MB = -sMAXIMUM_MEMORY in 
 export const create_memory = (shared = true) => new WebAssembly.Memory({ initial: memory_pages, maximum: memory_pages, shared });
 
 export const Kind = Object.freeze({
-    Param_set: 0, Param_ramp: 1, Bypass: 2, Reset_hard: 3, Transport: 4, Midi: 5, Editor_note: 6, Worker_reply: 7,
+    Param_set: 0, Param_ramp: 1, Bypass: 2, Host_reset: 3, Transport: 4, Midi: 5, Editor_note: 6, Worker_reply: 7,
     Meter: 64, Latency: 65, Midi_out: 66, Worker_message: 67,
 });
 
@@ -117,7 +117,7 @@ export const encode = {
         v.setFloat64(0, value, true); v.setUint32(8, address, true); v.setInt32(12, samples, true); v.setInt32(16, offset, true);
     })],
     bypass: (on) => [Kind.Bypass, payload(8, (v) => v.setUint32(0, on ? 1 : 0, true))],
-    reset_hard: () => [Kind.Reset_hard, new Uint8Array(0)],
+    host_reset: () => [Kind.Host_reset, new Uint8Array(0)],
     midi: (status, data1 = 0, data2 = 0, offset = 0) => [Kind.Midi, payload(8, (v) => {
         v.setUint8(0, status); v.setUint8(1, data1); v.setUint8(2, data2); v.setInt32(4, offset, true);
     })],

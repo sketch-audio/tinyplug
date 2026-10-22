@@ -361,6 +361,145 @@ auto corrupt(NSDictionary* state, Random& random) -> NSDictionary*
 constexpr auto rates = std::array{44100., 48000., 88200., 96000.};
 constexpr auto slice_sizes = std::array{64u, 128u, 512u, 1024u, 4096u};
 
+// MARK: - bounces
+
+// Reproducible bounces, against the AutomationDemo's Phase Out probe (a sine whose frequency follows
+// Value, with a phase that never forgets). Values arrive as render events at the start of each block, so
+// a restart has to land the first one rather than glide to it from a stale value. Rendered on the main
+// thread, block by block, so the same take is the same sequence of calls.
+class Bouncer {
+public:
+
+    static constexpr auto rate = 48000.;
+    static constexpr auto length = int64_t{24000};
+
+    explicit Bouncer(Instance& instance) : _i{instance}
+    {
+        for (AUParameter* p : instance.params) {
+            if ([p.displayName isEqualToString:@"Value"]) _value = p;
+            if ([p.displayName isEqualToString:@"Phase Out"]) _phase_out = p;
+        }
+        _list = static_cast<AudioBufferList*>(std::calloc(1, offsetof(AudioBufferList, mBuffers) + 2 * sizeof(AudioBuffer)));
+        _list->mNumberBuffers = 2;
+        _pull = ^AUAudioUnitStatus(AudioUnitRenderActionFlags*, const AudioTimeStamp*, AUAudioFrameCount frames, NSInteger, AudioBufferList* data) {
+            for (auto b = UInt32{}; b < data->mNumberBuffers; ++b) if (data->mBuffers[b].mData) std::memset(data->mBuffers[b].mData, 0, frames * sizeof(float));
+            return noErr;
+        };
+    }
+    ~Bouncer() { std::free(_list); }
+    Bouncer(const Bouncer&) = delete;
+    auto operator=(const Bouncer&) -> Bouncer& = delete;
+
+    auto probed() const -> bool { return _value && _phase_out; }
+
+    static auto lane(int64_t position) -> AUValue
+    {
+        return static_cast<AUValue>(0.5 + 0.4 * std::sin(2. * 3.141592653589793 * static_cast<double>(std::max<int64_t>(position, 0)) / 12000.));
+    }
+
+    // The playhead parked at `parked`, realtime, Value left at `stale`.
+    auto history(int64_t parked, AUValue stale) -> void
+    {
+        _i.au.renderingOffline = NO;
+        _i.playing = false;
+        for (auto b = 0; b < 6; ++b) {
+            if (b == 0) {
+                schedule(_phase_out, 1);
+                schedule(_value, stale);
+            }
+            render(parked, 512, 0, nullptr);
+        }
+    }
+
+    // An offline render from `start` after a host reset, the lane's value sent at the start of every block.
+    auto bounce(int64_t start, AUAudioFrameCount frames, bool send_phase_out = false) -> std::vector<float>
+    {
+        _i.au.renderingOffline = YES;
+        [_i.au reset];
+        _i.playing = true;
+        auto out = std::vector<float>{};
+        for (auto position = start; position < start + length; position += frames) {
+            if (send_phase_out && position == start) schedule(_phase_out, 1);
+            schedule(_value, lane(position));
+            render(position, frames, start, &out);
+        }
+        _i.au.renderingOffline = NO;
+        return out;
+    }
+
+private:
+
+    Instance& _i;
+    AUParameter* _value{};
+    AUParameter* _phase_out{};
+    AudioBufferList* _list{};
+    AURenderPullInputBlock _pull{};
+    std::array<std::array<float, 4096>, 2> _storage{};
+    Float64 _sample_time{};
+
+    auto schedule(AUParameter* p, AUValue value) -> void
+    {
+        _i.au.scheduleParameterBlock(AUEventSampleTimeImmediate, 0, p.address, value);
+    }
+
+    auto render(int64_t position, AUAudioFrameCount frames, int64_t from, std::vector<float>* capture) -> void
+    {
+        _i.beat = static_cast<double>(position) / 24000.; // The transport block reports beat * 24000.
+        for (auto c = 0; c < 2; ++c) _list->mBuffers[c] = AudioBuffer{1, frames * static_cast<UInt32>(sizeof(float)), _storage[static_cast<size_t>(c)].data()};
+        auto stamp = AudioTimeStamp{};
+        stamp.mSampleTime = _sample_time;
+        stamp.mFlags = kAudioTimeStampSampleTimeValid;
+        _sample_time += frames;
+        auto flags = AudioUnitRenderActionFlags{};
+        expect_true(_i.au.renderBlock(&flags, &stamp, frames, 0, _list, has_audio_input() ? _pull : AURenderPullInputBlock{}) == noErr, "render failed");
+        if (!capture) return;
+        for (auto f = AUAudioFrameCount{}; f < frames; ++f) {
+            const auto at = position + static_cast<int64_t>(f);
+            if (at >= from && at < from + length) capture->push_back(_storage[0][f]);
+        }
+    }
+};
+
+auto first_difference(const std::vector<float>& a, const std::vector<float>& b) -> std::string
+{
+    if (a.size() != b.size()) return std::format("lengths {} and {}", a.size(), b.size());
+    for (auto i = size_t{}; i < a.size(); ++i) {
+        if (a[i] != b[i]) return std::format("first at sample {}: {} vs {}", i, a[i], b[i]);
+    }
+    return "none";
+}
+
+auto add_bounce_scenarios(const Bundle& bundle) -> void
+{
+    @autoreleasepool {
+        auto instance = Instance{bundle};
+        if (!Bouncer{instance}.probed()) return; // The probe is the AutomationDemo's.
+    }
+
+    Tests::add("bounce: after a reset: two takes after different histories are identical, and equal a fresh instance", [&bundle] {
+        auto a = std::vector<float>{}, b = std::vector<float>{}, reference = std::vector<float>{};
+        @autoreleasepool {
+            auto instance = Instance{bundle};
+            expect_true(instance.allocate(Bouncer::rate, 4096, false), "allocate failed");
+            auto bouncer = Bouncer{instance};
+            bouncer.history(123456, 0.1f);
+            a = bouncer.bounce(48000, 384);
+            bouncer.history(987654, 0.9f);
+            b = bouncer.bounce(48000, 384);
+            instance.deallocate();
+        }
+        @autoreleasepool {
+            auto instance = Instance{bundle};
+            expect_true(instance.allocate(Bouncer::rate, 4096, true), "allocate failed");
+            auto bouncer = Bouncer{instance};
+            reference = bouncer.bounce(48000, 384, true);
+            instance.deallocate();
+        }
+        expect_true(a == b, std::format("takes differ: {}", first_difference(a, b)));
+        expect_true(a == reference, std::format("a take differs from a fresh instance: {}", first_difference(a, reference)));
+    });
+}
+
 // MARK: - scenarios
 
 auto add_scenarios(const Bundle& bundle) -> void
@@ -613,6 +752,7 @@ auto main(int argc, char** argv) -> int
             g_desc = description_from(component);
             const auto bundle = Bundle{g_options.bundle};
             add_scenarios(bundle);
+            add_bounce_scenarios(bundle);
             return audio_bench::Tests::run_all() == 0 ? 0 : 1;
         }
         catch (const std::exception& e) {

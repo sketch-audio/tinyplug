@@ -7,21 +7,25 @@ namespace tiny::process {
 
 auto Processor::configure(const Config& config) -> void
 {
-    for (auto i = size_t{}; i < num_params; ++i) _values[i] = static_cast<float>(config.params[i]);
     _sr = config.sr;
-    _last_step.reset();
-    _held.reset();
-    _num_through = 0;
+    _adopt(config.params);
 }
 
 auto Processor::reset(const Reset::Any& reset) -> void
 {
     std::visit(Inline_visitor{
-        // The framework sends all-notes-off downstream; start the pattern afresh.
-        [this](const Reset::Hard&) { _last_step.reset(); _held.reset(); _num_through = 0; },
-        [](const Reset::Soft&) {},
+        [this](const Reset::Restart& r) { _adopt(r.params); },
         [](const Reset::Latency&) {}
     }, reset);
+}
+
+// The framework sends all-notes-off downstream; the pattern starts afresh.
+auto Processor::_adopt(std::span<const double> params) -> void
+{
+    for (auto i = size_t{}; i < num_params; ++i) _values[i] = static_cast<float>(params[i]);
+    _last_step.reset();
+    _held.reset();
+    _num_through = 0;
 }
 
 auto Processor::handle(const Event::Param& event) -> void

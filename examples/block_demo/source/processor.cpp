@@ -8,9 +8,6 @@ namespace tiny::process {
 
 auto Processor::configure(const Config& config) -> void
 {
-    for (auto i = size_t{}; i < num_params; ++i) {
-        _values[i] = static_cast<float>(config.params[i]);
-    }
     _sr = static_cast<float>(config.sr);
 
     // Hann window, normalised so a full-scale sine reads 0 dBFS.
@@ -22,16 +19,21 @@ auto Processor::configure(const Config& config) -> void
     }
     _window_gain = 2.f / sum;
 
-    _clear();
+    _adopt(config.params);
 }
 
 auto Processor::reset(const Reset::Any& reset) -> void
 {
     std::visit(Inline_visitor{
-        [this](const Reset::Hard&) { _clear(); },
-        [](const Reset::Soft&) {},
+        [this](const Reset::Restart& r) { _adopt(r.params); },
         [](const Reset::Latency&) {}
     }, reset);
+}
+
+auto Processor::_adopt(std::span<const double> params) -> void
+{
+    for (auto i = size_t{}; i < num_params; ++i) _values[i] = static_cast<float>(params[i]);
+    _clear();
 }
 
 auto Processor::handle(const Event::Param& event) -> void

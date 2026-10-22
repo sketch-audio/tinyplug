@@ -8,7 +8,7 @@ namespace tiny::models {
 // still waiting on, what it renders with, and the steps that got it there.
 struct Handshake_frame {
     struct Step {
-        enum class Kind : uint8_t { Configure, Propose, Accept, Hard };
+        enum class Kind : uint8_t { Configure, Propose, Accept, Restart };
         uint32_t seq{};     // From 1; 0 is an empty slot.
         Kind kind{};
         uint32_t samples{};

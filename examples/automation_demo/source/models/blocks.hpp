@@ -6,7 +6,7 @@ namespace tiny::models {
 
 // One thing the host said to the processor, at the frame it landed (counted from `configure`).
 struct Log_entry {
-    enum class Kind : uint8_t { Configure, Set, Ramp, Hard, Soft, Latency, Render };
+    enum class Kind : uint8_t { Configure, Set, Ramp, Restart, Latency, Render };
     uint32_t seq{};     // From 1; 0 is an empty slot.
     Kind kind{};
     uint8_t address{};

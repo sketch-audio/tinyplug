@@ -18,7 +18,7 @@ enum class Kind : std::uint32_t {
     Param_set = 0,  // Param_set
     Param_ramp,     // Param_ramp
     Bypass,         // Flag
-    Reset_hard,     // (none)
+    Host_reset,     // (none): the page asks for a reset; whether it restarts is `Stream_sync`'s call.
     Transport,      // Transport
     Midi,           // Midi: from the page or Web MIDI, at an offset.
     Editor_note,    // midi::Performance, from the editor.

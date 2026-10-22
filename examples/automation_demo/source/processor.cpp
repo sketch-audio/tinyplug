@@ -1,6 +1,8 @@
 #include "processor.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <numbers>
 
 namespace tiny::process {
 
@@ -15,8 +17,7 @@ constexpr auto kind_name(models::Log_entry::Kind kind) -> const char*
         case Configure: return "configure";
         case Set: return "set";
         case Ramp: return "ramp";
-        case Hard: return "hard";
-        case Soft: return "soft";
+        case Restart: return "restart";
         case Latency: return "latency";
         case Render: return "render";
     }
@@ -30,8 +31,8 @@ auto Processor::configure(const Config& config) -> void
 #if TINY_LOG_ENABLED
     log::init(); // Here, off the audio thread, so a log call there never pays for it.
 #endif
-    for (auto i = size_t{}; i < num_params; ++i) _values[i] = static_cast<float>(config.params[i]);
-    _value.snap(_values[enum_raw(Address::Value)]);
+    _sr = config.sr;
+    _adopt(config.params);
 
     _clock = 0;
     _render.reset();
@@ -45,8 +46,7 @@ auto Processor::configure(const Config& config) -> void
 auto Processor::reset(const Reset::Any& reset) -> void
 {
     std::visit(Inline_visitor{
-        [this](const Reset::Hard&) { _value.settle(); _record(Kind::Hard, 0, _value.value); },
-        [this](const Reset::Soft&) { _value.settle(); _record(Kind::Soft, 0, _value.value); },
+        [this](const Reset::Restart& r) { _adopt(r.params); _record(Kind::Restart, 0, _value.value); },
         [this](const Reset::Latency& e) { _record(Kind::Latency, 0, 0., static_cast<int32_t>(e.samples)); },
     }, reset);
 }
@@ -75,12 +75,19 @@ auto Processor::process(Context& context) -> void
     }
 
     const auto dc = _values[enum_raw(Address::Dc_out)] >= 0.5f;
+    const auto probe = _values[enum_raw(Address::Phase_out)] >= 0.5f;
     for (auto frame = size_t{}; frame < context.num_frames; ++frame) {
         const auto value = _value.next();
         _trace_sample(value, _clock + static_cast<int64_t>(frame));
+
+        _smooth += std::clamp(value - _smooth, -slew, slew);
+        _phase += (20. + 2000. * static_cast<double>(_smooth)) / _sr;
+        _phase -= std::floor(_phase);
+        const auto sine = static_cast<float>(0.5 * std::sin(2. * std::numbers::pi * _phase));
+
         for (auto channel = size_t{}; channel < context.outputs.size(); ++channel) {
             const auto in = channel < context.inputs.size() ? context.inputs[channel][frame] : 0.f;
-            context.outputs[channel][frame] = dc ? value : in;
+            context.outputs[channel][frame] = probe ? sine : dc ? value : in;
         }
     }
     _clock += static_cast<int64_t>(context.num_frames);
@@ -89,6 +96,15 @@ auto Processor::process(Context& context) -> void
     context.blocks.publish<Block::Log>();
     context.blocks.write<Block::Trace>() = _trace;
     context.blocks.publish<Block::Trace>();
+}
+
+// Everything `configure` and `Restart` share: the values exactly, and no history.
+auto Processor::_adopt(std::span<const double> params) -> void
+{
+    for (auto i = size_t{}; i < num_params; ++i) _values[i] = static_cast<float>(params[i]);
+    _value.snap(_values[enum_raw(Address::Value)]);
+    _smooth = _value.value;
+    _phase = 0.;
 }
 
 auto Processor::_record(Kind kind, uint32_t address, double value, int32_t dur) -> void

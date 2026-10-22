@@ -6,17 +6,24 @@ namespace tiny::process {
 
 auto Processor::configure(const Config& config) -> void
 {
-    for (auto i = size_t{}; i < num_params; ++i) {
-        _values[i] = static_cast<float>(config.params[i]);
-    }
     _sr = static_cast<float>(config.sr);
+    _adopt(config.params);
+}
+
+auto Processor::reset(const Reset::Any& reset) -> void
+{
+    std::visit(Inline_visitor{
+        [this](const Reset::Restart& r) { _adopt(r.params); },
+        [](const Reset::Latency&) {}
+    }, reset);
+}
+
+auto Processor::_adopt(std::span<const double> params) -> void
+{
+    for (auto i = size_t{}; i < num_params; ++i) _values[i] = static_cast<float>(params[i]);
     _pos = 0;
     _next_trig = static_cast<int64_t>(_sr); // First pulse one second in.
     _trig_count = 0;
-}
-
-auto Processor::reset(const Reset::Any&) -> void
-{
 }
 
 auto Processor::handle(const Event::Param& event) -> void

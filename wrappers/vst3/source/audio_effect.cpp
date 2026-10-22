@@ -186,6 +186,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::Proc
         .sr = newSetup.sampleRate,
         .params = config_values
     });
+    _sync.configured(newSetup.sampleRate); // Not processing: the host calls this outside process.
     _latency = _processor->latency_samps();
     _tail.store(_processor->tail_samps(), std::memory_order_relaxed);
 
@@ -390,15 +391,6 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
         assert(_processor->latency_samps() == new_latency && "Kernel must apply the accepted latency!");
     }
 
-    // Discontinuity requested by the host — forget history before anything this block
-    // delivers lands.
-    if (_needs_clear.exchange(false, std::memory_order_relaxed)) {
-        _processor->reset(Reset::Hard{});
-        _notes.clear();
-        _bypass.clear();    // Its delay lines hold pre-seek dry audio.
-        _bypass.snap();
-    }
-
     // Values from a state load.
     _loaded.consume([this](uint32_t address, double value) {
         _processor->handle(process::Event::Set{.value = value, .address = address});
@@ -470,13 +462,53 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     const auto bypassed = false;
 #endif
 
-#if TINY_HAS_NOTES_IN
-    // The editor's notes land at the top of the block.
-    _notes.drain_editor([this](const process::Event::Any& input) { _input(input, 0); });
-#endif
+    // The store at the top of the block, for a restart: normalizing moves it to the block's end.
+    auto top_knobs = std::array<double, num_params>{};
+    for (auto addr = decltype(num_params){}; addr < num_params; ++addr) top_knobs[addr] = _host_values[addr].load(std::memory_order_relaxed);
 
     _events.clear(); // Events only valid for this render cycle.
-    this->normalize_input_events(data, renders_audio);
+    this->normalize_input_events(data, renders_audio); // Parameters only: a restart needs them, and notes come after it.
+
+    // kPrefetch (sampler pre-roll / variable-rate playback) is not a bounce → realtime.
+    // `ProcessSetup::processMode` is the canonical field; some hosts leave the per-block
+    // `data.processMode` at 0, so either one saying offline is enough.
+    const auto is_offline_bounce = (data.processMode == Steinberg::Vst::kOffline)
+                                || (processSetup.processMode == Steinberg::Vst::kOffline);
+    const auto render_mode = is_offline_bounce ? Render_mode::Offline : Render_mode::Realtime;
+    const auto host_pos = data.processContext ? std::optional<std::int64_t>{data.processContext->projectTimeSamples} : std::nullopt;
+
+    // Restart wherever the processor's input is discontinuous (setProcessing, the render-mode edge
+    // on the resolved mode, a fresh configure, resuming after the skip), with the values the host
+    // holds at the top of this block. A flush block passes no audio, so it is no gap. Before any
+    // note is named: a restart forgets the names, and a note-on named first would lose its off.
+    const auto plan = _sync.next({
+        .host_reset = _needs_clear.exchange(false, std::memory_order_relaxed),
+        .render_mode = render_mode,
+        .skipping = _bypass.can_skip_effect(),
+        .position = host_pos,
+        .frames = static_cast<uint32_t>(std::max(data.numSamples, 0)),
+    }, [] { return false; });
+    if (plan.restart != process::Stream_sync::Restart::None) {
+        const auto values = process::restart_values<num_params>([&top_knobs](uint32_t address) {
+            return params::Value_helper::knob_to_plain(top_knobs[address], User_params::param_spec(address).semantics);
+        }, _events);
+        _processor->reset(Reset::Restart{values});
+        if (plan.restart == process::Stream_sync::Restart::Stream) {
+            _notes.clear();
+            _bypass.clear(); // Its delay lines hold audio from before the discontinuity.
+            _bypass.snap();
+        }
+    }
+
+#if TINY_HAS_NOTES_IN
+    // The editor's notes land at the top of the block; the host's are named in with the parameters.
+    _notes.drain_editor([this](const process::Event::Any& input) { _input(input, 0); });
+    _collect_notes(data);
+#endif
+
+    // Sort by offset, keeping arrival order at equal offsets.
+    for (auto i = size_t{}; i < _events.size(); ++i) _events[i].order = static_cast<uint32_t>(i);
+    std::ranges::sort(_events, process::before);
 
     // Now we have the events organized how we want.
     const auto event_count = _events.size();
@@ -510,23 +542,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     context.blocks = blocks::Writer{&_blocks};
 #endif
 
-    // kPrefetch (sampler pre-roll / variable-rate playback) is not a bounce → realtime.
-    // `ProcessSetup::processMode` is the canonical field; some hosts leave the per-block
-    // `data.processMode` at 0, so either one saying offline is enough.
-    const auto is_offline_bounce = (data.processMode == Steinberg::Vst::kOffline)
-                                || (processSetup.processMode == Steinberg::Vst::kOffline);
-    context.render_mode = is_offline_bounce ? Render_mode::Offline : Render_mode::Realtime;
-
-    // A processMode transition (entering/leaving an offline bounce) is a discontinuity:
-    // the audio either side is unrelated, so forget history as well as manifesting values
-    // rather than gliding in.
-    if (data.processMode != _last_process_mode) {
-        _processor->reset(Reset::Hard{});
-        _notes.clear();
-        _bypass.clear();    // Its delay lines hold pre-bounce dry audio.
-        _bypass.snap();
-        _last_process_mode = data.processMode;
-    }
+    context.render_mode = render_mode;
 
     // Copy main input to internal buffers in case of in-place processing.
     if (renders_audio) {
@@ -542,13 +558,11 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     const auto sr = processSetup.sampleRate;
     const auto block_timeline = [&]() {
         auto t = Timeline{};
-        auto host_pos = std::optional<std::int64_t>{};
         if (const auto* vst_context = data.processContext; vst_context) {
             using enum Steinberg::Vst::ProcessContext::StatesAndFlags;
             const auto state = vst_context->state;
             const auto has_flag = [](auto x, auto f) { return (x & f) > 0; };
 
-            host_pos = vst_context->projectTimeSamples;
             if (has_flag(state, kProjectTimeMusicValid)) t.beat_pos = vst_context->projectTimeMusic;
             if (has_flag(state, kTempoValid)) t.tempo = vst_context->tempo;
             if (has_flag(state, kTimeSigValid)) t.signature = Timeline::Signature{vst_context->timeSigNumerator, vst_context->timeSigDenominator};
@@ -609,27 +623,13 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     auto now = decltype(frame_count){};
     auto remaining = frame_count;
 
-    const auto can_skip = _bypass.can_skip_effect();
-
-    // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
-    // process()) — settle before this block's own automation lands, not after.
-    if (_was_skipped && !can_skip) {
-        _processor->reset(Reset::Soft{});
-    }
-    _was_skipped = can_skip;
-
-    if (can_skip || !renders_audio) {
-        // No kernel run to interleave the events with, so deliver them all.
-        auto delivered = false;
+    // After any restart: it snaps the bypass, which can change the answer.
+    if (_bypass.can_skip_effect() || !renders_audio) {
+        // No kernel run to interleave the events with, so deliver them all. Realized at the next
+        // block that renders, or landed exactly by a restart if a gap comes first.
         while (event) {
             _input(event->event, event->offset);
             next_event();
-            delivered = true;
-        }
-
-        // Resync on flush block.
-        if (!renders_audio && delivered) {
-            _processor->reset(Reset::Soft{});
         }
     }
     else {
@@ -970,14 +970,7 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
     using namespace params;
     using namespace process;
 
-    if (!data.inputParameterChanges) {
-#if TINY_HAS_NOTES_IN
-        _collect_notes(data);
-        for (auto i = size_t{}; i < _events.size(); ++i) _events[i].order = static_cast<uint32_t>(i);
-        std::ranges::sort(_events, process::before);
-#endif
-        return;
-    }
+    if (!data.inputParameterChanges) return;
     auto& param_changes = *data.inputParameterChanges;
     const auto num_changes = param_changes.getParameterCount();
 
@@ -1083,13 +1076,6 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
         }
     }
 
-#if TINY_HAS_NOTES_IN
-    _collect_notes(data);
-#endif
-
-    // Sort by offset, keeping arrival order at equal offsets.
-    for (auto i = size_t{}; i < _events.size(); ++i) _events[i].order = static_cast<uint32_t>(i);
-    std::ranges::sort(_events, process::before);
 }
 
 // MARK: - notes

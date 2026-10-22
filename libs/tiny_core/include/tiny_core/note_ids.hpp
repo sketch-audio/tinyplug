@@ -54,7 +54,7 @@ public:
         }
     }
 
-    // Forget everything, e.g. at `Reset::Hard`, where the processor releases its voices anyway.
+    // Forget everything, e.g. at `Reset::Restart`, where the processor releases its voices anyway.
     auto clear() -> void
     {
         for (auto& held : _held) held.used = false;

@@ -12,7 +12,7 @@ constexpr auto margin = 12.;
 constexpr auto max_lines = size_t{400};
 constexpr auto line_h = 13.;
 
-constexpr auto param_names = std::array<const char*, 4>{"VALUE", "STEPS", "SWITCH", "DC OUT"};
+constexpr auto param_names = std::array<const char*, 5>{"VALUE", "STEPS", "SWITCH", "DC OUT", "PHASE OUT"};
 
 auto color_of(models::Log_entry::Kind kind) -> SkColor
 {
@@ -21,7 +21,7 @@ auto color_of(models::Log_entry::Kind kind) -> SkColor
         case Set: return ui::blue;
         case Ramp: return ui::amber;
         case Latency: case Render: return ui::purple;
-        case Configure: case Hard: case Soft: return ui::red;
+        case Configure: case Restart: return ui::red;
     }
     return ui::red;
 }
@@ -35,8 +35,7 @@ auto describe(const models::Log_entry& e) -> std::string
         case Configure: return out + "CONFIGURE  SR " + std::to_string(e.dur) + "  VALUE " + ui::fixed(e.value, 4);
         case Set: return out + "SET   " + name + " = " + ui::fixed(e.value, 4);
         case Ramp: return out + "RAMP  " + name + " > " + ui::fixed(e.value, 4) + " OVER " + std::to_string(e.dur);
-        case Hard: return out + "RESET HARD  VALUE " + ui::fixed(e.value, 4);
-        case Soft: return out + "RESET SOFT  VALUE " + ui::fixed(e.value, 4);
+        case Restart: return out + "RESTART  VALUE " + ui::fixed(e.value, 4);
         case Latency: return out + "RESET LATENCY " + std::to_string(e.dur);
         case Render: return out + (e.value > 0.5 ? "RENDER OFFLINE" : "RENDER REALTIME");
     }
@@ -91,11 +90,12 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     const auto log_panel = Frame{bounds.x, status.y + status.h + 6, bounds.w, bounds.y + bounds.h - (status.y + status.h + 6)};
 
     using Kind = ui::Control::Kind;
-    const auto controls = std::array<ui::Control, 4>{{
-        {ui::column(controls_row, 0, 4, 8), enum_raw(Address::Value), Kind::Slider, "VALUE", ui::green},
-        {ui::column(controls_row, 1, 4, 8), enum_raw(Address::Steps), Kind::Slider, "STEPS", ui::blue},
-        {ui::column(controls_row, 2, 4, 8), enum_raw(Address::Switch), Kind::Toggle, "SWITCH", ui::amber},
-        {ui::column(controls_row, 3, 4, 8), enum_raw(Address::Dc_out), Kind::Toggle, "DC OUT", ui::red},
+    const auto controls = std::array<ui::Control, 5>{{
+        {ui::column(controls_row, 0, 5, 8), enum_raw(Address::Value), Kind::Slider, "VALUE", ui::green},
+        {ui::column(controls_row, 1, 5, 8), enum_raw(Address::Steps), Kind::Slider, "STEPS", ui::blue},
+        {ui::column(controls_row, 2, 5, 8), enum_raw(Address::Switch), Kind::Toggle, "SWITCH", ui::amber},
+        {ui::column(controls_row, 3, 5, 8), enum_raw(Address::Dc_out), Kind::Toggle, "DC OUT", ui::red},
+        {ui::column(controls_row, 4, 5, 8), enum_raw(Address::Phase_out), Kind::Toggle, "PHASE OUT", ui::blue},
     }};
     _controls.interact(view.interaction, _edit.actions, controls, knobs);
     for (const auto& event : view.interaction.events.events) {

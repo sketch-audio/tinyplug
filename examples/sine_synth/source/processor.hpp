@@ -62,6 +62,8 @@ private:
     auto _silence() -> void;
     auto _rate(Address address) const -> float; // Per-sample envelope step for a time parameter.
 
+    auto _adopt(std::span<const double> params) -> void; // What `configure` and `Restart` share.
+
 };
 static_assert(Interface<Processor>);
 

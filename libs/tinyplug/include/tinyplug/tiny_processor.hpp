@@ -111,40 +111,29 @@ struct Config {
     std::span<const double> params{};
 };
 
-// Block-boundary synchronization. The configuration stays valid across all of these —
-// none of them reconfigures, and none carries a frame offset, which is what separates
-// them from `Render_event`.
+// Block-boundary commands: facts a processor must adopt to render correctly. The configuration stays
+// valid across both, and neither carries a frame offset, which is what separates them from events.
+// Everything live (automation, preset and state loads, flushes) arrives as events instead, realized
+// by the processor's own policy. Per block the order is `Latency`, then `Restart`, then the events.
 struct Reset {
-    // The stream is restarting: host seek, bounce edge, un-bypass. Past history must not
-    // influence future samples — forget delay lines, filter state, oscillator phase,
-    // transport position. **Total**: every deferred value lands too, including a long
-    // musical smoother. Fires when no audio is flowing, so that costs nothing audible.
+    // Your input stream is discontinuous: a seek, a host reset, the render-mode edge, resuming
+    // after the bypass skip. Output from here on must not depend on anything before, and the
+    // parameters are exactly `params`: plain space, indexed by address, always filled, borrowed for
+    // the call. No reason is given, on purpose: every restart owes the same thing.
     //
-    // Owes convergence with `configure`: it must leave the processor where
-    // `configure(sr, current_values)` would have. Logic bounces through this call alone
-    // while AAX bounces through a full reconstruct, and the two have to agree bit-for-bit.
-    struct Hard {};
-
-    // A parameter sync-up with no audio to artifact: a flush block, or resuming from a
-    // stretch where `process` did not run. Land what must be exact *now* — anything
-    // feeding `latency_samps()` or structural configuration. **Deliberately partial**:
-    // history survives, and a long musical glide is explicitly permitted to keep gliding.
-    //
-    // It exists because ramps only advance inside `process`, and there are stretches where
-    // `process` does not run (bypass skip, inactive, flush with no audio). Without a call
-    // that manifests outside `process`, a delivered value can stay unrealized for the
-    // whole stretch and a client reading realized state sees stale values.
-    struct Soft {};
+    // Owes: the processor ends where `configure(sr, params)` would leave it, except
+    // `latency_samps()`, which keeps the accepted value; if `params` imply another, propose it
+    // from `process`, since the host owns that number. "Forget history" means transient
+    // processing state only: recorded content (a looper's loop, a loaded sample) is persisted
+    // state and survives. Idempotent.
+    struct Restart { std::span<const double> params{}; };
 
     // The host accepted a latency proposal and has aligned its processing graph. Adopt it
-    // immediately: `latency_samps()` must equal `samples` when this call returns.
-    //
-    // Unlike the two above — which the framework issues whenever it judges them needed,
-    // and which are harmless if issued twice — this one is delivered exactly once per
-    // acceptance and carries that post-condition.
+    // immediately: `latency_samps()` must equal `samples` when this call returns. Delivered
+    // exactly once per acceptance.
     struct Latency { std::uint32_t samples{}; };
 
-    using Any = std::variant<Hard, Soft, Latency>;
+    using Any = std::variant<Restart, Latency>;
 };
 
 template<typename T>
@@ -154,16 +143,14 @@ concept Interface = requires(T t) {
     //   sample rate / configuration   configure(cfg)      allocates, off the audio thread
     //   everything else               reset(Reset::Any)   never allocates
     //
-    // `reset` is always individually invocable — it never needs a `configure` first — and
-    // an implementation is free to do more than its alternative strictly asks. A parameter
-    // smoother's history-clearing necessarily lands it, and that overlap is fine because
-    // every alternative is idempotent.
+    // `reset` is always individually invocable — it never needs a `configure` first. The usual
+    // shape is one private `_adopt(params)` that both `configure` and `Restart` call.
     //
     // Resources: size and allocate for this sample rate *and these parameter values*.
     // Off the audio thread. Named `configure` rather than `reset` because it adopts a
     // state rather than returning to an initial one.
     //
-    // `configure` is *sufficient on its own* — it implies every `Reset` alternative. On
+    // `configure` is *sufficient on its own* — it implies a `Restart`. On
     // return the processor renders from exactly this configuration with defined output.
     //
     // **The state handed in is the truth, not a request.** `latency_samps()` is final for
@@ -181,7 +168,7 @@ concept Interface = requires(T t) {
     // path.
     { t.configure(std::declval<const Config&>(/*config*/)) } -> std::same_as<void>;
 
-    // Block-boundary synchronization — see `Reset` above for what each alternative owes.
+    // Block-boundary commands — see `Reset` above for what each alternative owes.
     // Never allocates. Safe on a never-configured processor: a host that resets before it
     // initializes (validators do) must find a no-op, not undefined behaviour.
     { t.reset(std::declval<const Reset::Any&>(/*reset*/)) } -> std::same_as<void>;

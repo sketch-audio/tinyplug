@@ -81,3 +81,7 @@ make_clap_plugin(${PLUGIN_TARGET})
 make_vst3_plugin(${PLUGIN_TARGET})
 make_web_plugin(${PLUGIN_TARGET})
 # ---
+
+# What the framework requires of the plug-in, checked without a host: `<Base>_contract_checks`, the
+# CTest `contract.<Base>`. See tools/contract_checks/README.md.
+make_contract_checks(${PLUGIN_TARGET})

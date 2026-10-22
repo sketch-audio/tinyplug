@@ -41,6 +41,8 @@ private:
     auto _wanted() const -> uint32_t;
     auto _step(Step::Kind kind, uint32_t samples, int64_t waited = 0) -> void;
 
+    auto _adopt(std::span<const double> params) -> void; // What `configure` and `Restart` share.
+
 };
 static_assert(Interface<Processor>);
 

@@ -18,6 +18,12 @@ on any of them.
   (AAX `.tfx`) and `make_vstpreset_exporter` (VST3 `.vstpreset`) in
   [presets/make_preset_exporters.cmake](presets/make_preset_exporters.cmake).
 
+- **[contract_checks/](contract_checks/)** — build a per-plugin executable that checks what the
+  framework requires of a plug-in, on its processor and models alone, no host:
+  `make_contract_checks` in [contract_checks/make_contract_checks.cmake](contract_checks/make_contract_checks.cmake),
+  run as the CTest `contract.<Base>`. Today the restart contract; new contract checks go here, and its
+  [README](contract_checks/README.md) lists the planned ones.
+
 - **[pagetables/](pagetables/)** — generate AAX `*Pages.xml` page tables for
   control-surface mapping. A C++ manifest tool (`make_pagetable_manifest` in
   [pagetables/make_pagetable.cmake](pagetables/make_pagetable.cmake)) dumps the

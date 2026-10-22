@@ -11,6 +11,7 @@ struct Params {
         Steps,
         Switch,
         Dc_out,
+        Phase_out,
         Num_params
     };
 
@@ -42,13 +43,22 @@ struct Params {
                 .semantics = Semantics::Bool{.def_val = false},
                 .policy = Policy::Control
             },
+            Spec{
+                // Output a sine whose frequency follows Value through a slew limiter. Its phase integrates
+                // forever, so one sample rendered on a stale value shifts the rest of the output: the
+                // probe for reproducible bounces. Wins over DC Out.
+                .identity = {.address = enum_raw(Phase_out), .identifier = "phase_out"},
+                .name = "Phase Out",
+                .semantics = Semantics::Bool{.def_val = false},
+                .policy = Policy::Control
+            },
         }};
     }
 
     static auto au_order() -> std::vector<Address>
     {
         using enum Address;
-        return {Value, Steps, Switch, Dc_out};
+        return {Value, Steps, Switch, Dc_out, Phase_out};
     }
 };
 static_assert(params::Model<Params>);

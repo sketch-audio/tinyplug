@@ -55,6 +55,8 @@ private:
     auto _pass(const Performance& event) -> void;
     auto _release(Context& context, int64_t frame) -> void;
 
+    auto _adopt(std::span<const double> params) -> void; // What `configure` and `Restart` share.
+
 };
 static_assert(Interface<Processor>);
 

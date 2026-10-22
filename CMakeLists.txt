@@ -157,6 +157,7 @@ include(cmake/helpers.cmake)
 include(wrappers/wrappers.cmake)
 include(tools/presets/make_preset_exporters.cmake)
 include(tools/pagetables/make_pagetable.cmake)
+include(tools/contract_checks/make_contract_checks.cmake)
 
 # Framework. tiny_core is model-free and compiled once; tinyplug is the header-only,
 # model-aware half and only ever compiles inside a plug-in target.

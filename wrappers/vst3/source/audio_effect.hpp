@@ -214,8 +214,7 @@ private:
     Host_bypass _bypass{};
 
     // `snap` triggers. Both audio-thread only, single-threaded with `process`.
-    bool _was_skipped{}; // Detects the can_skip -> processing edge.
-    Steinberg::int32 _last_process_mode{-1}; // Detects a data.processMode transition.
+    process::Stream_sync _sync{}; // Audio thread. When to restart the processor.
 
     // `renders_audio` is false for a parameter flush (and for a malformed block we
     // decline to render), where offsets carry no timing information — see `process`.

@@ -2,9 +2,9 @@
 
 A probe for automation: what the host sends, when it lands, and what the processor makes of it.
 
-- Four parameters, one of each kind a host automates differently: Value (continuous), Steps
-  (integer), Switch (on/off), and DC Out.
-- The processor records every set, ramp, `configure`, reset and render-mode change (realtime
+- Three parameters, one of each kind a host automates differently: Value (continuous), Steps
+  (integer), Switch (on/off); and two output modes, DC Out and Phase Out.
+- The processor records every set, ramp, `configure`, restart, accepted latency and render-mode change (realtime
   or offline), stamped with the frame it landed at (counted from `configure`), and follows
   host ramps sample for sample.
 - The editor draws the realized Value over the last four seconds, with a tick where each event
@@ -13,6 +13,11 @@ A probe for automation: what the host sends, when it lands, and what the process
   frame took them.
 - DC Out writes the realized Value to every output channel, so a bounce is the automation curve.
   Off, audio passes through.
+- Phase Out is the reproducibility probe: a sine whose frequency follows Value through a slew
+  limiter, with a phase that integrates forever. One sample rendered on a stale value shifts
+  everything after it, so two bounces of the same range match only if no stale value was ever
+  rendered. The fake hosts' bounce scenarios bounce it; bounce it in a real DAW twice, with the
+  playhead parked in different places, and compare.
 - Debug builds also write each entry to the tinyplug log, category `params`:
   `log stream --predicate 'subsystem == "com.tinyplug.log" && category == "params"'`, or set
   `TINYPLUG_LOG_FILE` for a file.

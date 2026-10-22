@@ -463,10 +463,15 @@ auto render_instance(Alg_context* ctx) -> void
 
     const auto can_skip = st->bypass.can_skip_effect();
 
-    // Resuming from a stretch where advance_rampers() didn't run (can_skip skips
-    // process()) — settle before this block's own automation lands, not after.
+    // Resuming after the skip: the processor missed the audio that passed, a gap like a seek. Restart it
+    // with what the algorithm has seen (NaN until a packet says otherwise, so the default there).
+    // AAX's other discontinuities rebuild the processor through `configure`, so this is its only restart.
     if (st->was_skipped && !can_skip) {
-        st->processor.reset(process::Reset::Soft{});
+        const auto values = process::restart_values<num_params>([st](uint32_t address) {
+            const auto seen = st->shadow[address];
+            return std::isnan(seen) ? params::Value_helper::default_value(User_params::param_spec(address), params::Space::Plain) : seen;
+        }, {});
+        st->processor.reset(process::Reset::Restart{values});
     }
     st->was_skipped = can_skip;
 

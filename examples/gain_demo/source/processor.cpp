@@ -14,8 +14,10 @@ auto Processor::configure(const Config& config) -> void
 auto Processor::reset(const Reset::Any& reset) -> void
 {
     std::visit(Inline_visitor{
-        [this](const Reset::Hard&) { _gain.snap(); },
-        [this](const Reset::Soft&) { _gain.snap(); },
+        [this](const Reset::Restart& r) {
+            _gain.set_target(static_cast<float>(r.params[enum_raw(Address::Gain)]));
+            _gain.snap();
+        },
         [](const Reset::Latency&) {},
     }, reset);
 }
