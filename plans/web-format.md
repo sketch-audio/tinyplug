@@ -1,90 +1,66 @@
 # Plan: Web format — tinyplug plug-ins in the browser
 
-> Status: **phases 0-5 landed on `web-format` (2026-10-20)**: every demo runs in the browser with its own editor,
-> checked by hand in Chrome and Safari (macOS). The nonisolated variant landed 2026-10-21 (any page, no COOP / COEP;
-> tested in Node and headless Chrome, a quick look by hand in Safari on macOS). Phase 6 (GPU, CI) remains; see
-> "Next" for what the variant still owes. A sixth format beside AAX, AUv2, AUv3, CLAP and VST3: the
-> same `Processor` / `Editor` pair, compiled with Emscripten, running in a web page. **Two modules, AAX-shaped**:
-> the processor in an AudioWorklet, everything else (param authority, editor, undo, state, worker) in a
-> controller module on the page's main thread, joined by rings in shared memory. The editor draws through Skia,
-> CPU raster first. One `make_web_plugin(target)` per plug-in, from the same sources and the same tag as the
-> installers.
+> Status: **landed on main (2026-10-22).** Every demo runs in the browser with its own editor, in two variants:
+> `isolated` (COOP / COEP) and `nonisolated` (any page). Checked by hand in Chrome and Safari on macOS. What
+> remains is the by-hand checks and test gaps under "Next", and "Later" (GPU, CI).
+>
+> A sixth format beside AAX, AUv2, AUv3, CLAP and VST3: the same `Processor` / `Editor` pair, compiled with
+> Emscripten. **Two modules, AAX-shaped**: the processor in an AudioWorklet, everything else (param authority,
+> editor, undo, state, worker) in a controller module on the page's main thread, joined by rings. The editor
+> draws through Skia, CPU raster. One `make_web_plugin(target)` per plug-in, from the same sources and the same
+> tag as the installers.
 
 ## Why
 
-Web demos on a product site, built from the shipping C++ so they can't drift from it. The C++ is the source of
-truth for every target; design tools (sketch_design) stay design tools.
-
-What the hand-built demos (`vs_comp_web`: VS Comp and OK Channel, 2026-10) taught:
-
-- **The DSP ports cleanly.** A Principal_effect plus spk / vsl compiles to a standalone wasm and runs in an
-  AudioWorklet bit-identical to native, at 1-3 % of a core. vsl's SSE path maps onto SIMD128 through
-  Emscripten's SSE headers.
-- **Everything around the DSP was re-implemented, and drifted.** Each demo has its own C wrapper doing a rough
-  copy of the adapter (param glides, prepare cadence, bypass): VS Comp's web bypass fades against an
-  undelayed dry. The page maps controls to params by name and patches layouts that predate the plug-in. The UI
-  is the design tool's TypeScript renderer, a second implementation of every widget.
-- **Platform assumptions surface as build patches.** `platform_defs.hpp` `#error`s and `denormal_guard.hpp`
-  calls `_mm_setcsr`; the demo build patches a copy of the headers. A dependency (signalsmith-dsp's
-  `perf.h`) reads the x86 FP register under `__SSE__`, which Emscripten defines.
-
-A format fixes all three at the source: the wrapper is tinyplug's, so the adapter, ramping, bypass and state
-are the ones every other format uses; the editor is the plug-in's own SUI editor; the platform is a real one.
+Web demos on a product site, built from the shipping C++ so they can't drift from it. The hand-built demos
+(`vs_comp_web`: VS Comp and OK Channel, 2026-10) showed the DSP ports cleanly (bit-identical, 1-3 % of a core)
+but everything around it was re-implemented and drifted: a rough copy of the adapter per demo, controls mapped by
+name, a second implementation of every widget, and platform assumptions patched into copies of the headers. A
+format fixes all three at the source.
 
 ## Decisions
 
 | Decision | Choice | Why |
 |---|---|---|
-| Topology | **Two modules** (processor / controller), not one shared module | Keeps the decoupled model; no threads in the worklet; phase 1 ships unchanged into the full format; audio can start before the editor downloads |
+| Topology | **Two modules** (processor / controller), not one shared module | Keeps the decoupled model; no threads in the worklet; audio can start before the editor downloads |
 | Cross-origin isolation | **Two variants**, `TINY_WEB_VARIANT` = `isolated` (default) or `nonisolated` | Isolated: the rings and the controller's pthreads need `SharedArrayBuffer`, so the page sends COOP / COEP and every embed beside it must opt in. Nonisolated: any page, no threads, no worker (see Variants) |
-| Graphics | **Skia CPU raster first**; GPU later as Graphite on WebGPU | Smallest Skia build, no GL in the loop, matches the CPU backends kept on Windows and iOS, and makes pixel tests against a native CPU render feasible |
+| Graphics | **Skia CPU raster**; GPU later as Graphite on WebGPU | Smallest Skia build, no GL in the loop, matches the CPU backends on Windows and iOS, allows pixel tests against a native CPU render |
 | Page package | **Plain ES modules**, no build step, no runtime npm dependencies | It is the DAW; it should be readable and vendorable by the product site |
-| Toolchain | **One pinned emsdk, owned by tiny_deps**, for Skia and tinyplug alike | Every object in a module must come from one Emscripten (libc++ headers, features); see Skia for wasm |
+| Toolchain | **emsdk 6.0.12, pinned by tiny_deps** (`build-skia-web.sh`), for Skia and tinyplug alike | Every object in a module must come from one Emscripten. Never Skia's `bin/activate-emsdk`, which selects 3.1.44 |
+| Browser test driver | **Raw CDP** over Node's built-in `WebSocket` | No dependencies |
+| Exposure | Name section stripped in Release; `Format::Web` in `Edit_context` keeps licensing out | A wasm build is as reversible as a native one |
 
-Open:
-
-- **emsdk version.** Skia m139 pins 3.1.44 (2023); Homebrew has 6.0.12. Pick the newest that builds Skia m139
-  cleanly; try 6.0.x first, fall back towards 4.0.x.
-- **Browser test driver.** A dev-only puppeteer dependency, or a small raw-CDP client (Node has `WebSocket`
-  built in; ~150 lines, no dependencies). Leaning raw CDP.
-- **Exposure.** Name section stripped in Release, and `Format::Web` as the switch that keeps licensing out.
-- **Scheduled page automation.** v1 lands page `setParam` at the next quantum boundary; an API that maps
-  `AudioContext` time to a frame offset can follow.
+**Rejected: one shared module.** Emscripten's Wasm Audio Worklets (`-sAUDIO_WORKLET -sWASM_WORKERS`) would put
+threads and Emscripten's glue in the audio thread, couple the editor's download to the first sound, and give up
+the separation the format was designed for.
 
 ## Shape
 
 ```
 tinyplug/
-  libs/tiny_core            + TINY_PLATFORM_WASM; denormal guard no-op; web Relay;
-                              Byte_ring / Block_store promoted from wrappers/aax (the wire)
-  libs/tiny_platform        + web_view.cpp, web_context.cpp (CPU raster), web_paths.cpp, web_dialogs.cpp
-  wrappers/web/             + make_web_plugin.cmake
-                              source/processor/  (worklet module: exports, the processor half)
-                              source/controller/ (main-thread module: authority, editor, view)
-                              js/                (@tinyplug/web: worklet processor, host API)
-  tests/hosts/web_host.mjs  + Node conformance host
-  tools/web/serve.mjs       + static server with COOP / COEP (or --no-isolation), host pages per demo
-  CMakePresets.json         + "web" (the pinned emsdk's toolchain, build-web)
+  libs/tiny_core            TINY_PLATFORM_WASM, TINY_PLATFORM_THREADS; denormal guard no-op; web Relay;
+                            wire.hpp (Byte_ring / Block_store, promoted from wrappers/aax)
+  libs/tiny_platform        web_view.cpp, web_context.cpp (CPU raster), web_paths.cpp, web_dialogs.cpp
+  wrappers/web/             make_web_plugin.cmake
+                            source/processor/  (worklet module)
+                            source/controller/ (main-thread module: authority, editor, view)
+                            js/                (worklet, host API, pump, link, wire mirror)
+  tests/hosts/web_host.mjs, web_split_host.mjs; tests/web/
+  tools/web/serve.mjs       static server with COOP / COEP (or --no-isolation), host pages per demo
+  CMakePresets.json         web, web-nonisolated, web-tests
 tiny_deps/
-  build-skia-web.sh         + Skia for wasm32, CPU raster, -pthread, into build/web/lib
-  cmake/setup_skia.cmake    + an EMSCRIPTEN branch
+  build-skia-web.sh [nonisolated]   Skia for wasm32, CPU raster, into build/web/lib
 ```
 
-`make_web_plugin(target)` produces, per product:
+`make_web_plugin(target)` produces a self-contained, deployable `<Base>.web/`: `<base>_processor.wasm` (standalone,
+no Emscripten JS), the controller module and its loader, `manifest.json` (plug_info and the models, plus
+`"variant"`), the JS and an `index.html`.
 
-```
-<Base>.web/
-  <base>_processor.wasm      the worklet module: standalone, no Emscripten JS, fixed shared memory
-  <base>.wasm, <base>.js     the controller module and Emscripten's loader (pthreads, html5)
-  manifest.json              plug_info + the models: identifiers, ranges, units, choices, defaults, groups;
-                             latency; I/O (sidechain, notes). Exported by the module, written at build time
-  assets/                    whatever the editor embeds that isn't in the module
-```
-
-The page side is `wrappers/web/js` (`@tinyplug/web`): it owns the AudioContext, mounts the editor on a
-`<canvas>`, wires sources (a loop, a file, the mic) and the sidechain, and exposes a host API: `load(url)`,
-`play / stop`, `setParam(id, plain)`, `getState() / setState(bytes)`, `onMeters`, transport (tempo, playing). It
-is the DAW; the product site is written against it and knows nothing product-specific.
+The page side is the host API in `wrappers/web/js`: it owns the AudioContext, mounts the editor on a `<canvas>`,
+wires sources and the sidechain, and exposes `load(url)`, `play / stop`, `setParam(id, plain)`,
+`getState() / setState(bytes)`, `onMeters`, `onMidi` and transport. It is the DAW; the product site is written
+against it and knows nothing product-specific. Where sessions are stored, audio sources and routing, Web MIDI
+devices and which presets a product offers are the page's.
 
 ## Topology
 
@@ -96,321 +72,134 @@ AudioWorklet thread                       Main thread
 │  Timeline_resolver, Note_io, │ ◄──────► │  editor + view + undo, Editor_link,   │
 │  State_processor, meter /    │          │  worker, Task_manager, platform layer │
 │  block publishers            │          │  the page host API calls in here      │
-│  no threads, no Skia, no JS  │          │  pthreads, Skia                       │
+│  no threads, no Skia, no JS  │          │  pthreads (isolated), Skia            │
 └──────────────────────────────┘          └───────────────────────────────────────┘
 ```
 
-This is the AAX split. The processor module is AAX's algorithm: it owns the DSP and has no route back to the
-controller except its rings. The controller is AAX's data model and VST3's controller in one, and also the DAW:
-page edits, editor gestures and undo all end at one param authority, with no host round-trip.
+The processor module is AAX's algorithm: it owns the DSP and has no route back except its rings. The controller is
+AAX's data model and VST3's controller in one, and also the DAW: page edits, editor gestures and undo all end at
+one param authority, with no host round-trip.
 
-**The wire.** AAX's `Byte_ring` and `Block_store` are standard-library only and addressed by byte offset into
-memory the producer owns; Direct Data is "the remote side memcpys a byte range out of my private data". In the
-browser each module keeps its own rings in its own memory, and C++ on either side only ever touches its own.
-Nothing is posted on the audio path, and the worklet never allocates a JS object per quantum. Both types move to
-tiny_core with their tests (`aax_transport_test`); AAX keeps using them.
+**The wire.** Each module keeps its own rings in its own memory, and C++ on either side only touches its own.
+Nothing is posted on the audio path, and the worklet never allocates a JS object per quantum. As on AAX, a full
+push drops, so the consumer reads without a seqlock retry and nothing may assume its rate. Ring sizes come from the
+models, and every alternative is trivially copyable.
 
-**The pump.** A plain-JS dedicated Web Worker (not an Emscripten pthread) holds both modules' shared memories
-and moves frames between the processor's rings and their controller-side twins, waiting on `Atomics.wait` with
-a short timeout. It is VST3's `Outbound_message_shuttle`, for the same reason: something has to carry bytes
-between two sides that share no memory. It exists because neither obvious owner works:
+**The pump** (isolated). A plain-JS dedicated Web Worker holds both shared memories and moves frames between the
+processor's rings and their controller-side twins (VST3's worker relay, for the same reason). Not
+the main thread, because rAF stops and timers throttle in a hidden tab; not a controller pthread, because only a
+JS scope holding the processor's `WebAssembly.Memory` can reach its rings. Processor messages are routed by kind
+so each controller ring has one reader.
 
-- **Not the main thread.** `requestAnimationFrame` stops in a hidden tab and main-thread timers are throttled
-  there, but processor ↔ worker traffic, state snapshots and latency proposals must flow with no editor at all,
-  as they do natively.
-- **Not the controller's pthreads.** They share the controller's memory, not the processor's; only a JS scope
-  holding the processor's `WebAssembly.Memory` can reach its rings.
-
-With the pump, every controller thread reads its own memory natively: the main thread for params and the
-editor, `Worker_runner` for its queues. The cost is a JS mirror of the ring header protocol (push, pop, frame
-copy), about a hundred lines, tested against the C++ under Node.
-
-**One producer per ring.** Each channel has its own ring and exactly one writing thread, as the native queues
-do (`spsc` from the processor and the editor; `Worker_replies` from the worker thread). Controller → processor
-traffic comes from several threads, so it is several rings, never one shared one.
-
-Channels, each sized and framed at compile time from the models (`configure_models` already gives every count):
+**One producer per ring.** Controller → processor traffic comes from several threads, so it is several rings.
 
 | Direction | Channel | Native precedent |
 |---|---|---|
 | controller → processor | param events (plain `Set` / `Ramp`, at an offset) | AAX coefficient segments, VST3 param queues |
-| controller → processor | state edits | `state::connect_remote`, VST3 `tiny/state/edit` |
+| controller → processor | state edits; host (session) loads, pumped before edits | `state::connect_remote`, VST3 `tiny/state/edit` |
 | controller → processor | notes from the editor, the page, Web MIDI | VST3 `tiny/notes` |
 | controller → processor | worker replies to the processor | VST3 `tiny/worker/to_processor` |
-| controller → processor | transport (tempo, playing, position), bypass, reset requests, accepted latency | AAX runtime packet |
-| processor → controller | meters | AAX `Ring_meter` |
-| processor → controller | blocks | AAX `Block_store`, VST3 `tiny/blocks` |
-| processor → controller | state snapshots | VST3 `tiny/state/snapshot` |
-| processor → controller | notes out (to the page, Web MIDI out) | — |
-| processor → controller | worker messages from the processor | VST3 `tiny/worker/from_processor` |
-| processor → controller | latency proposals | AAX `Ring_latency` |
+| controller → processor | transport, bypass, reset requests, accepted latency | AAX runtime packet |
+| processor → controller | meters, blocks, state snapshots | AAX `Ring_meter` / `Block_store`, VST3 messages |
+| processor → controller | notes out, worker messages, latency proposals | VST3 `tiny/worker/from_processor`, AAX `Ring_latency` |
 
-As on AAX, the producer never overwrites unread data (a full push drops), so the consumer reads without a
-seqlock retry, and nothing may assume the consumer's rate. Ring sizes come from the models (the work channels
-from `User_work::inbound_capacity` / `outbound_capacity`), and every alternative is trivially copyable, so
-frames are fixed-size.
-
-**Memory.** The processor module's memory is shared (`-sSHARED_MEMORY`, so `SharedArrayBuffer`-backed) and of a
-fixed size chosen from a probe: growing would leave the controller's views at the old length. The controller
-module is an ordinary Emscripten pthreads module with its own memory.
+**Memory.** The processor module's memory is shared and of a fixed size: growing would leave the other side's
+views at the old length.
 
 **One compile flavor per tree.** Wasm objects built with atomics can't link into a module without shared memory,
-so in the isolated tree both modules build with `-pthread` (atomics + bulk memory); the processor module simply
-starts no threads. That is why the nonisolated variant is a second tree (preset `web-nonisolated`, Skia from
-`build-skia-web.sh nonisolated`) rather than a switch.
+so the isolated tree builds everything with `-pthread` and the nonisolated tree builds nothing with it. Hence two
+trees (and two Skia builds), not a switch.
 
-**Variants.** Named for what the page must provide. `isolated`: COOP / COEP, so nothing cross-origin can sit on the
-page without opting in (a storefront's checkout iframe, a YouTube embed). `nonisolated`: the same two modules
-without `SharedArrayBuffer`, for any page.
-- The wire is the seam; nothing above it changes. [link.js](../wrappers/web/js/link.js) splits the pump in two:
-  each half runs on the thread owning its module's memory, takes its rings' unread bytes and newer store frames,
-  and posts them over the worklet's `MessagePort`; the other half lands them. The worklet posts every 4 quanta;
-  the page sends each frame, on a 10 ms timer, and whenever the worklet posts. A full ring parks posted bytes,
-  then drops whole posts past 4x its capacity, as a full ring refuses its producer.
-- `TINY_PLATFORM_THREADS` is 0 (derived from `__EMSCRIPTEN_PTHREADS__`): `Task_manager` runs its background and
-  serial lanes on main from `run_main`, 4 ms at a time; the logger drains on the caller; `Relay` clears directly.
-- **A plug-in with a worker needs `isolated`**: `Worker_runner` has no cooperative mode, and a worker on main-thread
-  time slices would stall in a hidden tab. `make_web_plugin` stops the configure with an error.
-- manifest.json carries `"variant"`; `host.js` picks the pump or the link from it, and refuses an isolated build on
-  a page that isn't isolated with a message saying so. `load` (processor-only) works in both.
-- Hidden tab, nonisolated: the page's timers throttle and rAF stops, so edits and the controller's reads slow or
-  stop as the isolated controller's do; the processor keeps rendering, and its posts still land.
-
-**Rejected: one shared module.** One `WebAssembly.Memory` shared by the main thread and the worklet (Emscripten's
-Wasm Audio Worklets, `-sAUDIO_WORKLET -sWASM_WORKERS`) would make the wrapper the CLAP wrapper's shape. It puts
-threads and Emscripten's worklet glue in the audio thread (the Safari risk), couples the editor's download to
-the first sound, and gives up the separation the format was designed for.
+**Variants.**
+- The wire is the seam; nothing above it changes. In `nonisolated`, [link.js](../wrappers/web/js/link.js) splits
+  the pump in two halves over the worklet's `MessagePort`. The worklet posts every 4 quanta; the page sends each
+  frame, on a 10 ms timer, and whenever the worklet posts. A full ring parks posted bytes, then drops whole posts
+  past 4x its capacity.
+- `TINY_PLATFORM_THREADS` is 0: `Task_manager` runs its background and serial lanes on main from `run_main`, 4 ms
+  at a time; the logger drains on the caller; `Relay` clears directly.
+- **A plug-in with a worker needs `isolated`**: `Worker_runner` has no cooperative mode. `make_web_plugin` stops
+  the configure with an error.
+- `host.js` picks the pump or the link from the manifest's `"variant"`, and refuses an isolated build on a page
+  that isn't isolated.
 
 ## The processor module
 
-A standalone wasm (no Emscripten JS runtime), instantiated by our own `AudioWorkletProcessor` from a compiled
-`WebAssembly.Module` the page posts to it. The worklet supplies the few imports (memory, abort, a logging
-stub) and calls the exports:
+A standalone wasm instantiated by our own `AudioWorkletProcessor`. It links with `-sSHARED_MEMORY` and no
+`-pthread`, so libc++abi's mutex is stubbed in module.cpp.
 
-- `configure(sr, params*)` once the AudioContext's rate is known, from the worklet's init message, not from
-  `process` (it allocates; nothing is rendering yet). A rate change is a new context, so a new configure.
-- `process(frames)` per quantum: copy the worklet's planar inputs into module buffers, drain the inbound rings
-  into events at their offsets, render through the same event loop as the native wrappers, push meters /
-  blocks / snapshots / notes / proposals, copy outputs back. 128 frames today; Chrome's configurable render
-  size means sizing for a maximum and accepting fewer.
-- Lifecycle as the native wrappers: `reset(Hard)` on transport jumps and source changes, `Render_mode::Realtime`
-  always (an `OfflineAudioContext` bounce is a later, cheap extra).
-- **Latency.** No delay compensation to negotiate: a proposal is accepted at once and arrives back as
-  `Reset::Latency` at the next block boundary, so the processor contract holds; the controller reports it to
-  the page. `Host_bypass::set_latency` in lockstep.
-- **Timeline.** Transport messages from the page set tempo, playing and a position anchored to a context
-  frame; the module derives each quantum's position from its own frame counter and runs `Timeline_resolver`,
-  leaving empty what the page doesn't say.
-- **I/O.** Main input from the page's source; a second worklet input for the sidechain; an instrument has
-  no input bus.
+- `configure(sr, params*)` from the worklet's init message, not from `process` (it allocates). A rate change is
+  a new context, so a new configure.
+- `process(frames)` per quantum: the same event loop as the native wrappers. Sized for a maximum render quantum.
+- `Render_mode::Realtime` always (an `OfflineAudioContext` bounce is a later, cheap extra).
+- **Latency.** Nothing to negotiate: a proposal is accepted at once and lands as `Reset::Latency` next block.
+- **Timeline.** The page sets tempo, playing and a position anchored to a context frame; the module derives each
+  quantum's position from its own frame counter.
 
-The plug-in's `<P>_lib` compiles unchanged: a static archive only contributes the objects a module references,
-so the processor module never links `editor.o` or Skia, and no headless switch is needed.
+The plug-in's `<P>_lib` compiles unchanged: a static archive only contributes the objects a module references, so
+the processor module never links `editor.o` or Skia.
 
 ## The controller module
 
-The CLAP wrapper's logic with the processor across the wire:
+The CLAP wrapper's logic with the processor across the wire. Page edits are host automation; editor edits go
+through the action queue with undo. A page `setState` is a host load: one undo step and
+`Editor::notify(Host_preset_loaded)`, landing in the processor's `on_session_load`. `Task_manager` and
+`Worker_runner` run on a prewarmed pthread pool (thread start in a browser is asynchronous). `tick()` stands in for
+the view loop while no editor is open.
 
-- **Params.** The authority holds every value. Page edits are host automation (`Set` / `Ramp` to the
-  processor at the next quantum); editor edits are `User_action`s through the action queue, with undo, exactly
-  as native. Host-space values for the page come from the manifest.
-- **State.** `getState / setState` through `State_adapter`, the same bytes the other formats save; the page
-  stores them (localStorage / OPFS) and can load factory presets. A page `setState` is a host load: one undo
-  step, `Editor::notify(Host_preset_loaded)`. `Format::Web` in `Edit_context` lets editors hide what doesn't
-  apply (licensing, host-only menus).
-- **Meters / blocks.** Drained from the rings into the mailboxes the editor reads in its draw; the page gets a
-  copy for its own use (`onMeters`).
-- **Worker.** On the controller side, as VST3's: editor ↔ worker direct (in-process queues), processor ↔
-  worker across the wire through the pump, so it runs with the tab hidden and the editor closed. Its replies to
-  the processor go on a ring only the worker thread writes. worker_demo is the acceptance test.
-- **Threads.** `Task_manager` lanes and `Worker_runner` on Emscripten pthreads, from a prewarmed pool
-  (`-sPTHREAD_POOL_SIZE`): thread start in a browser is asynchronous, so a lane created after load could
-  otherwise stall until the main thread yields.
+## Platform
 
-## The platform (`tiny_platform`, web)
+`Platform_view` is a `<canvas>`; input is pointer events (mouse and touch through one path), wheel, keys; the draw
+loop is rAF; `Window_context` rasterises into a buffer and `putImageData`s one reused `ImageData`; dark mode from
+`matchMedia`; `Platform_paths` under an IndexedDB mount; browser dialogs (file input, downloads, HTML overlays).
+No system fonts: the demos draw with `tiny_ui`'s pixel font; products embed theirs.
 
-| Piece | Native | Web |
-|---|---|---|
-| `Platform_view` | NSView / UIView / HWND | a `<canvas>` (Emscripten html5: size, device pixel ratio, resize observer) |
-| Input → `User_interaction` / `Event_stream` | mouse, trackpad, touch, keys, wheel | pointer events (mouse + touch through one path), wheel, keys, double-click; pointer capture for drags |
-| Draw loop | CVDisplayLink / vsync thread | `requestAnimationFrame` (`emscripten_request_animation_frame_loop`); pauses on hidden tabs, which also pumps `Task_manager::run_main`, so a hidden tab stalls main-thread tasks as an occluded native editor does |
-| `Window_context` | Metal / D3D12 / CPU Skia surface | Skia CPU raster into a buffer, `putImageData` on a 2D canvas; later Graphite on WebGPU |
-| Dark mode | system notification | `matchMedia("(prefers-color-scheme: dark)")` → `Dark_mode_changed` |
-| `Relay` | GCD / message window | post to the main runtime thread (`emscripten_async_run_in_main_runtime_thread`), or a flag the rAF loop polls |
-| `Platform_paths` | app support dirs | a virtual FS: MEMFS for scratch, IDBFS (or OPFS) mounted for user presets and prefs |
-| `Platform_dialogs` | NSOpenPanel etc. | file input / download links; alerts as HTML overlays (async: the dialog API is already callback-based) |
-| `Window_token` | parenting | trivially the canvas |
-
-Fonts: no system fonts in wasm. The demos draw with `tiny_ui`'s pixel font and need no font manager. Products
-use Skia's custom font manager (empty or embedded) and the editors' embedded font data (`Font_manager`, as
-Monorobot's are); anything that asks the system for a family needs a bundled fallback.
-
-**GPU, later.** Skia's newer backend, Graphite, runs on WebGPU through Dawn (`skia_use_dawn`,
-`skia_use_webgpu`; CanvasKit's `ENABLE_WEBGPU`), which Chrome and current Safari ship. That is the GPU step,
-not Ganesh on WebGL2, which stays only as a compatibility path if a target browser lacks WebGPU. Out of scope
-for this push: CPU raster first, measure, then decide.
-
-## Skia for wasm (`tiny_deps`)
-
-Confirmed in the checkout (`build/src/skia`, `chrome/m139`): `gn/toolchain/BUILD.gn` defines a `wasm` toolchain
-when `target_cpu = "wasm"`, calling `$skia_emsdk_dir/upstream/emscripten/{emcc,em++,emar}`; `skia_emsdk_dir`
-defaults to `third_party/externals/emsdk`, which `git-sync-deps` fetched and `bin/activate-emsdk` activated at
-**3.1.44**. CanvasKit's `modules/canvaskit/compile.sh` is the reference set of gn args.
-
-`build-skia-web.sh`, in the shape of `build-skia-mac.sh`:
-
-1. `setup_depot_tools`, `sync_deps` as today.
-2. Install and activate **the pinned emsdk** (the Decisions table) into `build/tmp/emsdk`, through the emsdk
-   checkout already in externals. Never `bin/activate-emsdk`, which would select 3.1.44.
-3. `gn gen` with `target_cpu = "wasm"`, `skia_emsdk_dir` pointing at it, `is_official_build = true`,
-   `werror = false`; Ganesh, Graphite, Dawn, WebGL, Metal and Vulkan off (CPU raster);
-   `skia_use_freetype = true` with `skia_enable_fontmgr_custom_empty` (the embedded font manager comes when a
-   product needs it); no system libs (already the convention); `extra_cflags = ["-pthread"]`, because every
-   object in a threaded module must be built for shared memory.
-4. `ninja`, then move the same library set as macOS (`libskia`, `libskottie`, `libskshaper`, `libsksg`,
-   `libskparagraph`, `libskunicode_core`, `libskunicode_libgrapheme`, `libsvg`, `libpathops`) into
-   `build/web/lib`. Drop any that fail to build for wasm rather than patching Skia; nothing in the demos needs
-   more than `libskia`.
-
-`setup_skia.cmake` gains an `EMSCRIPTEN` branch pointing at `build/web/lib`. tinyplug's `web` preset uses the
-same emsdk's toolchain file (`build/tmp/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake`, via
-`TINY_DEPS_PATH`), so Skia and tinyplug can't drift apart.
-
-Size is the number to watch: CanvasKit is several MB of wasm. Our link only keeps what SUI calls, and CPU raster
-drops the GPU code entirely; measure the gain demo's controller module before the editor phases. Brotli on the
-site.
-
-## Build
-
-- **Preset.** `web` in `CMakePresets.json`: the pinned emsdk's toolchain, `build-web`, Release. Only the web
-  targets (and tiny_core / tinyplug / tiny_platform for wasm) build there; plus `web-tests` for the test suite
-  under Node.
-- **`TINY_PLATFORM_WASM`** in `platform_defs.hpp` (`__EMSCRIPTEN__`), and a no-op `denormal_guard` (wasm has no
-  FP control register; denormals are slow on x86 clients, so DSP that can flush should).
-- **Flags.** `-pthread` everywhere in the isolated tree, nowhere in the nonisolated (see Variants); `-msimd128` (and `-msse4.2` for vsl's SSE path until it
-  grows a native wasm SIMD path); `-fwasm-exceptions` if anything throws (nlohmann::json);
-  `-ffp-contract=off` on both web and native builds being compared for bit-identity; no name section in
-  Release.
-- **Dependencies must be wasm-clean.** spk, vsl, sketch_dsp and vendored code (signalsmith's `perf.h`) get a CI
-  job on the `web` preset, so a native-only assumption fails there, not in a product.
-
-## Verification
-
-Every layer has a cheap automated check before a browser is involved.
-
-1. **The existing tests under Node.** tiny_core and `tests/` built for wasm with
-   `CMAKE_CROSSCOMPILING_EMULATOR=node`, run by `ctest --preset web-tests`: lock-free queues, state, change sets,
-   tasks (pthreads in Node worker threads) and the wire, on the target ABI.
-2. **`tests/hosts/web_host.mjs`**, a Node conformance host in the style of `clap_host`: the processor module in a
-   worker thread, the controller module (no view) in the main thread, over the real shared-memory rings. One
-   scenario per demo:
-
-   | Demo | Proves |
-   |---|---|
-   | gain, meter | params (a page edit and an editor edit in one quantum), meters, bypass |
-   | automation | sample-accurate `Set` / `Ramp`, the block log |
-   | block | blocks, snapshot and stream policies |
-   | latency | proposal → immediate accept → `Reset::Latency`, bypass PDC |
-   | state | state edit / snapshot round trip, a page `setState` as one undo step |
-   | step_sequencer | timeline from the page's transport, notes out |
-   | sine_synth | notes in, an instrument with no input bus, MPE |
-   | worker | processor ↔ worker across the wire, editor ↔ worker direct; Node has no rAF, so this also proves the traffic needs no drawing |
-   | platform | paths, dialogs, dark mode (browser only) |
-
-   Plus the lifecycle the other wrappers pass: configure re-entry, every `Reset` alternative, state round trip.
-3. **Cross-format equivalence.** The same event schedule rendered through the CLAP build (clap_host) and the web
-   build, compared. Exact where it can be, with `-ffp-contract=off` on both sides (gain, latency, automation).
-   Anything calling `sin` / `exp` (sine_synth) differs by libm (musl in wasm, Apple's natively) and gets a
-   threshold around −120 dB. "Bit-identical" is claimed only where it holds.
-4. **Browser smoke tests.** Headless Chrome (`--autoplay-policy=no-user-gesture-required --mute-audio`) over
-   CDP, per demo: load, play, drag a control, read a meter back through the page API, screenshot; the
-   screenshot against a native CPU-raster render of the same editor and state. Plus a hidden-tab check (emulated
-   `visibilityState = hidden`, not a frozen page): worker_demo's round trip and the page's `onMeters` keep
-   flowing while the editor stops drawing.
-5. **By hand.** `tools/web/serve.mjs` (COOP / COEP headers) and a host page per demo; Chrome and Safari, macOS
-   and iOS. Safari is the one that can't be automated here.
-
-## Phases
-
-0. **Prerequisites, in parallel.**
-   - tiny_deps: the emsdk pin, `build-skia-web.sh`, `setup_skia.cmake`; a size measurement of a minimal
-     Skia link. First, because it is long-running and its numbers can change the editor phases.
-   - tinyplug: `TINY_PLATFORM_WASM`, the denormal guard, a web `Relay`, the `web` / `web-tests` presets;
-     tiny_core and `tests/` passing under Node.
-1. **The wire.** `Byte_ring` / `Block_store` into tiny_core, the channel table, the JS pump and its ring
-   mirror; tests natively and under Node, the JS mirror against the C++.
-2. **The processor module** and the worklet glue. `web_host` runs gain_demo end to end in Node, then every
-   demo's processor half; the manifest; the bare page API. Retires the hand wrappers in `vs_comp_web`.
-   *(Days.)*
-3. **The controller module, no view.** Param authority, `Editor_link` over `connect_remote`, undo, the worker
-   through the pump, `Task_manager` on pthreads; conformance for state and worker_demo.
-4. **The web platform layer**, CPU raster: view, input, draw loop, relay, paths, dialogs, dark mode. gain_demo's
-   editor in Chrome.
-5. **Complete the framework's half.** Persistent `Platform_paths` (IndexedDB) and file dialogs; several plug-ins
-   on one page; `onMidi` and the sidechain input on the host API; the size and main-thread pass; a
-   self-contained `<Base>.web/` bundle (manifest.json, JS, index.html); the docs; the processor module against
-   its own native build (bit-identical for nine demos). What a DAW owns is the page's: where sessions are stored,
-   audio sources and routing, Web MIDI devices, which presets a product offers. *(Done.)*
-6. **Later.** Graphite on WebGPU; size work; the `web` preset in the release CI
-   (`all_plugins/plans/ci-build-system.md`), versioned artifacts per tag, the product site consuming them.
-
-## Measured (phase 5, 2026-10-20, Apple Silicon, Chrome headless, 2x pixel density)
+## Measured (2026-10-20, Apple Silicon, Chrome headless, 2x pixel density)
 
 | | Raw | Brotli |
 |---|---|---|
 | processor module | 115-147 KB | 39-49 KB |
 | controller module (editor + Skia CPU raster) | 2.78-2.86 MB | 739-755 KB |
 
-`-Oz` at link saves 1 %; names are already stripped. Skia is most of the controller; a product that decodes no
-images could build Skia without its codecs. Main thread with an editor open at 60 fps: 8 % (Gain) to 11 % (Block,
-Worker), most of it Skia rasterising the whole editor each frame, the cost Graphite on WebGPU removes. Reusing
-one ImageData per size (no per-frame allocation) took Block from 15 % to 10 %.
+Main thread with an editor open at 60 fps: 8 % (Gain) to 11 % (Block, Worker), mostly Skia rasterising the whole
+editor each frame. The processor module renders bit-identical to its own native build for nine demos.
 
-## Next (2026-10-21)
+## Next
 
-Merge `web-format` (tinyplug and tiny_deps) to main, then, by hand:
-- **The real page.** A bundle from `build-web-nonisolated` on a sketch_site test page, next to the Moonbase
-  storefront and a YouTube embed, under `astro dev` with no headers. The check the variant exists for.
+By hand:
+- **The real page.** A `build-web-nonisolated` bundle on a sketch_site test page, next to the Moonbase storefront
+  and a YouTube embed, under `astro dev` with no headers. The check the variant exists for.
 - **Every demo in Safari (macOS)**, nonisolated: `node tools/web/serve.mjs --build build-web-nonisolated --no-isolation`,
-  then `editor.html?plugin=<Base>`. So far only a quick look at both variants.
+  then `editor.html?plugin=<Base>`.
 - **Hidden tab**, both variants: audio keeps playing; the editor and meters catch up on return; no stuck notes.
-- **iOS Safari** over HTTPS (`cloudflared tunnel --url http://localhost:8040` or a Cloudflare preview): crackle, and
-  editor feel with background tasks on main.
+  Confirm no browser throttles the pump's `Atomics.wait` timeout in a background tab; if one does, block on a
+  futex the worklet signals each quantum.
+- **iOS Safari** over HTTPS (`cloudflared tunnel --url http://localhost:8040`): crackle, and editor feel with
+  background tasks on main. Mobile CPU is several times desktop's.
 
 In code:
 - **Processor-written state is untested in both variants**: no demo declares `Writers::Processor` or `Both`. A
   small one (or a test model) and a `web_split` scenario for the snapshot path.
-- The nonisolated tree runs no tiny_core tests besides `tasks_nothreads_test`; the logic is variant-independent
-  and covered by the isolated tree, but a no-threads build of the threadless ones would be cheap.
+- The nonisolated tree runs no tiny_core tests besides `tasks_nothreads_test`; a no-threads build of the threadless
+  ones would be cheap.
 - Windows: the wire move (AAX through `wire.hpp`) hasn't been built on MSVC; `windows-asan-hosts` before the next
-  Windows release.
+  Windows release from main.
 
-## Risks and open questions
+## Later
 
-- **Seqlocks need atomic data in wasm (found in phase 2).** Binaryen strips `atomic.fence` at -O2 and above, since
-  the wasm memory model gives fences no meaning for plain accesses, and V8 compiles atomics on ARM as `ldar` /
-  `stlr`, which let a plain copy drift past them. `wire::Block_store` therefore copies its slots as relaxed atomic
-  words (plain moves natively) and `wire.js` as per-word `Atomics`; before that, the Release wasm build accepted
-  torn frames under a fast publisher. Rings are unaffected: message passing over SC atomics is data-race-free.
-  `Block_store::publish_with`'s in-place fill stays plain, so it is for native readers only.
+- **Graphite on WebGPU** (`skia_use_dawn`, `skia_use_webgpu`), which Chrome and current Safari ship; removes most
+  of the main-thread cost. Ganesh on WebGL2 only as a fallback.
+- **Size.** A product that decodes no images could build Skia without its codecs. If the controller is still too
+  big for a page, the processor module with a lighter page UI against the manifest is a valid end state.
+- **Scheduled page automation.** Page `setParam` lands at the next quantum; an API mapping `AudioContext` time to a
+  frame offset can follow.
+- **CI.** The `web` preset in the release CI (`all_plugins/plans/ci-build-system.md`), versioned artifacts per tag;
+  spk, vsl, sketch_dsp get a job there so a native-only assumption fails in CI, not in a product.
 
-- **Safari.** `SharedArrayBuffer` needs isolation everywhere, and the controller needs wasm threads on the main
-  thread; check current Safari (macOS and iOS) in phase 2 with the processor module alone, before the
-  controller depends on it. The two-module shape keeps threads out of the worklet, which was the original risk.
-- **Toolchain drift.** Homebrew's Emscripten moves on `brew upgrade`; only the tiny_deps pin builds. Skia m139
-  was tested against 3.1.44, so a newer emsdk may need warnings off or a patch; the script records what it took.
-- **Blocking on the main thread.** `Task_manager::shutdown` waits for running tasks; Emscripten implements that
-  wait by spinning, and it deadlocks if the task proxies anything to the main thread. Tasks must never call
-  back into the main thread: already the rule natively, but here breaking it hangs the tab.
-- **Mobile CPU.** Desktop runs these demos at 1-3 % of a core; phones at several times that, and HQ
-  oversampling multiplies it. Measure on a mid-range phone in phase 2.
-- **Hidden tabs.** A hidden tab stops rAF, which stalls `Task_manager`'s main-thread tasks and the editor's
-  mailbox reads, as an occluded native editor does. The wire itself keeps moving (the pump is a dedicated
-  worker), so the processor, the worker and the page's `onMeters` are unaffected. Long-running work keeps to
-  background lanes. Verify that browsers don't throttle a dedicated worker's `Atomics.wait` timeout in a
-  background tab; if one does, the pump falls back to blocking on a futex the worklet signals each quantum.
-- **Exposure.** A wasm build is as reversible as a native one (more, with names). Decide per product whether
-  the model ships to the web; keep licensing out of the web build entirely (`Format::Web`).
-- **Binary size.** Skia dominates the controller. If the measured size is too big for a product page, the
-  processor module with a lighter page UI against the manifest remains a valid end state for some products,
-  and needs no change to the format.
+## Rules this format taught
+
+- **Seqlocks need atomic data in wasm.** Binaryen strips `atomic.fence` at -O2, and V8 compiles atomics on ARM as
+  `ldar` / `stlr`, which let a plain copy drift past them. `wire::Block_store` copies its slots as relaxed atomic
+  words and `wire.js` as per-word `Atomics`; with plain copies the Release build accepted torn frames.
+  `publish_with`'s in-place fill stays plain, so it is for native readers only.
+- **Never block main on a task that proxies to main.** `Task_manager::shutdown` waits by spinning in Emscripten,
+  and a task calling back into main deadlocks the tab. Natively the same rule, but there it only stalls.

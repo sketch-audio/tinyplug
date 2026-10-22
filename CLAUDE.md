@@ -7,8 +7,8 @@ this file.
 ## What this project is
 
 tinyplug is a C++20 audio plug-in framework that wraps a single user
-processor/editor pair into AAX, AUv2, AUv3, CLAP, and VST3 binaries. The
-user writes format-agnostic code; per-format wrappers under [formats/](formats/)
+processor/editor pair into AAX, AUv2, AUv3, CLAP, VST3 and web binaries. The
+user writes format-agnostic code; per-format wrappers under [wrappers/](wrappers/)
 translate the host's API into framework events and back.
 
 - Repo layout. The libraries are peers under [libs/](libs/), each with its own `CMakeLists.txt`
@@ -20,16 +20,15 @@ translate the host's API into framework events and back.
   - [libs/tinyplug/](libs/tinyplug/) — the model-aware half, `INTERFACE` (header-only):
     events, actions, undo, processor, edit, view, worker. Umbrella `<tinyplug/tinyplug.hpp>`.
   - [libs/tiny_platform/](libs/tiny_platform/) — native window/dialogs/paths/Skia
-    (macOS/iOS/Windows). Headers `<tiny_platform/...>`, sources in `source/`, config
+    (macOS/iOS/Windows/web). Headers `<tiny_platform/...>`, sources in `source/`, config
     templates in `cmake/`. Static lib; links core PUBLIC, Skia PRIVATE.
   - [libs/tiny_dsp/](libs/tiny_dsp/) — header-only DSP helpers (`Host_bypass`,
     `Linear_ramper`, `Delay_line`), `<tiny_dsp/...>`. INTERFACE lib, pure leaf.
   - [libs/tiny_ui/](libs/tiny_ui/) — header-only editor helpers the demos draw with
     (`Controls`, `Theme`, Skia rects and a pixel font), `<tiny_ui/...>`, namespace `tiny::ui`.
-    INTERFACE on top of tinyplug; Skia stays the consumer's PRIVATE link. Seed of
-    [ui-library.md](plans/ui-library.md).
-  - [wrappers/](wrappers/) — one wrapper per format (was `formats/`).
-  - [examples/](examples/) — demo plug-ins consumed by CI (was `plugins/`).
+    INTERFACE on top of tinyplug; Skia stays the consumer's PRIVATE link.
+  - [wrappers/](wrappers/) — one wrapper per format: `aax`, `auv2`, `auv3`, `clap`, `vst3`, `web`.
+  - [examples/](examples/) — demo plug-ins consumed by CI.
   - [cmake/](cmake/) — `helpers.cmake`, `plug_info.hpp.in`, etc.
   - [template/](template/) + [tools/new_plugin.py](tools/new_plugin.py) — scaffold
     a new plug-in (a simple gain effect, no worker): `python3 tools/new_plugin.py
@@ -38,7 +37,8 @@ translate the host's API into framework events and back.
   - [tools/](tools/) — author helper utilities: the scaffold above, preset exporters
     ([tools/presets/](tools/presets/)), and AAX page-table generation
     ([tools/pagetables/](tools/pagetables/)). All opt-in; demos don't use them.
-  - [plans/](plans/) — design docs for in-flight work.
+  - [plans/](plans/) — design docs for work not yet landed (see "Plans"). A plan is deleted once
+    it lands; what it taught moves into this file.
   - [tests/](tests/) — one CTest executable per file; presets `tests`, `tsan`, `asan`
     (`cmake --preset tsan && cmake --build --preset tsan && ctest --preset tsan`). New tests use
     audio_bench, fetched at a pinned commit; see [tests/README.md](tests/README.md). Run the
@@ -59,7 +59,8 @@ cmake --preset macos && cmake --build --preset macos   # Xcode, incl. AUv3
 ```
 
 Presets: `debug` (Unix Makefiles → `build-debug`), `macos` / `ios` (Xcode →
-`build-macos` / `build-ios`, required for AUv3), `windows` (VS, Windows hosts only).
+`build-macos` / `build-ios`, required for AUv3), `windows` (VS, Windows hosts only),
+`web` / `web-nonisolated` (Emscripten; see "Web").
 The manual equivalents still work, e.g.:
 
 ```
@@ -125,7 +126,7 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   Events are interleaved with `process` calls by the wrapper so DSP code
   always sees them at the right sample offset (sample-accurate automation
   including ramps).
-- **`Plug_editor`** — receives `Plugin_state` (read-only params + meters)
+- **`edit::Editor`** — receives `Plugin_state` (read-only params + meters)
   on draw, emits `User_action` events (Action_start/Set_param/Action_end/
   Request_resize). Wrappers translate gestures into host-native begin/edit/end
   notifications. Editor never shares memory with the processor.
@@ -188,7 +189,7 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   AAX), and as `"state"` in preset JSON. A restore decodes it (default on anything refused),
   loads the processor copy (`on_session_load`) and calls `Editor_link::load`, which folds the
   change into the host-load undo step. AAX's algorithm doesn't see the load, so its data model
-  loads with `Resend::Yes` and flushes. Design: [state-persistence.md](plans/state-persistence.md). Optional.
+  loads with `Resend::Yes` and flushes. Optional.
 - **Notes** ([tiny_midi.hpp](libs/tiny_core/include/tiny_core/tiny_midi.hpp)) — not a model:
   `TINY_PLUGIN_WANTS_AUDIO` / `TINY_PLUGIN_WANTS_NOTES` in CMake declare what the plug-in
   carries, `tiny_resolve_capabilities` ([helpers.cmake](cmake/helpers.cmake)) derives the kind
@@ -208,7 +209,7 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   ports, VST3 event buses plus `IMidiMapping` onto 144 hidden parameters for controls, AUv2
   `MIDIEvent` and the MIDI output callback (factory by kind), AUv3 render events and
   `MIDIOutputEventBlock`, AAX MIDI nodes with the algorithm slicing at packet timestamps and
-  editor notes on the inbound ring. Design: [midi-support.md](plans/midi-support.md).
+  editor notes on the inbound ring.
 - **`work::Model`** ([tiny_work.hpp](libs/tiny_core/include/tiny_core/tiny_work.hpp)) — the
   worker's four channel variants plus tuning, declared as `models::Work` in
   `models/work.hpp`. Optional, and paired with `worker.hpp` (the `work::Worker` class).
@@ -224,8 +225,7 @@ A plug-in declares models in `source/models/{params,meters,blocks,state,work}.hp
 [tiny_models.hpp.in](cmake/tiny_models.hpp.in) / [tiny_plugin.hpp.in](cmake/tiny_plugin.hpp.in).
 An absent model resolves to a zero-entry `<ns>::None`, never a monostate. Adding or removing a model file
 re-globs on the next build (`CONFIGURE_DEPENDS`), except for single-target Xcode builds, which
-skip `ZERO_CHECK`. Build `ZERO_CHECK` first there. Design:
-[model-layer.md](plans/model-layer.md); client porting guide:
+skip `ZERO_CHECK`. Build `ZERO_CHECK` first there. Client porting guide:
 [MIGRATION.md](MIGRATION.md).
 
 - **Why tinyplug is header-only.** A compiled-once library sees no models, so any TU there
@@ -243,8 +243,7 @@ skip `ZERO_CHECK`. Build `ZERO_CHECK` first there. Design:
 
 ## Parameter permanence
 
-A parameter model has **three** independent permanence surfaces, not one. Design
-notes and the sourcing behind each: [plans/param-identity-and-ordering.md](plans/param-identity-and-ordering.md).
+A parameter model has **three** independent permanence surfaces, not one.
 
 - **`Identity::address`** — the persistence and automation key in every format
   (VST3 `ParamID`, CLAP `id`, AUv2/AUv3 address, and the AAX string ID is derived
@@ -278,9 +277,9 @@ those are cosmetic.
 ## Three spaces, one parameter
 
 Conversions are everywhere; the central type is `params::Value_helper` in
-[value_helper.hpp](shared/tinyplug/value_helper.hpp) /
-[value_helper.cpp](shared/tinyplug/value_helper.cpp) (the declarative model lives
-in [tiny_params.hpp](shared/tinyplug/tiny_params.hpp)):
+[value_helper.hpp](libs/tiny_core/include/tiny_core/value_helper.hpp) /
+[value_helper.cpp](libs/tiny_core/source/value_helper.cpp) (the declarative model lives
+in [tiny_params.hpp](libs/tiny_core/include/tiny_core/tiny_params.hpp)):
 
 | Semantics | Plain space            | Host space         | Knob space |
 |-----------|------------------------|--------------------|------------|
@@ -302,14 +301,14 @@ former `plain_to_norm`/`norm_to_plain`.)
 mapping. Conversions through these adapters have asserts on their domains —
 log requires `min_val > 0`, taper requires `0 < taper < 1`, etc.
 
-`Host_policy` (automation/control/hidden/interface) fully enumerates how a
+`params::Policy` (automation/control/hidden/interface) fully enumerates how a
 parameter should be exposed and persisted — never flags-and-bits.
 `State_rules::is_persistent` is the canonical predicate.
 
 ## Thread model and message queues
 
 Communication uses `Lock_free_queue<T, capacity, Queue_concurrency::*>`
-([shared/tinyplug/lock_free_queue.hpp](shared/tinyplug/lock_free_queue.hpp),
+([lock_free_queue.hpp](libs/tiny_core/include/tiny_core/lock_free_queue.hpp),
 a detemplated farbot port). Common topology:
 
 - **Host → processor**: format-native event stream, normalized into
@@ -357,13 +356,13 @@ inside `try_drain_worker_to_*` *templates* — they have to be templates so
 
 ## Per-format quirks
 
-### VST3 (formats/vst3/) — TWO-COMPONENT, DISTRIBUTABLE
+### VST3 (wrappers/vst3/) — TWO-COMPONENT, DISTRIBUTABLE
 
-VST3's defining quirk for this codebase: the processor (`Vst3_processor`,
-[vst3_processor.h](formats/vst3/source/vst3_processor.h)) and the controller
-(`Vst3_controller`, [vst3_controller.h](formats/vst3/source/vst3_controller.h))
+VST3's defining quirk for this codebase: the processor (`Audio_effect`,
+[audio_effect.hpp](wrappers/vst3/source/audio_effect.hpp)) and the controller
+(`Controller`, [controller.hpp](wrappers/vst3/source/controller.hpp))
 are **distinct COM components** registered separately in
-[vst3_entry.cpp](formats/vst3/source/vst3_entry.cpp) with class flag
+[entry.cpp](wrappers/vst3/source/entry.cpp) with class flag
 `Steinberg::Vst::kDistributable`. They share no memory, may live in
 different processes, and communicate only via the host through
 `IMessage` / `IComponentHandler::restartComponent`. The controller hosts
@@ -373,9 +372,9 @@ the editor; the processor hosts the DSP. Two UIDs (`controller_uid`,
 
 This has knock-on effects throughout the wrapper:
 
-- **State is split.** `Vst3_processor::getState`/`setState` persists
-  param values; `Vst3_controller::getState`/`setState` persists editor
-  `State_map`; `Vst3_controller::setComponentState` re-receives the
+- **State is split.** `Audio_effect::getState`/`setState` persists
+  param values; `Controller::getState`/`setState` persists editor
+  `State_map`; `Controller::setComponentState` re-receives the
   processor's values so the controller's mirror stays in sync. A 4-word
   header (framework_code, manufacturer_code, plugin_code, count) prefixes
   each chunk; assertions verify the framework/mfr/plugin words on load.
@@ -428,7 +427,7 @@ This has knock-on effects throughout the wrapper:
   worker traffic stalls while the host's main thread is blocked and the
   outbound queue can fill); replies arrive in `Controller::notify`, get pushed into
   `_worker_to_proc`, and the controller's worker runner `set_post_cycle` posts a
-  second relay that ships them back to the processor via another `IMessage`. See [vst3_messaging.h](formats/vst3/source/vst3_messaging.h)
+  second relay that ships them back to the processor via another `IMessage`. See [messaging.hpp](wrappers/vst3/source/messaging.hpp)
   for the typed payload encoding (`send_variant` + `reconstruct_variant`,
   alternatives must be trivially copyable).
 - **Output parameter changes for state-load events** are required because
@@ -444,8 +443,7 @@ This has knock-on effects throughout the wrapper:
 Like VST3, AAX is split — but along a *different* seam. VST3 splits
 processor/controller; AAX splits **algorithm** (a stateless C callback owning
 the DSP) from **data model** (`Parameters`, owning parameters, editor, worker,
-undo, and state chunks). The GUI hangs off the data model. Design rationale and
-the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two-component.md).
+undo, and state chunks). The GUI hangs off the data model.
 
 - **The algorithm's only window on the world is `Alg_context`**
   ([alg_context.hpp](wrappers/aax/source/alg_context.hpp)) — a struct of
@@ -543,44 +541,44 @@ the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two
   The **sequence, not the value**, gates application — a zero-initialised packet
   must not read as "the host accepted zero".
 
-### AUv2 (formats/auv2/) — macOS desktop AU
+### AUv2 (wrappers/auv2/) — macOS desktop AU
 
 - Built only on Apple non-iOS. Extends `ausdk::AUBase`. Despite being
   "desktop only", it shares no code with AUv3 — the AUv3 wrapper has its
-  own `DSPKernel` ([formats/auv3/source/extension/DSPKernel.hpp](formats/auv3/source/extension/DSPKernel.hpp)).
+  own `DSPKernel` ([DSPKernel.hpp](wrappers/auv3/source/extension/DSPKernel.hpp)).
 - View factory class name must be **unique per plug-in** because AUv2
   hosts load multiple plug-ins into the same process; collisions are
   silent runtime breakage. The user sets `TINY_AUV2_VIEW_CLASS` to a
   unique name; the property is propagated into `Plug_info::Auv2::view_class`.
-  [auv2_view_factory.mm](formats/auv2/source/auv2_view_factory.mm) declares
+  [view_factory.mm](wrappers/auv2/source/view_factory.mm) declares
   the class via Objective-C macros.
 - `Plug_info::version` is also encoded into the Objective-C class names
   for `mac_view.mm` (see `configure_mac_view` in [helpers.cmake](cmake/helpers.cmake)):
   multiple versions of the same plug-in loaded concurrently would
   otherwise collide on `MacView`.
-- Parameter clumps come from the `Param_group` tree via `Clump_map`.
+- Parameter clumps come from the `params::Group` tree via `Clump_map`.
 - `kAudioUnitProperty_UserPlugin = 64000` is the convention for plug-in-
-  specific properties — see [plug_info.h.in](cmake/plug_info.h.in).
+  specific properties — see [plug_info.hpp.in](cmake/plug_info.hpp.in).
 - Latency change: `_pending_latency` flag, then `PropertyChanged
   (kAudioUnitProperty_Latency)`, then on `GetLatency` we read the pending
   value and store it as accepted.
 
-### AUv3 (formats/auv3/) — extension + container app (+ shared framework on iOS)
+### AUv3 (wrappers/auv3/) — extension + container app (+ shared framework on iOS)
 
 - AUv3 produces **two targets on macOS** (container app + AU extension)
   and **three on iOS** (container app + AU extension + a shared `*_core`
   framework that holds the actual AU/ViewController/view code). On iOS the
-  extension is a literal one-symbol stub (`auv3_stub.m`); both the app and
+  extension is a literal one-symbol stub (`stub.m`); both the app and
   the extension link the shared framework and load
   `Auv3_AUAudioUnit` / `Auv3_AUViewController` via `NSClassFromString`, so
   the AU code exists once on disk and is shared between the host process
   and the in-process app preview. The framework target is gated by
   `if(CMAKE_SYSTEM_NAME STREQUAL "iOS")` in
-  [make_auv3_plugin.cmake](formats/auv3/make_auv3_plugin.cmake) — on macOS
+  [make_auv3_plugin.cmake](wrappers/auv3/make_auv3_plugin.cmake) — on macOS
   the extension compiles the AU sources directly because each plug-in's
   ObjC class names are already disambiguated via `configure_mac_view`.
 - Entitlements, Info.plist, and asset catalogues are templated under
-  [formats/auv3/cmake/](formats/auv3/cmake/). The iOS framework has its
+  [wrappers/auv3/cmake/](wrappers/auv3/cmake/). The iOS framework has its
   own `Info-Core.plist` and bundle ID (`<base>.core`).
 - iOS and macOS share the wrapper sources. `TINY_IOS_DEVICE_FAMILY`
   selects ipad/iphone/universal (`UIDeviceFamily` in the plist).
@@ -594,22 +592,22 @@ the SDK evidence behind every choice: [plans/aax-two-component.md](plans/aax-two
 - Param values cached locally in `_hostvalues` atomics (host space)
   because AUv3 sends per-param values and the controller view needs them
   fast.
-- Presets: a generated `auv3_preset_list.h` enumerates factory presets;
+- Presets: a generated `preset_list.hpp` enumerates factory presets;
   AUv3 hosts can also save **user presets**. When loaded, the editor
   state map gets an extra key `preset-name` (string) by convention — see
   the README "Presets" section.
 
-### CLAP (formats/clap/) — single-component, modern
+### CLAP (wrappers/clap/) — single-component, modern
 
-- The simplest wrapper. Single class `Clap_plugin`
-  ([clap_plugin.h](formats/clap/source/clap_plugin.h)) extends
+- The simplest wrapper. Single class `Plugin`
+  ([plugin.hpp](wrappers/clap/source/plugin.hpp)) extends
   `clap::helpers::Plugin`. Studio One is noted as misbehaving — `MisbehaviourHandler::Terminate`
   is enabled only in debug builds.
 - Param "modules" (slash-separated path strings from `tree_to_clap_modules`)
   give CLAP its hierarchy.
 - State and editor map are stored together in one stream with a 5-word
   header (`State_rules::Clap::Header`).
-- Has a preset discovery factory ([clap_preset_discovery.h](formats/clap/source/clap_preset_discovery.h))
+- Has a preset discovery factory ([preset_discovery.hpp](wrappers/clap/source/preset_discovery.hpp))
   so CLAP hosts can enumerate the plug-in's preset folder.
 - `_hostvalues` atomics in host space mirror what the audio thread sees
   (similar to AUv3). `_from_flush` queue carries state-load events that
@@ -686,7 +684,7 @@ measurements: [plans/web-format.md](plans/web-format.md).
   `editor` and (with a state model) `state` keys. Editor keys beginning `tinyplug-` are
   the framework's (`drop_reserved_keys`). The same adapter serves both bundle presets and the
   user-facing save/load.
-- Per-format chunk layouts in [shared/tinyplug/state_rules.hpp](shared/tinyplug/state_rules.hpp).
+- Per-format chunk layouts in [state_rules.hpp](libs/tiny_core/include/tiny_core/state_rules.hpp).
   Each format embeds a (framework/manufacturer/plugin) sentinel; mismatch
   asserts.
 - Presets are JSON files with a user-chosen extension (default `.json`);
@@ -700,11 +698,11 @@ measurements: [plans/web-format.md](plans/web-format.md).
 
 When the host loads a preset / full state, each format's restore entry point
 (VST3 `setComponentState`+`setState`, CLAP `_update_state`, AUv2 `RestoreState`,
-AUv3 `setFullState`, AAX `SetChunk`) snapshots all param values in **knob space**
+AUv3 `setFullState`, AAX `SetChunk`, web `load_state`) snapshots all param values in **knob space**
 before and after applying the load, then calls
 `Undo_history::push_host_load(before, after, out_changes)` to record **one
 coalesced undo step**. The `Undo_history` lives on the long-lived wrapper class
-(`Controller`/`Plugin`/`Effect`/`Auv3_AUAudioUnit`/`Parameters`), **not** the
+(`Controller`/`Plugin`/`Effect`/`Auv3_AUAudioUnit`/`Parameters`/web `Controller`), **not** the
 view — the view borrows it via a `Undo_history*` in its `Deps` — so a host load
 is captured into undo **even when the editor window is closed**. The undo replay
 path is unchanged (`apply<>` pushes `Action_start`/`Set_param`/`Action_end` back
@@ -730,7 +728,7 @@ and the step is still open. `notify` also delivers window events
 automation is **not** surfaced (only full-state loads — source attribution is a
 planned follow-up); `notify` may arrive with the window closed, so authors must
 only mutate editor state in it, not touch live view resources. Assumes all
-restore entry points run on the UI/main thread (they do on all five hosts).
+restore entry points run on the UI/main thread (they do in every format).
 
 ## Latency change protocol (consistent across formats)
 
@@ -773,25 +771,30 @@ proposal the kernel holds un-acked until that next query — acceptable only bec
 quality swap that raises it is pre-emptive.
 
 If you find yourself adding a special-case latency flow, you're probably
-fighting this protocol. The full contract, its known limits and the per-format
-accept points are in
-[lifecycle-migration-handoff.md](plans/lifecycle-migration-handoff.md) §3.
+fighting this protocol.
 
 ## Platform layer
 
-[shared/platform/](shared/platform/) handles per-OS view, dialogs, paths,
+[libs/tiny_platform/](libs/tiny_platform/) handles per-OS view, dialogs, paths,
 and the Skia surface. Selection is `#if TINY_PLATFORM_MACOS / TINY_PLATFORM_IOS /
-TINY_PLATFORM_WINDOWS`; selection at compile time only.
+TINY_PLATFORM_WINDOWS / TINY_PLATFORM_WASM`, at compile time only, and so is each
+OS's CPU/GPU backend. Planned backend work: [roadmap-misc.md](plans/roadmap-misc.md).
 
 - macOS: Cocoa view + Metal-backed `SkSurface`; per-plug-in ObjC class
   names generated by `configure_mac_view` in [helpers.cmake](cmake/helpers.cmake)
   to avoid runtime ObjC class collisions when many plug-ins are loaded
   in one process.
-- iOS: UIKit + Metal, AUv3 only.
-- Windows: Win32 window + (currently) Skia CPU backend. GPU/D3D12 path
-  exists in source but is disabled (`WIN_GRAPHICS_GPU` defaults to `0` in
-  [shared/CMakeLists.txt](shared/CMakeLists.txt)) pending CPU/GPU
-  sync work — see README roadmap.
+- iOS: UIKit + Metal, AUv3 only. `IOS_GRAPHICS_GPU=0` selects a CPU raster backend
+  composited by CoreAnimation, the escape hatch from `CAMetalDisplayLink` GPU timeouts.
+- Windows: Win32 window + Skia CPU backend. The D3D12 path exists but is disabled
+  (`WIN_GRAPHICS_GPU` defaults to `0` in
+  [libs/tiny_platform/CMakeLists.txt](libs/tiny_platform/CMakeLists.txt)) pending
+  non-blocking frame sync.
+- Web: a `<canvas>`, Skia CPU raster blitted with `putImageData`; see "Web" above.
+- `Relay` delivers on the main thread everywhere. On Windows that is a per-DLL hidden
+  message window bound to the thread that constructs the first relay, so **construct
+  relays on the UI thread**. A drain on main must be bounded, never `while (pop())`
+  against the audio thread, or it freezes the host. CLAP constructs no relays yet.
 - `Task_manager` ([task_manager.hpp](libs/tiny_core/include/tiny_core/task_manager.hpp))
   exposes background / main-thread / serial-queue dispatch. The view is
   the only thing that calls `bind_main` + `run_main`; user code uses the
@@ -872,8 +875,7 @@ the audio thread** — that is the only reason the audio thread never runs the o
 setup. It also claims the `main` thread role if the constructing thread has none, which is
 correct in all five formats and saves tagging every main-thread entry point by hand.
 
-The probe verbs mirror the contract in
-[lifecycle-migration-handoff.md](plans/lifecycle-migration-handoff.md) §2 and §3:
+The probe verbs mirror the processor lifecycle and the latency protocol above:
 `configured` / `activated` / `cleared` / `snapped` / `render_mode_changed`, and
 `latency_proposed` / `latency_dropped` / `latency_notified` / `latency_queried` /
 `latency_accepted` / `latency_mismatch`. **`latency_dropped` is the important one** — a
@@ -885,9 +887,9 @@ mode this protocol has.
 
 - Per-plug-in build: an `add_library(<PLUGIN>_lib STATIC)` carrying the
   user code and a bag of `TINY_*` properties (see
-  [plugins/gain_demo/CMakeLists.txt](plugins/gain_demo/CMakeLists.txt) as
+  [examples/gain_demo/CMakeLists.txt](examples/gain_demo/CMakeLists.txt) as
   reference). `configure_plug_info` reads those properties and generates
-  `plug_info.h`. Then `make_<format>_plugin(<TARGET>)` for each desired
+  `plug_info.hpp`. Then `make_<format>_plugin(<TARGET>)` for each desired
   format.
 - Plug-in codes: `TINY_MANUFACTURER_CODE` and `TINY_PLUGIN_CODE` are
   four-character codes embedded in AAX/AU/VST3 IDs. Manufacturer code
@@ -903,79 +905,33 @@ From the README, enforced informally:
 - Herb Sutter "AAA"/left-to-right: most lines start with `const auto`;
   functions use trailing return types (`-> ReturnType`).
 - Stroustrup naming with snake_case for multi-word names; types and
-  scoped-enum members capitalized (`Param_spec`, `Host_policy::automation`).
+  scoped-enum members capitalized (`Value_helper`, `Reset::Hard`).
 - Opening brace on a new line only for function definitions.
 - Private members prefixed with `_`.
 
-## In-flight refactors / future direction
+## Plans
 
-Read [plans/](plans/) before non-trivial changes — these are not
-speculation, they're scheduled work.
+Read the relevant plan in [plans/](plans/) before non-trivial changes there. Landed work has no plan;
+its rules are in this file and its history in git.
 
-- **The structural + naming refactor has landed** (`next` branch): the `libs/`
-  layout (`tinyplug` core + `tiny_platform` + `tiny_dsp`, each with an isolated
-  `include/<name>/` root), Skia `PRIVATE`, the `params`/`meters`/`models`/`plugin`
-  namespaces (now joined by `process`), `CMakePresets`, the worker `Model` restructure, and the `tools/`
-  consolidation. What remains is an optional backlog —
-  **[refactor-ideas.md](plans/refactor-ideas.md)** (CI, clang-format, PCH/unity,
-  further namespace passes, `detail/` split, downstream migration).
-
-- **[processor-api-migration.md](plans/processor-api-migration.md)** — hand-off guide for
-  porting a downstream plug-in repo to the current processor API. Five changes in
-  dependency order, with the contracts and the traps.
-
-- **[relay-delivery.md](plans/relay-delivery.md)** — `Relay` delivers on main everywhere. The
-  Windows half has landed: a per-DLL hidden message window bound to the thread that constructs the
-  first relay (construct relays on the UI thread), fed by one pool timer. `vst3_host`'s strict proxy
-  proves it. A UI-thread `execute` must drain in bounded batches, never `while (pop())` against the
-  audio thread. Open: the CLAP `request_callback` delivery (CLAP has no relays yet), and the
-  two-DLL and unload-with-a-message-queued tests.
-
-- **[unified-edit-model.md](plans/unified-edit-model.md)** — exploratory. The framework owns
-  all state: editor state behind a handle (a view model or `state::Model`, undecided), one undo
-  step across params and state, no `save_state`/`load_state`/`notify`, and on-demand saves from
-  any thread that retire `State_image` polling.
-
-- **[processor-lifecycle.md](plans/processor-lifecycle.md)** — scheduled next.
-  Replaces `reset(double)` with `configure(Config)` so parameter values arrive at
-  configuration time, folds `clear` into `reset`, reduces `Render_event` to
-  `{Set, Ramp}`, and moves latency onto a `Latency{accepted, proposed}` struct in the
-  process context. Closes the AAX-only ordering constraint where `handle`
-  precedes `reset`.
-
-- **[param-lockfile.md](plans/param-lockfile.md)** — deferred. A checked-in
-  `params.lock` per plug-in plus a `<Plugin>_paramlock` tool that links the real
-  model, so the permanence rules above become build-time enforcement instead of
-  convention. `validate_tree` can only check a single build for internal
-  consistency; every failure mode that matters is a question about change over
-  time. Design is settled; four open decisions are listed in the doc.
-
-- **[midi-support.md](plans/midi-support.md)** — adds note/MIDI types
-  to the `Render_event` variant (`Note_on`, `Note_off`, `Note_choke`,
-  `Note_expression_value`, `Midi_cc`, `Pitch_bend`, `Channel_pressure`)
-  and a separate `Midi_output_event` variant for outbound MIDI. Velocity/CC
-  values are normalized doubles; `Note_id` unifies VST3 noteId / CLAP
-  note_id / AU+AAX channel+key. This is the gateway to instrument
-  plug-ins (synths) and MIDI effects.
-
-- **[block-output.md](plans/block-output.md)** — outbound vector transport,
-  processor→editor. `Block_model` for scopes/FFTs and the waveform overviews
-  the buffer system draws with, with `snapshot` (triple-buffer) and `stream`
-  (FIFO) policies. Same declarative shape as params/meters; value-semantics
-  across the VST3 COM boundary.
-
-- **[buffer-system.md](plans/buffer-system.md)** — managed large audio buffers
-  (looper / granular / sampler / drum machine). One opt-in declarative
-  `Buffer_model`: the processor owns a canonical `Buffer_source` (persisted in
-  the session), off-thread `prepare_buffer` derives an RT-ready `Prepared`,
-  installed via atomic pointer-swap + deferred retire. Every editor↔processor
-  leg is value semantics; pointer-swap is intra-processor only. Unifies and
-  supersedes the former `state-model`, `asset-store`, and the Table half of
-  `block-table-io`. Backward-compatible (empty model = no overhead).
-
-Other roadmap items from README: synth support (depends on MIDI), Linux
-(CLAP & VST3), LV2, Windows GPU graphics, multitouch on Windows, software
-graphics backend on macOS, more demo plug-ins.
+- **[unified-edit-model.md](plans/unified-edit-model.md)** — exploratory, next. The framework owns all
+  state: editor state behind a handle, one undo step across params and state, no
+  `save_state`/`load_state`/`notify`, and on-demand saves from any thread that retire `State_image` polling.
+- **[web-format.md](plans/web-format.md)** — landed; what remains is by-hand checks (a real page, Safari,
+  hidden tabs, iOS), processor-written state tests, Graphite on WebGPU and CI.
+- **[buffer-system.md](plans/buffer-system.md)** — design. Managed large audio buffers (looper, granular,
+  sampler, drum machine): a processor-owned canonical source, off-thread prepare, pointer-swap install,
+  persisted in the session.
+- **[headless-plugin.md](plans/headless-plugin.md)** — design. A plug-in with no editor and no
+  `tiny_platform` / Skia link. The generated `TINY_HAS_EDITOR` / `edit::None` exist; `configure_plugin`
+  still refuses a missing `editor.hpp`.
+- **[param-lockfile.md](plans/param-lockfile.md)** — deferred. A checked-in `params.lock` per plug-in so the
+  permanence rules above become build-time enforcement.
+- **[bounce-param-authority.md](plans/bounce-param-authority.md)** — deferred. The first block of an
+  offline render runs on the playhead's parameter values; diagnosis, the fix and its risk list.
+- **[linux-feasibility.md](plans/linux-feasibility.md)** — feasibility. CLAP and VST3 on Linux.
+- **[roadmap-misc.md](plans/roadmap-misc.md)** — design. Windows multitouch, a macOS CPU backend, Windows
+  GPU sync.
 
 ## Things to be careful about
 
@@ -1002,7 +958,7 @@ graphics backend on macOS, more demo plug-ins.
   (`cmake --build build-debug --parallel 8`); what's not fine is launching a
   second build while one is still running.
 - **Worker reply handlers are concept-detected at compile time.** If a
-  user's `Plug_processor` declares `handle_worker_reply(const To_processor&)`,
+  user's `process::Processor` declares `handle_worker_reply(const To_processor&)`,
   it gets called automatically; if not, the drain is a no-op. The check
   has to live inside a template so `if constexpr` properly discards the
   un-detected branch — don't move it out.

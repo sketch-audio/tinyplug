@@ -12,7 +12,7 @@ is almost certainly right.
 
 Breaks from `release/0.4`. Splits the framework into a model-free core and a header-only,
 model-aware interface, and generates model discovery from CMake. The *why* is in
-[plans/model-layer.md](plans/model-layer.md).
+`plans/model-layer.md` (git history).
 
 ### 0. What changed, in one screen
 
@@ -309,7 +309,7 @@ Several triggers within one frame read as the latest one.
 Adds `blocks::Model`: typed, trivially copyable frames from processor to editor, for
 spectra, scopes and similar. Latest wins. Opt-in: a plug-in without
 `source/models/blocks.hpp` is unaffected, apart from the two breaks below. Design in
-[plans/block-output.md](plans/block-output.md). [examples/block_demo](examples/block_demo/)
+`plans/block-output.md` (git history). [examples/block_demo](examples/block_demo/)
 is the reference.
 
 ### Breaks
@@ -391,7 +391,7 @@ that the editor and (optionally) the processor both edit, synchronized in every 
 and undoable alongside parameters. Opt-in; a plug-in without it is unaffected.
 [examples/state_demo](examples/state_demo/) is the reference. The document is saved with
 the session and in presets in every format (design:
-[plans/state-persistence.md](plans/state-persistence.md)).
+`plans/state-persistence.md`, git history).
 
 ### Breaks
 
@@ -512,7 +512,7 @@ editor-side preset browser loads the record as an ordinary edit, through
 Adds notes in and out: instruments, note effects, and effects that take or send notes.
 Declared in CMake, not as a model. [examples/sine_synth](examples/sine_synth/) and
 [examples/step_sequencer](examples/step_sequencer/) are the references; the design, and
-why CC is a closed set, is [plans/midi-support.md](plans/midi-support.md).
+why CC is a closed set, is `plans/midi-support.md` (git history).
 
 ### Breaks
 
@@ -581,7 +581,7 @@ The types live in `tiny::midi` (`<tiny_core/tiny_midi.hpp>`); `tiny::process` re
 Not included, in or out: SysEx, system messages (clock, song position, start/stop), MIDI 2.0,
 and MPE out. On the way in, arbitrary CC, NRPN and program change are dropped:
 the host maps controllers to parameters. The full list is "Not included" in
-[plans/midi-support.md](plans/midi-support.md).
+`plans/midi-support.md` (git history).
 
 `_edit.notes.send(Note::Any / Control::Any)` plays the processor, e.g. an on-screen
 keyboard, landing at the next block. Give notes an id of your own (non-zero) to tell two

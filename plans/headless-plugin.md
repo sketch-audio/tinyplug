@@ -1,74 +1,41 @@
 # Plan: Headless plug-ins — processor-only, no editor
 
-> Status: **design.** Lets an author ship a plug-in with **no editor**: the host
-> shows its own generic parameter UI, and the plug-in binary doesn't depend on
-> `tiny_platform` / Skia at all. The model mirrors the existing optional
-> `Plug_worker`, but it is more invasive because the editor reaches into every
-> format wrapper's view code, the platform layer, and CMake linkage.
+> Status: **design; the compile-time half exists.** Lets an author ship a plug-in with **no editor**: the host
+> shows its own generic parameter UI, and the binary doesn't link `tiny_platform` or Skia. What remains is the
+> link-time half (CMake, per wrapper) and each format's "no custom view" answer.
+
+## What exists
+
+The model layer already treats the editor as optional at compile time, the same way as the worker:
+`configure_plugin` ([helpers.cmake](../cmake/helpers.cmake)) runs `_tiny_optional(EDITOR editor.hpp edit::None
+edit::Editor)`, and the generated `<tiny_plugin.hpp>` ([tiny_plugin.hpp.in](../cmake/tiny_plugin.hpp.in)) defines
+`TINY_HAS_EDITOR`, `has_editor`, and `User_editor` as `edit::None` when the file is absent. Then
+`configure_plugin` stops with *"editor.hpp is required (headless plug-ins are not supported yet)"*: no wrapper
+gates its editor members or view sources on `TINY_HAS_EDITOR` yet.
+
+The web format's processor module is already a headless build in practice: a static archive contributes only the
+objects a module references, so it never links `editor.o` or Skia.
 
 ## Goal & shape
 
-Today every plug-in must provide a `plugin::Editor`. The worker is already
-optional via `__has_include("worker.hpp")` + a `No_worker` monostate
-([tiny_worker.hpp](../libs/tinyplug/include/tinyplug/tiny_worker.hpp)) — absent
-file ⇒ `TINY_HAS_WORKER 0`, every worker member `#if`-gated out, zero overhead.
-
-**Headless applies the same idea to the editor**, with one extra dimension the
-worker doesn't have: the editor pulls in real link-time dependencies
-(`tiny_platform`, Skia, `mac_view.mm`, per-format `view.*` sources). So unlike the
-worker, headless must be decided **at configure time** (CMake) as well as compile
-time — CMake must *exclude the view sources and not link the platform lib*, not
-merely `#if` code out.
-
 Two ways a plug-in becomes headless:
 
-1. **No `editor.hpp`** in the plug-in source dir (the natural, worker-like
-   trigger). The author simply never writes an editor.
-2. **`TINY_HEADLESS ON`** override (target property / `-D`), which forces headless
-   **even when `editor.hpp` exists** — this is the "build an existing editor
-   plug-in headless" path (see Scope below).
+1. **No `editor.hpp`** (the worker-like trigger; detection already exists).
+2. **`TINY_HEADLESS ON`** (target property / `-D`), forcing headless even when `editor.hpp` exists, to build an
+   existing editor plug-in headless (see Scope below). `TINY_HAS_EDITOR = (EXISTS editor.hpp) AND NOT TINY_HEADLESS`.
 
-```
-TINY_HAS_EDITOR = (EXISTS editor.hpp) AND NOT TINY_HEADLESS
-```
+CMake stays the single source of truth, because only it can also exclude the view sources and drop the platform
+link. In code, the editor type is named only inside `#if TINY_HAS_EDITOR` regions in the wrappers, and
+`if constexpr (has_editor)` inside templates (e.g. editor-side worker channels).
 
-**CMake is the single source of truth.** It computes `TINY_HAS_EDITOR`, passes it
-as a compile definition (`target_compile_definitions(... TINY_HAS_EDITOR=0|1)`),
-and drives the conditional linkage. The core does **not** sniff `__has_include`
-for the editor — the configure-time decision is authoritative, because only CMake
-can also exclude the view sources and drop the platform link. (This differs from
-the worker, which has no link-time footprint and so can stay purely
-`__has_include`.) A guard `#ifndef TINY_HAS_EDITOR / #error` documents that the
-macro must be defined by the build.
-
-## Core changes — pure `#if` gating
-
-No `No_editor` monostate and no `User_editor` alias are needed: the editor type is
-named **only inside `#if TINY_HAS_EDITOR` regions**, so when it's 0 the name never
-appears and nothing has to collapse. The wrapper-facing switch is the
-`TINY_HAS_EDITOR` macro; a mirror `inline constexpr bool tiny::has_editor =
-TINY_HAS_EDITOR;` is provided for the rare `if constexpr` site inside a template
-(e.g. gating editor-side worker channels). The headline rule:
-
-```cpp
-#if TINY_HAS_EDITOR
-    #include "editor.hpp"   // brings in plugin::Editor
-#endif
-```
-
-(`TINY_HAS_EDITOR` is the wrapper-facing `#if` switch,
-`has_editor` is the `if constexpr` switch inside templates.)
-
-`tiny_view.hpp::run_frame` is already a **template over the view type** (`V*
-_custom_view`) — it has no concrete `plugin::Editor` dependency and compiles fine
-headless; it is simply never instantiated. Good: the core view loop needs no
-change beyond not being called.
+`run_frame` in `tiny_view.hpp` is a template over the view type, so it needs no change beyond not being
+instantiated.
 
 ## Client API / authoring
 
 - **Omit `editor.hpp` and `editor.cpp`.** That's the whole client-side change —
   exactly parallel to omitting `worker.hpp`. `processor.hpp` is unchanged;
-  `Plug_processor` remains the only required user class. Params/meters models still
+  `process::Processor` remains the only required user class. Params/meters models still
   drive the host's generic UI.
 - **Scaffold:** `tools/new_plugin.py` gains `--headless`, which omits the editor
   files and (optionally) sets `TINY_HEADLESS`. A headless template variant under
@@ -111,7 +78,7 @@ params, meters, worker, state, and the new buffer/block plans are all unaffected
 
 Each wrapper keeps its processor/controller side intact and drops only the
 editor-facing pieces. Always-compiled wrapper files that hold a
-`plugin::Editor` member gate it with `#if TINY_HAS_EDITOR`; the view-only source
+`User_editor` member gate it with `#if TINY_HAS_EDITOR`; the view-only source
 files are excluded by CMake (above).
 
 ### VST3 — cleanest
@@ -121,7 +88,7 @@ declines to make a view.
 
 - [controller.cpp:613](../wrappers/vst3/source/controller.cpp) `createView` →
   `return nullptr` when `!TINY_HAS_EDITOR`.
-- [controller.hpp:82](../wrappers/vst3/source/controller.hpp) `std::optional<plugin::Editor> _editor` → `#if TINY_HAS_EDITOR`.
+- [controller.hpp:82](../wrappers/vst3/source/controller.hpp) `std::optional<User_editor> _editor` → `#if TINY_HAS_EDITOR`.
 - `view.cpp/.hpp` excluded by CMake. The host (Reaper/Cubase) shows its generic
   parameter panel. No other change — `kDistributable`, state split, meters all
   unaffected.
@@ -157,7 +124,7 @@ a minimal empty `AUViewController`** — a real, valid controller backing a blan
 - Keep `requestViewControllerWithCompletionHandler:`
   ([audio_unit.mm](../wrappers/auv3/source/extension/audio_unit.mm)) returning a
   controller; under `#if !TINY_HAS_EDITOR` it instantiates a stock
-  `AUViewController` with an empty `loadView` (no Skia surface, no `plugin::Editor`),
+  `AUViewController` with an empty `loadView` (no Skia surface, no `User_editor`),
   instead of the real `view_controller.mm`. This keeps the AU well-formed for every
   host while pulling in no platform/Skia dependency.
 - `view.cpp` and the real `view_controller.mm` are excluded by CMake; a small
@@ -172,7 +139,7 @@ a minimal empty `AUViewController`** — a real, valid controller backing a blan
 ### AAX — no custom GUI, host-generated controls
 
 - Exclude `gui.cpp/.hpp` ([make_aax_plugin.cmake:29](../wrappers/aax/make_aax_plugin.cmake));
-  gate the `plugin::Editor` construction in
+  gate the `User_editor` construction in
   [parameters.hpp:27](../wrappers/aax/source/parameters.hpp). Pro Tools renders a
   generic plug-in panel from the parameters / **page tables**.
 - **Page-table generation still runs** (param layout is independent of the GUI).

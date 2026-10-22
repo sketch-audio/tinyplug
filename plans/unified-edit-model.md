@@ -41,7 +41,7 @@ The author-owned row is the cause of four problems:
 
    Both work, but they spend parameter addresses, `au_order` entries and page-table slots on things
    that aren't parameters, and the counter needs `add_param`, which exists for this trick alone.
-4. **Two serialisations per format** of the same `State_map`, hand-written in five wrappers.
+4. **Two serialisations per format** of the same `State_map`, hand-written in five wrappers (web goes through `State_adapter`'s JSON, but still calls the author).
 
 ## Goals
 
@@ -179,7 +179,7 @@ The AUv2 and AUv3 `repeating` relays and the 1 s poll then go away, and so does 
 
 - The view record goes where the editor `State_map` goes today: the VST3 controller chunk (the
   editor-side chunk of the dual-component pattern), the AUv2/AUv3 keys, the AAX chunk (base64), the
-  CLAP stream, and preset JSON.
+  CLAP stream, the web host's `getState` (`State_adapter` JSON), and preset JSON.
 - **Presets vs sessions:** a preset file should carry the undoable part (the name) but not the
   restored-only part (the tab). Our preset JSON can choose. Host-driven saves (AU ClassInfo, VST3
   `.vstpreset`) can't tell a preset from a session, so those restore the tab too. That's minor, and
@@ -222,6 +222,5 @@ The AUv2 and AUv3 `repeating` relays and the 1 s poll then go away, and so does 
 
 ## Related
 
-- [state-persistence.md](state-persistence.md): the state record container this reuses.
-- [relay-delivery.md](relay-delivery.md): the relay rework; after step 4 here, `repeating` has no
-  Apple clients.
+- [state_record.hpp](../libs/tiny_core/include/tiny_core/state_record.hpp): the state record container this reuses.
+- After step 4 here, `Relay`'s `repeating` mode has no Apple clients.

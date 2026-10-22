@@ -28,7 +28,7 @@ milestone (see "Headless shortcut").
 | Layer | State on Linux |
 |---|---|
 | Core ([libs/tinyplug](../libs/tinyplug)) — processor/params/meters/worker/state/events | **Portable as-is** (pure C++20, no OS calls in the hot path) |
-| [platform_defs.hpp](../libs/tinyplug/include/tinyplug/platform_defs.hpp) | `#else #error "Unsupported platform."` — needs a `__linux__` branch |
+| [platform_defs.hpp](../libs/tiny_core/include/tiny_core/platform_defs.hpp) | `#else #error "Unsupported platform."` — needs a `__linux__` branch |
 | [tiny_platform](../libs/tiny_platform) — view/dialogs/paths/window | macOS + iOS + Windows backends only; **needs a Linux backend** |
 | Skia (tiny_deps) | mac/ios/win build scripts; **no Linux script**, no `setup_skia` Linux branch |
 | CLAP wrapper | uses `window->cocoa`/`win32` ([view.cpp](../wrappers/clap/source/view.cpp)); **needs X11 + host event-loop extensions** |
@@ -64,7 +64,7 @@ Then add an `elseif(UNIX AND NOT APPLE)` branch to
 
 ### 2. tiny_platform Linux backend — the crux
 
-- [platform_defs.hpp](../libs/tinyplug/include/tinyplug/platform_defs.hpp): add
+- [platform_defs.hpp](../libs/tiny_core/include/tiny_core/platform_defs.hpp): add
   `#elif defined(__linux__) → TINY_PLATFORM_LINUX 1`.
 - New sources mirroring the Windows set: `linux_view.cpp`, `linux_paths.cpp`,
   `linux_dialogs.cpp`, `linux_context.cpp`, implementing the existing interfaces
@@ -193,7 +193,7 @@ another wrapper." Its distinctive pieces, at a glance:
   `tools/` (analogous to the AAX page-table generator), driven by the existing
   `Param_model`/`Meter_model` trees.
 - **Port model:** control ports (params/meters), audio ports, and **atom ports**
-  (for MIDI / large data — maps onto the [midi-support](midi-support.md) and
+  (for MIDI / large data — maps onto MIDI support and the
   [buffer-system](buffer-system.md) work) with **URID mapping**.
 - **UI extension** (`lv2:ui`, `X11UI` type) embeds an X11 window — same surface
   the platform backend already provides.

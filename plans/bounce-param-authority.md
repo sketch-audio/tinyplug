@@ -525,7 +525,7 @@ hosts, not after.
    risk). Cheaper now than after propagation.
 3. **Restore the `_target_quality` / `_propose_latency` fold** (risk #3), most simply via the
    additive `Hard{std::span params}`.
-4. **Fix `std::stable_sort`** — independent real defect, ship it on its own.
+4. ~~Fix `std::stable_sort`~~ — done (arrival order in `Event::Ordered`).
 5. **Fix VST3's `is_offline_bounce` gating** (risk #7) before touching VST3.
 6. **Propagate wrapper by wrapper**: VST3, CLAP, AUv3. Skip AAX (risk #6).
 7. **Add a per-product idempotence check on `timeline_started()`** (risk #2) — wrapper tests
@@ -534,25 +534,12 @@ hosts, not after.
 
 ---
 
-## Concrete defect found: the equal-offset sort is not stable
+## Concrete defect found: the equal-offset sort was not stable — fixed
 
-Independent of everything above, and worth fixing on its own.
-
-The midstream bounce showed Logic delivering **four `Set` events for the same address at the
-same offset** (`abs=383716`), arriving in **different order** between the two takes:
-
-```
-A: 30.9399962 ... -1.99999809
-B: -1.99999809 ... 30.9399962
-```
-
-`_set_param` is last-one-wins, and the wrapper sorts with `std::ranges::sort` keyed only on
-`(offset, Set-before-Ramp)` — **not stable**, so events comparing equal may come out in any
-order. Which value survives is therefore unspecified.
-
-Fix: `std::stable_sort`, or add an arrival counter to `Tagged_event` and use it as the final
-tiebreak. Sites: `wrappers/auv2/source/effect.cpp:1160` and
-`wrappers/vst3/source/audio_effect.cpp:906`. CLAP appears not to sort at all — check.
+Logic delivered four `Set` events for one address at one offset, in a different order between
+takes, and an unstable sort let either value win. Fixed since: `Event::Ordered` carries an arrival
+`order` and `process::before` breaks ties on it
+([tiny_processor.hpp](../libs/tinyplug/include/tinyplug/tiny_processor.hpp)).
 
 ---
 

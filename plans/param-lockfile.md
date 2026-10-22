@@ -1,8 +1,8 @@
 # Parameter lockfile
 
 Status: **design only, deferred.** Spun out of
-[param-identity-and-ordering.md](param-identity-and-ordering.md) step 4. Everything
-else in that plan has landed; this is the piece that converts its rules from
+the parameter identity and ordering work (CLAUDE.md, "Parameter permanence"). Everything
+else in it has landed; this is the piece that converts its rules from
 convention into enforcement. Held off deliberately — the `au_order()` mechanism
 was the urgent part (it had to be in place before any new parameter ships), and
 this can follow whenever.

@@ -2,10 +2,9 @@
 
 > Status: **design.** This plan unifies and supersedes three earlier docs:
 > the **Table** (editor → processor) half of `block-table-io.md`, all of
-> `asset-store.md`, and all of `state-model.md`. The outbound-vector (**Block**)
-> half of `block-table-io.md` lives on as [block-output.md](block-output.md);
-> overviews are Blocks. Once this plan and `block-output.md` are accepted, those
-> three docs can be deleted. The "Design history" appendix preserves the parts of
+> `asset-store.md`, and all of `state-model.md` (all deleted). The outbound-vector
+> (**Block**) half landed as the blocks model ([tiny_blocks.hpp](../libs/tiny_core/include/tiny_core/tiny_blocks.hpp));
+> overviews are Blocks. The "Design history" appendix preserves the parts of
 > the old framing worth keeping for posterity.
 
 ## Context
@@ -15,7 +14,7 @@ consumes**: loopers (captured audio), granular engines (grain sources), samplers
 (one-shots / multisamples), drum machines (one buffer per pad). tinyplug models
 everything *except* this — params are scalar/automatable, meters are scalar
 streams out, the editor `State_map` is small typed key/values, the worker carries
-trivially-copyable messages, and Blocks ([block-output.md](block-output.md)) are
+trivially-copyable messages, and Blocks ([tiny_blocks.hpp](../libs/tiny_core/include/tiny_core/tiny_blocks.hpp)) are
 transient float vectors out. There is no first-class notion of a **large,
 managed, off-thread-prepared, persisted audio buffer**.
 
@@ -65,7 +64,7 @@ state stays in the editor `State_map`. The buffer system is audio-buffer-only.
    > **Why "state-owning component" and not "the processor".** In VST3 those are the
    > same object: `Vst3_processor` owns both `getState` for parameters and `process()`.
    > The same holds in CLAP, AUv2, AUv3 — and in AAX *until* the two-component wrapper
-   > ([aax-two-component.md](aax-two-component.md)), where state lives on the data model
+   > (CLAUDE.md, "AAX"), where state lives on the data model
    > and audio runs in the algorithm. Phrasing the rule around state keeps persistence
    > local in **every** format; what comes apart in AAX is a different leg (install),
    > handled in "Per-format persistence → AAX" below.
@@ -116,7 +115,7 @@ status    : Buffer_status { empty, loading, ready, error }   // scalar, editor r
   data.
 
 - **`Overview`** (waveform peaks, length, channels) for the editor is **not** part
-  of the slot — it is published as a [Block](block-output.md). The buffer system
+  of the slot — it is published as a [Block](../libs/tiny_core/include/tiny_core/tiny_blocks.hpp). The buffer system
   owns content; the editor's picture of it is an ordinary Block. They compose.
 
 ---
@@ -269,7 +268,7 @@ format-specific codepaths and document each.
 | Codepath | Owner | Wire format | Drives |
 |---|---|---|---|
 | **Host session chunk** | each wrapper's `getState`/`setState` (hand-rolled binary, per format) | binary | DAW project save, and host-saved user presets (the host calls `getState`) |
-| **File preset** | `State_adapter` ([state_adapter.cpp](../libs/tinyplug/source/state_adapter.cpp)) | JSON, or a container when bytes are embedded | framework `.json` presets, the offline exporters ([tools/presets/](../tools/presets/)), plug-in-driven save/load |
+| **File preset** | `State_adapter` ([state_adapter.cpp](../libs/tiny_core/source/state_adapter.cpp)) | JSON, or a container when bytes are embedded | framework `.json` presets, the offline exporters ([tools/presets/](../tools/presets/)), plug-in-driven save/load |
 
 These are different code, on purpose: the host-session path is host-driven and
 allocation-careful and must stay fast; the file-preset path is JSON and not on any
@@ -400,7 +399,7 @@ false ⇒ no buffers. Four bytes that don't match the magic ⇒ warn + skip.
 
 #### AAX (two-component) — the one place install ≠ persist
 
-> Added after [aax-two-component.md](aax-two-component.md) landed. The persistence
+> Added after the AAX two-component split landed. The persistence
 > scheme below is **unchanged** by the two-component move — this note covers the leg
 > that *is* affected.
 
@@ -603,7 +602,7 @@ prepare=decode, persist=embed (or reference), max_entries=16`.
 - **No framework-owned store/hub, no COM-mirrored object.** Slots live on the
   processor; the editor is a thin push + read.
 - **No undo machinery** in the buffer system — the editor records push/remove.
-- **No overview machinery** — overviews are [Blocks](block-output.md).
+- **No overview machinery** — overviews are [Blocks](../libs/tiny_core/include/tiny_core/tiny_blocks.hpp).
 - **No collection keying beyond an integer key** (+ optional small per-entry
   metadata the author interprets). Multisample key-range/velocity zones aren't in
   the canonical four, so we don't design for them now.
@@ -622,7 +621,7 @@ prepare=decode, persist=embed (or reference), max_entries=16`.
 |---|---|
 | Scalar in (automatable) | `Param_model` |
 | Scalar out | `Meter_model` |
-| Vector out (transient, viz, **overviews**) | `Block_model` ([block-output.md](block-output.md)) |
+| Vector out (transient, viz, **overviews**) | `blocks::Model` ([tiny_blocks.hpp](../libs/tiny_core/include/tiny_core/tiny_blocks.hpp)) |
 | Large audio buffer in + capture + install + **persist** | **this plan** |
 | Small typed UI key/values | editor `State_map` |
 | Author async request/reply | `Plug_worker` |
@@ -647,9 +646,7 @@ together* (a buffer slot's overview is a Block) but neither owns the other.
    `prepare_buffer` + install/retire, collections — when committing to ship a
    sampler/granular/drum plug-in with a clean author experience.
 
-Recommended order relative to other roadmap work (from the synthesis session):
-`midi-support` → `block-output` → this plan. (`host-initiated-param-changes` has
-landed.) Build the outbound/overview primitive before the buffer system that draws with it.
+Its prerequisites (MIDI and the blocks model, which draws overviews) have landed.
 
 ---
 
