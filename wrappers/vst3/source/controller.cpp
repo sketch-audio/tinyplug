@@ -135,7 +135,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
 
     // Here you could register some parameters.
 
-    const auto& params = User_params::param_specs(Param_order::Presentation);
+    const auto order = User_params::presentation_order();
     const auto [unit_infos, param_unit_ids] = tree_to_units(User_params::param_tree());
 
     for (const auto& unit : unit_infos) {
@@ -148,8 +148,8 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
         addUnit(new Steinberg::Vst::Unit{unit_info});
     }
 
-    for (size_t i = 0; i < params.size(); ++i) {
-        const auto& param = params[i];
+    for (size_t i = 0; i < order.size(); ++i) {
+        const auto& param = User_params::param_spec(order[i]);
         const auto& unit_id = param_unit_ids[i];
 
         auto param_info = std::visit(Inline_visitor{
@@ -764,7 +764,7 @@ Steinberg::tresult PLUGIN_API Controller::getParamStringByValue(Steinberg::Vst::
     // (without having to set the value!)
     if (tag >= User_params::num_params) return Steinberg::kResultFalse;
 
-    const auto& params = User_params::param_specs(Param_order::Indexable);
+    const auto& params = User_params::param_specs();
     const auto& param = params[tag];
     const auto host = Value_helper::knob_to_host(valueNormalized, param.semantics);
     const auto str = Host_formatter::to_string(host, param.semantics);

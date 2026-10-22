@@ -22,6 +22,7 @@ inline auto manifest() -> std::string
             {"identifier", spec.identity.identifier},
             {"name", spec.name},
             {"short_name", spec.short_name},
+            {"description", spec.description},
             {"default", params::Value_helper::default_value(spec, params::Space::Plain)},
         };
         std::visit(Inline_visitor{

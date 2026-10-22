@@ -812,3 +812,36 @@ outside an Emscripten build, so adding it to a plug-in's CMakeLists is safe ever
   cancelled. Paths are in-memory (MEMFS) and don't survive a reload.
 - **Main-thread tasks never call back into the main thread synchronously.** The browser's main thread can't
   block; a `Task_manager` shutdown that waits on such a task hangs the tab rather than the host.
+
+---
+
+## Parameter display and `Infos`
+
+New on `main`. `Units` becomes `Display`, which can carry more than a suffix, and `Infos` keeps one copy of the
+specs instead of three.
+
+### Breaks
+
+- **`.units = Units::X` → `.display = Display::X{}`**, in the same place in each `Int`, `Fixed` and `Real`
+  initializer. `Generic` is `Default`, `Linear_gain` is `Gain`; the rest keep their names. One regex does it:
+  ```
+  s/\.units = Units::Generic/.display = Display::Default{}/
+  s/\.units = Units::Linear_gain/.display = Display::Gain{}/
+  s/\.units = Units::([A-Za-z_]+)/.display = Display::\1{}/
+  ```
+  Every format's text is unchanged.
+- **`Value_helper::has_units(Units::X, semantics)` → `Value_helper::displays_as<Display::X>(semantics)`.**
+  `units_label` is gone.
+- **`param_specs(Param_order::Indexable)` → `param_specs()`.** `Param_order` is gone. Presentation and AU order
+  are address lists: `for (const auto addr : User_params::presentation_order()) { const auto& spec =
+  User_params::param_spec(addr); }`. Wrapper code was the only user of the other two orders.
+- **`Spec`, `Bool`, `Int`, `Fixed` and `Real` have no `operator==`**: `Display::Custom` holds `std::function`s.
+
+### New
+
+- `Bool` takes `.display = Display::Labels{}` ("Off" / "On", or your own).
+- `Display::Custom{.to_text, .from_text}` for anything else, in plain space. Either may be left empty and falls
+  back to the plain number. Hosts call it from any thread: capture by value, never by reference to
+  `build_tree()`'s locals.
+- `Spec::description`, for tooltips, the web manifest and manuals. No plug-in API passes it to a host.
+

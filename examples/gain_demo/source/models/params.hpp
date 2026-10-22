@@ -19,7 +19,7 @@ struct Params {
             Spec{
                 .identity = {.address = enum_raw(Gain), .identifier = "gain"},
                 .name = "Gain",
-                .semantics = Semantics::Real{.min_val = 0, .def_val = 1, .max_val = 4, .units = Units::Linear_gain, .knob_adapter = Adapter::Pow{.exp = 4}} // Mute to +12 dB, unity at 0.71.
+                .semantics = Semantics::Real{.min_val = 0, .def_val = 1, .max_val = 4, .display = Display::Gain{}, .knob_adapter = Adapter::Pow{.exp = 4}} // Mute to +12 dB, unity at 0.71.
             },
         }};
     }

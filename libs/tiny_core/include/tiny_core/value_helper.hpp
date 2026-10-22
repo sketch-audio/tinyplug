@@ -4,7 +4,9 @@
 #include <atomic>
 #include <cstdint>
 #include <string>
+#include <type_traits>
 #include <utility>
+#include <variant>
 
 #include "tiny_params.hpp"
 #include "tiny_utils.hpp"
@@ -84,11 +86,20 @@ struct Value_helper {
     // Whether the parameter takes only discrete values.
     static auto is_discrete(const Semantics::Any& semantics) -> bool;
 
-    // Whether the parameter carries the given display units.
-    static auto has_units(Units units, const Semantics::Any& semantics) -> bool;
-
-    // Display string for `units` (e.g. "dB", "Hz", "%").
-    static auto units_label(Units units) -> std::string;
+    // Whether the parameter displays as `D`, e.g. `Display::Decibels`.
+    template<typename D>
+    static auto displays_as(const Semantics::Any& semantics) -> bool
+    {
+        return std::visit([](const auto& s) {
+            if constexpr (requires { s.display; }) {
+                return []<typename... Ts>(const std::variant<Ts...>& display) {
+                    if constexpr ((std::is_same_v<D, Ts> || ...)) return std::holds_alternative<D>(display);
+                    else return false;
+                }(s.display);
+            }
+            else return false;
+        }, semantics);
+    }
 
     // --- Clamp / step ---
 

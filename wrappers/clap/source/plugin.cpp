@@ -1059,9 +1059,7 @@ bool Plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexce
     // The index is the order of appearance in the UI, and isn't necessarily the same as the id.
     if (paramIndex >= num_params) return false;
 
-    const auto& params = User_params::param_specs(Param_order::Presentation); // Report params in presentation order!
-
-    const auto& param = params[paramIndex];
+    const auto& param = User_params::param_spec(User_params::presentation_order()[paramIndex]); // Report params in presentation order!
     const auto& path = _modules[paramIndex];
 
     *info = {}; // Clear.

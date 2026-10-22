@@ -48,7 +48,7 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
 
     // Set up parameters.
     _clumps = tree_to_clump_map(User_params::param_tree());
-    const auto& params = User_params::param_specs(Param_order::Indexable);
+    const auto& params = User_params::param_specs();
 
     Globals()->UseIndexedParameters(User_params::num_params);
     for (const auto& param : params) {
@@ -279,7 +279,7 @@ OSStatus Effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
             auto* data = static_cast<AudioUnitParameterStringFromValue*>(outData);
 
             const auto id = data->inParamID;
-            const auto& params = User_params::param_specs(Param_order::Indexable);
+            const auto& params = User_params::param_specs();
             const auto& param = params[id];
             const auto str = Host_formatter::to_string(*data->inValue, param.semantics);
             data->outString = CFStringCreateWithCString(kCFAllocatorDefault, str.c_str(), kCFStringEncodingUTF8);
@@ -290,7 +290,7 @@ OSStatus Effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
             auto* data = static_cast<AudioUnitParameterValueFromString*>(outData);
 
             const auto id = data->inParamID;
-            const auto& params = User_params::param_specs(Param_order::Indexable);
+            const auto& params = User_params::param_specs();
             const auto& param = params[id];
 
             const auto str = cf_to_std(data->inString);
@@ -360,9 +360,7 @@ OSStatus Effect::GetParameterList(AudioUnitScope inScope, AudioUnitParameterID* 
     // tree append-only and lock the author out of ever rearranging the display hierarchy.
     outNumParameters = num_params; // Do this first.
     if (!outParameterList) return noErr;
-    const auto& params = User_params::param_specs(Param_order::Au_ordinal);
-    const auto ids = params | std::views::transform([](const auto& spec) { return spec.identity.address; });
-    std::ranges::copy(ids, outParameterList);
+    std::ranges::copy(User_params::au_order(), outParameterList);
 
     return noErr;
 }
@@ -409,7 +407,7 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
         return flags;
     };
 
-    const auto& params = User_params::param_specs(Param_order::Indexable);
+    const auto& params = User_params::param_specs();
     const auto& param = params[inParameterID];
     const auto* clump = find_clump_for_parameter(_clumps, param.identity.address);
     const auto found_clump = clump != nullptr;
@@ -495,7 +493,7 @@ OSStatus Effect::GetParameterValueStrings(AudioUnitScope inScope, AudioUnitParam
     if (inScope != kAudioUnitScope_Global) return kAudioUnitErr_InvalidScope;
     if (!outStrings) return noErr;
 
-    const auto& params = User_params::param_specs(Param_order::Indexable);
+    const auto& params = User_params::param_specs();
     const auto& param = params[inParameterID];
 
 
@@ -548,7 +546,7 @@ OSStatus Effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
     if (inID >= num_params) return kAudioUnitErr_InvalidParameter;
     _state_image.mark_dirty(); // One relaxed store, so any thread, the render thread included.
 
-    const auto& params = User_params::param_specs(Param_order::Indexable);
+    const auto& params = User_params::param_specs();
     const auto& param = params[inID];
 
     const auto plain_value = Value_helper::host_to_plain(inValue, param.semantics);
@@ -580,7 +578,7 @@ OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEve
 
     if (!inParameterEvent) return kAudioUnitErr_InvalidParameter;
 
-    const auto& params = User_params::param_specs(Param_order::Indexable);
+    const auto& params = User_params::param_specs();
 
     for (auto i = decltype(inNumEvents){}; i < inNumEvents; ++i) {
         const auto& event = inParameterEvent[i];
@@ -1288,7 +1286,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 
         // Synchronize from Globals().
         using namespace params;
-        const auto& specs = User_params::param_specs(Param_order::Indexable);
+        const auto& specs = User_params::param_specs();
         for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
             if (_events.size() == _events.capacity()) break;
             const auto host_value = Globals()->GetParameter(static_cast<AudioUnitParameterID>(addr));

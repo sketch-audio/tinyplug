@@ -23,7 +23,7 @@ struct Params {
             Spec{
                 .identity = {.address = enum_raw(Value), .identifier = "value"},
                 .name = "Value",
-                .semantics = Semantics::Real{.min_val = 0, .def_val = 0, .max_val = 1, .units = Units::Generic, .knob_adapter = Adapter::Lin{}}
+                .semantics = Semantics::Real{.min_val = 0, .def_val = 0, .max_val = 1, .display = Display::Default{}, .knob_adapter = Adapter::Lin{}}
             },
             Spec{
                 .identity = {.address = enum_raw(Steps), .identifier = "steps"},

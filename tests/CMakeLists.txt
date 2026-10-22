@@ -70,6 +70,7 @@ tiny_add_test(aax_transport_test INCLUDES ${PROJECT_SOURCE_DIR}/wrappers/aax/sou
 
 # Parameters.
 tiny_add_test(value_helper_test)
+tiny_add_test(params_test)
 
 # Meters, blocks, notes.
 tiny_add_test(tiny_meters_test)

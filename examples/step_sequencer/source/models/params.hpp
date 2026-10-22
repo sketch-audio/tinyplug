@@ -21,12 +21,12 @@ struct Params {
                 // How much of its step a note holds.
                 .identity = {.address = enum_raw(Gate), .identifier = "gate"},
                 .name = "Gate",
-                .semantics = Semantics::Real{.min_val = 0.05, .def_val = 0.5, .max_val = 1, .units = Units::Generic, .knob_adapter = Adapter::Lin{}}
+                .semantics = Semantics::Real{.min_val = 0.05, .def_val = 0.5, .max_val = 1, .display = Display::Default{}, .knob_adapter = Adapter::Lin{}}
             },
             Spec{
                 .identity = {.address = enum_raw(Velocity), .identifier = "velocity"},
                 .name = "Velocity",
-                .semantics = Semantics::Real{.min_val = 0.05, .def_val = 0.8, .max_val = 1, .units = Units::Generic, .knob_adapter = Adapter::Lin{}}
+                .semantics = Semantics::Real{.min_val = 0.05, .def_val = 0.8, .max_val = 1, .display = Display::Default{}, .knob_adapter = Adapter::Lin{}}
             },
         }};
     }

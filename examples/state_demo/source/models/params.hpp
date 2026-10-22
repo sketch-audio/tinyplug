@@ -33,7 +33,7 @@ struct Params {
                     .min_val = 0,
                     .def_val = 1,
                     .max_val = 1,
-                    .units = Units::Generic,
+                    .display = Display::Default{},
                     .knob_adapter = Adapter::Lin{}
                 }
             }

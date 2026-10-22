@@ -4,8 +4,12 @@
 #include <cassert>
 #include <concepts>
 #include <cstdint>
+#include <functional>
+#include <optional>
 #include <ranges>
+#include <span>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_set>
 #include <variant>
@@ -15,17 +19,36 @@
 
 namespace tiny::params {
 
-// MARK: - Units
+// MARK: - Display
 
-// Unit display hints.
-enum class Units : uint32_t {
-    Generic = 0,
-    Percent,
-    Decibels,
-    Hertz,
-    Milliseconds,
-    Degrees,
-    Linear_gain // Plain value is an amplitude factor (0 mutes), displayed in dB.
+// How a value reads as text, in the host and the editor. Each case can grow its own rules (precision, ...).
+struct Display {
+    // Int, Fixed, Real: a plain number. Bool: True / False.
+    struct Default {};
+
+    struct Percent {};
+    struct Decibels {};
+    struct Hertz {}; // Switches to kHz from 1000.
+    struct Milliseconds {};
+    struct Degrees {};
+
+    // Plain value is an amplitude factor (0 mutes), shown and typed in dB.
+    struct Gain {};
+
+    // Bool only.
+    struct Labels {
+        std::string off{"Off"};
+        std::string on{"On"};
+    };
+
+    // Plain space. Called from any thread, so capture by value. An empty one falls back to Default.
+    struct Custom {
+        std::function<std::string(double plain)> to_text{};
+        std::function<std::optional<double>(std::string_view text)> from_text{};
+    };
+
+    using Numeric = std::variant<Default, Percent, Decibels, Hertz, Milliseconds, Degrees, Gain, Custom>;
+    using Boolean = std::variant<Default, Labels, Custom>;
 };
 
 // MARK: - Knob adapters
@@ -124,8 +147,8 @@ struct Semantics {
         // Default value.
         bool def_val{true};
 
-        // Regular.
-        auto operator==(const Bool&) const -> bool = default;
+        // Text.
+        Display::Boolean display{};
     };
 
     // Interpreted as an item in a list. Requires `def_val` < `items.size()`.
@@ -151,11 +174,8 @@ struct Semantics {
         // Maximum plain value.
         int32_t max_val{1};
 
-        // Units (display hint).
-        Units units{};
-
-        // Regular.
-        auto operator==(const Int&) const -> bool = default;
+        // Text.
+        Display::Numeric display{};
     };
 
     // Interpreted as a fixed-point value.
@@ -172,11 +192,8 @@ struct Semantics {
         // Step size.
         double step_size{0.1};
 
-        // Units (display hint).
-        Units units{};
-
-        // Regular.
-        auto operator==(const Fixed&) const -> bool = default;
+        // Text.
+        Display::Numeric display{};
     };
 
     // Interpreted as a real value.
@@ -190,14 +207,11 @@ struct Semantics {
         // Maximum plain value (finite).
         double max_val{1};
 
-        // Units (display hint).
-        Units units{};
+        // Text.
+        Display::Numeric display{};
 
         // Knob value adapter.
         Adapter::Any knob_adapter{};
-
-        // Regular.
-        auto operator==(const Real&) const -> bool = default;
     };
 
     // The set of all parameter semantics.
@@ -269,14 +283,14 @@ struct Spec {
     // Short name. Display only. (Optional)
     std::string short_name{""};
 
+    // What it does, for tooltips, the web page and manuals. No host API carries it. (Optional)
+    std::string description{""};
+
     // Parameter semantics.
     Semantics::Any semantics{std::in_place_type<Semantics::Real>};
 
     // Host policy.
     Policy policy{Policy::Automation};
-
-    // Regular.
-    auto operator==(const Spec&) const -> bool = default;
 };
 
 // MARK: - parameter model
@@ -406,43 +420,28 @@ inline auto validate_au_order(const std::vector<Address>& order, [[maybe_unused]
     return true;
 }
 
-template <std::ranges::input_range R, typename Comp>
-inline auto sorted_copy(const R& range, Comp comp)
-{
-    using T = std::ranges::range_value_t<R>;
-    auto out = std::vector<T>(std::ranges::begin(range), std::ranges::end(range));
-    std::sort(out.begin(), out.end(), comp);
-    return out;
-}
-
 // The model's pinned AU order if it declares one, otherwise address order.
 // Address order — never tree order — because the `Address` enum is already append-only, so it is
 // safe by construction for a model that hasn't opted in. Falling back to tree order would leave
 // presentation order load-bearing, which is the whole problem `au_order()` exists to remove.
 template<Model User_model>
-inline auto au_ordered_copy(const std::vector<Spec>& indexed_specs) -> std::vector<Spec>
+inline auto au_addresses(size_t num_params) -> std::vector<uint32_t>
 {
+    auto out = std::vector<uint32_t>{};
     if constexpr (Au_ordered<User_model>) {
         const auto order = User_model::au_order();
-        [[maybe_unused]] const auto is_valid = validate_au_order(order, indexed_specs.size());
-
-        auto out = std::vector<Spec>{};
-        out.reserve(order.size());
+        [[maybe_unused]] const auto is_valid = validate_au_order(order, num_params);
         for (const auto addr : order) {
-            const auto raw = enum_raw(addr);
-            if (raw < indexed_specs.size()) out.push_back(indexed_specs[raw]);
+            if (enum_raw(addr) < num_params) out.push_back(enum_raw(addr));
         }
-        return out;
     }
     else {
-        return indexed_specs;
+        for (auto addr = uint32_t{}; addr < num_params; ++addr) out.push_back(addr);
     }
+    return out;
 }
 
 } // namespace impl
-
-// Indexable is address order, Presentation is tree order, Au_ordinal is the AUv2 list order.
-enum class Param_order : uint32_t { Indexable, Presentation, Au_ordinal };
 
 // MARK: - params registry
 
@@ -452,42 +451,47 @@ public:
 
     static constexpr auto num_params = enum_raw(User_model::Address::Num_params);
 
-    static auto param_tree() -> const Node&
-    {
-        // Validate once at startup.
-        [[maybe_unused]] static const auto validated = [] {
-            [[maybe_unused]] const auto is_valid = impl::validate_tree(user_tree, num_params);
-            assert(is_valid && "Param tree validation failed.");
-            return true;
-        }();
+    static auto param_tree() -> const Node& { return _store.tree; }
 
-        return user_tree;
-    }
-
-    static auto param_specs(Param_order ordering) -> const std::vector<Spec>&
-    {
-        switch (ordering) {
-            case Param_order::Presentation: return display_specs;
-            case Param_order::Au_ordinal:   return au_specs;
-            case Param_order::Indexable:    return indexed_specs;
-            default:                        return indexed_specs;
-        }
-    }
+    // Address order: the only order a spec can be looked up in by address.
+    static auto param_specs() -> const std::vector<Spec>& { return _store.specs; }
 
     static auto param_spec(uint32_t address) -> const Spec&
     {
         assert(address < num_params && "Param address out of range.");
-        return indexed_specs[address];
+        return _store.specs[address];
     }
+
+    // Tree order, as addresses.
+    static auto presentation_order() -> std::span<const uint32_t> { return _store.presentation; }
+
+    // The AUv2 parameter list, as addresses: `au_order()` if the model declares one, else address order.
+    static auto au_order() -> std::span<const uint32_t> { return _store.au; }
 
 private:
 
-    static constexpr auto id_less = [](const auto& a, const auto& b) { return a.identity.address < b.identity.address; };
+    struct Store {
+        Node tree{};
+        std::vector<Spec> specs{};
+        std::vector<uint32_t> presentation{};
+        std::vector<uint32_t> au{};
+    };
 
-    inline static const Node user_tree = User_model::build_tree();
-    inline static const std::vector<Spec> display_specs = impl::flatten_tree(user_tree);
-    inline static const std::vector<Spec> indexed_specs = impl::sorted_copy(display_specs, id_less);
-    inline static const std::vector<Spec> au_specs = impl::au_ordered_copy<User_model>(indexed_specs);
+    static auto make_store() -> Store
+    {
+        auto store = Store{.tree = User_model::build_tree()};
+        [[maybe_unused]] const auto is_valid = impl::validate_tree(store.tree, num_params);
+        assert(is_valid && "Param tree validation failed.");
+
+        store.specs = impl::flatten_tree(store.tree);
+        for (const auto& spec : store.specs) store.presentation.push_back(spec.identity.address);
+        std::ranges::sort(store.specs, {}, [](const Spec& spec) { return spec.identity.address; });
+        store.au = impl::au_addresses<User_model>(num_params);
+        return store;
+    }
+
+    // One object, so nothing depends on the initialisation order of a template's static members.
+    inline static const Store _store = make_store();
 
 };
 

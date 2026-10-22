@@ -24,12 +24,12 @@ AAX_Result Parameters::EffectInit()
 {
     using namespace params;
 
-    const auto& params = User_params::param_specs(Param_order::Presentation);
+    const auto order = User_params::presentation_order();
     const auto aax_ids = tree_to_aax_ids(User_params::param_tree());
-    assert(params.size() == aax_ids.size() && "AAX IDs must have same size as param specs.");
+    assert(order.size() == aax_ids.size() && "AAX IDs must have same size as param specs.");
 
-    for (size_t i = 0; i < params.size(); ++i) {
-        const auto& param = params[i];
+    for (size_t i = 0; i < order.size(); ++i) {
+        const auto& param = User_params::param_spec(order[i]);
         const auto& aax_id = aax_ids[i];
 
         std::visit(Inline_visitor{

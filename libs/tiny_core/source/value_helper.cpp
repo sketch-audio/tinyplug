@@ -315,30 +315,6 @@ auto Value_helper::is_discrete(const Semantics::Any& semantics) -> bool
     }, semantics);
 }
 
-auto Value_helper::has_units(Units units, const Semantics::Any& semantics) -> bool
-{
-    return std::visit(Inline_visitor{
-        [units](const Semantics::Fixed& s) { return s.units == units; },
-        [units](const Semantics::Real& s) { return s.units == units; },
-        [](const auto&) { return false; }
-    }, semantics);
-}
-
-auto Value_helper::units_label(Units units) -> std::string
-{
-    using enum Units;
-    switch (units) {
-        case Generic:      return "";
-        case Percent:      return "%";
-        case Decibels:     return "dB";
-        case Hertz:        return "Hz";
-        case Milliseconds: return "ms";
-        case Degrees:      return "°";
-        case Linear_gain:  return "dB";
-        default:           return "";
-    }
-}
-
 // MARK: - clamp / step
 
 auto Value_helper::clamp(double x, const Semantics::Any& semantics) -> double

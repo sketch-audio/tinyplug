@@ -262,10 +262,10 @@ A parameter model has **three** independent permanence surfaces, not one.
   every list position after it. With `au_order()` the tree stays free — put a new
   parameter wherever it looks right, then append it to `au_order()`.
 
-`Param_order::Au_ordinal` returns that order and
+`Infos::au_order()` returns that order as addresses, and
 [wrappers/auv2/source/effect.cpp](wrappers/auv2/source/effect.cpp) `GetParameterList`
 is its only consumer. A model that doesn't declare `au_order()` falls back to
-**address order** (`Indexable`), which is append-only by construction since the
+**address order**, which is append-only by construction since the
 `Address` enum is — it costs you control of the AU display order but is never
 unsafe. It must never fall back to tree order: that would make the tree itself
 append-only, which is exactly the constraint this design removes.
@@ -296,10 +296,20 @@ common bug shape is converting in the wrong space, so always check
 "norm" space are the same thing; `plain_to_knob`/`knob_to_plain` replace the
 former `plain_to_norm`/`norm_to_plain`.)
 
-`Real_semantics` carries a `Knob_adapter` variant (`Adapt_lin`, `Adapt_log`,
-`Adapt_pow`, `Adapt_taper`, `Adapt_piece`) controlling the knob↔plain
-mapping. Conversions through these adapters have asserts on their domains —
+`Semantics::Real` carries an `Adapter::Any` (`Lin`, `Log`, `Pow`, `Taper`, `Piece`)
+controlling the knob↔plain mapping. Conversions through these adapters have asserts on their domains —
 log requires `min_val > 0`, taper requires `0 < taper < 1`, etc.
+
+Text is `Bool`/`Int`/`Fixed`/`Real`'s `display` (`Display::Boolean` / `Display::Numeric`:
+`Default`, `Percent`, `Decibels`, `Hertz`, `Gain`, ..., and `Custom` with author functions in
+plain space, called from any thread). It is formatting only — no host sees a unit — and
+`Host_formatter` is its one reader, so the host and the editor show the same string. `List`'s
+items are its display. `Spec::description` reaches no host; it is for tooltips, the web
+manifest and manuals.
+
+`Infos` keeps **one** copy of the specs, in address order (`param_specs()`, `param_spec(addr)`);
+`presentation_order()` and `au_order()` are address lists, so only address order can be indexed
+by address. `param_tree()` is the tree as authored.
 
 `params::Policy` (automation/control/hidden/interface) fully enumerates how a
 parameter should be exposed and persisted — never flags-and-bits.

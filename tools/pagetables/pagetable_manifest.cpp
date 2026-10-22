@@ -8,11 +8,11 @@
 auto main() -> int
 {
     using namespace tiny;
-    const auto& specs = User_params::param_specs(params::Param_order::Presentation);
+    const auto order = User_params::presentation_order();
 
     auto params = nlohmann::json::array();
     for (auto i = uint32_t{}; i < User_params::num_params; ++i) {
-        const auto& s = specs[i];
+        const auto& s = User_params::param_spec(order[i]);
         const char* policy = [&]() -> const char* {
             switch (s.policy) {
                 case params::Policy::Automation: return "automation";

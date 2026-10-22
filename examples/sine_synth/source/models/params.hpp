@@ -26,7 +26,7 @@ struct Params {
             return Spec{
                 .identity = {.address = enum_raw(address), .identifier = identifier},
                 .name = name,
-                .semantics = Semantics::Real{.min_val = 1, .def_val = def, .max_val = 4000, .units = Units::Milliseconds, .knob_adapter = Adapter::Log{}}
+                .semantics = Semantics::Real{.min_val = 1, .def_val = def, .max_val = 4000, .display = Display::Milliseconds{}, .knob_adapter = Adapter::Log{}}
             };
         };
 
@@ -36,19 +36,19 @@ struct Params {
             Spec{
                 .identity = {.address = enum_raw(Sustain), .identifier = "sustain"},
                 .name = "Sustain",
-                .semantics = Semantics::Real{.min_val = 0, .def_val = 0.6, .max_val = 1, .units = Units::Generic, .knob_adapter = Adapter::Lin{}}
+                .semantics = Semantics::Real{.min_val = 0, .def_val = 0.6, .max_val = 1, .display = Display::Default{}, .knob_adapter = Adapter::Lin{}}
             },
             time(Release, "release", "Release", 400),
             Spec{
                 // How far a fully pressed note wobbles, in semitones. Pressure (aftertouch) scales it.
                 .identity = {.address = enum_raw(Vibrato), .identifier = "vibrato"},
                 .name = "Vibrato",
-                .semantics = Semantics::Real{.min_val = 0, .def_val = 0.5, .max_val = 2, .units = Units::Generic, .knob_adapter = Adapter::Lin{}}
+                .semantics = Semantics::Real{.min_val = 0, .def_val = 0.5, .max_val = 2, .display = Display::Default{}, .knob_adapter = Adapter::Lin{}}
             },
             Spec{
                 .identity = {.address = enum_raw(Level), .identifier = "level"},
                 .name = "Level",
-                .semantics = Semantics::Real{.min_val = 0, .def_val = 0.5, .max_val = 1, .units = Units::Generic, .knob_adapter = Adapter::Lin{}}
+                .semantics = Semantics::Real{.min_val = 0, .def_val = 0.5, .max_val = 1, .display = Display::Default{}, .knob_adapter = Adapter::Lin{}}
             },
             Spec{
                 // Whether MIDI 1.0 channels 2-16 each carry one note's bend, pressure and CC 74.

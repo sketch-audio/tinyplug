@@ -19,7 +19,7 @@ struct Params {
             Spec{
                 .identity = {.address = enum_raw(Drive), .identifier = "drive"},
                 .name = "Drive",
-                .semantics = Semantics::Real{.min_val = 1, .def_val = 3, .max_val = 20, .units = Units::Generic, .knob_adapter = Adapter::Log{}}
+                .semantics = Semantics::Real{.min_val = 1, .def_val = 3, .max_val = 20, .display = Display::Default{}, .knob_adapter = Adapter::Log{}}
             },
         }};
     }

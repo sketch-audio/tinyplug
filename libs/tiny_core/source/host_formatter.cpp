@@ -43,56 +43,61 @@ auto Host_formatter::to_string(double host_value, const Semantics::Any& semantic
         return (std::round(std::abs(value) * 10.0) >= 100.0) ? 0 : 1;
     };
 
+    // A Custom without `to_text` falls back to the plain number.
+    auto numeric = [&](const Display::Numeric& display, auto&& fallback) -> std::string {
+        return std::visit(Inline_visitor{
+            [&](const Display::Default&)      { return fallback(); },
+            [&](const Display::Percent&)      { return format_double(plain_value, 0) + " %"; },
+            [&](const Display::Decibels&)     { return signed_text(plain_value, adaptive_prec(plain_value), " dB"); },
+            [&](const Display::Milliseconds&) { return format_double(plain_value, adaptive_prec(plain_value)) + " ms"; },
+            [&](const Display::Degrees&)      { return signed_text(plain_value, 0, " °"); },
+            [&](const Display::Gain&) {
+                if (!(plain_value > 0)) return std::string{"-inf dB"};
+                const auto db = 20 * std::log10(plain_value);
+                return signed_text(db, adaptive_prec(db), " dB");
+            },
+            [&](const Display::Hertz&) {
+                // Switch to kHz on the *rounded* value, so 999.96 doesn't print "1000.0 Hz"
+                // and then re-parse into the kHz branch on the way back.
+                if (std::abs(std::round(plain_value)) >= 1000) return format_double(plain_value / 1000, 1) + " kHz";
+                return format_double(plain_value, adaptive_prec(plain_value)) + " Hz";
+            },
+            [&](const Display::Custom& c) { return c.to_text ? c.to_text(plain_value) : fallback(); },
+        }, display);
+    };
+
+    // Ints keep whole numbers and only take the unit's suffix.
+    auto int_suffix = [](const Display::Numeric& display) -> std::string {
+        return std::visit(Inline_visitor{
+            [](const Display::Percent&)      { return std::string{" %"}; },
+            [](const Display::Decibels&)     { return std::string{" dB"}; },
+            [](const Display::Gain&)         { return std::string{" dB"}; },
+            [](const Display::Hertz&)        { return std::string{" Hz"}; },
+            [](const Display::Milliseconds&) { return std::string{" ms"}; },
+            [](const Display::Degrees&)      { return std::string{" °"}; },
+            [](const auto&)                  { return std::string{}; },
+        }, display);
+    };
+
     return std::visit(Inline_visitor{
-        [&](const Semantics::Bool&) {
-            return plain_value >= 0.5f ? std::string{"True"} : std::string{"False"};
+        [&](const Semantics::Bool& b) {
+            const auto on = plain_value >= 0.5;
+            return std::visit(Inline_visitor{
+                [&](const Display::Default&) { return std::string{on ? "True" : "False"}; },
+                [&](const Display::Labels& l) { return on ? l.on : l.off; },
+                [&](const Display::Custom& c) { return c.to_text ? c.to_text(on ? 1. : 0.) : std::string{on ? "True" : "False"}; },
+            }, b.display);
         },
         [&](const Semantics::List& l) {
             const auto idx = static_cast<size_t>(plain_value);
             return l.items[idx];
         },
         [&](const Semantics::Int& i) {
-            const auto suffix = Value_helper::units_label(i.units);
-            return suffix.empty() ? format_double(plain_value, 0)
-                                  : format_double(plain_value, 0) + " " + suffix;
+            if (const auto* c = std::get_if<Display::Custom>(&i.display); c && c->to_text) return c->to_text(plain_value);
+            return format_double(plain_value, 0) + int_suffix(i.display);
         },
         [&](const auto& fr) {
-            using enum Units;
-            switch (fr.units) {
-                case Generic:
-                    return format_double(plain_value, 2);
-                case Percent: {
-                    const auto suffix = " %";
-                    return format_double(plain_value, 0) + suffix;
-                }
-                case Decibels:
-                    return signed_text(plain_value, adaptive_prec(plain_value), " dB");
-                case Linear_gain: {
-                    if (!(plain_value > 0)) return std::string{"-inf dB"};
-                    const auto db = 20 * std::log10(plain_value);
-                    return signed_text(db, adaptive_prec(db), " dB");
-                }
-                case Hertz: {
-                    // Switch to kHz on the *rounded* value, so 999.96 doesn't print "1000.0 Hz"
-                    // and then re-parse into the kHz branch on the way back.
-                    if (std::abs(std::round(plain_value)) >= 1000) {
-                        const auto suffix = " kHz";
-                        return format_double(plain_value / 1000, 1) + suffix;
-                    }
-                    else {
-                        const auto suffix = " Hz";
-                        return format_double(plain_value, adaptive_prec(plain_value)) + suffix;
-                    }
-                }
-                case Milliseconds: {
-                    const auto suffix = " ms";
-                    return format_double(plain_value, adaptive_prec(plain_value)) + suffix;
-                }
-                case Degrees:
-                    return signed_text(plain_value, 0, " °");
-                default:
-                    return std::string{};
-            }
+            return numeric(fr.display, [&] { return format_double(plain_value, 2); });
         }
     }, semantics);
 }
@@ -132,10 +137,21 @@ auto Host_formatter::to_value(const std::string& string, const Semantics::Any& s
     };
 
     return std::visit(Inline_visitor{
-        [&](const Semantics::Bool&) -> std::optional<double> {
-            if (string == "True")  return 1.;
-            if (string == "False") return 0.;
-            return std::nullopt;
+        [&](const Semantics::Bool& b) -> std::optional<double> {
+            const auto true_false = [&]() -> std::optional<double> {
+                if (string == "True")  return 1.;
+                if (string == "False") return 0.;
+                return std::nullopt;
+            };
+            return std::visit(Inline_visitor{
+                [&](const Display::Default&) { return true_false(); },
+                [&](const Display::Labels& l) -> std::optional<double> {
+                    if (string == l.on)  return 1.;
+                    if (string == l.off) return 0.;
+                    return std::nullopt;
+                },
+                [&](const Display::Custom& c) { return c.from_text ? c.from_text(string) : true_false(); },
+            }, b.display);
         },
         [&](const Semantics::List& l) -> std::optional<double> {
             for (size_t i = 0; i < l.items.size(); ++i) {
@@ -143,9 +159,11 @@ auto Host_formatter::to_value(const std::string& string, const Semantics::Any& s
             }
             return std::nullopt;
         },
-        [&](const auto& fr) -> std::optional<double> {
-            // Linear gain is typed in dB; "-inf" (any case) mutes.
-            if (fr.units == Units::Linear_gain) {
+        [&](const auto& n) -> std::optional<double> {
+            if (const auto* c = std::get_if<Display::Custom>(&n.display); c && c->from_text) return c->from_text(string);
+
+            // Gain is typed in dB; "-inf" (any case) mutes.
+            if (std::holds_alternative<Display::Gain>(n.display)) {
                 auto lower = string;
                 std::ranges::transform(lower, lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
                 if (lower.find("inf") != std::string::npos) return 0.;
@@ -160,7 +178,7 @@ auto Host_formatter::to_value(const std::string& string, const Semantics::Any& s
             // We print "1.5 kHz" above 1000 Hz, so we have to read it back. Hertz is the only
             // unit that carries a multiplier, so the scan is scoped to it.
             const auto is_kilo = (string.find_first_of("kK") != std::string::npos);
-            if (fr.units == Units::Hertz && is_kilo) return *value * 1000.;
+            if (std::holds_alternative<Display::Hertz>(n.display) && is_kilo) return *value * 1000.;
 
             return value;
         }
