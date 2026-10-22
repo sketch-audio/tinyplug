@@ -5,7 +5,7 @@ import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { create_memory, create_processor, encode } from "../../wrappers/web/js/processor.js";
+import { create_processor_any, encode } from "../../wrappers/web/js/processor.js";
 
 const [, , wasm, second] = process.argv;
 const exe = process.argv.includes("--native-exe") ? process.argv[process.argv.indexOf("--native-exe") + 1] : null;
@@ -17,7 +17,7 @@ if (exe) {
 }
 const tolerance_db = process.argv.includes("--tolerance") ? Number(process.argv[process.argv.indexOf("--tolerance") + 1]) : null;
 
-const p = create_processor(new WebAssembly.Module(await readFile(wasm)), create_memory(), { log: () => {} });
+const p = create_processor_any(new WebAssembly.Module(await readFile(wasm)), { log: () => {} });
 const manifest = p.manifest();
 const param = manifest.params[0];
 p.configure(48000);

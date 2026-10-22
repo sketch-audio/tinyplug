@@ -404,7 +404,7 @@ Processor_module* module_instance{};
 
 extern "C" {
 
-#if defined(__EMSCRIPTEN__)
+#if defined(__EMSCRIPTEN_SHARED_MEMORY__)
 // The wasm-workers runtime (shared memory, no pthreads) leaves libc++abi's emergency allocator wanting a mutex. This
 // module only ever runs on the worklet's one thread, so there is nothing to exclude. (Natively, for the comparison
 // render in tests/web, the real ones stand.)

@@ -1,7 +1,9 @@
 # Plan: Web format — tinyplug plug-ins in the browser
 
 > Status: **phases 0-5 landed on `web-format` (2026-10-20)**: every demo runs in the browser with its own editor,
-> checked by hand in Chrome and Safari (macOS). Phase 6 (GPU, the non-isolated fallback, CI) remains. A sixth format beside AAX, AUv2, AUv3, CLAP and VST3: the
+> checked by hand in Chrome and Safari (macOS). The nonisolated variant landed 2026-10-21 (any page, no COOP / COEP;
+> tested in Node and headless Chrome, a quick look by hand in Safari on macOS). Phase 6 (GPU, CI) remains; see
+> "Next" for what the variant still owes. A sixth format beside AAX, AUv2, AUv3, CLAP and VST3: the
 > same `Processor` / `Editor` pair, compiled with Emscripten, running in a web page. **Two modules, AAX-shaped**:
 > the processor in an AudioWorklet, everything else (param authority, editor, undo, state, worker) in a
 > controller module on the page's main thread, joined by rings in shared memory. The editor draws through Skia,
@@ -34,7 +36,7 @@ are the ones every other format uses; the editor is the plug-in's own SUI editor
 | Decision | Choice | Why |
 |---|---|---|
 | Topology | **Two modules** (processor / controller), not one shared module | Keeps the decoupled model; no threads in the worklet; phase 1 ships unchanged into the full format; audio can start before the editor downloads |
-| Cross-origin isolation | **Required for v1** | The rings and the controller's pthreads both need `SharedArrayBuffer`. The non-isolated fallback is deferred (see Topology) |
+| Cross-origin isolation | **Two variants**, `TINY_WEB_VARIANT` = `isolated` (default) or `nonisolated` | Isolated: the rings and the controller's pthreads need `SharedArrayBuffer`, so the page sends COOP / COEP and every embed beside it must opt in. Nonisolated: any page, no threads, no worker (see Variants) |
 | Graphics | **Skia CPU raster first**; GPU later as Graphite on WebGPU | Smallest Skia build, no GL in the loop, matches the CPU backends kept on Windows and iOS, and makes pixel tests against a native CPU render feasible |
 | Page package | **Plain ES modules**, no build step, no runtime npm dependencies | It is the DAW; it should be readable and vendorable by the product site |
 | Toolchain | **One pinned emsdk, owned by tiny_deps**, for Skia and tinyplug alike | Every object in a module must come from one Emscripten (libc++ headers, features); see Skia for wasm |
@@ -61,7 +63,7 @@ tinyplug/
                               source/controller/ (main-thread module: authority, editor, view)
                               js/                (@tinyplug/web: worklet processor, host API)
   tests/hosts/web_host.mjs  + Node conformance host
-  tools/web_serve.mjs       + static server with COOP / COEP, one host page per demo
+  tools/web/serve.mjs       + static server with COOP / COEP (or --no-isolation), host pages per demo
   CMakePresets.json         + "web" (the pinned emsdk's toolchain, build-web)
 tiny_deps/
   build-skia-web.sh         + Skia for wasm32, CPU raster, -pthread, into build/web/lib
@@ -152,16 +154,27 @@ frames are fixed-size.
 fixed size chosen from a probe: growing would leave the controller's views at the old length. The controller
 module is an ordinary Emscripten pthreads module with its own memory.
 
-**One compile flavor.** Wasm objects built with atomics can't link into a module without shared memory, so both
-modules build with `-pthread` (atomics + bulk memory); the processor module simply starts no threads. That is
-also why the non-isolated fallback is a second flavor rather than a switch.
+**One compile flavor per tree.** Wasm objects built with atomics can't link into a module without shared memory,
+so in the isolated tree both modules build with `-pthread` (atomics + bulk memory); the processor module simply
+starts no threads. That is why the nonisolated variant is a second tree (preset `web-nonisolated`, Skia from
+`build-skia-web.sh nonisolated`) rather than a switch.
 
-**Non-isolated fallback (deferred).** The same two modules without `SharedArrayBuffer`: the wire over the
-worklet's `MessagePort` (a frame per message, posted at most per quantum and coalesced for meters), and a
-`Task_manager` whose lanes run cooperatively on the main thread instead of on pthreads. Needed only to embed a
-demo in a page we don't control. The wire's interface is the seam; nothing above it changes. **A plug-in with a
-worker always requires isolation**: `Worker_runner` has no cooperative mode, and a worker on main-thread time
-slices would stall in a hidden tab.
+**Variants.** Named for what the page must provide. `isolated`: COOP / COEP, so nothing cross-origin can sit on the
+page without opting in (a storefront's checkout iframe, a YouTube embed). `nonisolated`: the same two modules
+without `SharedArrayBuffer`, for any page.
+- The wire is the seam; nothing above it changes. [link.js](../wrappers/web/js/link.js) splits the pump in two:
+  each half runs on the thread owning its module's memory, takes its rings' unread bytes and newer store frames,
+  and posts them over the worklet's `MessagePort`; the other half lands them. The worklet posts every 4 quanta;
+  the page sends each frame, on a 10 ms timer, and whenever the worklet posts. A full ring parks posted bytes,
+  then drops whole posts past 4x its capacity, as a full ring refuses its producer.
+- `TINY_PLATFORM_THREADS` is 0 (derived from `__EMSCRIPTEN_PTHREADS__`): `Task_manager` runs its background and
+  serial lanes on main from `run_main`, 4 ms at a time; the logger drains on the caller; `Relay` clears directly.
+- **A plug-in with a worker needs `isolated`**: `Worker_runner` has no cooperative mode, and a worker on main-thread
+  time slices would stall in a hidden tab. `make_web_plugin` stops the configure with an error.
+- manifest.json carries `"variant"`; `host.js` picks the pump or the link from it, and refuses an isolated build on
+  a page that isn't isolated with a message saying so. `load` (processor-only) works in both.
+- Hidden tab, nonisolated: the page's timers throttle and rAF stops, so edits and the controller's reads slow or
+  stop as the isolated controller's do; the processor keeps rendering, and its posts still land.
 
 **Rejected: one shared module.** One `WebAssembly.Memory` shared by the main thread and the worklet (Emscripten's
 Wasm Audio Worklets, `-sAUDIO_WORKLET -sWASM_WORKERS`) would make the wrapper the CLAP wrapper's shape. It puts
@@ -274,7 +287,7 @@ site.
   under Node.
 - **`TINY_PLATFORM_WASM`** in `platform_defs.hpp` (`__EMSCRIPTEN__`), and a no-op `denormal_guard` (wasm has no
   FP control register; denormals are slow on x86 clients, so DSP that can flush should).
-- **Flags.** `-pthread` everywhere (see Topology); `-msimd128` (and `-msse4.2` for vsl's SSE path until it
+- **Flags.** `-pthread` everywhere in the isolated tree, nowhere in the nonisolated (see Variants); `-msimd128` (and `-msse4.2` for vsl's SSE path until it
   grows a native wasm SIMD path); `-fwasm-exceptions` if anything throws (nlohmann::json);
   `-ffp-contract=off` on both web and native builds being compared for bit-identity; no name section in
   Release.
@@ -314,7 +327,7 @@ Every layer has a cheap automated check before a browser is involved.
    screenshot against a native CPU-raster render of the same editor and state. Plus a hidden-tab check (emulated
    `visibilityState = hidden`, not a frozen page): worker_demo's round trip and the page's `onMeters` keep
    flowing while the editor stops drawing.
-5. **By hand.** `tools/web_serve.mjs` (COOP / COEP headers) and a host page per demo; Chrome and Safari, macOS
+5. **By hand.** `tools/web/serve.mjs` (COOP / COEP headers) and a host page per demo; Chrome and Safari, macOS
    and iOS. Safari is the one that can't be automated here.
 
 ## Phases
@@ -338,7 +351,7 @@ Every layer has a cheap automated check before a browser is involved.
    self-contained `<Base>.web/` bundle (manifest.json, JS, index.html); the docs; the processor module against
    its own native build (bit-identical for nine demos). What a DAW owns is the page's: where sessions are stored,
    audio sources and routing, Web MIDI devices, which presets a product offers. *(Done.)*
-6. **Later.** Graphite on WebGPU; size work; the non-isolated fallback; the `web` preset in the release CI
+6. **Later.** Graphite on WebGPU; size work; the `web` preset in the release CI
    (`all_plugins/plans/ci-build-system.md`), versioned artifacts per tag, the product site consuming them.
 
 ## Measured (phase 5, 2026-10-20, Apple Silicon, Chrome headless, 2x pixel density)
@@ -352,6 +365,25 @@ Every layer has a cheap automated check before a browser is involved.
 images could build Skia without its codecs. Main thread with an editor open at 60 fps: 8 % (Gain) to 11 % (Block,
 Worker), most of it Skia rasterising the whole editor each frame, the cost Graphite on WebGPU removes. Reusing
 one ImageData per size (no per-frame allocation) took Block from 15 % to 10 %.
+
+## Next (2026-10-21)
+
+Merge `web-format` (tinyplug and tiny_deps) to main, then, by hand:
+- **The real page.** A bundle from `build-web-nonisolated` on a sketch_site test page, next to the Moonbase
+  storefront and a YouTube embed, under `astro dev` with no headers. The check the variant exists for.
+- **Every demo in Safari (macOS)**, nonisolated: `node tools/web/serve.mjs --build build-web-nonisolated --no-isolation`,
+  then `editor.html?plugin=<Base>`. So far only a quick look at both variants.
+- **Hidden tab**, both variants: audio keeps playing; the editor and meters catch up on return; no stuck notes.
+- **iOS Safari** over HTTPS (`cloudflared tunnel --url http://localhost:8040` or a Cloudflare preview): crackle, and
+  editor feel with background tasks on main.
+
+In code:
+- **Processor-written state is untested in both variants**: no demo declares `Writers::Processor` or `Both`. A
+  small one (or a test model) and a `web_split` scenario for the snapshot path.
+- The nonisolated tree runs no tiny_core tests besides `tasks_nothreads_test`; the logic is variant-independent
+  and covered by the isolated tree, but a no-threads build of the threadless ones would be cheap.
+- Windows: the wire move (AAX through `wire.hpp`) hasn't been built on MSVC; `windows-asan-hosts` before the next
+  Windows release.
 
 ## Risks and open questions
 

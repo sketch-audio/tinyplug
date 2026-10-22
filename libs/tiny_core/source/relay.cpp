@@ -414,8 +414,12 @@ auto Relay::_stop() -> void
     _state->alive.store(false, std::memory_order_release);
     { const auto lock = std::lock_guard{_state->delivering}; }
 
+#if TINY_PLATFORM_THREADS
     if (emscripten_is_main_runtime_thread()) clear(_timer);
     else emscripten_async_run_in_main_runtime_thread(EM_FUNC_SIG_VI, &clear, _timer);
+#else
+    clear(_timer); // No other thread to have stopped it from.
+#endif
     _timer = nullptr;
 }
 

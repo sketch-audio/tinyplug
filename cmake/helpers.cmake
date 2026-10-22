@@ -345,6 +345,8 @@ function(configure_plugin target)
         message(FATAL_ERROR "[tiny] ${target}: models/work.hpp needs a worker.hpp to handle its channels.")
     endif()
 
+    set_property(TARGET ${target} PROPERTY TINY_HAS_WORKER ${TINY_HAS_WORKER}) # For make_web_plugin's variant check.
+
     set(TINY_PLUGIN_DIR ${_tiny_src})
     set(dest ${CMAKE_CURRENT_BINARY_DIR}/generated)
     configure_file(${CMAKE_CURRENT_FUNCTION_LIST_DIR}/tiny_plugin.hpp.in ${dest}/tiny_plugin.hpp @ONLY)

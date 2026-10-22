@@ -5,7 +5,8 @@
   body { font: 14px system-ui; margin: 16px; }
   canvas { display: block; margin-top: 12px; }
 </style>
-<!-- Serve this folder with Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp. -->
+<!-- A build of the isolated variant (manifest.json "variant"): serve this folder with Cross-Origin-Opener-Policy: same-origin
+     and Cross-Origin-Embedder-Policy: require-corp. A build of the nonisolated variant needs neither. -->
 <button id="start">Start @TINY_PLUGIN_NAME@</button>
 <canvas id="editor"></canvas>
 <script type="module">

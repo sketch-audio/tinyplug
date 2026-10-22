@@ -67,4 +67,6 @@ make_auv2_plugin(${PLUGIN_TARGET})
 make_auv3_plugin(${PLUGIN_TARGET})
 make_clap_plugin(${PLUGIN_TARGET})
 make_vst3_plugin(${PLUGIN_TARGET})
-make_web_plugin(${PLUGIN_TARGET})
+if(NOT TINY_WEB_VARIANT STREQUAL "nonisolated") # A worker needs the isolated variant.
+    make_web_plugin(${PLUGIN_TARGET})
+endif()

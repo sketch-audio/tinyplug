@@ -1,14 +1,17 @@
 // The web format in its real shape, under Node: the controller module on the main thread, the processor module on
-// its own thread rendering as the worklet would, and the pump on a third. usage: node web_split_host.mjs <Base.web>
-import { Worker } from "node:worker_threads";
+// its own thread rendering as the worklet would, and the pump on a third. With --link (the nonisolated variant), no
+// pump: link.js's two ends over a MessagePort, each on its own memory. usage: node web_split_host.mjs <Base.web> [--link]
+import { MessageChannel, Worker } from "node:worker_threads";
 import { readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { create_memory } from "../../wrappers/web/js/processor.js";
 import { load_controller } from "../../wrappers/web/js/controller.js";
 import { Store } from "../../wrappers/web/js/wire.js";
+import { controller_end } from "../../wrappers/web/js/link.js";
 
 const dir = resolve(process.argv[2]);
 const base = basename(dir, ".web");
+const linked = process.argv.includes("--link");
 
 let failures = 0;
 const expect = (ok, what) => {
@@ -20,24 +23,35 @@ const near = (a, b, tol) => Math.abs(a - b) <= tol;
 const ctl = await load_controller(join(dir, `${base}_controller.mjs`));
 ctl.start(48000);
 
-const memory = create_memory();
+const memory = linked ? null : create_memory();
 const stats = new Float64Array(new SharedArrayBuffer(8 * 8));
 const stop = new Int32Array(new SharedArrayBuffer(4));
 const module = new WebAssembly.Module(await readFile(join(dir, `${base}_processor.wasm`)));
 const level = 0.5;
+const channel = linked ? new MessageChannel() : null;
 const audio = new Worker(new URL("../web/processor_thread.mjs", import.meta.url), {
-    workerData: { module, memory, params: ctl.plain_params(), stats: stats.buffer, stop, level },
+    workerData: { module, memory, params: ctl.plain_params(), stats: stats.buffer, stop, level, linked, port: channel?.port2 },
+    transferList: channel ? [channel.port2] : [],
 });
 audio.on("message", (m) => { if (m.log) console.log(`    | ${m.log}`); });
 const processor_table = await new Promise((r) => audio.on("message", (m) => { if (m.table) r(m.table); }));
-const pump = new Worker(new URL("../web/pump_thread.mjs", import.meta.url), {
+const pump = linked ? null : new Worker(new URL("../web/pump_thread.mjs", import.meta.url), {
     workerData: { spec: { processor: { buffer: memory.buffer, table: processor_table }, controller: { buffer: ctl.buffer(), table: ctl.table } }, stop },
 });
+
+// Linked: the controller's end, sending each frame and whenever the processor's end posts, as host.js does.
+const end = linked ? controller_end({ buffer: ctl.buffer, table: ctl.table }) : null;
+const send = () => {
+    const m = end?.take();
+    if (m) channel.port1.postMessage(m.msg, m.transfer);
+};
+channel?.port1.on("message", (msg) => { end.land(msg); send(); });
 
 // The page's frame loop: tick the controller every ~16 ms for `ms`.
 const run = async (ms) => {
     for (const until = Date.now() + ms; Date.now() < until;) {
         ctl.tick();
+        send();
         await new Promise((r) => setTimeout(r, 16));
     }
 };
@@ -102,16 +116,14 @@ const scenarios = {
         expect(ctl.load_state(JSON.stringify(doc)), "a changed pattern loads");
         expect(Buffer.from(JSON.parse(ctl.save_state()).state, "base64")[20] === 50, "the editor's half holds it");
         await run(300);
-        const t = processor_table.state_load;
-        const store = new Store(memory.buffer, t.offset, t.frame_bytes, t.slot_offset);
-        const frame = new Uint8Array(store.frame_bytes);
-        expect(store.read(frame) > 0n && frame[0] === 50, "the load reaches the processor as a session load, with its pattern");
+        expect(stats[7] === 50, "the load reaches the processor as a session load, with its pattern");
     },
 };
 
-console.log(`${base} (split)`);
+console.log(`${base} (split${linked ? ", linked" : ""})`);
 await (scenarios[base] ?? (async () => { await run(300); expect(stats[0] > 0, "renders"); }))();
 Atomics.store(stop, 0, 1);
-await Promise.all([audio, pump].map((w) => new Promise((r) => w.once("exit", r))));
+channel?.port1.close();
+await Promise.all([audio, pump].filter(Boolean).map((w) => new Promise((r) => w.once("exit", r))));
 console.log(failures ? `FAILED (${failures})` : "ok");
 process.exit(failures ? 1 : 0);

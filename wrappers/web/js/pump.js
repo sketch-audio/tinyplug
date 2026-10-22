@@ -14,8 +14,8 @@ export const read_controller_table = (buffer, at) => {
     };
 };
 
-const stores = (buffer, entries) => entries.map((e) => (e.offset ? new Store(buffer, e.offset, e.frame_bytes, e.slot_offset) : null));
-const block_entries = (buffer, at, count) => {
+export const stores = (buffer, entries) => entries.map((e) => (e.offset ? new Store(buffer, e.offset, e.frame_bytes, e.slot_offset) : null));
+export const block_entries = (buffer, at, count) => {
     const t = new Uint32Array(buffer, at, 3 * count);
     return Array.from({ length: count }, (_, i) => ({ offset: t[3 * i], frame_bytes: t[3 * i + 1], slot_offset: t[3 * i + 2] }));
 };

@@ -645,6 +645,11 @@ measurements: [plans/web-format.md](plans/web-format.md).
   as relaxed atomic words; `publish_with`'s in-place fill is native-only. Don't "simplify" the word copies to
   `memcpy` — the Release wasm build accepts torn frames if you do.
 - **Latency** needs no negotiation: a proposal is accepted at once and lands as `Reset::Latency` next block.
+- **Two variants, one tree each** (`TINY_WEB_VARIANT`, presets `web` / `web-nonisolated`). `isolated` needs a page sent
+  with COOP / COEP; `nonisolated` runs on any page: no shared memory, so no threads (`TINY_PLATFORM_THREADS` 0:
+  `Task_manager` runs every lane on main in `run_main`), the pump becomes [link.js](wrappers/web/js/link.js)'s two
+  halves over the worklet's port, and a plug-in with a worker is a configure error. Its Skia is
+  `build-skia-web.sh nonisolated`. manifest.json's `"variant"` tells `host.js` which wire to use.
 - **Platform**: [web_view.cpp](libs/tiny_platform/source/web_view.cpp) draws from requestAnimationFrame, input
   arrives through exports the page's listeners call ([editor.js](wrappers/web/js/editor.js)); CPU raster with
   `putImageData` ([web_context.cpp](libs/tiny_platform/source/web_context.cpp)); `Platform_paths` under an
@@ -652,7 +657,8 @@ measurements: [plans/web-format.md](plans/web-format.md).
   which the `web` presets also use — one toolchain for every object in a module.
 - **Build and test**: `cmake --preset web && cmake --build --preset web && ctest --preset web`. Labels:
   `web_host` (processor module under Node), `web_split` (all three threads under Node), `browser` (headless
-  Chrome, muted and offline where it can be). `node tools/web/serve.mjs` serves `tools/web/editor.html?plugin=<Base>`;
+  Chrome, muted and offline where it can be). `ctest --preset web-nonisolated` runs the same tests linked
+  (`web_split --link`), pages served `--no-isolation`. `node tools/web/serve.mjs` serves `tools/web/editor.html?plugin=<Base>`;
   each `<Base>.web/` is also a self-contained, deployable bundle with its own index.html.
 
 ## State / preset model

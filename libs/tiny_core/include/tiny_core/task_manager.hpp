@@ -15,6 +15,9 @@ namespace tiny {
 // accepted, nothing queued runs, and nothing is still running. Capturing a raw `this` in a
 // task is therefore safe as long as the owner of `this` shuts the manager down before it
 // dies. Every wrapper does that first in its destructor.
+//
+// A build without threads (TINY_PLATFORM_THREADS 0: the web format's nonisolated variant) runs the background
+// and serial lanes on main, in `run_main`, a few milliseconds at a time. There a task that waits on another hangs.
 class Task_manager {
 public:
 
@@ -31,7 +34,8 @@ public:
     auto bind_main(std::thread::id thread_id) -> void;
     auto is_main_thread() const -> bool;
 
-    // Owner responsible for running the main thread tasks at an appropriate time.
+    // Owner responsible for running the main thread tasks at an appropriate time. Without threads, also a slice
+    // of the other two lanes.
     auto run_main() -> void;
 
     struct Core;

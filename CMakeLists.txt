@@ -38,9 +38,22 @@ if (APPLE)
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer")
     set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "") # You will need to set your team ID.
 elseif(EMSCRIPTEN)
-    # One compile flavor: atomics everywhere, so any object links into a shared-memory module (plans/web-format.md).
-    # Linking -pthread is per target: only modules that start threads may (the processor module is standalone).
-    add_compile_options(-pthread -msimd128 -fwasm-exceptions)
+    # What the page must provide (plans/web-format.md). The variant is the whole tree's compile flavor, Skia included.
+    #   isolated:    the page sends COOP / COEP; shared memory and threads, workers allowed.
+    #   nonisolated: any page; no shared memory, so no threads and no worker.
+    set(TINY_WEB_VARIANT "isolated" CACHE STRING "The web format's variant: isolated or nonisolated.")
+    set_property(CACHE TINY_WEB_VARIANT PROPERTY STRINGS isolated nonisolated)
+    if(NOT TINY_WEB_VARIANT MATCHES "^(isolated|nonisolated)$")
+        message(FATAL_ERROR "TINY_WEB_VARIANT must be isolated or nonisolated, not '${TINY_WEB_VARIANT}'.")
+    endif()
+    message(STATUS "[tiny] web variant: ${TINY_WEB_VARIANT}")
+
+    # Isolated: atomics everywhere, so any object links into a shared-memory module. Linking -pthread is per
+    # target: only modules that start threads may (the processor module is standalone).
+    if(TINY_WEB_VARIANT STREQUAL "isolated")
+        add_compile_options(-pthread)
+    endif()
+    add_compile_options(-msimd128 -fwasm-exceptions)
     add_link_options(-fwasm-exceptions)
 elseif(WIN32)
     # Use the static CRT. (This is how we built skia.)

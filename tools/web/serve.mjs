@@ -1,8 +1,9 @@
-// A static server for the web format, with the cross-origin isolation SharedArrayBuffer needs.
+// A static server for the web format, with the cross-origin isolation SharedArrayBuffer needs (or, with
+// --no-isolation, without it: a page as the nonisolated variant meets it, next to anything else).
 //   /js/*                 wrappers/web/js
 //   /plugins/<Base>.web/* the build's bundles (build-web/examples/*/<Base>.web)
 //   /*                    tools/web (host pages)
-// usage: node tools/web/serve.mjs [--port 8040] [--build build-web]
+// usage: node tools/web/serve.mjs [--port 8040] [--build build-web] [--no-isolation]
 import { createServer } from "node:http";
 import { readFile, readdir } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
@@ -11,6 +12,7 @@ const root = resolve(new URL("../..", import.meta.url).pathname);
 const arg = (name, fallback) => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : fallback; };
 const port = Number(arg("--port", 8040));
 const build = resolve(root, arg("--build", "build-web"));
+const isolated = !process.argv.includes("--no-isolation");
 const only = arg("--root", null); // Serve just this directory, e.g. one self-contained <Base>.web bundle.
 
 const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm", ".json": "application/json", ".css": "text/css" };
@@ -35,8 +37,7 @@ const locate = async (path) => {
 
 createServer(async (req, res) => {
     const headers = {
-        "Cross-Origin-Opener-Policy": "same-origin",
-        "Cross-Origin-Embedder-Policy": "require-corp",
+        ...(isolated ? { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp" } : {}),
         "Cache-Control": "no-store",
     };
     try {
@@ -49,4 +50,4 @@ createServer(async (req, res) => {
         res.writeHead(404, headers);
         res.end("not found");
     }
-}).listen(port, () => console.log(`serving on http://localhost:${port}`));
+}).listen(port, () => console.log(`serving on http://localhost:${port}${isolated ? "" : " (not isolated)"}`));

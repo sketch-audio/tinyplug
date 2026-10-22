@@ -4,8 +4,9 @@ import { Ring, Store } from "./wire.js";
 
 export const memory_pages = 512; // -sINITIAL_MEMORY=32MB = -sMAXIMUM_MEMORY in make_web_plugin.cmake.
 
-// Shared and fixed-size: growing would leave the controller's views at the old length.
-export const create_memory = () => new WebAssembly.Memory({ initial: memory_pages, maximum: memory_pages, shared: true });
+// Fixed-size: growing would leave the controller's views at the old length. Shared for the isolated variant, which
+// the pump maps; the nonisolated module imports a plain memory only the worklet sees.
+export const create_memory = (shared = true) => new WebAssembly.Memory({ initial: memory_pages, maximum: memory_pages, shared });
 
 export const Kind = Object.freeze({
     Param_set: 0, Param_ramp: 1, Bypass: 2, Reset_hard: 3, Transport: 4, Midi: 5, Editor_note: 6, Worker_reply: 7,
@@ -86,6 +87,18 @@ export const create_processor = (module, memory, { log = console.log } = {}) => 
             return JSON.parse(utf8(bytes.slice(0, bytes.indexOf(0))));
         },
     };
+};
+
+// For tools and tests holding a module of either variant: the memory is whichever it imports. (Shared needs a
+// SharedArrayBuffer, which Node always has.)
+export const create_processor_any = (module, options) => {
+    try {
+        return create_processor(module, create_memory(true), options);
+    }
+    catch (e) {
+        if (!(e instanceof WebAssembly.LinkError)) throw e;
+        return create_processor(module, create_memory(false), options);
+    }
 };
 
 // MARK: - messages, as source/wire_layout.hpp lays them out

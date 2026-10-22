@@ -37,6 +37,7 @@ inline auto manifest() -> std::string
         {"name", Plug_info::plugin_name},
         {"identifier", Plug_info::base_identifier},
         {"version", Plug_info::version_string},
+        {"variant", TINY_PLATFORM_THREADS ? "isolated" : "nonisolated"}, // What the page must provide.
         {"audio_in", Plug_info::Wants::audio_in},
         {"audio_out", Plug_info::Wants::audio_out},
         {"sidechain", Plug_info::wants_sidechain},

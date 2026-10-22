@@ -65,6 +65,13 @@
       "condition": { "type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows" }
     },
     {
+      "name": "web-nonisolated",
+      "displayName": "Web — nonisolated variant (any page: no shared memory, no threads, no worker)",
+      "description": "As web, for a page without COOP / COEP. Needs tiny_deps' build-skia-web.sh nonisolated. Plug-ins with a worker are not built.",
+      "inherits": "web",
+      "cacheVariables": { "TINY_WEB_VARIANT": "nonisolated" }
+    },
+    {
       "name": "web-tests",
       "displayName": "Tests for wasm32, run under Node",
       "description": "tests/ built with tiny_deps' pinned emsdk (build-skia-web.sh installs it).",
@@ -126,6 +133,7 @@
     { "name": "tsan-hosts", "configurePreset": "tsan-hosts", "jobs": 8, "targets": ["tiny_tests", "tiny_host_tests"] },
     { "name": "asan-hosts", "configurePreset": "asan-hosts", "jobs": 8, "targets": ["tiny_tests", "tiny_host_tests"] },
     { "name": "web", "configurePreset": "web", "jobs": 8 },
+    { "name": "web-nonisolated", "configurePreset": "web-nonisolated", "jobs": 8 },
     { "name": "web-tests", "configurePreset": "web-tests", "jobs": 8, "targets": ["tiny_tests"] },
     { "name": "macos",  "configurePreset": "macos", "configuration": "Debug" },
     { "name": "ios",    "configurePreset": "ios",   "configuration": "Debug" },
@@ -137,6 +145,7 @@
   "testPresets": [
     { "name": "tests", "configurePreset": "tests", "output": { "outputOnFailure": true } },
     { "name": "web", "configurePreset": "web", "output": { "outputOnFailure": true } },
+    { "name": "web-nonisolated", "configurePreset": "web-nonisolated", "output": { "outputOnFailure": true } },
     { "name": "web-tests", "configurePreset": "web-tests", "output": { "outputOnFailure": true } },
     {
       "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true },

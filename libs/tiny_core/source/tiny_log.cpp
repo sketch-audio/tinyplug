@@ -377,7 +377,9 @@ public:
     {
         _configure();
         _open_sinks();
+#if TINY_PLATFORM_THREADS
         _thread = std::thread{[this]() { this->_run(); }};
+#endif
     }
 
     ~Logger()
@@ -399,6 +401,9 @@ public:
         if (!_ring.push(record)) {
             _dropped.fetch_add(1, std::memory_order_relaxed);
         }
+#if !TINY_PLATFORM_THREADS
+        _drain(); // No drain thread: format on the caller, which only a no-threads (wasm) debug build does.
+#endif
     }
 
     auto flush() -> void

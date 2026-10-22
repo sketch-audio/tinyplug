@@ -53,6 +53,18 @@ export class Ring {
         Atomics.store(this.positions, 1, r);
     }
 
+    // Consumer: every unread entry as one copy of the ring's bytes (headers and padding included), reclaimed; null
+    // when empty. What the nonisolated link posts across, unparsed.
+    take() {
+        const w = Atomics.load(this.positions, 0);
+        const r = Atomics.load(this.positions, 1);
+        if (w === r) return null;
+        const out = new Uint8Array(Number(w - r));
+        this.#read(r, out);
+        Atomics.store(this.positions, 1, w);
+        return out;
+    }
+
     #write(pos, src) {
         const start = Number(pos & this.mask);
         const first = Math.min(src.length, this.capacity - start);
@@ -67,6 +79,21 @@ export class Ring {
         if (first < dst.length) dst.set(this.data.subarray(0, dst.length - first), first);
     }
 }
+
+// Calls `fn(kind, payload)` for each entry in bytes laid out as `Ring.take` returns them, while it returns anything
+// but false. Returns the bytes from the first entry not consumed: empty when all were, or when the rest is malformed.
+export const each_entry = (bytes, fn) => {
+    const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let at = 0;
+    while (at + header_bytes <= bytes.length) {
+        const kind = v.getUint32(at, true), length = v.getUint32(at + 4, true);
+        const total = header_bytes + align_up(length);
+        if (at + total > bytes.length) return bytes.subarray(bytes.length);
+        if (fn(kind, bytes.subarray(at + header_bytes, at + header_bytes + length)) === false) break;
+        at += total;
+    }
+    return bytes.subarray(at);
+};
 
 // Moves whole entries from one module's ring to another's until the source is empty or the destination is full.
 // A full destination leaves the rest in the source: backpressure, never a drop the producer didn't decide.

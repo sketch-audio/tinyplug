@@ -1,5 +1,6 @@
 // Headless Chrome over CDP: a demo's smoke page, offline-rendered and muted. No dependencies (Node's WebSocket).
 // usage: node tests/web/smoke.mjs <Base> [--build build-web] [--page smoke.html] [--result tiny_smoke] [--shot out.png]
+//        [--no-isolation] (serve without COOP / COEP, as a nonisolated build's page)
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,7 +20,8 @@ const http_port = 8041, cdp_port = 9241;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const serve_root = arg("--root", null);
-const server = spawn("node", [join(root, "tools/web/serve.mjs"), "--port", String(http_port), "--build", build, ...(serve_root ? ["--root", serve_root] : [])], { stdio: "ignore" });
+const server = spawn("node", [join(root, "tools/web/serve.mjs"), "--port", String(http_port), "--build", build, ...(serve_root ? ["--root", serve_root] : []),
+    ...(process.argv.includes("--no-isolation") ? ["--no-isolation"] : [])], { stdio: "ignore" });
 const profile = await mkdtemp(join(tmpdir(), "tiny-chrome-"));
 const browser = spawn(chrome, ["--headless=new", "--mute-audio", "--autoplay-policy=no-user-gesture-required", "--no-first-run", "--no-default-browser-check",
     `--user-data-dir=${profile}`, `--remote-debugging-port=${cdp_port}`, "about:blank"], { stdio: "ignore" });
@@ -91,9 +93,14 @@ try {
         console.log(`screenshot: ${shot}`);
     }
     let expected = true;
+    if (process.argv.includes("--no-isolation") && result?.ok) { // The point of serving without: it ran anyway.
+        const r = await send("Runtime.evaluate", { expression: "crossOriginIsolated", returnByValue: true });
+        expected = r.result?.result?.value === false;
+        console.log(`not isolated: ${expected}`);
+    }
     if (arg("--expect", null) && result?.ok) {
         const r = await send("Runtime.evaluate", { expression: `Boolean(${arg("--expect", "true")})`, returnByValue: true });
-        expected = r.result?.result?.value === true;
+        expected = expected && r.result?.result?.value === true;
         console.log(`expect ${arg("--expect", "")}: ${expected}`);
     }
     ws.close();

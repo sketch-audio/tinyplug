@@ -129,6 +129,14 @@ checking on both ends and JS pumping between them: order and bytes across wrapar
 nothing lost, JS as producer, the latest store frame. Then the real shape: the pump on its own worker
 thread holding only the two memories (`web/wire_pump_worker.mjs`), against concurrent C++ traffic.
 
+## tasks_nothreads_test.cpp (web-nonisolated only)
+
+`Task_manager` built without threads (`TINY_PLATFORM_THREADS` 0): background and serial lanes run on main
+from `run_main`, serial in order, a slice stops at its budget, tasks post tasks, and a shutdown from inside a
+task refuses the rest. The rest of this directory needs threads and runs in the other trees; the
+nonisolated tree adds the web format's per-plug-in tests, linked (`web_split_host.mjs --link`), with
+browser pages served without COOP / COEP.
+
 ## value_helper_test.cpp
 
 `Value_helper` and `Host_formatter` as properties over a spread of parameter shapes: exact

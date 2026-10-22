@@ -1,7 +1,9 @@
 #include "tiny_core/task_manager.hpp"
+#include "tiny_core/platform_defs.hpp"
 
 #include <atomic>
 #include <cassert>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <iterator>
@@ -67,10 +69,21 @@ auto run_one(Task_manager::Core& core, std::deque<Task_manager::Task>& lane, boo
 
 auto lane_thread(std::shared_ptr<Task_manager::Core> core, std::deque<Task_manager::Task> Task_manager::Core::* lane) -> std::thread
 {
+#if TINY_PLATFORM_THREADS
     return std::thread{[core = std::move(core), lane] {
         while (run_one(*core, (*core).*lane, true)) {}
     }};
+#else
+    (void)core;
+    (void)lane;
+    return {}; // run_main runs the lane.
+#endif
 }
+
+#if !TINY_PLATFORM_THREADS
+// Enough for a task or two without costing the page a frame.
+constexpr auto lane_slice = std::chrono::milliseconds{4};
+#endif
 
 } // namespace
 
@@ -127,6 +140,14 @@ auto Task_manager::run_main() -> void
 {
     assert(is_main_thread() && "run_main must be called from the main thread!");
     while (run_one(*_core, _core->main, false)) {}
+#if !TINY_PLATFORM_THREADS
+    // Alternate the two lanes, a task at a time, until both are empty or the slice is spent.
+    const auto until = std::chrono::steady_clock::now() + lane_slice;
+    for (auto ran = true; ran && std::chrono::steady_clock::now() < until;) {
+        ran = run_one(*_core, _core->background, false);
+        ran = run_one(*_core, _core->serial, false) || ran;
+    }
+#endif
 }
 
 auto Task_manager::actor() -> Actor

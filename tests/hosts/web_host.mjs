@@ -2,7 +2,7 @@
 // usage: node web_host.mjs <Base.web directory>
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { create_memory, create_processor, encode, decode } from "../../wrappers/web/js/processor.js";
+import { create_processor_any, encode, decode } from "../../wrappers/web/js/processor.js";
 
 const [, , dir] = process.argv;
 const base = basename(dir, ".web");
@@ -15,7 +15,7 @@ const expect = (ok, what) => {
 const near = (a, b, tol = 1e-6) => Math.abs(a - b) <= tol;
 
 const module = new WebAssembly.Module(await readFile(join(dir, `${base}_processor.wasm`)));
-const load = () => create_processor(module, create_memory(), { log: (line) => console.log(`    | ${line}`) });
+const load = () => create_processor_any(module, { log: (line) => console.log(`    | ${line}`) });
 
 const quantum = 128;
 const sr = 48000;
