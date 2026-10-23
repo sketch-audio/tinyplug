@@ -55,13 +55,13 @@ auto tabular(text::Style s) -> text::Style
 
 Editor::Editor(const edit::Context& edit) : _edit{edit}, _fonts{faces()}, _start{System_clock::now()} {}
 
-auto Editor::on_gui_hide() -> void
+auto Editor::on_hide() -> void
 {
     _controls.cancel(_edit.params);
     Platform_text::cancel(_window);
 }
 
-auto Editor::on_gui_draw(Plugin_state& state) -> void
+auto Editor::on_draw(Plugin_state& state) -> void
 {
     auto& view = state.view_context;
     auto* canvas = view.canvas;

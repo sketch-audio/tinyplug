@@ -111,7 +111,7 @@ auto Editor::Rate::tick(bool arrived, double dt) -> void
     }
 }
 
-auto Editor::on_gui_show() -> void
+auto Editor::on_show() -> void
 {
     const auto addr = enum_raw(Address::Gain);
 
@@ -140,7 +140,7 @@ auto Editor::on_gui_show() -> void
     _drag->set_frame(_gain_frame);
 }
 
-auto Editor::on_gui_draw(Plugin_state& state) -> void
+auto Editor::on_draw(Plugin_state& state) -> void
 {
     _dark = state.view_context.dark; // The host\'s or system\'s appearance, this frame.
     auto& view_context = state.view_context;

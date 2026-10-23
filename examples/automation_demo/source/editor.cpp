@@ -62,7 +62,7 @@ auto Editor::_take(const models::Log_frame& log) -> void
     if (_lines.size() > max_lines) _lines.erase(_lines.begin(), _lines.begin() + static_cast<std::ptrdiff_t>(_lines.size() - max_lines));
 }
 
-auto Editor::on_gui_draw(Plugin_state& state) -> void
+auto Editor::on_draw(Plugin_state& state) -> void
 {
     _dark = state.view_context.dark; // The host\'s or system\'s appearance, this frame.
     auto& view = state.view_context;

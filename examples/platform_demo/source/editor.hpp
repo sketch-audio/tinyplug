@@ -23,11 +23,11 @@ public:
     Editor(const edit::Context& edit) : _edit{edit} { _make_probes(); }
     ~Editor() = default;
 
-    auto on_gui_create(Gui_info info) -> void { _window = info.window; } // Dialogs hang off this window.
-    auto on_gui_show() -> void {}
-    auto on_gui_draw(Plugin_state&) -> void;
-    auto on_gui_hide() -> void;
-    auto on_gui_destroy() -> void {} // Keeps `_window`: a retired token already resolves to nothing.
+    auto on_create(Gui_info info) -> void { _window = info.window; } // Dialogs hang off this window.
+    auto on_show() -> void {}
+    auto on_draw(Plugin_state&) -> void;
+    auto on_hide() -> void;
+    auto on_destroy() -> void {} // Keeps `_window`: a retired token already resolves to nothing.
 
 private:
 

@@ -22,7 +22,7 @@ auto Gui::CreateViewContents() -> void
 
     _platform_view = Platform_views::make_owning(delegate);
     _platform_view->on_create();
-    _editor->on_gui_create(Gui_info{.window = _platform_view->token()});
+    _editor->on_create(Gui_info{.window = _platform_view->token()});
 }
 
 auto Gui::CreateViewContainer() -> void
@@ -117,19 +117,19 @@ auto Gui::CreateViewContainer() -> void
 
     _tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
     _platform_view->on_show();
-    _editor->on_gui_show();
+    _editor->on_show();
 }
 
 void Gui::DeleteViewContainer()
 {
-    _editor->on_gui_hide();
+    _editor->on_hide();
     if (_params) {
         view_impl::close_session(_receiver, _ui_params, *_actions, *_params->undo_history());
         _params->edit_store().set_apply({});
     }
     _platform_view->on_hide();
 
-    _editor->on_gui_destroy();
+    _editor->on_destroy();
     _platform_view->on_destroy();
     _platform_view = nullptr;
 }

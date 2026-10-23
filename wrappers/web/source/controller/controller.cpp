@@ -144,24 +144,24 @@ public:
         _edit_store.set_apply([this](Rect_size s) { if (_view) _view->resize(s.w, s.h); });
         _view = Platform_views::make_owning(delegate);
         _view->on_create();
-        _editor->on_gui_create(Gui_info{.window = _view->token()});
+        _editor->on_create(Gui_info{.window = _view->token()});
         _selector = selector;
         _view->receive_parent(_selector.data());
         _view->resize(size.w, size.h);
         _tasks.bind_main(std::this_thread::get_id());
         _view->on_show();
-        _editor->on_gui_show();
+        _editor->on_show();
         return size;
     }
 
     auto close_view() -> void
     {
         if (!_view) return;
-        _editor->on_gui_hide();
+        _editor->on_hide();
         view_impl::close_session(_receiver, _ui_params, _actions, _undo_history);
         _edit_store.set_apply({});
         _view->on_hide();
-        _editor->on_gui_destroy();
+        _editor->on_destroy();
         _view->on_destroy();
         _view = nullptr;
     }

@@ -11,21 +11,21 @@ auto View::create_view() -> void*
     _deps.edit_store->set_apply([this](Rect_size size) { resize(size); });
 
     auto on_autorelease = [this]() {
-        _deps.editor->on_gui_hide();
+        _deps.editor->on_hide();
         view_impl::close_session(_deps.receiver, _ui_params, *_deps.actions, *_deps.undo_history);
         _deps.edit_store->set_apply({});
         _platform_view->on_hide();
-        _deps.editor->on_gui_destroy();
+        _deps.editor->on_destroy();
         _platform_view->on_destroy();
     };
     _platform_view = Platform_views::make_autoreleasing(delegate, on_autorelease);
 
     _platform_view->on_create();
-    _deps.editor->on_gui_create(Gui_info{.window = _platform_view->token()});
+    _deps.editor->on_create(Gui_info{.window = _platform_view->token()});
 
     _deps.tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
     _platform_view->on_show();
-    _deps.editor->on_gui_show();
+    _deps.editor->on_show();
 
     return _platform_view->native_handle();
 }
@@ -36,8 +36,8 @@ View::~View()
 {
     _deps.edit_store->set_apply({});
     if (_platform_view && _platform_view->native_handle()) {
-        _deps.editor->on_gui_hide();
-        _deps.editor->on_gui_destroy();
+        _deps.editor->on_hide();
+        _deps.editor->on_destroy();
     }
 }
 

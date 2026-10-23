@@ -4,11 +4,11 @@
 
 namespace tiny::edit {
 
-auto Editor::on_gui_create(Gui_info) -> void
+auto Editor::on_create(Gui_info) -> void
 {
 }
 
-auto Editor::on_gui_show() -> void
+auto Editor::on_show() -> void
 {
     auto make_translation = [](Coords fpos, Coords tpos) -> Coords {
         return {tpos.x - fpos.x, tpos.y - fpos.y};
@@ -64,7 +64,7 @@ auto Editor::on_gui_show() -> void
     });
 }
 
-auto Editor::on_gui_draw(Plugin_state& state) -> void
+auto Editor::on_draw(Plugin_state& state) -> void
 {
     _dark = state.view_context.dark; // The host\'s or system\'s appearance, this frame.
     // Update (Send actions).
@@ -106,11 +106,11 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     canvas->drawRect(SkRect::MakeXYWH(0, g_y, static_cast<float>(rsize.w), g_h), paint);
 }
 
-auto Editor::on_gui_hide() -> void
+auto Editor::on_hide() -> void
 {
 }
 
-auto Editor::on_gui_destroy() -> void
+auto Editor::on_destroy() -> void
 {
 }
 

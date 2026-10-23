@@ -35,11 +35,11 @@ namespace tiny::edit {
 template<typename T>
 concept Interface = std::constructible_from<T, const Context&> && requires(T t, Gui_info info, Plugin_state& state) {
     sizing_of<T>();
-    { t.on_gui_create(info) } -> std::same_as<void>;
-    { t.on_gui_show() } -> std::same_as<void>;
-    { t.on_gui_draw(state) } -> std::same_as<void>;
-    { t.on_gui_hide() } -> std::same_as<void>;
-    { t.on_gui_destroy() } -> std::same_as<void>;
+    { t.on_create(info) } -> std::same_as<void>;
+    { t.on_show() } -> std::same_as<void>;
+    { t.on_draw(state) } -> std::same_as<void>;
+    { t.on_hide() } -> std::same_as<void>;
+    { t.on_destroy() } -> std::same_as<void>;
 };
 
 } // namespace tiny::edit
@@ -140,7 +140,7 @@ inline auto run_frame(
 
     // Tell the user view to draw.
     _tasks.run_main();
-    _custom_view->on_gui_draw(state);
+    _custom_view->on_draw(state);
 
     resolve_frame(_receiver, _ui_params, _actions, _undo_history, state.processor_state);
 }

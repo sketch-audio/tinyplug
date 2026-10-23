@@ -36,7 +36,7 @@ Steinberg::tresult PLUGIN_API View::attached(void* parent, Steinberg::FIDString 
     // Create the platform view and notify the editor.
     _platform_view = Platform_views::make_owning(delegate);
     _platform_view->on_create();
-    _deps.editor->on_gui_create(Gui_info{.window = _platform_view->token()});
+    _deps.editor->on_create(Gui_info{.window = _platform_view->token()});
 
     _platform_view->receive_parent(parent);
 
@@ -47,7 +47,7 @@ Steinberg::tresult PLUGIN_API View::attached(void* parent, Steinberg::FIDString 
 
     _deps.tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
     _platform_view->on_show();
-    _deps.editor->on_gui_show();
+    _deps.editor->on_show();
 
     return Steinberg::kResultTrue;
 }
@@ -55,11 +55,11 @@ Steinberg::tresult PLUGIN_API View::attached(void* parent, Steinberg::FIDString 
 Steinberg::tresult PLUGIN_API View::removed()
 {
     _deps.controller->edit_store().set_apply({});
-    _deps.editor->on_gui_hide();
+    _deps.editor->on_hide();
     view_impl::close_session(_deps.receiver, _ui_params, *_deps.actions, *_deps.undo_history);
     _platform_view->on_hide();
 
-    _deps.editor->on_gui_destroy();
+    _deps.editor->on_destroy();
     _platform_view->on_destroy();
     _platform_view = nullptr;
 

@@ -31,19 +31,19 @@ public:
     {
         _deps.tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
         _platform_view->on_show();
-        _deps.editor->on_gui_show();
+        _deps.editor->on_show();
     }
 
     auto on_hide() -> void
     {
-        _deps.editor->on_gui_hide();
+        _deps.editor->on_hide();
         view_impl::close_session(_deps.receiver, _ui_params, *_deps.actions, *_deps.undo_history);
         _platform_view->on_hide();
     }
 
     auto on_destroy() -> void
     {
-        _deps.editor->on_gui_destroy();
+        _deps.editor->on_destroy();
         _platform_view->on_destroy();
     }
 

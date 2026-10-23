@@ -18,7 +18,7 @@ namespace tiny {
 //
 // Construction is explicit: naming no window is a real decision (a controller with
 // no editor, say), not something a call site should fall into by passing the wrong
-// handle. Editors pass the token they were given in `on_gui_create`.
+// handle. Editors pass the token they were given in `on_create`.
 struct Dialog_context {
     Task_manager::Actor tasks{};
     Window_token window{};

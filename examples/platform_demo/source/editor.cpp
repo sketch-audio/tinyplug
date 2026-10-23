@@ -91,7 +91,7 @@ auto Editor::_make_probes() -> void
     _probes[6] = {"DRAG", std::make_unique<Drag_recognizer>(callbacks.template operator()<Drag_info>(6, [this](const Drag_info& d) { _drag = d; }), false, true, 3.)};
 }
 
-auto Editor::on_gui_hide() -> void
+auto Editor::on_hide() -> void
 {
     _controls.cancel(_edit.params);
     Platform_text::cancel(_window);
@@ -169,7 +169,7 @@ auto Editor::_dialog(int which, const Frame& gain, const Frame& note, double gai
     }
 }
 
-auto Editor::on_gui_draw(Plugin_state& state) -> void
+auto Editor::on_draw(Plugin_state& state) -> void
 {
     _dark = state.view_context.dark; // The host\'s or system\'s appearance, this frame.
     auto& view = state.view_context;

@@ -6,7 +6,7 @@
 
 namespace tiny::edit {
 
-auto Editor::on_gui_draw(Plugin_state& state) -> void
+auto Editor::on_draw(Plugin_state& state) -> void
 {
     _dark = state.view_context.dark; // The host\'s or system\'s appearance, this frame.
     auto& view = state.view_context;

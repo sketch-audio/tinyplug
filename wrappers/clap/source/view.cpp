@@ -20,26 +20,26 @@ auto View::on_create() noexcept -> void
     _platform_view = Platform_views::make_owning(delegate);
     _platform_view->on_create();
 
-    _deps.editor->on_gui_create(Gui_info{.window = _platform_view->token()});
+    _deps.editor->on_create(Gui_info{.window = _platform_view->token()});
 }
 
 auto View::on_show() noexcept -> void
 {
     _deps.tasks->bind_main(std::this_thread::get_id()); // Can we do it here?
     _platform_view->on_show();
-    _deps.editor->on_gui_show();
+    _deps.editor->on_show();
 }
 
 auto View::on_hide() noexcept -> void
 {
-    _deps.editor->on_gui_hide();
+    _deps.editor->on_hide();
     view_impl::close_session(_deps.receiver, _ui_params, *_deps.actions, *_deps.undo_history);
     _platform_view->on_hide();
 }
 
 auto View::on_destroy() noexcept -> void
 {
-    _deps.editor->on_gui_destroy();
+    _deps.editor->on_destroy();
     _platform_view->on_destroy();
     _platform_view = nullptr;
 }

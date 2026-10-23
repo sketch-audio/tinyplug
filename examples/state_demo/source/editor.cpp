@@ -154,7 +154,7 @@ auto Editor::_load_preset(const Factory_preset& preset) -> void
     });
 }
 
-auto Editor::on_gui_hide() -> void
+auto Editor::on_hide() -> void
 {
     _end_stroke(); // A stroke cut off by the window closing still becomes a step.
     if (_dragging_depth) {
@@ -163,7 +163,7 @@ auto Editor::on_gui_hide() -> void
     }
 }
 
-auto Editor::on_gui_draw(Plugin_state& state) -> void
+auto Editor::on_draw(Plugin_state& state) -> void
 {
     _dark = state.view_context.dark; // The host\'s or system\'s appearance, this frame.
     auto& view_context = state.view_context;

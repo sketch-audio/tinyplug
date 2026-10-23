@@ -412,11 +412,11 @@ a detemplated farbot port). Common topology:
   Anything with a frame offset, a ramp or an order (automation, gestures) stays on a queue.
 
 The `view_impl::run_frame` template in [tiny_view.hpp](libs/tinyplug/include/tinyplug/tiny_view.hpp)
-is the canonical UI loop: read meters → call user's `on_gui_draw` → `resolve_frame` (normalize →
+is the canonical UI loop: read meters → call the editor's `on_draw` → `resolve_frame` (normalize →
 record undo → run a deferred undo/redo → dispatch → keep the frame as `last_frame()` → sync state →
 `Undo_history::end_frame`). All wrappers route through it (web's tick calls `resolve_frame` itself);
 if you change frame semantics, change them here. Every wrapper calls `view_impl::close_session` right
-after the editor's `on_gui_hide`, and binds its history to its queue (`bind_actions`).
+after the editor's `on_hide`, and binds its history to its queue (`bind_actions`).
 
 ## Worker channel
 

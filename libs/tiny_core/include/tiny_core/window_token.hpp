@@ -20,7 +20,7 @@ struct Window_token {
     friend auto operator==(const Window_token&, const Window_token&) -> bool = default;
 };
 
-// Handed to the editor's `on_gui_create`. A struct so per-window facts can be
+// Handed to the editor's `on_create`. A struct so per-window facts can be
 // added later without another signature break.
 struct Gui_info {
     Window_token window{};

@@ -31,7 +31,7 @@ and hear the gap. Undo, and hear it come back.
 
 **A stroke is one step.** Drag across all sixteen columns; one undo restores all of them.
 
-**Close the window mid-stroke.** The stroke still becomes a step (`on_gui_hide` commits),
+**Close the window mid-stroke.** The stroke still becomes a step (`on_hide` commits),
 and undo still works after reopening, because the history and the document live with
 the plug-in, not the window.
 

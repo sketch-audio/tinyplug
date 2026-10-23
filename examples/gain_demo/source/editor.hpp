@@ -17,11 +17,11 @@ public:
     Editor(const edit::Context& edit) : _edit{edit} {}
     ~Editor() = default;
 
-    auto on_gui_create(Gui_info) -> void {}
-    auto on_gui_show() -> void {}
-    auto on_gui_draw(Plugin_state&) -> void;
-    auto on_gui_hide() -> void { _controls.cancel(_edit.params); }
-    auto on_gui_destroy() -> void {}
+    auto on_create(Gui_info) -> void {}
+    auto on_show() -> void {}
+    auto on_draw(Plugin_state&) -> void;
+    auto on_hide() -> void { _controls.cancel(_edit.params); }
+    auto on_destroy() -> void {}
 
 private:
 

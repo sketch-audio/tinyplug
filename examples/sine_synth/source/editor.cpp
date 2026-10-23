@@ -159,7 +159,7 @@ auto Editor::_end_drag() -> void
     _dragging = -1;
 }
 
-auto Editor::on_gui_hide() -> void
+auto Editor::on_hide() -> void
 {
     // A key held while the window closes would sound forever: release everything.
     for (auto& touch : _touches) {
@@ -168,7 +168,7 @@ auto Editor::on_gui_hide() -> void
     _end_drag();
 }
 
-auto Editor::on_gui_draw(Plugin_state& state) -> void
+auto Editor::on_draw(Plugin_state& state) -> void
 {
     _dark = state.view_context.dark; // The host\'s or system\'s appearance, this frame.
     auto& view_context = state.view_context;
