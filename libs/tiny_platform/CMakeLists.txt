@@ -55,7 +55,6 @@ elseif(WIN32)
         source/win_dialogs.cpp
         source/win_paths.cpp
         source/win_view.cpp
-        source/platform_text_modal.cpp
     )
 endif()
 

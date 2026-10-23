@@ -3,9 +3,16 @@
 #include "window_registry.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <random>
 #include <ranges>
+#include <span>
+#include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #ifndef NOMINMAX
@@ -27,6 +34,7 @@
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(linker,"/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
+#include <tiny_platform/platform_text.hpp>
 #include <tiny_platform/window_context.hpp>
 #include "win_config.hpp" // WIN_GRAPHICS_GPU
 #include "win_internal.hpp"
@@ -228,6 +236,231 @@ auto resolve_wheel_delta(SHORT raw) -> Wheel_delta
     return {static_cast<float>(raw) * scale / static_cast<float>(WHEEL_DELTA), precise};
 }
 
+// MARK: - text fields
+
+// A field is an EDIT inside a container child of the editor window. The container paints the background (an EDIT
+// draws its single line at the top, so it's centred inside), colours the EDIT (WM_CTLCOLOREDIT goes to the parent),
+// and closes the pair once the field has ended.
+#define WM_TINY_FIELD_CLOSE (WM_APP + 3)
+
+namespace {
+
+struct Win_field {
+    HWND editor{};
+    HWND container{};
+    HWND edit{};
+    HFONT font{};
+    HBRUSH brush{};
+    COLORREF ink{};
+    COLORREF background{};
+    HWND previous{}; // Who had the keyboard before us, given it back after.
+    Text_field::Blur blur{};
+    std::function<void(Text_result)> done{};
+    bool finished{};
+};
+
+std::unordered_map<HWND, Win_field*> open_fields{}; // By editor window; UI thread only.
+
+auto widen(const std::string& s) -> std::wstring
+{
+    if (s.empty()) return {};
+    const auto n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+    auto w = std::wstring(static_cast<size_t>(n), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
+    return w;
+}
+
+auto narrow(const std::wstring& w) -> std::string
+{
+    if (w.empty()) return {};
+    const auto n = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+    auto s = std::string(static_cast<size_t>(n), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), s.data(), n, nullptr, nullptr);
+    return s;
+}
+
+auto colorref(std::uint32_t argb) -> COLORREF
+{
+    return RGB((argb >> 16) & 0xff, (argb >> 8) & 0xff, argb & 0xff);
+}
+
+// The font's legacy family name (name ID 1, else the typographic one, 16), Windows platform strings first: what GDI
+// matches a LOGFONT against.
+auto font_family(std::span<const std::byte> data) -> std::wstring
+{
+    const auto u8 = [&](size_t at) -> std::uint32_t { return at < data.size() ? std::to_integer<std::uint32_t>(data[at]) : 0u; };
+    const auto u16 = [&](size_t at) -> std::uint32_t { return (u8(at) << 8) | u8(at + 1); };
+    const auto u32 = [&](size_t at) -> std::uint32_t { return (u16(at) << 16) | u16(at + 2); };
+    const auto tables = u16(4);
+    for (auto i = std::uint32_t{}; i < tables; ++i) {
+        const auto record = 12 + 16 * size_t{i};
+        if (u32(record) != 0x6E616D65) continue; // 'name'
+        const auto name = size_t{u32(record + 8)};
+        const auto count = u16(name + 2);
+        const auto strings = name + u16(name + 4);
+        auto best = std::wstring{};
+        auto best_rank = 0;
+        for (auto j = std::uint32_t{}; j < count; ++j) {
+            const auto r = name + 6 + 12 * size_t{j};
+            const auto platform = u16(r), encoding = u16(r + 2), language = u16(r + 4), id = u16(r + 6), length = u16(r + 8), offset = u16(r + 10);
+            if (platform != 3 || (encoding != 1 && encoding != 10) || (id != 1 && id != 16)) continue;
+            const auto rank = (id == 1 ? 4 : 2) + (language == 0x409 ? 1 : 0);
+            if (rank <= best_rank) continue;
+            auto s = std::wstring{};
+            for (auto k = size_t{}; k + 1 < length; k += 2) s.push_back(static_cast<wchar_t>(u16(strings + offset + k)));
+            best = std::move(s);
+            best_rank = rank;
+        }
+        return best;
+    }
+    return {};
+}
+
+// The editor's font for GDI: its bytes added to this process only (AddFontMemResourceEx), once, matched by family
+// and weight. Without bytes, the system's message font.
+auto field_font(const Text_field::Font& font, double scale) -> HFONT
+{
+    static auto added = std::unordered_map<const void*, HANDLE>{};
+    auto face = std::wstring{L"Segoe UI"};
+    if (!font.data.empty()) {
+        auto& handle = added[font.data.data()];
+        if (!handle) {
+            auto count = DWORD{};
+            handle = AddFontMemResourceEx(const_cast<std::byte*>(font.data.data()), static_cast<DWORD>(font.data.size()), nullptr, &count);
+        }
+        if (auto family = font_family(font.data); handle && !family.empty()) face = std::move(family);
+    }
+    else {
+        auto metrics = NONCLIENTMETRICSW{};
+        metrics.cbSize = sizeof(metrics);
+        if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0)) face = metrics.lfMessageFont.lfFaceName;
+    }
+    auto lf = LOGFONTW{};
+    lf.lfHeight = -static_cast<LONG>(std::lround(font.size * scale));
+    lf.lfWeight = std::clamp(static_cast<LONG>(std::lround(font.weight)), LONG{1}, LONG{1000});
+    lf.lfCharSet = DEFAULT_CHARSET;
+    lf.lfQuality = CLEARTYPE_QUALITY;
+    wcsncpy_s(lf.lfFaceName, face.c_str(), _TRUNCATE);
+    return CreateFontIndirectW(&lf);
+}
+
+auto field_text(HWND edit) -> std::string
+{
+    const auto length = GetWindowTextLengthW(edit);
+    auto text = std::wstring(static_cast<size_t>(length) + 1, L'\0');
+    GetWindowTextW(edit, text.data(), length + 1);
+    text.resize(static_cast<size_t>(length));
+    return narrow(text);
+}
+
+// Ends `field` once: the answer goes out now, the windows close after this message.
+auto finish_field(Win_field* field, Text_result::Kind kind) -> void
+{
+    if (field->finished) return;
+    field->finished = true;
+    if (const auto open = open_fields.find(field->editor); open != open_fields.end() && open->second == field) open_fields.erase(open);
+    auto result = Text_result{.kind = kind, .text = field_text(field->edit)};
+    auto done = std::move(field->done);
+    field->done = {};
+    ShowWindow(field->container, SW_HIDE);
+    if (field->previous && IsWindow(field->previous)) SetFocus(field->previous);
+    PostMessageW(field->container, WM_TINY_FIELD_CLOSE, 0, 0);
+    if (done) done(std::move(result));
+}
+
+auto blur_kind(const Win_field* field) -> Text_result::Kind
+{
+    return field->blur == Text_field::Blur::Commit ? Text_result::Kind::Committed : Text_result::Kind::Cancelled;
+}
+
+// The field open over `editor`, if any, ends as its blur says: a click elsewhere in the editor, which takes no focus.
+auto blur_field(HWND editor) -> void
+{
+    if (const auto open = open_fields.find(editor); open != open_fields.end()) finish_field(open->second, blur_kind(open->second));
+}
+
+LRESULT CALLBACK edit_callback(HWND edit, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR, DWORD_PTR data)
+{
+    auto* field = reinterpret_cast<Win_field*>(data);
+    switch (message) {
+        case WM_GETDLGCODE: // A host's dialog handling must not take Enter, Escape or Tab from us.
+            return DefSubclassProc(edit, message, wparam, lparam) | DLGC_WANTALLKEYS;
+        case WM_KEYDOWN:
+            if (wparam == VK_RETURN) { finish_field(field, Text_result::Kind::Committed); return 0; }
+            if (wparam == VK_ESCAPE) { finish_field(field, Text_result::Kind::Cancelled); return 0; }
+            break;
+        case WM_CHAR: // Their characters would beep in a single-line edit.
+            if (wparam == L'\r' || wparam == 0x1B || wparam == L'\t') return 0;
+            break;
+        case WM_KILLFOCUS: {
+            const auto result = DefSubclassProc(edit, message, wparam, lparam);
+            finish_field(field, blur_kind(field));
+            return result;
+        }
+        case WM_NCDESTROY:
+            RemoveWindowSubclass(edit, edit_callback, 1);
+            break;
+        default:
+            break;
+    }
+    return DefSubclassProc(edit, message, wparam, lparam);
+}
+
+LRESULT CALLBACK field_callback(HWND container, UINT message, WPARAM wparam, LPARAM lparam)
+{
+    auto* field = reinterpret_cast<Win_field*>(GetWindowLongPtrW(container, GWLP_USERDATA));
+    if (!field) return DefWindowProcW(container, message, wparam, lparam);
+    switch (message) {
+        case WM_CTLCOLOREDIT: {
+            auto* dc = reinterpret_cast<HDC>(wparam);
+            SetTextColor(dc, field->ink);
+            SetBkColor(dc, field->background);
+            return reinterpret_cast<LRESULT>(field->brush);
+        }
+        case WM_ERASEBKGND: {
+            auto rect = RECT{};
+            GetClientRect(container, &rect);
+            FillRect(reinterpret_cast<HDC>(wparam), &rect, field->brush);
+            return 1;
+        }
+        case WM_TINY_FIELD_CLOSE:
+            DestroyWindow(container);
+            return 0;
+        case WM_NCDESTROY: {
+            // Destroyed with its editor before it ended: it still answers, once.
+            if (!field->finished) {
+                field->finished = true;
+                if (const auto open = open_fields.find(field->editor); open != open_fields.end() && open->second == field) open_fields.erase(open);
+                if (auto done = std::move(field->done)) done({.kind = Text_result::Kind::Cancelled});
+            }
+            SetWindowLongPtrW(container, GWLP_USERDATA, 0);
+            DeleteObject(field->font);
+            DeleteObject(field->brush);
+            delete field;
+            return DefWindowProcW(container, message, wparam, lparam);
+        }
+        default:
+            return DefWindowProcW(container, message, wparam, lparam);
+    }
+}
+
+auto field_class() -> const std::wstring&
+{
+    static const auto name = [] {
+        auto n = gen_random_name();
+        const auto window_class = WNDCLASSW{
+            .lpfnWndProc = field_callback,
+            .hCursor = LoadCursor(nullptr, IDC_IBEAM),
+            .lpszClassName = n.c_str(),
+        };
+        RegisterClassW(&window_class);
+        return n;
+    }();
+    return name;
+}
+
+} // namespace
+
 // MARK: - window callback
 
 LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
@@ -278,6 +511,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
         }
 
         case WM_LBUTTONDOWN: {
+            blur_field(window);
             SetCapture(window);
             const auto x = static_cast<double>(GET_X_LPARAM(lparam));
             const auto y = static_cast<double>(GET_Y_LPARAM(lparam));
@@ -360,6 +594,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
         }
 
         case WM_RBUTTONDOWN: {
+            blur_field(window);
             SetCapture(window);
             const auto x = static_cast<double>(GET_X_LPARAM(lparam));
             const auto y = static_cast<double>(GET_Y_LPARAM(lparam));
@@ -512,7 +747,8 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
     auto* window = CreateWindowW(
         registrar.class_name.c_str(), 
         registrar.window_name.c_str(), 
-        WS_CHILD | WS_CLIPSIBLINGS, 
+        WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, // Children: a text field, which our paint mustn't cover.
+        
         CW_USEDEFAULT, 
         CW_USEDEFAULT, 
         size.w,
@@ -545,6 +781,7 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
 
 Platform_view::~Platform_view()
 {
+    Platform_text::cancel(_token);
     Window_registry::remove(_token);
     discard_queued_dialogs(static_cast<HWND>(_view)); // Posted but not yet dispatched.
 
@@ -596,6 +833,85 @@ auto Platform_view::resize(int32_t w, int32_t h) -> void
     auto window = static_cast<HWND>(_view);
     SetWindowPos(window, nullptr, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     _delegate->on_resize({w, h});
+}
+
+// MARK: - Platform text
+
+auto Platform_text::edit(const Text_field& spec, std::function<void(Text_result)> on_done, Dialog_context ctx) -> void
+{
+    // As the dialogs: the answer arrives through the task manager, on main, or not at all once it's shut down.
+    auto deliver = [ctx, on_done = std::move(on_done)](Text_result result) {
+        if (on_done) ctx.tasks.on_main([on_done, result = std::move(result)] { on_done(result); });
+    };
+    auto* editor = static_cast<HWND>(Window_registry::resolve(ctx.window));
+    const auto* binder = editor ? reinterpret_cast<Platform_binder*>(GetWindowLongPtrW(editor, GWLP_USERDATA)) : nullptr;
+    if (!binder || !binder->delegate) {
+        deliver({.kind = Text_result::Kind::Cancelled});
+        return;
+    }
+    blur_field(editor); // One per view.
+
+    // Logical to client pixels, as the drawing is scaled.
+    auto client = RECT{};
+    GetClientRect(editor, &client);
+    const auto logical = binder->delegate->get_size();
+    const auto scale = logical.w > 0 && client.right > 0 ? static_cast<double>(client.right) / logical.w : 1.0;
+    const auto px = [scale](double v) { return static_cast<int>(std::lround(v * scale)); };
+    const auto x = px(spec.frame.x), y = px(spec.frame.y), w = px(spec.frame.w), h = px(spec.frame.h);
+
+    auto* field = new Win_field{
+        .editor = editor,
+        .font = field_font(spec.font, scale),
+        .brush = CreateSolidBrush(colorref(spec.background)), // Opaque even at alpha 0: a native control can't show our pixels through.
+        .ink = colorref(spec.ink),
+        .background = colorref(spec.background),
+        .previous = GetFocus(),
+        .blur = spec.blur,
+        .done = std::move(deliver),
+    };
+    field->container = CreateWindowExW(0, field_class().c_str(), widen(spec.label).c_str(), WS_CHILD | WS_CLIPCHILDREN, x, y, w, h, editor, nullptr, nullptr, nullptr);
+    if (!field->container) {
+        auto done = std::move(field->done);
+        DeleteObject(field->font);
+        DeleteObject(field->brush);
+        delete field;
+        done({.kind = Text_result::Kind::Cancelled});
+        return;
+    }
+    SetWindowLongPtrW(field->container, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(field));
+
+    // One line of the font, centred; `inset` across as the EDIT's margins.
+    auto line = h;
+    if (auto* dc = GetDC(field->container)) {
+        auto* old = SelectObject(dc, field->font);
+        auto tm = TEXTMETRICW{};
+        if (GetTextMetricsW(dc, &tm)) line = std::min(h, static_cast<int>(tm.tmHeight) + 2);
+        SelectObject(dc, old);
+        ReleaseDC(field->container, dc);
+    }
+    const auto align = spec.align == Text_field::Align::Left ? ES_LEFT : spec.align == Text_field::Align::Right ? ES_RIGHT : ES_CENTER;
+    field->edit = CreateWindowExW(0, WC_EDITW, widen(spec.initial).c_str(), WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | static_cast<DWORD>(align),
+                                  0, (h - line) / 2, w, line, field->container, nullptr, nullptr, nullptr);
+    if (!field->edit) {
+        finish_field(field, Text_result::Kind::Cancelled);
+        return;
+    }
+    SendMessageW(field->edit, WM_SETFONT, reinterpret_cast<WPARAM>(field->font), FALSE);
+    const auto inset = static_cast<WORD>(std::max(0, px(spec.inset)));
+    SendMessageW(field->edit, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(inset, inset));
+    SetWindowSubclass(field->edit, edit_callback, 1, reinterpret_cast<DWORD_PTR>(field));
+
+    open_fields[editor] = field;
+    ShowWindow(field->container, SW_SHOW);
+    SetFocus(field->edit);
+    const auto end = static_cast<LPARAM>(GetWindowTextLengthW(field->edit));
+    SendMessageW(field->edit, EM_SETSEL, spec.select_all ? 0 : static_cast<WPARAM>(end), end);
+}
+
+auto Platform_text::cancel(Window_token window) -> void
+{
+    auto* editor = static_cast<HWND>(Window_registry::resolve(window));
+    if (const auto open = open_fields.find(editor); editor && open != open_fields.end()) finish_field(open->second, Text_result::Kind::Cancelled);
 }
 
 // MARK: - dialog support

@@ -11,13 +11,13 @@
 
 namespace tiny {
 
-// A native text field over the editor, for typing a value or a name: NSTextField (macOS), UITextField (iOS), <input>
-// (web). The OS owns focus, IME, dead keys, the clipboard, selection and accessibility, and a host honours a focused
-// native field; nothing reads keys from the host. Where there's no native field yet (Windows) it's the modal text input.
+// A native text field over the editor, for typing a value or a name: NSTextField (macOS), UITextField (iOS), an EDIT
+// control (Windows), <input> (web). The OS owns focus, IME, dead keys, the clipboard, selection and accessibility, and
+// a host honours a focused native field; nothing reads keys from the host.
 struct Text_field {
     Frame frame{};                    // logical, in the view
     std::string initial{};
-    std::string label{};              // what it's for ("Gain"): read by screen readers, the modal fallback's title
+    std::string label{};              // what it's for ("Gain"): read by screen readers
 
     // The editor's own font, from its embedded bytes (registered nowhere); empty is the system's.
     struct Font {
@@ -27,7 +27,8 @@ struct Text_field {
     } font{};
 
     std::uint32_t ink{0xff000000};    // SkColors
-    std::uint32_t background{0xffffffff}; // alpha 0: transparent, over the editor's own drawing (a popover's panel)
+    std::uint32_t background{0xffffffff}; // alpha 0: transparent over the editor's drawing (a popover's panel); Windows
+                                          // can't show a native control through, and paints the RGB opaque
     float inset{4};                   // horizontal padding inside `frame`, logical; the text is centred vertically
 
     enum class Align { Left, Center, Right } align{Align::Center};
