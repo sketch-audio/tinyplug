@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cwchar>
 #include <filesystem>
 #include <fstream>
@@ -32,10 +33,13 @@
 #include <CommCtrl.h>
 #include <commdlg.h> // Dialogs
 #include <dwmapi.h>
+#include <dwrite_3.h>
 #include <shellapi.h>
+#include <wrl/client.h>
 
 #pragma comment(lib,"comctl32.lib")
 #pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "dwrite.lib")
 #pragma comment(lib, "Shell32.lib")
 #pragma comment(linker,"/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
@@ -289,36 +293,48 @@ auto colorref(std::uint32_t argb) -> COLORREF
     return RGB((argb >> 16) & 0xff, (argb >> 8) & 0xff, argb & 0xff);
 }
 
-// One of the font's names (1: legacy family, 16: typographic family), from its Windows-platform strings, US English
-// first: the names GDI knows a font by.
-auto font_name(std::span<const std::byte> data, std::uint32_t wanted) -> std::wstring
+struct Gdi_face {
+    std::wstring family{};
+    LONG weight{};
+};
+
+// The faces GDI lists the font under, from DirectWrite's Win32 names. GDI doesn't use the name table's family: it
+// derives names from the font's STAT table, one per named instance, with any axis value that isn't elidable kept in
+// ("Inter Variable Text Medium" for Inter's opsz "Text"). Bold folds into the base family at weight 700.
+auto gdi_faces(std::span<const std::byte> data) -> std::vector<Gdi_face>
 {
-    const auto u8 = [&](size_t at) -> std::uint32_t { return at < data.size() ? std::to_integer<std::uint32_t>(data[at]) : 0u; };
-    const auto u16 = [&](size_t at) -> std::uint32_t { return (u8(at) << 8) | u8(at + 1); };
-    const auto u32 = [&](size_t at) -> std::uint32_t { return (u16(at) << 16) | u16(at + 2); };
-    const auto tables = u16(4);
-    for (auto i = std::uint32_t{}; i < tables; ++i) {
-        const auto record = 12 + 16 * size_t{i};
-        if (u32(record) != 0x6E616D65) continue; // 'name'
-        const auto name = size_t{u32(record + 8)};
-        const auto count = u16(name + 2);
-        const auto strings = name + u16(name + 4);
-        auto best = std::wstring{};
-        auto best_rank = 0;
-        for (auto j = std::uint32_t{}; j < count; ++j) {
-            const auto r = name + 6 + 12 * size_t{j};
-            const auto platform = u16(r), encoding = u16(r + 2), language = u16(r + 4), id = u16(r + 6), length = u16(r + 8), offset = u16(r + 10);
-            if (platform != 3 || (encoding != 1 && encoding != 10) || id != wanted) continue;
-            const auto rank = language == 0x409 ? 2 : 1;
-            if (rank <= best_rank) continue;
-            auto text = std::wstring{};
-            for (auto k = size_t{}; k + 1 < length; k += 2) text.push_back(static_cast<wchar_t>(u16(strings + offset + k)));
-            best = std::move(text);
-            best_rank = rank;
+    using Microsoft::WRL::ComPtr;
+    auto factory = ComPtr<IDWriteFactory5>{};
+    if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory5), reinterpret_cast<IUnknown**>(factory.GetAddressOf())))) return {};
+    auto loader = ComPtr<IDWriteInMemoryFontFileLoader>{};
+    if (FAILED(factory->CreateInMemoryFontFileLoader(&loader)) || FAILED(factory->RegisterFontFileLoader(loader.Get()))) return {};
+    auto faces = std::vector<Gdi_face>{};
+    auto file = ComPtr<IDWriteFontFile>{};
+    auto builder = ComPtr<IDWriteFontSetBuilder1>{};
+    auto set = ComPtr<IDWriteFontSet>{};
+    if (SUCCEEDED(loader->CreateInMemoryFontFileReference(factory.Get(), data.data(), static_cast<UINT32>(data.size()), nullptr, &file))
+        && SUCCEEDED(factory->CreateFontSetBuilder(&builder)) && SUCCEEDED(builder->AddFontFile(file.Get())) && SUCCEEDED(builder->CreateFontSet(&set))) {
+        const auto property = [&](UINT32 i, DWRITE_FONT_PROPERTY_ID id) -> std::wstring {
+            auto exists = BOOL{};
+            auto strings = ComPtr<IDWriteLocalizedStrings>{};
+            if (FAILED(set->GetPropertyValues(i, id, &exists, &strings)) || !exists || !strings) return {};
+            auto index = UINT32{};
+            if (FAILED(strings->FindLocaleName(L"en-us", &index, &exists)) || !exists) index = 0;
+            auto length = UINT32{};
+            if (FAILED(strings->GetStringLength(index, &length))) return {};
+            auto s = std::wstring(size_t{length} + 1, L'\0');
+            if (FAILED(strings->GetString(index, s.data(), length + 1))) return {};
+            s.resize(length);
+            return s;
+        };
+        for (auto i = UINT32{}; i < set->GetFontCount(); ++i) {
+            auto family = property(i, DWRITE_FONT_PROPERTY_ID_WIN32_FAMILY_NAME);
+            const auto weight = std::wcstol(property(i, DWRITE_FONT_PROPERTY_ID_WEIGHT).c_str(), nullptr, 10);
+            if (!family.empty()) faces.push_back({std::move(family), weight > 0 ? weight : LONG{400}});
         }
-        return best;
     }
-    return {};
+    factory->UnregisterFontFileLoader(loader.Get());
+    return faces;
 }
 
 // The font's bytes added to this process only: from memory, else from a temporary file with FR_PRIVATE. Never the
@@ -367,34 +383,30 @@ auto make_font(const std::wstring& face, LONG height, LONG weight) -> HFONT
     return CreateFontIndirectW(&lf);
 }
 
-// The editor's font for GDI, private to this process. GDI matches by name, and lists a variable font's weights under
-// named instances ("Inter Variable Medium"); each candidate is kept only if GDI really chose it. Else the system's
-// message font, as without bytes.
+// The editor's font for GDI, private to this process. GDI has only a variable font's named instances, so the weight
+// snaps to the nearest one; it's kept only if GDI really chose it. Else the system's message font, as without bytes.
 auto field_font(const Text_field::Font& font, double scale) -> HFONT
 {
     const auto height = -static_cast<LONG>(std::lround(font.size * scale));
     const auto weight = std::clamp(static_cast<LONG>(std::lround(font.weight)), LONG{1}, LONG{1000});
     if (!font.data.empty() && add_font(font.data)) {
-        static constexpr const wchar_t* instance_names[] = {L"Thin", L"ExtraLight", L"Light", L"Regular", L"Medium", L"SemiBold", L"Bold", L"ExtraBold", L"Black"};
-        const auto hundred = std::clamp((weight + 50) / 100, LONG{1}, LONG{9});
-        const auto family = font_name(font.data, 1);
-        const auto typographic = font_name(font.data, 16);
-        auto candidates = std::vector<std::pair<std::wstring, LONG>>{};
-        if (!family.empty() && hundred != 4 && hundred != 7) candidates.emplace_back(family + L" " + instance_names[hundred - 1], LONG{400});
-        if (!family.empty()) candidates.emplace_back(family, weight);
-        if (!typographic.empty() && typographic != family) candidates.emplace_back(typographic, weight);
-        for (const auto& [face, w] : candidates) {
-            auto* candidate = make_font(face, height, w);
-            if (candidate && _wcsicmp(chosen_face(candidate).c_str(), face.c_str()) == 0) {
+        static auto listed = std::unordered_map<const void*, std::vector<Gdi_face>>{};
+        auto found = listed.find(font.data.data());
+        if (found == listed.end()) found = listed.emplace(font.data.data(), gdi_faces(font.data)).first;
+        const auto& faces = found->second;
+        const auto nearest = std::ranges::min_element(faces, {}, [&](const Gdi_face& f) { return std::abs(f.weight - weight); });
+        if (nearest != faces.end()) {
+            auto* candidate = make_font(nearest->family, height, nearest->weight);
+            if (candidate && _wcsicmp(chosen_face(candidate).c_str(), nearest->family.c_str()) == 0) {
 #ifndef NDEBUG
-                OutputDebugStringW((L"tinyplug: text field font " + face + L"\n").c_str());
+                OutputDebugStringW((L"tinyplug: text field font " + nearest->family + L" " + std::to_wstring(nearest->weight) + L"\n").c_str());
 #endif
                 return candidate;
             }
             if (candidate) DeleteObject(candidate);
         }
 #ifndef NDEBUG
-        OutputDebugStringW((L"tinyplug: text field font not matched (" + family + L"), the system's instead\n").c_str());
+        OutputDebugStringW((L"tinyplug: text field font not matched (" + std::to_wstring(faces.size()) + L" faces), the system's instead\n").c_str());
 #endif
     }
     auto face = std::wstring{L"Segoe UI"};
