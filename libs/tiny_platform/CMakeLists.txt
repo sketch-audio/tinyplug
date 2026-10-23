@@ -25,7 +25,6 @@ if(APPLE)
             source/ios_dialogs.mm
             source/ios_paths.mm
             source/ios_view.mm
-            source/platform_text_modal.cpp
         )
     else()
         # mac_view.mm is compiled per-plugin-format (in each make_xxx_plugin.cmake)

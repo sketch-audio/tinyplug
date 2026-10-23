@@ -1,4 +1,4 @@
-// Platform_text where there's no native inline field yet (iOS, Windows): the modal text input, titled with the
+// Platform_text where there's no native inline field yet (Windows): the modal text input, titled with the
 // field's label, the initial text as its message (it can't prefill). An empty answer reads as cancelled, as the dialog
 // reports one.
 #include <tiny_platform/platform_text.hpp>

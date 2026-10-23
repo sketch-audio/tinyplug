@@ -2,13 +2,16 @@
 
 #include "window_registry.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <unordered_map>
 #include <unordered_set>
 
+#import <CoreText/CoreText.h>
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 
+#include <tiny_platform/platform_text.hpp>
 #include <tiny_platform/window_context.hpp>
 
 #include "ios_config.hpp"
@@ -39,6 +42,163 @@ inline auto fps_for_thermal(NSProcessInfoThermalState state) -> int
 
 }
 
+// MARK: - Text field
+
+namespace {
+
+auto ui_color(std::uint32_t argb) -> UIColor*
+{
+    return [UIColor colorWithRed:((argb >> 16) & 0xff) / 255.0 green:((argb >> 8) & 0xff) / 255.0
+                            blue:(argb & 0xff) / 255.0 alpha:((argb >> 24) & 0xff) / 255.0];
+}
+
+// The editor's embedded font at its weight and size, never registered with the system; else the system font.
+auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
+{
+    if (!font.data.empty()) {
+        auto* data = CFDataCreateWithBytesNoCopy(nullptr, reinterpret_cast<const UInt8*>(font.data.data()), static_cast<CFIndex>(font.data.size()), kCFAllocatorNull);
+        auto* base = CTFontManagerCreateFontDescriptorFromData(data);
+        CFRelease(data);
+        if (base) {
+            auto* variation = @{@(0x77676874): @(font.weight), @(0x6f70737a): @(font.size)}; // 'wght', 'opsz'
+            auto* descriptor = CTFontDescriptorCreateCopyWithAttributes(base, (CFDictionaryRef)@{(id)kCTFontVariationAttribute: variation});
+            CFRelease(base);
+            auto* ct = CTFontCreateWithFontDescriptor(descriptor, font.size, nullptr);
+            CFRelease(descriptor);
+            if (ct) return [(UIFont*)ct autorelease]; // Toll-free bridged.
+        }
+    }
+    const auto weight = font.weight >= 650 ? UIFontWeightBold : font.weight >= 550 ? UIFontWeightSemibold : font.weight >= 450 ? UIFontWeightMedium : UIFontWeightRegular;
+    return [UIFont systemFontOfSize:font.size weight:weight];
+}
+
+} // namespace
+
+// A field over the editor, its own delegate. Ends once: Return commits, a hardware keyboard's Escape cancels,
+// a tap elsewhere in the editor does what `blur` says. Floats above the on-screen keyboard while it covers it.
+@interface IosTextField : UITextField <UITextFieldDelegate>
+- (id)initWithSpec:(const tiny::Text_field&)spec frame:(CGRect)frame done:(std::function<void(tiny::Text_result)>)done;
+- (void)begin:(bool)selectAll;
+- (void)blur;
+- (void)finish:(tiny::Text_result::Kind)kind;
+@end
+
+@implementation IosTextField {
+    std::function<void(tiny::Text_result)> _done;
+    tiny::Text_field::Blur _blur;
+    CGRect _home; // Where the editor put it; it floats up from here over the keyboard.
+    bool _finished;
+}
+
+- (id)initWithSpec:(const tiny::Text_field&)spec frame:(CGRect)frame done:(std::function<void(tiny::Text_result)>)done {
+    self = [super initWithFrame:frame];
+    if (!self) return nil;
+    _done = std::move(done);
+    _blur = spec.blur;
+    _home = frame;
+
+    auto* initial = [NSString stringWithUTF8String:spec.initial.c_str()]; // nil for invalid UTF-8
+    self.text = initial ? initial : @"";
+    self.font = ui_font(spec.font);
+    self.textColor = ui_color(spec.ink);
+    self.tintColor = ui_color(spec.ink); // The caret and selection handles.
+    self.backgroundColor = (spec.background >> 24) != 0 ? ui_color(spec.background) : UIColor.clearColor;
+    self.textAlignment = spec.align == tiny::Text_field::Align::Left ? NSTextAlignmentLeft
+                       : spec.align == tiny::Text_field::Align::Right ? NSTextAlignmentRight : NSTextAlignmentCenter;
+    self.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
+    self.borderStyle = UITextBorderStyleNone;
+    const auto pad = [](CGFloat w) { return [[[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 1)] autorelease]; };
+    self.leftView = pad(spec.inset);
+    self.leftViewMode = UITextFieldViewModeAlways;
+    self.rightView = pad(spec.inset);
+    self.rightViewMode = UITextFieldViewModeAlways;
+    self.autocorrectionType = UITextAutocorrectionTypeNo;
+    self.spellCheckingType = UITextSpellCheckingTypeNo;
+    self.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    self.returnKeyType = UIReturnKeyDone;
+    if (!spec.label.empty()) self.accessibilityLabel = [NSString stringWithUTF8String:spec.label.c_str()];
+    self.delegate = self;
+
+    auto* center = [NSNotificationCenter defaultCenter];
+    [center addObserver:self selector:@selector(keyboardWillChange:) name:UIKeyboardWillChangeFrameNotification object:nil];
+    [center addObserver:self selector:@selector(keyboardWillHide:) name:UIKeyboardWillHideNotification object:nil];
+    return self;
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [super dealloc];
+}
+
+- (void)begin:(bool)selectAll {
+    [self becomeFirstResponder];
+    if (selectAll) [self selectAll:nil];
+    else self.selectedTextRange = [self textRangeFromPosition:self.endOfDocument toPosition:self.endOfDocument];
+}
+
+- (NSArray<UIKeyCommand*>*)keyCommands {
+    auto* escape = [UIKeyCommand keyCommandWithInput:UIKeyInputEscape modifierFlags:0 action:@selector(escape:)];
+    if (@available(iOS 15, *)) escape.wantsPriorityOverSystemBehavior = YES;
+    return @[escape];
+}
+
+- (void)escape:(UIKeyCommand*)command {
+    [self finish:tiny::Text_result::Kind::Cancelled];
+}
+
+- (BOOL)textFieldShouldReturn:(UITextField*)field {
+    [self finish:tiny::Text_result::Kind::Committed];
+    return NO;
+}
+
+- (void)textFieldDidEndEditing:(UITextField*)field {
+    [self blur];
+}
+
+- (void)blur {
+    [self finish:_blur == tiny::Text_field::Blur::Commit ? tiny::Text_result::Kind::Committed : tiny::Text_result::Kind::Cancelled];
+}
+
+// Clear of the keyboard: up just far enough, never above the editor's top.
+- (void)keyboardWillChange:(NSNotification*)note {
+    auto* superview = self.superview;
+    if (!superview || !self.window) return;
+    const auto screen = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    const auto keyboard = [superview convertRect:screen fromCoordinateSpace:self.window.screen.coordinateSpace];
+    auto frame = _home;
+    constexpr auto gap = 8.0;
+    if (CGRectIntersectsRect(keyboard, superview.bounds) && CGRectGetMaxY(frame) > CGRectGetMinY(keyboard) - gap) {
+        frame.origin.y = std::max(0.0, CGRectGetMinY(keyboard) - gap - frame.size.height);
+    }
+    self.frame = frame;
+}
+
+- (void)keyboardWillHide:(NSNotification*)note {
+    self.frame = _home;
+}
+
+- (void)finish:(tiny::Text_result::Kind)kind {
+    if (_finished) return;
+    _finished = true;
+    auto result = tiny::Text_result{.kind = kind, .text = std::string{self.text.UTF8String ? self.text.UTF8String : ""}};
+    auto done = std::move(_done);
+    _done = {};
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+
+    // Out of the view after this event: UIKit is still inside our delegate callbacks.
+    [self retain];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self resignFirstResponder];
+        [self removeFromSuperview];
+        [self release];
+    });
+    if (done) done(std::move(result));
+}
+
+@end
+
+// MARK: - View
+
 @interface IosView : UIView {
     std::shared_ptr<tiny::View_delegate> _delegate;
 }
@@ -49,6 +209,8 @@ inline auto fps_for_thermal(NSProcessInfoThermalState state) -> int
 - (void)applyFrameRate;   // Retunes the live link; overridden by IosMetalView.
 - (void)resumeDisplayLink; // Visibility entry points — these track `_link_wanted`.
 - (void)suspendDisplayLink;
+- (void)beginTextField:(const tiny::Text_field&)spec done:(std::function<void(tiny::Text_result)>)done;
+- (void)endTextField;
 @end
 
 @implementation IosView {
@@ -64,6 +226,36 @@ inline auto fps_for_thermal(NSProcessInfoThermalState state) -> int
     std::unordered_map<UITouch*, Pointer_data> _active_pointers;
     std::unordered_map<UITouch*, CGPoint> _activeTouches;
     tiny::Event_stream _events;
+    IosTextField* _textField; // Not retained: the subview list holds it while it's open.
+}
+
+// A native field over `spec.frame` (logical, top-down); one at a time, so an open one ends as its blur says.
+- (void)beginTextField:(const tiny::Text_field&)spec done:(std::function<void(tiny::Text_result)>)done {
+    if (auto* open = _textField) {
+        _textField = nil;
+        [open blur];
+    }
+    if (!self.window) {
+        done({.kind = tiny::Text_result::Kind::Cancelled});
+        return;
+    }
+    IosView* view = self; // Unretained: the view ends its field before it goes.
+    auto* field = [[IosTextField alloc] initWithSpec:spec frame:CGRectMake(spec.frame.x, spec.frame.y, spec.frame.w, spec.frame.h)
+                                                done:[view, done = std::move(done)](tiny::Text_result result) {
+        view->_textField = nil;
+        done(std::move(result));
+    }];
+    [self addSubview:field];
+    [field release];
+    _textField = field;
+    [field begin:spec.select_all];
+}
+
+- (void)endTextField {
+    if (auto* field = _textField) {
+        _textField = nil;
+        [field finish:tiny::Text_result::Kind::Cancelled];
+    }
 }
 
 - (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate {
@@ -254,6 +446,12 @@ inline auto fps_for_thermal(NSProcessInfoThermalState state) -> int
 
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     [super touchesBegan:touches withEvent:event];
+
+    // A tap elsewhere in the editor ends an open field (UIKit doesn't), and still reaches the editor.
+    if (auto* field = _textField) {
+        _textField = nil;
+        [field blur];
+    }
     
     using namespace tiny;
     for (UITouch* touch in touches) {
@@ -429,6 +627,7 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
 
 Platform_view::~Platform_view() 
 {
+    if (auto* view = static_cast<IosView*>(_view)) [view endTextField];
     Window_registry::remove(_token);
 
     if (_owns_view) {
@@ -471,6 +670,27 @@ auto Platform_view::resize(int32_t w, int32_t h) -> void
 {
     [(UIView*)_view setFrame:CGRectMake(0, 0, w, h)]; // So the context can get the size from the view.
     _delegate->on_resize({w, h});
+}
+
+// MARK: - Platform text
+
+auto Platform_text::edit(const Text_field& field, std::function<void(Text_result)> on_done, Dialog_context ctx) -> void
+{
+    // As the dialogs: the answer arrives through the task manager, on main, or not at all once it's shut down.
+    auto deliver = [ctx, on_done = std::move(on_done)](Text_result result) {
+        if (on_done) ctx.tasks.on_main([on_done, result = std::move(result)] { on_done(result); });
+    };
+    auto* view = static_cast<IosView*>(Window_registry::resolve(ctx.window));
+    if (!view) {
+        deliver({.kind = Text_result::Kind::Cancelled});
+        return;
+    }
+    [view beginTextField:field done:std::move(deliver)];
+}
+
+auto Platform_text::cancel(Window_token window) -> void
+{
+    if (auto* view = static_cast<IosView*>(Window_registry::resolve(window))) [view endTextField];
 }
 
 } // namespace tiny

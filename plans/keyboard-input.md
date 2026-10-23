@@ -3,11 +3,13 @@
 > Status: **part 1 in progress on `keyboard-text-fields` (2026-10-23).** `Platform_text`
 > ([platform_text.hpp](../libs/tiny_platform/include/tiny_platform/platform_text.hpp)) is in on macOS (an
 > `NSTextField` over the view, in `mac_view.mm` with per-plug-in class names) and web (an `<input>` over the canvas,
-> `web_view.cpp`), both in the editor's embedded font, registered nowhere. iOS and Windows fall back to the modal
-> `text_input` ([platform_text_modal.cpp](../libs/tiny_platform/source/platform_text_modal.cpp)). text_demo types
+> `web_view.cpp`), both in the editor's embedded font, registered nowhere. Windows falls back to the modal
+> `text_input` ([platform_text_modal.cpp](../libs/tiny_platform/source/platform_text_modal.cpp)) on Windows only; iOS has a
+> `UITextField` (ios_view.mm): a tap elsewhere in the editor ends it, a hardware keyboard's Escape cancels, and it
+> floats above the on-screen keyboard while that covers it (unverified inside an AUv3 host). text_demo types
 > slider values (right-click) and its specimen; platform_demo has INLINE > GAIN and INLINE NOTE. Checked in headless
 > Chrome (commit, Escape, clamping, the field drawn in Inter); macOS built and installed, not yet tried in hosts.
-> Remaining: the host matrix, iOS and Windows natives, part 2.
+> Remaining: the host matrix, iOS on a device, the Windows native, part 2.
 >
 > Before: no platform view delivered a key: `mac_view.mm` has no `keyDown:`, `win_view.cpp` no `WM_KEYDOWN` /
 > `WM_CHAR`, `web_view.cpp` and `editor.js` no key listeners, and `tiny_input.hpp` no key event. Modifiers work
@@ -136,7 +138,7 @@ key mapping and the claims answer.
    over tinyplug and doesn't link `tiny_platform`; the demos show the pattern (a right-click opens a field, the
    result goes through `Host_formatter::to_value` as one gesture).
 2. The matrix for part 1 on macOS; the per-host fallback only for hosts that fail.
-3. Part 1 on Windows (`EDIT`) and iOS (`UITextField`), replacing the modal fallback.
+3. Part 1 on Windows (`EDIT`), replacing the modal fallback. iOS (`UITextField`) is in, built, untried on a device.
 4. Part 2, macOS first, then VST3 `onKeyDown`, Windows, web, iOS.
 
 ## Learned building part 1

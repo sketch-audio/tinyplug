@@ -11,9 +11,9 @@
 
 namespace tiny {
 
-// A native text field over the editor, for typing a value or a name: NSTextField (macOS), <input> (web). The OS
-// owns focus, IME, dead keys, the clipboard, selection and accessibility, and a host honours a focused native field;
-// nothing reads keys from the host. Where there's no native field yet (iOS, Windows) it's the modal text input.
+// A native text field over the editor, for typing a value or a name: NSTextField (macOS), UITextField (iOS), <input>
+// (web). The OS owns focus, IME, dead keys, the clipboard, selection and accessibility, and a host honours a focused
+// native field; nothing reads keys from the host. Where there's no native field yet (Windows) it's the modal text input.
 struct Text_field {
     Frame frame{};                    // logical, in the view
     std::string initial{};
