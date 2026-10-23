@@ -6,10 +6,10 @@
 > `web_view.cpp`), both in the editor's embedded font, registered nowhere. Windows falls back to the modal
 > `text_input` ([platform_text_modal.cpp](../libs/tiny_platform/source/platform_text_modal.cpp)) on Windows only; iOS has a
 > `UITextField` (ios_view.mm): a tap elsewhere in the editor ends it, a hardware keyboard's Escape cancels, and it
-> floats above the on-screen keyboard while that covers it (unverified inside an AUv3 host). text_demo types
+> floats above the on-screen keyboard while that covers it (checked on a device in an AUv3 host, 2026-10-23). text_demo types
 > slider values (right-click) and its specimen; platform_demo has INLINE > GAIN and INLINE NOTE. Checked in headless
 > Chrome (commit, Escape, clamping, the field drawn in Inter); macOS built and installed, not yet tried in hosts.
-> Remaining: the host matrix, iOS on a device, the Windows native, part 2.
+> Remaining: the host matrix, the Windows native, part 2.
 >
 > Before: no platform view delivered a key: `mac_view.mm` has no `keyDown:`, `win_view.cpp` no `WM_KEYDOWN` /
 > `WM_CHAR`, `web_view.cpp` and `editor.js` no key listeners, and `tiny_input.hpp` no key event. Modifiers work
@@ -138,7 +138,7 @@ key mapping and the claims answer.
    over tinyplug and doesn't link `tiny_platform`; the demos show the pattern (a right-click opens a field, the
    result goes through `Host_formatter::to_value` as one gesture).
 2. The matrix for part 1 on macOS; the per-host fallback only for hosts that fail.
-3. Part 1 on Windows (`EDIT`), replacing the modal fallback. iOS (`UITextField`) is in, built, untried on a device.
+3. Part 1 on Windows (`EDIT`), replacing the modal fallback. iOS (`UITextField`) is in and works on a device.
 4. Part 2, macOS first, then VST3 `onKeyDown`, Windows, web, iOS.
 
 ## Learned building part 1
@@ -152,6 +152,11 @@ key mapping and the claims answer.
   against the header's contract (an empty string on cancel). Not fixed here.
 - **A double-click to type moves the slider first** (the first press sets the value), so Escape couldn't restore it;
   the demos use right-click / Ctrl-click, which tiny_ui's controls ignore.
+- **iOS logs `-[RTIInputSystemClient remoteTextInputSessionWithID:performInputOperation:] … requires a valid
+  sessionID … UIEmojiSearchOperations`** when the field takes the keyboard in an extension. The system's own text
+  input (the keyboard's emoji search), harmless, and nothing of ours to silence.
+- **A long press on iOS is a right click** (an earlier decision), but its touch-down arrives first, so a
+  click-to-set slider like tiny_ui's jumps before the field opens. Incremental sliders (set only by dragging) don't.
 - **On web, `focus()` from the frame loop** works on desktop; iOS Safari only raises its keyboard from a user gesture,
   so a field opened a frame later may not show it there. Unverified.
 
