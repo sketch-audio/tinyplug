@@ -115,8 +115,12 @@ auto ns_font(const tiny::Text_field::Font& font) -> NSFont*
 
     self.bezeled = NO;
     self.bordered = NO;
-    self.drawsBackground = (spec.background >> 24) != 0; // Transparent: the editor's drawing shows through.
+    // The cell paints only behind the text while editing; the layer paints the whole frame, as web's input does.
+    const auto opaque = (spec.background >> 24) != 0; // Transparent: the editor's drawing shows through.
+    self.drawsBackground = opaque;
     self.backgroundColor = ns_color(spec.background);
+    self.wantsLayer = YES;
+    if (opaque) self.layer.backgroundColor = self.backgroundColor.CGColor;
     self.textColor = ns_color(spec.ink);
     self.font = ns_font(spec.font);
     self.alignment = spec.align == tiny::Text_field::Align::Left ? NSTextAlignmentLeft
