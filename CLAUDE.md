@@ -994,6 +994,11 @@ its rules are in this file and its history in git.
 - **[client-port.md](plans/client-port.md)** — next (0.5). Bring all_plugins up on main: the `Restart` port and
   contract checks per product, and the editor features (preset names, `*`, A/B, linked controls, layout) rebuilt
   on the view model and transactions. Holds the 0.4 client defects the port should fix.
+- **[fonts-and-text.md](plans/fonts-and-text.md)** — design. A model-free `tiny_text`: embedded fonts, static or
+  variable (no OS registration), HarfBuzz shaping through SkShaper on every platform, platform rasterisers,
+  `tiny_embed` for assets. tiny_deps doesn't ship `libharfbuzz.a` yet, so SkShaper's HarfBuzz path can't link.
+- **[keyboard-input.md](plans/keyboard-input.md)** — design. Inline native text fields first, then key events
+  for shortcuts under per-frame claims; no hooks or event monitors, unclaimed keys go back to the host.
 - **[buffer-system.md](plans/buffer-system.md)** — design. Managed large audio buffers (looper, granular,
   sampler, drum machine): a processor-owned canonical source, off-thread prepare, pointer-swap install,
   persisted in the session.
@@ -1007,7 +1012,8 @@ its rules are in this file and its history in git.
   is in client-port.md). Holds the Logic diagnosis and evidence.
 - **[linux-feasibility.md](plans/linux-feasibility.md)** — feasibility. CLAP and VST3 on Linux.
 - **[roadmap-misc.md](plans/roadmap-misc.md)** — design. Windows multitouch, a macOS CPU backend, Windows
-  GPU sync, and the web format's follow-ups (by-hand checks, test gaps, Graphite on WebGPU, CI).
+  GPU sync, the web format's follow-ups (by-hand checks, test gaps, Graphite on WebGPU, CI), and the host bypass
+  from the editor.
 
 ## Things to be careful about
 

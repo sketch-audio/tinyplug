@@ -1,7 +1,7 @@
-# Plan: Roadmap miscellany — Windows multitouch, macOS CPU backend, Windows GPU sync, web follow-ups
+# Plan: Roadmap miscellany — Windows multitouch, macOS CPU backend, Windows GPU sync, web follow-ups, host bypass
 
 > Status: **design.** Three independent items in `tiny_platform`, two of them on the `Window_context` graphics seam,
-> and what the web format left when it landed (item 4).
+> what the web format left when it landed (item 4), and the host bypass from the editor (item 5).
 
 ## The graphics seam
 
@@ -114,7 +114,27 @@ Later:
 - **CI.** The `web` preset in the release CI (`all_plugins/plans/ci-build-system.md`); spk, vsl, sketch_dsp get a
   job there so a native-only assumption fails in CI, not in a product.
 
+## Item 5 — The host bypass, from the editor
+
+Every format has a framework-owned bypass the editor can neither see nor set: CLAP's `Reserved::bypass_id`, VST3's
+`bypass_param_id` (`kIsBypass`), AUv2's `kAudioUnitProperty_BypassEffect`, AUv3's `shouldBypassEffect`, AAX's
+master bypass at `bypass_address`, and the web controller's authority. Products want a bypass button that is the
+host's bypass, not a second one of their own.
+
+- **Read**: `Processor_state::bypassed`, from what each wrapper already holds on main: the CLAP and VST3 parameter
+  values, AUv2's property, AUv3's `shouldBypassEffect`, AAX's `_knob_mirror[num_params]`, the web authority.
+- **Write**: a `Set_bypass{bool}` action, which each wrapper realizes through the format's own path so the host's
+  bypass control follows: CLAP a gesture on `bypass_id` (begin, value, end through the host's flush), VST3
+  `beginEdit` / `performEdit` / `endEdit` on `bypass_param_id`, AUv2 the property plus a `PropertyChanged`
+  notification, AUv3 setting `shouldBypassEffect` (KVO tells the host), AAX touch / set / release on the master
+  bypass, web the authority.
+- **Not an undo step.** The bypass belongs to the host; a host that records it in its own undo still can. `Action_queue::normalize` passes it through without a gesture of its own.
+- Logic's own bypass doesn't use the AUv2 property (it stops rendering, see `effect.cpp`), so the editor reports
+  only the bypass the plug-in was told about. Note it in the docs, not in code.
+
+Small, every wrapper, no new transport: the values already exist on the editor's side of each split.
+
 ## Order
 
 Windows multitouch (isolated, small), then the macOS CPU backend (a port of iOS's), then Windows GPU sync (hardest).
-The web by-hand checks are independent of all three.
+The web by-hand checks and the host bypass are independent of all three.
