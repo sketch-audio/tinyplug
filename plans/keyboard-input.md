@@ -5,7 +5,7 @@
 > `NSTextField` over the view, in `mac_view.mm` with per-plug-in class names) and web (an `<input>` over the canvas,
 > `web_view.cpp`), both in the editor's embedded font, registered nowhere (Windows: `AddFontMemResourceEx`, private to
 > the process, matched by the family name read from the font's `name` table).
-> Windows has a subclassed `EDIT` in a container child (win_view.cpp), written without a Windows build to hand; iOS a
+> Windows has a subclassed `EDIT` in a container child (win_view.cpp), built and checked on Windows; iOS a
 > `UITextField` (ios_view.mm): a tap elsewhere in the editor ends it, a hardware keyboard's Escape cancels, and it
 > floats above the on-screen keyboard while that covers it (checked on a device in an AUv3 host, 2026-10-23). text_demo types
 > slider values (right-click) and its specimen; platform_demo has INLINE > GAIN and INLINE NOTE. Checked in headless
@@ -139,8 +139,8 @@ key mapping and the claims answer.
    over tinyplug and doesn't link `tiny_platform`; the demos show the pattern (a right-click opens a field, the
    result goes through `Host_formatter::to_value` as one gesture).
 2. The matrix for part 1 on macOS; the per-host fallback only for hosts that fail.
-3. ~~Part 1 on Windows (`EDIT`) and iOS (`UITextField`)~~. iOS works on a device; Windows is written, unbuilt. A
-   transparent background can't show our pixels through a native Win32 control: Windows paints the RGB opaque.
+3. ~~Part 1 on Windows (`EDIT`) and iOS (`UITextField`)~~. Both work on their devices. A transparent background
+   can't show our pixels through a native Win32 control: Windows paints the RGB opaque.
 4. Part 2, macOS first, then VST3 `onKeyDown`, Windows, web, iOS.
 
 ## Learned building part 1
@@ -159,6 +159,12 @@ key mapping and the claims answer.
   input (the keyboard's emoji search), harmless, and nothing of ours to silence.
 - **A long press on iOS is a right click** (an earlier decision), but its touch-down arrives first, so a
   click-to-set slider like tiny_ui's jumps before the field opens. Incremental sliders (set only by dragging) don't.
+- **GDI doesn't know a variable font by its name table's family.** It derives a family per named instance from STAT,
+  keeping axis values that aren't elidable ("Inter Variable Text Medium"), with Bold folded into the base family at
+  700; asking for "Inter Variable Medium" got Arial. DirectWrite's in-memory loader reports each instance's Win32
+  family and weight (`gdi_faces`), and the field takes the instance nearest the weight, checked with `GetTextFaceW`.
+  So on Windows a field's weight snaps to a named instance, and a font with optical-size instances at one weight
+  would need a size tie-break (Inter has only opsz 14 instances).
 - **On web, `focus()` from the frame loop** works on desktop; iOS Safari only raises its keyboard from a user gesture,
   so a field opened a frame later may not show it there. Unverified.
 
