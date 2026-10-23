@@ -36,7 +36,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
         {ui::column(buttons, 2, 4, 8), mode, Kind::Choice, "20 MS", ui::green, 1.},
         {ui::column(buttons, 3, 4, 8), enum_raw(Address::Click), Kind::Toggle, "CLICK", ui::amber},
     }};
-    _controls.interact(view.interaction, _edit.actions, controls, knobs);
+    _controls.interact(view.interaction, _edit.params, controls, knobs);
 
     canvas->save();
     canvas->scale(static_cast<float>(view.scale), static_cast<float>(view.scale));

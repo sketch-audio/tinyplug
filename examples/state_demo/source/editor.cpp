@@ -140,7 +140,7 @@ auto Editor::_end_stroke() -> void
 auto Editor::_set_depth(const Frame& strip, Coords pos) -> void
 {
     _depth = std::clamp((strip.y + strip.h - pos.y) / strip.h, 0., 1.);
-    _edit.actions.push(Set_param{enum_raw(Address::Depth), _depth});
+    _edit.params.set(enum_raw(Address::Depth), _depth);
 }
 
 // Params, pattern and name in one transaction: one undo step, as a host's preset load is.
@@ -158,7 +158,7 @@ auto Editor::on_gui_hide() -> void
 {
     _end_stroke(); // A stroke cut off by the window closing still becomes a step.
     if (_dragging_depth) {
-        _edit.actions.push(Action_end{enum_raw(Address::Depth)});
+        _edit.params.end(enum_raw(Address::Depth));
         _dragging_depth = false;
     }
 }
@@ -185,7 +185,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
                 }
                 else if (layout.depth.contains(down.pos)) {
                     _dragging_depth = true;
-                    _edit.actions.push(Action_start{depth_addr});
+                    _edit.params.start(depth_addr);
                     _set_depth(layout.depth, down.pos);
                 }
                 else if (layout.undo.contains(down.pos)) {
@@ -209,14 +209,14 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
                 _end_stroke();
                 if (_dragging_depth) {
                     _set_depth(layout.depth, up.pos);
-                    _edit.actions.push(Action_end{depth_addr});
+                    _edit.params.end(depth_addr);
                     _dragging_depth = false;
                 }
             },
             [&](const Pointer_cancel&) {
                 _end_stroke();
                 if (_dragging_depth) {
-                    _edit.actions.push(Action_end{depth_addr});
+                    _edit.params.end(depth_addr);
                     _dragging_depth = false;
                 }
             },

@@ -16,7 +16,7 @@ public:
 
     static constexpr auto sizing() -> Sizing { return {.preferred = {640, 300}}; }
 
-    Editor(const Edit_context& edit) : _edit{edit} {}
+    Editor(const edit::Context& edit) : _edit{edit} {}
     ~Editor() = default;
 
     auto on_gui_create(Gui_info) -> void {}
@@ -39,7 +39,7 @@ private:
         Frame name{};
     };
 
-    Edit_context _edit{};
+    edit::Context _edit{};
     bool _dark{true};
 
     bool _painting{};
@@ -56,5 +56,6 @@ private:
     auto _load_preset(const Factory_preset& preset) -> void;
 
 };
+static_assert(Interface<Editor>);
 
 } // namespace tiny::edit

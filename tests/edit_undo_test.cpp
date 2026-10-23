@@ -19,33 +19,32 @@ using audio_bench::Tests;
 using audio_bench::expect_true;
 using namespace tiny;
 
-auto start(uint32_t a) -> User_action { return Action_start{a}; }
-auto end(uint32_t a) -> User_action { return Action_end{a}; }
-auto set(uint32_t a, double v) -> User_action { return Set_param{a, v}; }
-auto begin_tx() -> User_action { return Action_start{}; }
-auto end_tx() -> User_action { return Action_end{}; }
+auto start(uint32_t a) -> edit::Action::Any { return edit::Action::Start{a}; }
+auto end(uint32_t a) -> edit::Action::Any { return edit::Action::End{a}; }
+auto set(uint32_t a, double v) -> edit::Action::Any { return edit::Action::Set{.value = v, .address = a}; }
+auto begin_tx() -> edit::Action::Any { return edit::Action::Start{}; }
+auto end_tx() -> edit::Action::Any { return edit::Action::End{}; }
 
-auto describe(const User_action& action) -> std::string
+auto describe(const edit::Action::Any& action) -> std::string
 {
     return std::visit(Inline_visitor{
-        [](const Action_start& s) { return s.address ? std::format("S{}", *s.address) : std::string{"S"}; },
-        [](const Action_end& e) { return e.address ? std::format("E{}", *e.address) : std::string{"E"}; },
-        [](const Set_param& p) { return std::format("={}", p.address); },
-        [](const Request_resize&) { return std::string{"R"}; },
+        [](const edit::Action::Start& s) { return s.address ? std::format("S{}", *s.address) : std::string{"S"}; },
+        [](const edit::Action::End& e) { return e.address ? std::format("E{}", *e.address) : std::string{"E"}; },
+        [](const edit::Action::Set& p) { return std::format("={}", p.address); },
     }, action);
 }
 
-auto describe(const std::vector<User_action>& actions) -> std::string
+auto describe(const std::vector<edit::Action::Any>& actions) -> std::string
 {
     auto out = std::string{};
     for (const auto& a : actions) out += (out.empty() ? "" : " ") + describe(a);
     return out;
 }
 
-auto normalized(const std::vector<User_action>& in) -> std::string
+auto normalized(const std::vector<edit::Action::Any>& in) -> std::string
 {
     auto stream = Edit_stream{};
-    auto out = std::vector<User_action>{};
+    auto out = std::vector<edit::Action::Any>{};
     stream.normalize(in, out);
     return describe(out);
 }
@@ -89,13 +88,13 @@ struct Rig {
     Action_queue actions{};
     Undo_history history{};
     std::array<double, 4> params{};
-    std::vector<User_action> host{}; // What the wrapper's action handler received.
-    Ui_receiver receiver{};
+    std::vector<edit::Action::Any> host{}; // What the wrapper's action handler received.
+    edit::Connection receiver{};
 
     Rig()
     {
         history.bind_actions(actions.actor());
-        receiver.action_handler = [this](const User_action& a) { host.push_back(a); };
+        receiver.action_handler = [this](const edit::Action::Any& a) { host.push_back(a); };
     }
 
     // One frame: the editor's draw, then run_frame's tail.
@@ -105,10 +104,10 @@ struct Rig {
         if (draw) draw(actions.actor());
         auto state = Processor_state{};
         state.params = params;
-        view_impl::resolve_frame(receiver, params, actions, history, state, [](auto, auto) {});
+        view_impl::resolve_frame(receiver, params, actions, history, state);
     }
 
-    auto push(std::initializer_list<User_action> list) -> void
+    auto push(std::initializer_list<edit::Action::Any> list) -> void
     {
         frame([&](Action_queue::Actor a) { for (const auto& x : list) a.push(x); });
     }
@@ -154,7 +153,7 @@ auto add_stream_tests() -> void
 
     Tests::add("stream: gestures carry across frames, and close_all ends what is open", [] {
         auto stream = Edit_stream{};
-        auto out = std::vector<User_action>{};
+        auto out = std::vector<edit::Action::Any>{};
         stream.normalize(std::vector{begin_tx(), start(2), set(3, .1)}, out);
         stream.normalize(std::vector{set(2, .4)}, out);
         stream.close_all(out);
@@ -298,7 +297,7 @@ auto add_undo_tests() -> void
         r.frame([&](Action_queue::Actor a) {
             r.history.actor().transaction([&] { a.push(set(0, .5)); doc.value = std::byte{9}; doc.waiting = true; });
         });
-        auto changes = std::vector<Set_param>{};
+        auto changes = std::vector<edit::Action::Set>{};
         const auto after = std::array<double, 4>{.5, .8, 0, 0};
         r.history.push_host_load(r.params, after, changes);
         r.params = after;
@@ -357,7 +356,7 @@ auto add_undo_tests() -> void
         auto r = Rig{};
         auto before = std::array<double, 4>{};
         auto after = std::array<double, 4>{.5, 0, 0, 0};
-        auto changes = std::vector<Set_param>{};
+        auto changes = std::vector<edit::Action::Set>{};
         r.history.push_host_load(before, after, changes);
         r.params = after;
         const auto from = std::byte{0}, to = std::byte{4};

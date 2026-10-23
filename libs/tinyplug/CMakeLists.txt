@@ -12,7 +12,7 @@ add_library(${TINY_PLUG_LIB} INTERFACE)
 target_sources(${TINY_PLUG_LIB} INTERFACE FILE_SET HEADERS BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include FILES
     include/tinyplug/action_queue.hpp
     include/tinyplug/tiny_edit.hpp
-    include/tinyplug/tiny_events.hpp
+    include/tinyplug/edit_types.hpp
     include/tinyplug/tiny_note_io.hpp
     include/tinyplug/tiny_process.hpp
     include/tinyplug/tiny_state_link.hpp

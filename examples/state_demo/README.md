@@ -54,7 +54,7 @@ for the params and the pattern together.
   (`TINY_FORMAT_PRESETS_DIR`); a `.vstpreset` is placed by an installer. After changing a
   preset, build and run `StateDemo_tfx_exporter` and `StateDemo_vstpreset_exporter`.
 - **The editor's buttons** load the same JSON, compiled in by `CMakeLists.txt`
-  (`factory_presets.hpp`), through `Edit_context::apply_preset` inside a transaction that
+  (`factory_presets.hpp`), through `edit::Context::apply_preset` inside a transaction that
   also sets the name.
 
 The **current preset's name** is view state (`models/view.hpp`, `View::Undoable`): saved with

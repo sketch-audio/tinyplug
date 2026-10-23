@@ -33,13 +33,14 @@ public:
     using Super = Steinberg::Vst::EditControllerEx1;
     Controller() : Super{}
     {
-        _editor.emplace(Edit_context{
-            .actions = _actions.actor(),
+        _editor.emplace(edit::Context{
+            .params = _actions.actor(),
             .format = Format::Vst3,
             .state_adapter = _state_adapter.actor(),
             .undo_redo = _undo_history.actor(),
             .tasks = _tasks.actor(),
             .view = _edit_store.handle(),
+            .size = _edit_store.size_handle(),
 #if TINY_HAS_STATE
             .state = _state_link.actor(),
 #endif
@@ -133,7 +134,7 @@ protected:
     static constexpr auto num_meters = User_meters::num_meters;
 
     // Undo history and action queue live on the controller (plug-in lifetime), not in
-    // the view, so the editor's Edit_context (built once at construction) stays valid
+    // the view, so the editor's edit::Context (built once at construction) stays valid
     // across window open/close and host preset loads are captured with the window closed.
     Undo_history _undo_history{};
     Action_queue _actions{};
@@ -150,7 +151,7 @@ protected:
         return out;
     }
 
-    // State adapter lives on the controller too (the editor's Edit_context references
+    // State adapter lives on the controller too (the editor's edit::Context references
     // it for life). save_model reads the controller's current normalized params.
     State_adapter _state_adapter{{
         .load_model = []() {
@@ -180,7 +181,7 @@ protected:
     // Lock-free: `notify` may run on whatever thread the processor's relay sent from.
     blocks::Mailbox<models::Resolved::Blocks> _block_mailbox{};
 #endif
-    Change_set<Set_param, User_params::num_params> _state_queue{}; // Knob space, to the editor.
+    Change_set<edit::Action::Set, User_params::num_params> _state_queue{}; // Knob space, to the editor.
 
     std::unordered_set<uint32_t> _gestured{};
 

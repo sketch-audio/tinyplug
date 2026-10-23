@@ -15,13 +15,14 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
 {
     using namespace params;
 
-    _editor.emplace(Edit_context{
-        .actions = _actions.actor(),
+    _editor.emplace(edit::Context{
+        .params = _actions.actor(),
         .format = Format::Auv2,
         .state_adapter = _state_adapter.actor(),
         .undo_redo = _undo_history.actor(),
         .tasks = _tasks.actor(),
         .view = _edit_store.handle(),
+        .size = _edit_store.size_handle(),
 #if TINY_HAS_STATE
         .state = _state_link.actor(),
 #endif
@@ -714,7 +715,7 @@ auto Effect::_update_state(const Maybe_values<double>& knob_values, State_map le
 
     // One undo step for the params, the document and the view.
     const auto after = _snapshot_knob_params();
-    auto changes = std::vector<Set_param>{};
+    auto changes = std::vector<edit::Action::Set>{};
     _undo_history.push_host_load(before, after, changes);
     _load_state_record(record);
     load_editor_state(_edit_store, std::move(legacy_editor), std::nullopt, after, info);
@@ -928,7 +929,7 @@ auto Effect::_apply_state(CFPropertyListRef plist) -> OSStatus
 
     // The load's undo step opens in the param block below; the document and the editor half join it.
     auto host_after = _snapshot_knob_params();
-    auto host_changes = std::vector<Set_param>{};
+    auto host_changes = std::vector<edit::Action::Set>{};
 
     // --- Parameter Values ---
     auto params_val = int32_t{};

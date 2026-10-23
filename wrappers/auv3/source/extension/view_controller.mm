@@ -45,13 +45,14 @@ static_assert(false, "ARC must be enabled for this file");
     Auv3_AUAudioUnit* auv3 = (Auv3_AUAudioUnit*)au;
     [auv3 setupParameterTree];
     if (!_editor) {
-        _editor = std::make_shared<tiny::User_editor>(tiny::Edit_context{
-            .actions = [auv3 actions]->actor(),
+        _editor = std::make_shared<tiny::User_editor>(tiny::edit::Context{
+            .params = [auv3 actions]->actor(),
             .format = tiny::Format::Auv3,
             .state_adapter = [auv3 stateAdapter]->actor(),
             .undo_redo = [auv3 undoHistory]->actor(),
             .tasks = [auv3 tasks]->actor(), // The AU owns it: the editor lives there too.
             .view = [auv3 editStore]->handle(),
+            .size = [auv3 editStore]->size_handle(),
 #if TINY_HAS_STATE
             .state = [auv3 stateActor],
 #endif

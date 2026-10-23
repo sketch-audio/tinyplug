@@ -53,11 +53,11 @@ auto tabular(text::Style s) -> text::Style
 
 } // namespace
 
-Editor::Editor(const Edit_context& edit) : _edit{edit}, _fonts{faces()}, _start{System_clock::now()} {}
+Editor::Editor(const edit::Context& edit) : _edit{edit}, _fonts{faces()}, _start{System_clock::now()} {}
 
 auto Editor::on_gui_hide() -> void
 {
-    _controls.cancel(_edit.actions);
+    _controls.cancel(_edit.params);
     Platform_text::cancel(_window);
 }
 
@@ -114,7 +114,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
             _type_specimen(specimen, size, weight, view.dark);
         }
     }
-    _controls.interact(view.interaction, _edit.actions, controls, knobs);
+    _controls.interact(view.interaction, _edit.params, controls, knobs);
 
     canvas->save();
     canvas->scale(static_cast<float>(view.scale), static_cast<float>(view.scale));
@@ -340,9 +340,9 @@ auto Editor::_type_value(Address address, const Frame& frame, std::span<const do
         const auto& semantics = User_params::param_spec(a).semantics;
         const auto plain = Host_formatter::to_value(result.text, semantics); // Plain space, though to_string takes host.
         if (!plain) return;
-        _edit.actions.push(Action_start{a});
-        _edit.actions.push(Set_param{a, params::Value_helper::plain_to_knob(params::Value_helper::clamp(*plain, semantics), semantics)});
-        _edit.actions.push(Action_end{a});
+        _edit.params.start(a);
+        _edit.params.set(a, params::Value_helper::plain_to_knob(params::Value_helper::clamp(*plain, semantics), semantics));
+        _edit.params.end(a);
     }, Dialog_context{_edit.tasks, _window});
 }
 

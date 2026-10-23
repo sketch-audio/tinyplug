@@ -164,12 +164,18 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   Enable it in another format only on evidence. AAX rebuilds the processor through `configure`
   at its resets, so its one restart is the skip resume. Design and the Logic measurements:
   [bounce-param-authority.md](plans/bounce-param-authority.md).
-- **`edit::Editor`** — receives `Plugin_state` (read-only params + meters)
-  on draw, emits `User_action` events (Action_start/Set_param/Action_end/
-  Request_resize). Wrappers translate gestures into host-native begin/edit/end
-  notifications. Editor never shares memory with the processor.
+- **`edit::Editor`** (concept `edit::Interface`, asserted in every demo) — built from an `edit::Context`
+  ([tiny_edit.hpp](libs/tinyplug/include/tinyplug/tiny_edit.hpp)), which hands it **one handle per piece of
+  framework-owned state**: `params` (gestures and sets: `start` / `set` / `end`, knob space), `state` (the
+  document), `view` (the view model), `size` (the window: `request(w, h)`), joined into undo steps by
+  `undo_redo`; plus `notes`, `tasks`, `format`. Receives `Plugin_state` (read-only params, meters, blocks) on
+  draw. Only the parameter handle queues (`Action_queue`, as `edit::Action::Any`: `Start` / `Set` / `End`),
+  because parameter edits must become ordered host gestures, which wrappers translate into host-native
+  begin/edit/end. A size request is held in the `Edit_store` and applied at the frame's end through the
+  wrapper's `set_apply` hook, the same path an undo of a resize takes. Editor never shares memory with the
+  processor.
 - **Edits and undo** ([edit_stream.hpp](libs/tinyplug/include/tinyplug/edit_stream.hpp),
-  [undo_history.hpp](libs/tinyplug/include/tinyplug/undo_history.hpp)). `Action_start`/`Action_end` take an
+  [undo_history.hpp](libs/tinyplug/include/tinyplug/undo_history.hpp)). `edit::Action::Start`/`End` take an
   **optional** address: with one it's a gesture on that parameter, without one a transaction
   (`undo_redo.begin()`/`end()`/`transaction(fn)`). `Action_queue::normalize` (the `Edit_stream`) gives every
   set a gesture — a bare set its own, a set inside another gesture or a transaction is touched before its
@@ -184,7 +190,7 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   own step before queueing its start. View teardown (`view_impl::close_session`) ends anything left open.
 - **Process events and edit events are different types, and the difference is the value
   space.** `process::Event::{Set, Ramp}` carry **plain** values to the kernel;
-  `Set_param` carries **knob** values from the editor / undo history. They used to be one
+  `edit::Action::Set` carries **knob** values from the editor / undo history (same layout, value first). They used to be one
   type, which made a wrong-space assignment — the bug shape this codebase is most prone to
   (see "Three spaces") — compile silently. `Value_helper` is the bridge, at the wrapper
   boundary where it always was. `Change_set` is the one genuinely two-sided container and
@@ -232,9 +238,9 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   patch at the top of the block and triple-buffers what it publishes; `Context::state` is
   a per-block `Access`. The editor side is the wrapper-owned `state::Editor_link`
   ([tiny_state_link.hpp](libs/tinyplug/include/tinyplug/tiny_state_link.hpp)) — it holds the view,
-  retains gestures to re-run on refusal, flushes once per frame (`Ui_receiver::sync_state`),
+  retains gestures to re-run on refusal, flushes once per frame (`edit::Connection::sync_state`),
   and records document steps into the wrapper's `Undo_history` through `bind_state`. The
-  editor sees it as `Edit_context::state`. **Persisted** as a record
+  editor sees it as `edit::Context::state`. **Persisted** as a record
   ([state_record.hpp](libs/tiny_core/include/tiny_core/state_record.hpp)): the author's
   optional `save`/`load` pair inside a framework container, appended after the bypass in the
   CLAP stream and the VST3 processor chunk, under `tinyplug-state` in AUv2/AUv3/AAX (base64 in
@@ -248,16 +254,17 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   both trivially copyable, each optionally versioned with a record's `save`/`load`; strings are
   `Fixed_string<N>`. Optional pure `on_host_load(View&, params, const Load_info&)`. The wrapper's
   `Edit_store` ([edit_store.hpp](libs/tinyplug/include/tinyplug/edit_store.hpp)) holds it and the
-  window size; the editor's handle is `Edit_context::view` (`get`, `edit(fn)`, `restored()`,
+  window size; the editor's handle is `edit::Context::view` (`get`, `edit(fn)`, `restored()`,
   `generation`, `loads`). An undoable edit becomes a step at the frame's end, or joins the gesture
   or transaction that's open. **Features on top (preset names, `*`, A/B, linked controls) are
   the plug-in's**; the framework stores, restores, undoes and reports. StateDemo has one: its preset
-  buttons load JSON presets through `Edit_context::apply_preset` in a transaction with the name.
+  buttons load JSON presets through `edit::Context::apply_preset` in a transaction with the name.
 - **Sizing** — the editor declares `static constexpr auto sizing() -> Sizing` (`preferred`, `min`,
   `max`, `undoable`; `preferred_size()` still works through `sizing_of<E>()`). The `Edit_store`
   keeps the size with the session, clamps in each format's size check, and with `undoable`
   records a resize the editor brackets with `undo_redo.begin()`/`end()` as a step (`Source::Size`);
-  a host-driven resize is never a step.
+  a host-driven resize is never a step. The editor asks with `edit.size.request(w, h)`: held as the size
+  at once, applied at the frame's end through the wrapper's `set_apply`. `run_frame` takes no resize policy.
 - **Notes** ([tiny_midi.hpp](libs/tiny_core/include/tiny_core/tiny_midi.hpp)) — not a model:
   `TINY_PLUGIN_WANTS_AUDIO` / `TINY_PLUGIN_WANTS_NOTES` in CMake declare what the plug-in
   carries, `tiny_resolve_capabilities` ([helpers.cmake](cmake/helpers.cmake)) derives the kind
@@ -270,7 +277,7 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   any channel voice message, output only, since sending can't write the plug-in's own
   parameters. Every wrapper owns a `process::Note_io`
   ([tiny_note_io.hpp](libs/tinyplug/include/tinyplug/tiny_note_io.hpp)): `Note_ids` mints one
-  id per note whatever the format supplied, the editor's pipe (`Edit_context::notes`) lands
+  id per note whatever the format supplied, the editor's pipe (`edit::Context::notes`) lands
   at the top of the next block, and a stream break (a restart, bypass edge, deactivate)
   sends all-notes-off. MIDI 1.0 goes through one codec
   ([midi_codec.hpp](libs/tiny_core/include/tiny_core/midi_codec.hpp)). Per format: CLAP note
@@ -306,7 +313,7 @@ skip `ZERO_CHECK`. Build `ZERO_CHECK` first there. Client porting guide:
   gates code, and only discards inside a template.
 - **Meters are gated end to end.** Without `models/meters.hpp`, every wrapper compiles out its
   publisher, mailbox, transport (VST3 output params, AAX ring traffic) and the
-  `Context::meters` / `Ui_receiver::read_meters` fields. `Processor_state::meters` stays,
+  `Context::meters` / `edit::Connection::read_meters` fields. `Processor_state::meters` stays,
   empty — it is core. A new meter path must sit behind `TINY_HAS_METERS` too.
 
 ## Parameter permanence
@@ -391,7 +398,7 @@ a detemplated farbot port). Common topology:
 
 - **Host → processor**: format-native event stream, normalized into
   `std::vector<Event::Ordered>` per render (with offsets and ramps).
-- **Editor → host → processor**: `User_action` from the editor goes via
+- **Editor → host → processor**: `edit::Action::Any` from the parameter handle goes via
   the host's gesture/edit API; the processor receives the resulting
   parameter changes alongside automation.
 - **Processor → editor**: `meters::Publisher` posts into a `meters::Mailbox`; the view
@@ -542,7 +549,7 @@ undo, and state chunks). The GUI hangs off the data model.
 - **The algorithm diffs, the data model doesn't track.** A segment whose `seq`
   is unchanged is skipped; otherwise its ≤15 values are compared against
   `Alg_state::shadow` (seeded with NaN, so the first delivery emits everything)
-  and each difference becomes a `Set_param`. Don't replace this with a dirty
+  and each difference becomes a `process::Event::Set`. Don't replace this with a dirty
   bitmask — the point is that the data model holds no per-address knowledge of
   what the algorithm has consumed.
 - **The master bypass is a pseudo-parameter** at `bypass_address == num_params`,

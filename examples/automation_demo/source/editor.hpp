@@ -16,13 +16,13 @@ public:
 
     static constexpr auto sizing() -> Sizing { return {.preferred = {640, 520}}; }
 
-    Editor(const Edit_context& edit) : _edit{edit} {}
+    Editor(const edit::Context& edit) : _edit{edit} {}
     ~Editor() = default;
 
     auto on_gui_create(Gui_info) -> void {}
     auto on_gui_show() -> void {}
     auto on_gui_draw(Plugin_state&) -> void;
-    auto on_gui_hide() -> void { _controls.cancel(_edit.actions); }
+    auto on_gui_hide() -> void { _controls.cancel(_edit.params); }
     auto on_gui_destroy() -> void {}
 
 private:
@@ -36,7 +36,7 @@ private:
         models::Log_entry::Kind kind{};
     };
 
-    Edit_context _edit{};
+    edit::Context _edit{};
     bool _dark{true};
     ui::Controls _controls{};
 
@@ -47,5 +47,6 @@ private:
     auto _take(const models::Log_frame& log) -> void;
 
 };
+static_assert(Interface<Editor>);
 
 } // namespace tiny::edit

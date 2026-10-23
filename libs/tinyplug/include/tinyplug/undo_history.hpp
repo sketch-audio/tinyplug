@@ -16,7 +16,7 @@
 #include <tiny_core/tiny_utils.hpp> // Inline_visitor
 
 #include "action_queue.hpp"
-#include "tiny_events.hpp" // User_action
+#include "edit_types.hpp" // edit::Action::Any
 
 namespace tiny {
 
@@ -72,20 +72,20 @@ public:
     auto bind_actions(Action_queue::Actor actions) -> void { _actions = actions; }
 
     // Build the history from a frame's normalized actions (`Action_queue::normalize`).
-    auto process_actions(std::span<const User_action> actions, Processor_state& state) -> void;
+    auto process_actions(std::span<const edit::Action::Any> actions, Processor_state& state) -> void;
 
     // The frame is over: a step closed during it no longer takes that frame's late edits.
     auto end_frame() -> void;
 
     // Record a host-initiated bulk change (preset / full-state load) as a single coalesced undo
     // step. `before`/`after` are full param arrays in knob space; any param whose value changed
-    // contributes (from=before, to=after) and is appended to `out_changes` as Set_param{addr,
+    // contributes (from=before, to=after) and is appended to `out_changes` as edit::Action::Set{addr,
     // after}. No-op (and out_changes cleared) if a gesture is mid-flight. Clears the redo stack on
     // a real push, like an ordinary edit. Works whether or not the editor is open — the caller is the
     // long-lived wrapper class, not the view. The load's document and view join the step through
     // amend_host_state.
     auto push_host_load(std::span<const double> before, std::span<const double> after,
-                        std::vector<Set_param>& out_changes) -> void;
+                        std::vector<edit::Action::Set>& out_changes) -> void;
 
     // Fold a source's change into the host-load step push_host_load opened, so one undo reverts a
     // load's params and state together. Creates the step if the load moved no params.
@@ -222,13 +222,13 @@ private:
 
 // MARK: - implementation
 
-inline auto Undo_history::process_actions(std::span<const User_action> actions, Processor_state& state) -> void
+inline auto Undo_history::process_actions(std::span<const edit::Action::Any> actions, Processor_state& state) -> void
 {
     _values.assign(state.params.begin(), state.params.end()); // Each gesture's `from` is the value as it began.
 
     for (const auto& action : actions) {
         std::visit(Inline_visitor{
-            [&](const Action_start& s) {
+            [&](const edit::Action::Start& s) {
                 if (_active++ == 0) {
                     _current = Active_map{};
                     _current_states.clear();
@@ -245,12 +245,12 @@ inline auto Undo_history::process_actions(std::span<const User_action> actions, 
                 const auto from = addr < _values.size() ? _values[addr] : 0.;
                 _current->try_emplace(addr, Param_change{.addr = addr, .from = from, .to = from});
             },
-            [&](const Set_param& p) {
+            [&](const edit::Action::Set& p) {
                 if (p.address < _values.size()) _values[p.address] = p.value;
                 if (!_current || !undoable(p.address)) return;
                 if (auto it = _current->find(p.address); it != _current->end()) it->second.to = p.value;
             },
-            [&](const Action_end&) {
+            [&](const edit::Action::End&) {
                 if (_active == 0) return;
                 if (--_active == 0) close_step();
             },
@@ -372,7 +372,7 @@ inline auto Undo_history::settle(Source source) -> void
 }
 
 inline auto Undo_history::push_host_load(std::span<const double> before, std::span<const double> after,
-                                  std::vector<Set_param>& out_changes) -> void
+                                  std::vector<edit::Action::Set>& out_changes) -> void
 {
     out_changes.clear();
 
@@ -394,7 +394,7 @@ inline auto Undo_history::push_host_load(std::span<const double> before, std::sp
         if (!undoable(addr)) continue;
         if (std::abs(after[i] - before[i]) <= eps) continue;
         step.changes.push_back(Param_change{.addr = addr, .from = before[i], .to = after[i]});
-        out_changes.push_back(Set_param{.address = addr, .value = after[i]});
+        out_changes.push_back(edit::Action::Set{.value = after[i], .address = addr});
     }
 
     if (!step.changes.empty()) {
@@ -497,14 +497,14 @@ inline auto Undo_history::perform_actions(Action_queue::Actor actions) -> void
 inline auto Undo_history::begin_transaction() -> void
 {
     if (_begun++ == 0 && _active == 0) commit_outside();
-    _actions.push(Action_start{});
+    _actions.push(edit::Action::Start{});
 }
 
 inline auto Undo_history::end_transaction() -> void
 {
     if (_begun == 0) return;
     --_begun;
-    _actions.push(Action_end{});
+    _actions.push(edit::Action::End{});
 }
 
 inline auto Undo_history::can_undo() const -> bool
@@ -628,9 +628,9 @@ inline auto Undo_history::apply(Action_queue::Actor actions) -> void
     stack_from.pop_back();
 
     for (const auto& change : step.changes) {
-        actions.push(Action_start{change.addr});
-        actions.push(Set_param{change.addr, is_undo ? change.from : change.to});
-        actions.push(Action_end{change.addr});
+        actions.push(edit::Action::Start{change.addr});
+        actions.push(edit::Action::Set{.value = is_undo ? change.from : change.to, .address = change.addr});
+        actions.push(edit::Action::End{change.addr});
     }
 
     for (const auto& state : step.states) {

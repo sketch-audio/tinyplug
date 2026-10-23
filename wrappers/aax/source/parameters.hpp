@@ -35,13 +35,14 @@ public:
     using Super = AAX_CEffectParameters;
     Parameters() : Super{}
     {
-        _editor = std::make_unique<User_editor>(Edit_context{
-            .actions = _actions.actor(),
+        _editor = std::make_unique<User_editor>(edit::Context{
+            .params = _actions.actor(),
             .format = Format::Aax,
             .state_adapter = _state_adapter.actor(),
             .undo_redo = _undo_history.actor(),
             .tasks = _tasks.actor(),
             .view = _edit_store.handle(),
+            .size = _edit_store.size_handle(),
 #if TINY_HAS_STATE
             .state = _state_link.actor(),
 #endif
@@ -130,7 +131,7 @@ public:
     auto edit_store() -> Edit_store& { return _edit_store; }
 
     // Undo history and action queue live on Parameters (plug-in lifetime), not in the
-    // Gui, so the editor's Edit_context (built once at construction) stays valid across
+    // Gui, so the editor's edit::Context (built once at construction) stays valid across
     // window open/close and host preset loads are captured with the window closed.
     auto undo_history() -> Undo_history*
     {
@@ -236,7 +237,7 @@ private:
     // Defined in the .cpp where the AAX parameter manager / adapters are visible.
     auto _snapshot_knob_params() -> std::array<double, num_params>;
 
-    // State adapter lives on Parameters too (the editor's Edit_context references it
+    // State adapter lives on Parameters too (the editor's edit::Context references it
     // for life). save_model reads the current params via _snapshot_knob_params.
     State_adapter _state_adapter{{
         .load_model = []() {

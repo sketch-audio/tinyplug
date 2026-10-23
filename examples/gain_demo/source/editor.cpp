@@ -26,7 +26,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     const auto controls = std::array<ui::Control, 1>{{
         {bar(2), enum_raw(Address::Gain), ui::Control::Kind::Fader, "GAIN", ui::blue},
     }};
-    _controls.interact(view.interaction, _edit.actions, controls, knobs);
+    _controls.interact(view.interaction, _edit.params, controls, knobs);
     for (const auto& event : view.interaction.events.events) {
         if (const auto* down = std::get_if<Pointer_down>(&event.event); down && !event.consumed && clear_area.contains(down->pos)) _holds.fill(0.);
     }

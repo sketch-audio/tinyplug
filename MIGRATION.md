@@ -972,3 +972,52 @@ struct View {
   is one undo step, as a host load is.
 - **Factory presets for native hosts**: the exporters write the preset's name (`"name"`, else the file name) as a
   framework key, so a host loading a `.tfx` or `.vstpreset` reports `Load_info::Kind::Preset` with that name.
+
+---
+
+## Edit vocabulary: `edit::Context`, one handle per state, `process::Mode`
+
+New on `main`, before 0.5. The editor's context names a handle per piece of framework-owned state, parameter edits
+are named calls, and the resize request leaves the action queue for the size handle. Every break is a compile error.
+
+### Breaks
+
+| Was | Now |
+|---|---|
+| `Edit_context` | `edit::Context` (unqualified `Context` inside `tiny::edit`) |
+| `_edit.actions.push(Action_start{a})` | `_edit.params.start(a)` |
+| `_edit.actions.push(Set_param{a, v})` | `_edit.params.set(a, v)` |
+| `_edit.actions.push(Action_end{a})` | `_edit.params.end(a)` |
+| `_edit.actions.get_actions()` | `_edit.params.frame()` (`last_frame()` keeps its name) |
+| `_edit.actions.push(Request_resize{w, h})` | `_edit.size.request(w, h)` |
+| `User_action`, `Action_start`, `Set_param`, `Action_end` (reading a frame) | `edit::Action::Any`, `::Start`, `::Set`, `::End` |
+| `Set_param{.address = a, .value = v}` | `edit::Action::Set{.value = v, .address = a}`: value first, as `process::Event::Set` |
+| `ui::Controls::interact(…, _edit.actions, …)`, `cancel(_edit.actions)` | pass `_edit.params` |
+| `process::Render_mode`, `context.render_mode` | `process::Mode`, `context.mode` |
+| `<tinyplug/tiny_processor.hpp>` | `<tinyplug/tiny_process.hpp>` |
+| `<tinyplug/tiny_events.hpp>` | gone: `<tinyplug/tinyplug.hpp>` as before (`edit_types.hpp`, `tiny_edit.hpp`) |
+
+Most of an editor moves with these (perl, in order; check `Set_param` designated initializers by hand):
+
+```
+s/\b(_?edit)\.actions\.push\((?:edit::Action::Start|Action_start)\{(.*)\}\);/$1.params.start($2);/
+s/\b(_?edit)\.actions\.push\((?:edit::Action::Set|Set_param)\{(.*)\}\);/$1.params.set($2);/
+s/\b(_?edit)\.actions\.push\((?:edit::Action::End|Action_end)\{(.*)\}\);/$1.params.end($2);/
+s/\b(_?edit)\.actions\.push\(Request_resize\{(.*)\}\);/$1.size.request($2);/
+s/\b(_?edit)\.actions\b/$1.params/g
+s/\bEdit_context\b/edit::Context/g
+s/\bUser_action\b/edit::Action::Any/g; s/\bAction_start\b/edit::Action::Start/g
+s/\bAction_end\b/edit::Action::End/g; s/\bSet_param\b/edit::Action::Set/g
+s/\bRender_mode\b/Mode/g; s/\.render_mode\b/.mode/g
+```
+
+Wrappers only: `Ui_receiver` is `edit::Connection` (its nested `using`s are gone); `run_frame`, `resolve_frame` and
+`close_session` take no resize policy; `Edit_store::requested` is `size_handle().request`, and the editor's context
+takes `.size = store.size_handle()`.
+
+### New
+
+- **`edit::Interface`**: what an editor provides, checked like `process::Interface`. End `editor.hpp` with
+  `static_assert(Interface<Editor>);` inside `tiny::edit`, as every demo and the template do.
+- **`edit.size.get()`**: the size the session holds. A request through `edit.size.request` is held as the size at
+  once (so it joins an open undo step) and applied at the frame's end.

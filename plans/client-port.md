@@ -12,6 +12,11 @@
 - **Confirm the client defects in a real host** (below), by hand in Logic or Live with Doctor Vibe on 0.4, so the
   port can be checked against them.
 
+## Before the port
+
+- **The 0.5 names** (MIGRATION.md, "Edit vocabulary"): `edit::Context`, `edit.params.start/set/end`, `edit::Action`,
+  `edit.size.request`, `edit::Connection`, `process::Mode`. Every editor and processor call site moves once, here.
+
 ## Processor side
 
 - **`Reset`**: 129 `Reset::` sites in 63 files, most behind the shared `Effect_adapter`. `Hard` and `Soft` become
@@ -29,7 +34,7 @@ The five products share one editor; their `notify`, `save_state` and `load_state
 | Modified `*` | action-queue observer | derived each frame from `preset_values` against the parameters |
 | Restore to preset | `Value_restorer`'s 256 copies | an ordinary gesture to `preset_values[addr]` |
 | A/B | `glb_a_settings` + `Ab_settings` members | slots and selection in `View::Undoable`, swaps in a transaction. Delete `Ab_settings::start/end_transaction` |
-| Linked controls | copied start/end + `Action_queue::sort()` | append only the follower's `Set_param` (the copied form still groups correctly) |
+| Linked controls | copied start/end + `Action_queue::sort()` | append only the follower's `edit.params.set` (the copied form still groups correctly) |
 | Layout tabs and panels | `Layout_model`, editor lifetime | `View::Restored` |
 | Window size | wrapper `_last_size`, guessed user size, 200×150 floor | `sizing()`; the layout engine keeps its own landscape/portrait choice |
 
@@ -132,7 +137,7 @@ static auto on_host_load(View& v, std::span<const double> params, const Load_inf
 // A/B select: params plus view, one step.
 edit.undo_redo.transaction([&] {
     const auto incoming = edit.view.get().other_slot;
-    for (auto a : ab_addrs) edit.actions.push(Set_param{a, incoming[a]});
+    for (auto a : ab_addrs) edit.params.set(a, incoming[a]);
     edit.view.edit([b, outgoing = to_array(params)](View& v) {
         v.undoable.b_selected = b;
         v.undoable.other_slot = outgoing;
@@ -140,9 +145,9 @@ edit.undo_redo.transaction([&] {
 });
 
 // Auto gain: the client's rule; appending is enough.
-for (const auto& action : edit.actions.get_actions()) {
-    if (const auto* set = std::get_if<Set_param>(&action); set && is_lead(set->address)) {
-        edit.actions.push(Set_param{follower(set->address), compensated(*set, state)});
+for (const auto& action : edit.params.frame()) {
+    if (const auto* set = std::get_if<edit::Action::Set>(&action); set && is_lead(set->address)) {
+        edit.params.set(follower(set->address), compensated(*set, state));
     }
 }
 ```

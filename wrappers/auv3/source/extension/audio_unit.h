@@ -6,7 +6,7 @@
 
 @interface Auv3_AUAudioUnit : AUAudioUnit
 - (void)setupParameterTree;
--(tiny::Ui_receiver)makeReceiver;
+-(tiny::edit::Connection)makeReceiver;
 -(tiny::Undo_history*)undoHistory;
 -(tiny::Action_queue*)actions;
 -(tiny::Task_manager*)tasks;

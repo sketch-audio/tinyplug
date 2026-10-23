@@ -20,7 +20,7 @@ public:
 
     static constexpr auto sizing() -> Sizing { return {.preferred = {1040, 720}, .min = {860, 640}, .max = Rect_size{1800, 1200}}; }
 
-    explicit Editor(const Edit_context& edit);
+    explicit Editor(const edit::Context& edit);
     ~Editor() = default;
 
     auto on_gui_create(Gui_info info) -> void { _window = info.window; } // Text fields open in this window.
@@ -33,7 +33,7 @@ private:
 
     using Address = models::Params::Address;
 
-    Edit_context _edit{};
+    edit::Context _edit{};
     Window_token _window{};
     ui::Controls _controls{};
     text::Fonts _fonts;
@@ -47,5 +47,6 @@ private:
     auto _type_specimen(const Frame& frame, float size, float weight, bool dark) -> void;
 
 };
+static_assert(Interface<Editor>);
 
 } // namespace tiny::edit

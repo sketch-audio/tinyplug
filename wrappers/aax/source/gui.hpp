@@ -38,7 +38,7 @@ private:
     static constexpr auto num_meters = User_meters::num_meters;
 
     User_editor* _editor{};
-    Ui_receiver _receiver{};
+    edit::Connection _receiver{};
     Task_manager* _tasks{};
     Parameters* _params{};
     Action_queue* _actions{}; // Owned by Parameters (survives the Gui).

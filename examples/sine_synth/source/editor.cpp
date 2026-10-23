@@ -149,13 +149,13 @@ auto Editor::_lift(uintptr_t tag) -> void
 auto Editor::_set(int strip, const Frame& frame, Coords pos) -> void
 {
     const auto knob = std::clamp((frame.y + frame.h - pos.y) / frame.h, 0., 1.);
-    _edit.actions.push(Set_param{static_cast<uint32_t>(strip), knob});
+    _edit.params.set(static_cast<uint32_t>(strip), knob);
 }
 
 auto Editor::_end_drag() -> void
 {
     if (_dragging < 0) return;
-    _edit.actions.push(Action_end{static_cast<uint32_t>(_dragging)});
+    _edit.params.end(static_cast<uint32_t>(_dragging));
     _dragging = -1;
 }
 
@@ -188,13 +188,13 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
                     if (!layout.strips[i].contains(down.pos)) continue;
                     if (i == enum_raw(Address::Mpe)) { // A switch: a click flips it.
                         const auto on = state.processor_state.params[i] >= 0.5;
-                        _edit.actions.push(Action_start{static_cast<uint32_t>(i)});
-                        _edit.actions.push(Set_param{static_cast<uint32_t>(i), on ? 0. : 1.});
-                        _edit.actions.push(Action_end{static_cast<uint32_t>(i)});
+                        _edit.params.start(static_cast<uint32_t>(i));
+                        _edit.params.set(static_cast<uint32_t>(i), on ? 0. : 1.);
+                        _edit.params.end(static_cast<uint32_t>(i));
                         return;
                     }
                     _dragging = static_cast<int>(i);
-                    _edit.actions.push(Action_start{static_cast<uint32_t>(i)});
+                    _edit.params.start(static_cast<uint32_t>(i));
                     _set(_dragging, layout.strips[i], down.pos);
                     return;
                 }

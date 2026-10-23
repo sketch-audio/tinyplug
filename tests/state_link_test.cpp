@@ -199,7 +199,7 @@ auto test_held_transaction() -> void
         r.history.perform_actions(r.actions.actor());
         r.actions.normalize();
         for (const auto& a : r.actions.get_actions()) {
-            if (const auto* p = std::get_if<tiny::Set_param>(&a)) params[p->address] = p->value;
+            if (const auto* p = std::get_if<tiny::edit::Action::Set>(&a)) params[p->address] = p->value;
         }
         r.link.sync();
         r.history.end_frame();
@@ -207,7 +207,7 @@ auto test_held_transaction() -> void
 
     tx_frame([&] {
         r.history.actor().transaction([&] {
-            r.actions.actor().push(tiny::Set_param{0, 0.7});
+            r.actions.actor().push(tiny::edit::Action::Set{.value = 0.7, .address = 0});
             editor.edit([](Both_doc& d) { d.level[3] = 40; });
         });
     });
@@ -251,7 +251,7 @@ auto test_load_during_hold() -> void
     r.actions.clear();
     r.link.sync();
     r.history.actor().transaction([&] {
-        r.actions.actor().push(tiny::Set_param{0, 0.7});
+        r.actions.actor().push(tiny::edit::Action::Set{.value = 0.7, .address = 0});
         editor.edit([](Both_doc& d) { d.level[3] = 40; });
     });
     r.actions.normalize();
@@ -262,7 +262,7 @@ auto test_load_during_hold() -> void
     r.history.end_frame();
     expect(r.history.holding(tiny::Undo_history::Source::Document), "held");
 
-    auto changes = std::vector<tiny::Set_param>{};
+    auto changes = std::vector<tiny::edit::Action::Set>{};
     const auto after = std::array<double, 2>{0.7, 0.2};
     r.history.push_host_load(std::array<double, 2>{0.7, 0}, after, changes);
     auto loaded = Both_doc{};
@@ -324,7 +324,7 @@ template<typename M>
 auto host_load(state::Processor_for<M>* processor, state::Editor_link<M>& link, tiny::Undo_history& history,
                const M& doc, double param_from, double param_to) -> void
 {
-    auto changes = std::vector<tiny::Set_param>{};
+    auto changes = std::vector<tiny::edit::Action::Set>{};
     history.push_host_load(std::array{param_from}, std::array{param_to}, changes);
     if (processor) processor->on_session_load(doc);
     link.load(doc);
@@ -398,7 +398,7 @@ auto test_load_resend() -> void
 
     auto doc = Both_doc{};
     doc.level[2] = 22;
-    auto changes = std::vector<tiny::Set_param>{};
+    auto changes = std::vector<tiny::edit::Action::Set>{};
     r.history.push_host_load(std::array{0.0}, std::array{0.0}, changes);
     r.link.load(doc, state::Editor_link<Both_doc>::Resend::Yes);
     expect(r.link.flush(), "the load is sent even though the view matches what was sent");

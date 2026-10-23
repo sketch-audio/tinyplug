@@ -33,7 +33,7 @@ struct Control {
 class Controls {
 public:
 
-    auto interact(User_interaction& interaction, Action_queue::Actor& actions, std::span<const Control> controls,
+    auto interact(User_interaction& interaction, const Action_queue::Actor& params, std::span<const Control> controls,
                   std::span<const double> knobs) -> void
     {
         for (auto& event : interaction.events.events) {
@@ -43,28 +43,28 @@ public:
                     for (const auto& c : controls) {
                         if (!c.frame.contains(down.pos)) continue;
                         event.consumed = true;
-                        actions.push(Action_start{c.address});
+                        params.start(c.address);
                         if (c.kind == Control::Kind::Toggle || c.kind == Control::Kind::Choice) {
                             const auto toggled = knobs[c.address] >= 0.5 ? 0. : 1.;
-                            actions.push(Set_param{c.address, c.kind == Control::Kind::Choice ? c.choice : toggled});
-                            actions.push(Action_end{c.address});
+                            params.set(c.address, c.kind == Control::Kind::Choice ? c.choice : toggled);
+                            params.end(c.address);
                             return;
                         }
                         _active = Drag{c.address, c.frame, event.pointer_tag, c.kind == Control::Kind::Fader};
-                        actions.push(Set_param{c.address, _active->knob_at(down.pos)});
+                        params.set(c.address, _active->knob_at(down.pos));
                         return;
                     }
                 },
                 [&](const Pointer_move& move) {
                     if (!_active || event.pointer_tag != _active->tag) return;
                     event.consumed = true;
-                    actions.push(Set_param{_active->address, _active->knob_at(move.pos)});
+                    params.set(_active->address, _active->knob_at(move.pos));
                 },
                 [&](const auto& e) {
                     if constexpr (std::is_same_v<std::decay_t<decltype(e)>, Pointer_up> || std::is_same_v<std::decay_t<decltype(e)>, Pointer_cancel>) {
                         if (!_active || event.pointer_tag != _active->tag) return;
                         event.consumed = true;
-                        actions.push(Action_end{_active->address});
+                        params.end(_active->address);
                         _active.reset();
                     }
                 },
@@ -73,9 +73,9 @@ public:
     }
 
     // Close an open gesture, e.g. when the window hides mid-drag.
-    auto cancel(Action_queue::Actor& actions) -> void
+    auto cancel(const Action_queue::Actor& params) -> void
     {
-        if (_active) actions.push(Action_end{_active->address});
+        if (_active) params.end(_active->address);
         _active.reset();
     }
 

@@ -844,7 +844,7 @@ auto Parameters::_apply_chunk(const AAX_SPlugInChunk* iChunk) -> AAX_Result
     // Record the host load as one coalesced undo step (works editor open or closed). The
     // document and the editor's half join it below.
     const auto host_after = _snapshot_knob_params();
-    auto host_changes = std::vector<Set_param>{};
+    auto host_changes = std::vector<edit::Action::Set>{};
     _undo_history.push_host_load(before, host_after, host_changes);
 
 #if TINY_HAS_STATE

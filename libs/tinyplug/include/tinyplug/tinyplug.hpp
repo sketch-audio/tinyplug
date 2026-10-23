@@ -4,8 +4,8 @@
 // the core vocabulary and the plug-in's models, so nothing below has an ordering rule.
 #include <tiny_models.hpp>
 
+#include "edit_types.hpp"
 #include "tiny_edit.hpp"
-#include "tiny_events.hpp"
 #include "tiny_note_io.hpp"
 #include "tiny_process.hpp"
 #include "stream_sync.hpp"

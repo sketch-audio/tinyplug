@@ -10,7 +10,7 @@ public:
 
     static constexpr auto sizing() -> Sizing { return {.preferred = {200, 400}}; }
 
-    Editor(const Edit_context& edit) : _edit{edit} {}
+    Editor(const edit::Context& edit) : _edit{edit} {}
     ~Editor() = default;
 
     auto on_gui_create(Gui_info) -> void;
@@ -28,9 +28,10 @@ private:
     double _value{};
     std::unique_ptr<Gesture_recognizer> _drag{};
 
-    Edit_context _edit{};
+    edit::Context _edit{};
     bool _dark{};
 
 };
+static_assert(Interface<Editor>);
 
 } // namespace tiny::edit

@@ -25,7 +25,7 @@ struct Rig {
     Edit_store store;
     std::array<double, 2> params{};
     std::vector<Rect_size> applied{};
-    Ui_receiver receiver{};
+    edit::Connection receiver{};
 
     explicit Rig(Sizing sizing = {.preferred = {400, 300}}) : store{sizing}
     {
@@ -41,7 +41,7 @@ struct Rig {
         if (draw) draw(actions.actor());
         auto state = Processor_state{};
         state.params = params;
-        view_impl::resolve_frame(receiver, params, actions, history, state, [](auto, auto) {});
+        view_impl::resolve_frame(receiver, params, actions, history, state);
     }
 
     auto view() -> Edit_store::Handle { return store.handle(); }
@@ -51,7 +51,7 @@ struct Rig {
     // A host load as the wrappers run one: params into the step, then the editor's half.
     auto host_load(std::array<double, 2> after, State_map legacy, const std::optional<Edit_record>& record, Load_info info = {}) -> void
     {
-        auto changes = std::vector<Set_param>{};
+        auto changes = std::vector<edit::Action::Set>{};
         history.push_host_load(params, after, changes);
         params = after;
         load_editor_state(store, std::move(legacy), record, params, info);
@@ -77,7 +77,7 @@ auto add_tests() -> void
         auto r = Rig{};
         r.frame([&](Action_queue::Actor a) {
             r.history.actor().transaction([&] {
-                a.push(Set_param{0, .7});
+                a.push(edit::Action::Set{.value = .7, .address = 0});
                 r.view().edit([](auto& v) { v.undoable.b_selected = 1; });
             });
         });
@@ -149,8 +149,8 @@ auto add_tests() -> void
 
     Tests::add("size: a resize inside a transaction is a step when sizing says so", [] {
         auto r = Rig{Sizing{.preferred = {400, 300}, .min = {200, 150}, .undoable = true}};
-        r.frame([&](auto) { r.history.actor().begin(); r.store.requested({600, 450}); });
-        r.frame([&](auto) { r.store.requested({640, 480}); r.history.actor().end(); });
+        r.frame([&](auto) { r.history.actor().begin(); r.store.size_handle().request(600, 450); });
+        r.frame([&](auto) { r.store.size_handle().request(640, 480); r.history.actor().end(); });
         expect_true(r.history.can_undo(), "one step");
         r.undo();
         expect_true(r.store.size() == Rect_size{400, 300}, "undo restores the size");
@@ -163,7 +163,7 @@ auto add_tests() -> void
 
     Tests::add("size: without sizing().undoable a resize is never a step", [] {
         auto r = Rig{};
-        r.frame([&](auto) { r.history.actor().transaction([&] { r.store.requested({600, 450}); }); });
+        r.frame([&](auto) { r.history.actor().transaction([&] { r.store.size_handle().request(600, 450); }); });
         expect_true(!r.history.can_undo(), "no step");
         expect_true(r.store.size() == Rect_size{600, 450}, "but the size is kept");
     });

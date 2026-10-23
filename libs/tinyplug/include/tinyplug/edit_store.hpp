@@ -87,6 +87,24 @@ public:
         Edit_store* _store{};
     };
 
+    // The window, as the editor holds it. Main thread.
+    class Size {
+    public:
+        Size() = default;
+        explicit Size(Edit_store* store) : _store{store} {}
+
+        // Ask for this size, clamped to `sizing()`. The wrapper asks the host at the frame's end, and the size
+        // the window really gets arrives in a later frame's `View_context::logical_size`. Inside
+        // `undo_redo.begin()` / `end()` with `Sizing::undoable`, it's part of that step.
+        auto request(std::int32_t w, std::int32_t h) const -> void { if (_store) _store->_request({w, h}); }
+
+        // The size the session holds.
+        auto get() const -> Rect_size { return _store ? _store->_size : Rect_size{}; }
+
+    private:
+        Edit_store* _store{};
+    };
+
     explicit Edit_store(Sizing sizing) : _sizing{sizing}, _size{sizing.preferred}, _size_baseline{sizing.preferred}
     {
         _publish(); // A save may come before the first frame or load.
@@ -95,6 +113,7 @@ public:
     auto operator=(const Edit_store&) -> Edit_store& = delete;
 
     auto handle() -> Handle { return Handle{this}; }
+    auto size_handle() -> Size { return Size{this}; }
 
     auto bind(Undo_history& history) -> void
     {
@@ -119,6 +138,7 @@ public:
     // outside any gesture is just the size now, and what saves read is published.
     auto end_frame() -> void
     {
+        if (const auto request = std::exchange(_requested, std::nullopt); request && _apply) _apply(*request); // The editor's resize.
         if constexpr (has_view) _commit_view();
         const auto open = _history && _history->open();
         if (!_sizing.undoable || !open) _size_baseline = _size;
@@ -136,10 +156,6 @@ public:
         _size = _sizing.clamp(size);
         _size_set = true;
     }
-
-    // The editor asked for this size (`Request_resize`). Held as the size now, so a resize inside a
-    // transaction is part of its step even before the host echoes it.
-    auto requested(Rect_size size) -> void { resized(size); }
 
     // How an undo resizes an open window. Empty while it's closed: an undo then only moves the size
     // the window opens at.
@@ -223,6 +239,14 @@ private:
     Rect_size _size_baseline{};
     bool _size_set{};
     std::function<void(Rect_size)> _apply{};
+    std::optional<Rect_size> _requested{}; // The editor's, applied at the frame's end.
+
+    // Held as the size now, so a resize inside a transaction is part of its step before the host echoes it.
+    auto _request(Rect_size size) -> void
+    {
+        resized(size);
+        _requested = _size;
+    }
 
     View _published_view{};
     std::optional<Rect_size> _published_size{};

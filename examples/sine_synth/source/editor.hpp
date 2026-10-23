@@ -16,7 +16,7 @@ public:
 
     static constexpr auto sizing() -> Sizing { return {.preferred = {720, 360}}; }
 
-    Editor(const Edit_context& edit) : _edit{edit} {}
+    Editor(const edit::Context& edit) : _edit{edit} {}
     ~Editor() = default;
 
     auto on_gui_create(Gui_info) -> void {}
@@ -49,7 +49,7 @@ private:
         bool used{};
     };
 
-    Edit_context _edit{};
+    edit::Context _edit{};
     bool _dark{true};
 
     std::array<Touch, max_touches> _touches{};
@@ -66,5 +66,6 @@ private:
     auto _end_drag() -> void;
 
 };
+static_assert(Interface<Editor>);
 
 } // namespace tiny::edit

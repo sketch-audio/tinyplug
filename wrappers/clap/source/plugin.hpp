@@ -36,13 +36,14 @@ public:
 
     Plugin(const clap_host* host) : PluginBase{&descriptor, host}, _host{host}
     {
-        _editor.emplace(Edit_context{
-            .actions = _actions.actor(),
+        _editor.emplace(edit::Context{
+            .params = _actions.actor(),
             .format = Format::Clap,
             .state_adapter = _state_adapter.actor(),
             .undo_redo = _undo_history.actor(),
             .tasks = _tasks.actor(),
             .view = _edit_store.handle(),
+            .size = _edit_store.size_handle(),
 #if TINY_HAS_STATE
             .state = _state_link.actor(),
 #endif
@@ -209,7 +210,7 @@ private:
     Edit_store _edit_store{sizing_of<User_editor>()};
 
     // Undo history and action queue live here (plug-in lifetime), not in the view,
-    // so the editor's Edit_context (built once at construction) stays valid across
+    // so the editor's edit::Context (built once at construction) stays valid across
     // window open/close and host preset loads are captured with the window closed.
     Undo_history _undo_history{};
     Action_queue _actions{};
@@ -265,7 +266,7 @@ private:
 
     static constexpr auto queue_size = 4 * num_params + 1; // State only
 
-    using From_ui_queue = Lock_free_queue<User_action, queue_size>;
+    using From_ui_queue = Lock_free_queue<edit::Action::Any, queue_size>;
 
     // Values from `paramsFlush`, its only writer: on the audio thread while active, so no mutex.
     Change_set<process::Event::Set, num_params, Producers::One> _from_flush{};
@@ -356,7 +357,7 @@ private:
     auto _handle_note_event(const clap_event_header* event) -> void;
     auto _send_notes(const clap_output_events* out) -> void;
     auto _handle_user_actions(const clap_output_events_t* out_events, bool needs_resync) -> void;
-    auto _handle_user_action(const User_action& action) -> void;
+    auto _handle_user_action(const edit::Action::Any& action) -> void;
     auto _load_param(uint32_t address, double knob) -> void;
 
     // This is where we handle host events from automation or flush.

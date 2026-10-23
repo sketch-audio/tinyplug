@@ -52,7 +52,7 @@ static auto presets_path() -> std::filesystem::path
     DSPKernel _kernel;
     std::shared_ptr<tiny::User_editor> _editor;
     // Undo history and action queue live on the AU (plug-in lifetime), not in the
-    // view, so the editor's Edit_context (built once at construction) stays valid
+    // view, so the editor's edit::Context (built once at construction) stays valid
     // across window open/close and host preset loads are captured with the window closed.
     tiny::Undo_history _undo_history;
     tiny::Action_queue _actions;
@@ -354,11 +354,11 @@ static auto presets_path() -> std::filesystem::path
 
 // MARK: - makeReceiver
 
-- (tiny::Ui_receiver)makeReceiver {
+- (tiny::edit::Connection)makeReceiver {
     using namespace tiny;
     using namespace params;
     __weak typeof(self) self_ = self;
-    return Ui_receiver{
+    return edit::Connection{
         .get_param = [self_](uint32_t addr) {
             auto s = self_;
             if (!s) return double{};
@@ -377,18 +377,18 @@ static auto presets_path() -> std::filesystem::path
             if (auto s = self_) s->_kernel.read_blocks(out);
         },
 #endif
-        .action_handler = [self_](const User_action& action) {
+        .action_handler = [self_](const edit::Action::Any& action) {
             auto s = self_;
             if (!s) return;
             std::visit(Inline_visitor{
-                [&](const Action_start& a) {
+                [&](const edit::Action::Start& a) {
                     auto current = s->_kernel.getParameter(*a.address);
                     auto* auparam = [s->_parameterTree parameterWithAddress:*a.address];
                     auto it = s->_observerTokens.find(auparam.address);
                     auto* token = it != s->_observerTokens.end() ? it->second : nil;
                     [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeTouch];
                 },
-                [&](const Set_param& a) {
+                [&](const edit::Action::Set& a) {
                     const auto& param = User_params::param_spec(a.address);
                     const auto host_value = Value_helper::knob_to_host(a.value, param.semantics);
                     auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
@@ -396,7 +396,7 @@ static auto presets_path() -> std::filesystem::path
                     auto* token = it != s->_observerTokens.end() ? it->second : nil;
                     [auparam setValue:host_value originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeValue];
                 },
-                [&](const Action_end& a) {
+                [&](const edit::Action::End& a) {
                     auto current = s->_kernel.getParameter(*a.address);
                     auto* auparam = [s->_parameterTree parameterWithAddress:*a.address];
                     auto it = s->_observerTokens.find(auparam.address);
@@ -1064,7 +1064,7 @@ static auto presets_path() -> std::filesystem::path
 
     // Record the host load as one coalesced undo step (works editor open or closed).
     const auto host_after = snapshot_knob_params();
-    auto host_changes = std::vector<Set_param>{};
+    auto host_changes = std::vector<edit::Action::Set>{};
     _undo_history.push_host_load(before, host_after, host_changes);
 
 #if TINY_HAS_STATE

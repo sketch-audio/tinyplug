@@ -67,7 +67,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     const auto drive = Frame{side.x, side.y + side.h - 26, side.w, 26};
 
     const auto controls = std::array<ui::Control, 1>{{{drive, enum_raw(Address::Drive), ui::Control::Kind::Slider, "DRIVE", ui::amber}}};
-    _controls.interact(view.interaction, _edit.actions, controls, knobs);
+    _controls.interact(view.interaction, _edit.params, controls, knobs);
 
     canvas->save();
     canvas->scale(static_cast<float>(view.scale), static_cast<float>(view.scale));

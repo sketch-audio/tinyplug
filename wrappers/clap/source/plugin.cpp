@@ -642,7 +642,7 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, State_map le
 
     // One undo step for the whole load, editor open or closed: parameters, document, view.
     const auto after = _snapshot_knob_params();
-    auto changes = std::vector<Set_param>{};
+    auto changes = std::vector<edit::Action::Set>{};
     _undo_history.push_host_load(before, after, changes);
 #if TINY_HAS_STATE
     _state_link.load(doc); // Into the same step.
@@ -1199,7 +1199,7 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
 {
     using namespace params;
     // Make the UI connection.
-    auto receiver = Ui_receiver{
+    auto receiver = edit::Connection{
         .get_param = [this](auto id) {
             const auto& param = User_params::param_spec(id);
             const auto host_value = _hostvalues[id].load(std::memory_order_relaxed);
@@ -1240,10 +1240,6 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
         .undo_history = &_undo_history,
         .actions = &_actions,
         .initial_size = _edit_store.size(),
-        .request_resize = [this, request_resize](uint32_t w, uint32_t h) {
-            _edit_store.requested({static_cast<int32_t>(w), static_cast<int32_t>(h)});
-            request_resize(w, h);
-        },
 #if TINY_HAS_WORKER
         .drain_worker_to_editor = [this]() { this->_drain_worker_to_editor(); }
 #endif
@@ -1367,7 +1363,7 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
 {
     // Don't replay stale events.
     if (needs_resync) {
-        auto discarded = User_action{};
+        auto discarded = edit::Action::Any{};
         while (_from_ui.pop(discarded)) {}
         return;
     }
@@ -1378,10 +1374,10 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
         return policy == Automation || policy == Control;
     };
     
-    auto user_action = User_action{};
+    auto user_action = edit::Action::Any{};
     while (_from_ui.pop(user_action)) {
         std::visit(Inline_visitor{
-            [&](const Action_start& a) {
+            [&](const edit::Action::Start& a) {
                 const auto& param = User_params::param_spec(*a.address);
                 if (wants_host_notify(param.policy)) {
                     const auto e = clap_event_param_gesture{
@@ -1397,7 +1393,7 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
                     out_events->try_push(out_events, &e.header);
                 }
             },
-            [&](const Set_param& a) {
+            [&](const edit::Action::Set& a) {
                 using namespace params;
 
                 const auto& param = User_params::param_spec(a.address);
@@ -1421,7 +1417,7 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
                 const auto plain_value = Value_helper::knob_to_plain(a.value, param.semantics);
                 _processor->handle(process::Event::Set{.value = plain_value, .address = param.identity.address});
             },
-            [&](const Action_end& a) {
+            [&](const edit::Action::End& a) {
                 const auto& param = User_params::param_spec(*a.address);
                 if (wants_host_notify(param.policy)) {
                     const auto e = clap_event_param_gesture{
@@ -1442,11 +1438,11 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
     }
 }
 
-auto Plugin::_handle_user_action(const User_action& action) -> void
+auto Plugin::_handle_user_action(const edit::Action::Any& action) -> void
 {
     using namespace params;
     // Maintain host values immediately.
-    if (const auto* a = std::get_if<Set_param>(&action)) {
+    if (const auto* a = std::get_if<edit::Action::Set>(&action)) {
         const auto& param = User_params::param_spec(a->address);
         const auto host_value = Value_helper::knob_to_host(a->value, param.semantics);
         _hostvalues[param.identity.address].store(host_value, std::memory_order_relaxed);

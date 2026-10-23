@@ -495,7 +495,7 @@ Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream*
     // editor half lands at the end of setState (the second of VST3's two restore calls),
     // into the same step.
     _host_load_after = _snapshot_knob_params();
-    auto changes = std::vector<Set_param>{};
+    auto changes = std::vector<edit::Action::Set>{};
     _undo_history.push_host_load(before, _host_load_after, changes);
 #if TINY_HAS_STATE
     _state_link.load(state::decode_record_or_default<models::Resolved::State>(record)); // Into the same step.
@@ -727,7 +727,7 @@ Steinberg::tresult PLUGIN_API Controller::setParamNormalized(Steinberg::Vst::Par
 
     // Is it a parameter?
     if (tag < num_params) {
-        _state_queue.push(Set_param{.address = tag, .value = value});
+        _state_queue.push(edit::Action::Set{.value = value, .address = tag});
     }
 #if TINY_HAS_METERS
     // Is it a meter?
@@ -760,7 +760,7 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
     if (Steinberg::FIDStringsEqual(name, Steinberg::Vst::ViewType::kEditor))
     {
         // Make the UI connection.
-        auto receiver = Ui_receiver{
+        auto receiver = edit::Connection{
             .get_param = [this](auto id) {
                 return getParamNormalized(id);
             },
@@ -776,16 +776,16 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
 #endif
             .action_handler = [this](auto& a) {
                 std::visit(Inline_visitor{
-                    [this](const Action_start& s) {
+                    [this](const edit::Action::Start& s) {
                         beginEdit(*s.address);
                         _gestured.insert(*s.address);
                     },
-                    [this](const Set_param& s) {
+                    [this](const edit::Action::Set& s) {
                         if (setParamNormalized(s.address, s.value) == Steinberg::kResultTrue) {
                             performEdit(s.address, getParamNormalized(s.address));
                         }
                     },
-                    [this](const Action_end& s) {
+                    [this](const edit::Action::End& s) {
                         endEdit(*s.address);
                         _gestured.erase(*s.address);
                     },

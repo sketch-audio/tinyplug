@@ -20,7 +20,7 @@ public:
     struct Deps {
         Controller* controller{}; // So we can cache the resized size.
         User_editor* editor{};
-        Ui_receiver receiver{};
+        edit::Connection receiver{};
         Task_manager* tasks{};
         Undo_history* undo_history{}; // Owned by the controller (survives the view).
         Action_queue* actions{};      // Owned by the controller (survives the view).

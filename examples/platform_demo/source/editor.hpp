@@ -20,7 +20,7 @@ public:
 
     static constexpr auto sizing() -> Sizing { return {.preferred = {680, 480}}; }
 
-    Editor(const Edit_context& edit) : _edit{edit} { _make_probes(); }
+    Editor(const edit::Context& edit) : _edit{edit} { _make_probes(); }
     ~Editor() = default;
 
     auto on_gui_create(Gui_info info) -> void { _window = info.window; } // Dialogs hang off this window.
@@ -42,7 +42,7 @@ private:
         const char* phase{""}; // The last callback.
     };
 
-    Edit_context _edit{};
+    edit::Context _edit{};
     Window_token _window{};
     bool _dark{true};
     ui::Controls _controls{};
@@ -61,5 +61,6 @@ private:
     auto _dialog(int which, const Frame& gain, const Frame& note, double gain_knob) -> void;
 
 };
+static_assert(Interface<Editor>);
 
 } // namespace tiny::edit

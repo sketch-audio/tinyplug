@@ -42,23 +42,23 @@ auto Editor::on_gui_show() -> void
             const auto deltas = resolve_deltas(translation, _frame);
             const auto value = resolve_incremented(_value, deltas);
             const auto addr = enum_raw(Address::Gain);
-            _edit.actions.push(Action_start{addr});
-            _edit.actions.push(Set_param{addr, value});
+            _edit.params.start(addr);
+            _edit.params.set(addr, value);
         },
         .on_updated = [=, this](const Drag_info& info) {
             const auto translation = make_translation(info.fpos, info.tpos);
             const auto deltas = resolve_deltas(translation, _frame);
             const auto value = resolve_incremented(_value, deltas);
             const auto addr = enum_raw(Address::Gain);
-            _edit.actions.push(Set_param{addr, value});
+            _edit.params.set(addr, value);
         },
         .on_ended = [=, this](const Drag_info& info) {
             const auto translation = make_translation(info.fpos, info.tpos);
             const auto deltas = resolve_deltas(translation, _frame);
             const auto value = resolve_incremented(_value, deltas);
             const auto addr = enum_raw(Address::Gain);
-            _edit.actions.push(Set_param{addr, value});
-            _edit.actions.push(Action_end{addr});
+            _edit.params.set(addr, value);
+            _edit.params.end(addr);
         },
         .on_cancelled = [&]() { _translation = {}; }
     });

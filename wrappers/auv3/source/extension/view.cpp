@@ -38,8 +38,7 @@ auto View::on_draw(View_context& view_context) -> void
         _deps.editor,
         *_deps.actions,
         *_deps.undo_history,
-        *_deps.tasks,
-        [](auto, auto) {}
+        *_deps.tasks
     );
 }
 

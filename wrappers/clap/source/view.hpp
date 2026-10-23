@@ -17,12 +17,11 @@ public:
 
     struct Deps {
         User_editor* editor{};
-        Ui_receiver receiver{};
+        edit::Connection receiver{};
         Task_manager* tasks{};
         Undo_history* undo_history{}; // Owned by the plug-in (survives the view).
         Action_queue* actions{};      // Owned by the plug-in (survives the view).
         Rect_size initial_size{}; // Size to open at: the session's, or the editor's preferred one.
-        std::function<void(uint32_t, uint32_t)> request_resize{}; // Editor-initiated resize → ask host.
 #if TINY_HAS_WORKER
         std::function<void()> drain_worker_to_editor{};
 #endif

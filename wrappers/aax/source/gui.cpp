@@ -38,7 +38,7 @@ auto Gui::CreateViewContainer() -> void
     auto* params = dynamic_cast<Parameters*>(GetEffectParameters());
 
     // We have to make our own UI connection.
-    _receiver = Ui_receiver{
+    _receiver = edit::Connection{
         .get_param = [params](auto id) {
             if (const auto aax_id = tiny_id_to_aax(id)) {
                 const auto* id_cstr = (*aax_id).c_str();
@@ -61,7 +61,7 @@ auto Gui::CreateViewContainer() -> void
 #endif
         .action_handler = [this, view, params](auto& action) {
             std::visit(Inline_visitor{
-                [&](const Action_start& a) {
+                [&](const edit::Action::Start& a) {
                     _gestured.insert(*a.address);
                     if (const auto aax_id = tiny_id_to_aax(*a.address)) {
                         const auto* id_cstr = (*aax_id).c_str();
@@ -72,7 +72,7 @@ auto Gui::CreateViewContainer() -> void
                         };
                     }
                 },
-                [&](const Set_param& a) {
+                [&](const edit::Action::Set& a) {
                     if (const auto aax_id = tiny_id_to_aax(a.address)) {
                         const auto* id_cstr = (*aax_id).c_str();
                         view->HandleParameterMouseDrag(id_cstr, 0);
@@ -86,7 +86,7 @@ auto Gui::CreateViewContainer() -> void
                         }
                     }
                 },
-                [&](const Action_end& a) {
+                [&](const edit::Action::End& a) {
                     if (const auto aax_id = tiny_id_to_aax(*a.address)) {
                         const auto* id_cstr = (*aax_id).c_str();
                         view->HandleParameterMouseUp(id_cstr, 0);
@@ -176,11 +176,7 @@ auto Gui::on_draw(View_context& view_context) -> void
         _editor,
         *_actions,
         *_params->undo_history(),
-        *_tasks,
-        [this](auto w, auto h) {
-            if (_params) _params->edit_store().requested({static_cast<int32_t>(w), static_cast<int32_t>(h)});
-            _resize(static_cast<int32_t>(w), static_cast<int32_t>(h));
-        }
+        *_tasks
     );
 }
 

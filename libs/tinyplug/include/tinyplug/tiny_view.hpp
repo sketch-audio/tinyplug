@@ -13,21 +13,10 @@
 #include <tiny_core/tiny_params.hpp>
 #include <tiny_core/tiny_utils.hpp>
 
+#include "edit_types.hpp"
 #include "tiny_edit.hpp"
-#include "tiny_events.hpp"
 
 namespace tiny {
-
-struct Processor_view {
-    std::span<const double> param_values{};
-    std::span<const double> meter_values{};
-};
-
-struct Update_context {
-    Edit_context edit{}; // The edit context is not immediate mode so you need to attach it in your update calls.
-    Modifier_keys modifier_keys{};
-    Scroll_data scroll_data{};
-};
 
 // The app state gives you
 // - Read-only access to the param and meter values.
@@ -36,6 +25,26 @@ struct Plugin_state {
     Processor_state processor_state{};
     View_context view_context{};
 };
+
+} // namespace tiny
+
+namespace tiny::edit {
+
+// What a plug-in's `edit::Editor` provides: built from its context, sized (`sizing()`, or the older
+// `preferred_size()`), and the window's life from create to destroy, drawing each frame in between.
+template<typename T>
+concept Interface = std::constructible_from<T, const Context&> && requires(T t, Gui_info info, Plugin_state& state) {
+    sizing_of<T>();
+    { t.on_gui_create(info) } -> std::same_as<void>;
+    { t.on_gui_show() } -> std::same_as<void>;
+    { t.on_gui_draw(state) } -> std::same_as<void>;
+    { t.on_gui_hide() } -> std::same_as<void>;
+    { t.on_gui_destroy() } -> std::same_as<void>;
+};
+
+} // namespace tiny::edit
+
+namespace tiny {
 
 // MARK: - debug
 
@@ -46,8 +55,8 @@ namespace view_impl {
 // The frame's actions are queued: give every set a gesture, record undo, run a deferred undo or redo,
 // hand each action to the wrapper, and keep them as the frame's resolved edits. Wrappers never see a
 // transaction's own start and end: those are the undo history's.
-template<typename S, typename P, typename A, typename U, typename F>
-inline auto resolve_frame(const S& _receiver, P& _ui_params, A& _actions, U& _undo_history, Processor_state& state, F _resize_policy) -> void
+template<typename S, typename P, typename A, typename U>
+inline auto resolve_frame(const S& _receiver, P& _ui_params, A& _actions, U& _undo_history, Processor_state& state) -> void
 {
     _actions.normalize();
     _undo_history.process_actions(_actions.get_actions(), state);
@@ -56,14 +65,11 @@ inline auto resolve_frame(const S& _receiver, P& _ui_params, A& _actions, U& _un
 
     const auto actions = _actions.get_actions(); // A copy: a handler may push.
     for (const auto& action : actions) {
-        if (const auto* s = std::get_if<Action_start>(&action); s && !s->address) continue;
-        if (const auto* e = std::get_if<Action_end>(&action); e && !e->address) continue;
+        if (const auto* s = std::get_if<edit::Action::Start>(&action); s && !s->address) continue;
+        if (const auto* e = std::get_if<edit::Action::End>(&action); e && !e->address) continue;
         _receiver.action_handler(action);
-        if (const auto* s = std::get_if<Set_param>(&action)) {
+        if (const auto* s = std::get_if<edit::Action::Set>(&action)) {
             _ui_params[s->address] = s->value; // Update the local copy.
-        }
-        else if (const auto* r = std::get_if<Request_resize>(&action)) {
-            _resize_policy(r->width, r->height);
         }
     }
 
@@ -88,12 +94,12 @@ inline auto close_session(const S& _receiver, P& _ui_params, A& _actions, U& _un
     _actions.close_all();
     auto state = Processor_state{};
     state.params = _ui_params;
-    resolve_frame(_receiver, _ui_params, _actions, _undo_history, state, [](auto, auto) {});
+    resolve_frame(_receiver, _ui_params, _actions, _undo_history, state);
 }
 
 // MARK: - run_frame
 
-template<typename S, typename A0, typename A1, typename B, typename C, typename V, typename A, typename U, typename T, typename F>
+template<typename S, typename A0, typename A1, typename B, typename C, typename V, typename A, typename U, typename T>
 inline auto run_frame(
     const S& _receiver,
     A0& _ui_params, 
@@ -103,8 +109,7 @@ inline auto run_frame(
     V* _custom_view,
     A& _actions,
     U& _undo_history,
-    T& _tasks,
-    F _resize_policy
+    T& _tasks
 ) -> void
 {
     _tasks.bind_main(std::this_thread::get_id());
@@ -137,7 +142,7 @@ inline auto run_frame(
     _tasks.run_main();
     _custom_view->on_gui_draw(state);
 
-    resolve_frame(_receiver, _ui_params, _actions, _undo_history, state.processor_state, _resize_policy);
+    resolve_frame(_receiver, _ui_params, _actions, _undo_history, state.processor_state);
 }
 
 } // namespace view_impl

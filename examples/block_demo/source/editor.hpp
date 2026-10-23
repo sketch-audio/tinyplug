@@ -14,7 +14,7 @@ public:
 
     static constexpr auto sizing() -> Sizing { return {.preferred = {760, 340}}; }
 
-    Editor(const Edit_context& edit) : _edit{edit} {}
+    Editor(const edit::Context& edit) : _edit{edit} {}
     ~Editor() = default;
 
     auto on_gui_create(Gui_info) -> void {}
@@ -37,7 +37,7 @@ private:
         auto tick(bool arrived, double dt) -> void;
     };
 
-    Edit_context _edit{};
+    edit::Context _edit{};
     bool _dark{true};
 
     Time_point _last_time{};
@@ -54,5 +54,6 @@ private:
     std::unique_ptr<Gesture_recognizer> _drag{};
 
 };
+static_assert(Interface<Editor>);
 
 } // namespace tiny::edit

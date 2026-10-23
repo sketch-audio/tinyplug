@@ -52,13 +52,14 @@ public:
 
     Controller()
     {
-        _editor.emplace(Edit_context{
-            .actions = _actions.actor(),
+        _editor.emplace(edit::Context{
+            .params = _actions.actor(),
             .format = Format::Web,
             .state_adapter = _state_adapter.actor(),
             .undo_redo = _undo_history.actor(),
             .tasks = _tasks.actor(),
             .view = _edit_store.handle(),
+            .size = _edit_store.size_handle(),
 #if TINY_HAS_STATE
             .state = _state_link.actor(),
 #endif
@@ -202,7 +203,7 @@ public:
     auto send(Kind kind, const void* payload, std::uint32_t bytes) -> bool { return _to_processor.push(kind, payload, bytes); }
 
     // As the editor does inside a draw: queued, handled at the next tick.
-    auto push_action(const User_action& action) -> void { _actions.actor().push(action); }
+    auto push_action(const edit::Action::Any& action) -> void { _actions.actor().push(action); }
     auto undo() -> void { _undo_history.actor().undo(); }
     auto redo() -> void { _undo_history.actor().redo(); }
 
@@ -232,7 +233,7 @@ public:
 
         for (auto addr = decltype(num_params){}; addr < num_params; ++addr) _ui_params[addr] = param_knob(addr);
         auto state = Processor_state{.params = _ui_params};
-        view_impl::resolve_frame(_receiver, _ui_params, _actions, _undo_history, state, [](auto, auto) {});
+        view_impl::resolve_frame(_receiver, _ui_params, _actions, _undo_history, state);
 #if TINY_HAS_WORKER
         try_drain_worker_to_editor(*_editor, _worker_to_edit);
 #endif
@@ -275,8 +276,7 @@ private:
         try_drain_worker_to_editor(*_editor, _worker_to_edit);
 #endif
         for (auto addr = decltype(num_params){}; addr < num_params; ++addr) _ui_params[addr] = param_knob(addr);
-        view_impl::run_frame(_receiver, _ui_params, _view_meters, _ui_blocks, context, &*_editor, _actions, _undo_history, _tasks,
-            [this](auto w, auto h) { if (_view) _view->resize(static_cast<std::int32_t>(w), static_cast<std::int32_t>(h)); });
+        view_impl::run_frame(_receiver, _ui_params, _view_meters, _ui_blocks, context, &*_editor, _actions, _undo_history, _tasks);
     }
 
     Controller_table _table{};
@@ -341,7 +341,7 @@ private:
     Worker_runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
 #endif
 
-    Ui_receiver _receiver{
+    edit::Connection _receiver{
         .get_param = [this](std::uint32_t id) { return param_knob(id); },
 #if TINY_HAS_METERS
         .read_meters = [this](std::span<float> out) {
@@ -352,7 +352,7 @@ private:
 #if TINY_HAS_BLOCKS
         .read_blocks = [this](blocks::Frames<models::Resolved::Blocks>& out) { _block_mailbox.read(out); },
 #endif
-        .action_handler = [this](const User_action& action) { this->_handle_action(action); },
+        .action_handler = [this](const edit::Action::Any& action) { this->_handle_action(action); },
 #if TINY_HAS_STATE
         .sync_state = [this]() { _state_link.sync(); },
 #endif
@@ -410,9 +410,9 @@ private:
 #endif
 
     // An editor action. The page's own host has no gesture API, so a gesture only brackets undo.
-    auto _handle_action(const User_action& action) -> void
+    auto _handle_action(const edit::Action::Any& action) -> void
     {
-        if (const auto* a = std::get_if<Set_param>(&action)) {
+        if (const auto* a = std::get_if<edit::Action::Set>(&action)) {
             const auto& spec = User_params::param_spec(a->address);
             _host[a->address] = params::Value_helper::knob_to_host(a->value, spec.semantics);
             _to_processor.push_value(Kind::Param_set, Param_set{
@@ -451,7 +451,7 @@ private:
             if (knob && State_rules::is_persistent(spec)) _load_param(i, *knob);
         }
         const auto after = _knob_snapshot();
-        auto changes = std::vector<Set_param>{};
+        auto changes = std::vector<edit::Action::Set>{};
         _undo_history.push_host_load(before, after, changes);
 #if TINY_HAS_STATE
         _state_load.publish(doc); // The processor's copy, as CLAP's on_session_load: a load is not an edit.
@@ -501,9 +501,9 @@ EMSCRIPTEN_KEEPALIVE auto tiny_ctl_take_midi(tiny::web::Midi_out* out, std::uint
 EMSCRIPTEN_KEEPALIVE auto tiny_ctl_action(std::uint32_t kind, std::uint32_t address, double knob) -> void
 {
     switch (kind) {
-        case 0: instance->push_action(tiny::Action_start{.address = address}); break;
-        case 1: instance->push_action(tiny::Set_param{.address = address, .value = knob}); break;
-        case 2: instance->push_action(tiny::Action_end{.address = address}); break;
+        case 0: instance->push_action(tiny::edit::Action::Start{.address = address}); break;
+        case 1: instance->push_action(tiny::edit::Action::Set{.value = knob, .address = address}); break;
+        case 2: instance->push_action(tiny::edit::Action::End{.address = address}); break;
         default: break;
     }
 }

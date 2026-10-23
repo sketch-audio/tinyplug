@@ -93,7 +93,7 @@ auto Editor::_make_probes() -> void
 
 auto Editor::on_gui_hide() -> void
 {
-    _controls.cancel(_edit.actions);
+    _controls.cancel(_edit.params);
     Platform_text::cancel(_window);
 }
 
@@ -112,9 +112,9 @@ auto Editor::_dialog(int which, const Frame& gain, const Frame& note, double gai
                 const auto& spec = User_params::param_spec(address);
                 const auto value = Host_formatter::to_value(text, spec.semantics);
                 if (!value) return report("TEXT: NOT A NUMBER");
-                _edit.actions.push(Action_start{address});
-                _edit.actions.push(Set_param{address, params::Value_helper::plain_to_knob(*value, spec.semantics)});
-                _edit.actions.push(Action_end{address});
+                _edit.params.start(address);
+                _edit.params.set(address, params::Value_helper::plain_to_knob(*value, spec.semantics));
+                _edit.params.end(address);
                 report("TEXT: GAIN = " + text);
             }, ctx);
             break;
@@ -144,9 +144,9 @@ auto Editor::_dialog(int which, const Frame& gain, const Frame& note, double gai
                 const auto& spec = User_params::param_spec(address);
                 const auto value = Host_formatter::to_value(r.text, spec.semantics);
                 if (!value) return report("INLINE: NOT A NUMBER");
-                _edit.actions.push(Action_start{address});
-                _edit.actions.push(Set_param{address, params::Value_helper::plain_to_knob(params::Value_helper::clamp(*value, spec.semantics), spec.semantics)});
-                _edit.actions.push(Action_end{address});
+                _edit.params.start(address);
+                _edit.params.set(address, params::Value_helper::plain_to_knob(params::Value_helper::clamp(*value, spec.semantics), spec.semantics));
+                _edit.params.end(address);
                 report("INLINE: GAIN = " + r.text);
             }, ctx);
             break;
@@ -205,7 +205,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     _scroll.y += interaction.scroll_deltas.y;
 
     const auto controls = std::array<ui::Control, 1>{{{gain, enum_raw(Address::Gain), ui::Control::Kind::Slider, "GAIN", ui::blue}}};
-    _controls.interact(interaction, _edit.actions, controls, knobs);
+    _controls.interact(interaction, _edit.params, controls, knobs);
     for (auto& event : interaction.events.events) {
         const auto* down = std::get_if<Pointer_down>(&event.event);
         if (!down || event.consumed || down->button != Pointer_button::left) continue;

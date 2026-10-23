@@ -61,11 +61,7 @@ auto View::on_draw(View_context& view_context) -> void
         _deps.editor,
         *_deps.actions,
         *_deps.undo_history,
-        *_deps.tasks,
-        [this](auto w, auto h) {
-            _deps.edit_store->requested({static_cast<int32_t>(w), static_cast<int32_t>(h)});
-            resize(_deps.edit_store->size());
-        }
+        *_deps.tasks
     );
 }
 

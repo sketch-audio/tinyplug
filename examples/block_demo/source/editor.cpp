@@ -125,15 +125,15 @@ auto Editor::on_gui_show() -> void
     _drag = std::make_unique<Drag_recognizer>(Gesture_callbacks<Drag_info>{
         .on_started = [=, this](const Drag_info& info) {
             _translation = {};
-            _edit.actions.push(Action_start{addr});
-            _edit.actions.push(Set_param{addr, knob_after(info)});
+            _edit.params.start(addr);
+            _edit.params.set(addr, knob_after(info));
         },
         .on_updated = [=, this](const Drag_info& info) {
-            _edit.actions.push(Set_param{addr, knob_after(info)});
+            _edit.params.set(addr, knob_after(info));
         },
         .on_ended = [=, this](const Drag_info& info) {
-            _edit.actions.push(Set_param{addr, knob_after(info)});
-            _edit.actions.push(Action_end{addr});
+            _edit.params.set(addr, knob_after(info));
+            _edit.params.end(addr);
         },
         .on_cancelled = [this]() { _translation = {}; }
     });

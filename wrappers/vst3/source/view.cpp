@@ -135,13 +135,7 @@ void View::on_draw(View_context& view_context)
         _deps.editor,
         *_deps.actions,
         *_deps.undo_history,
-        *_deps.tasks,
-        [this](auto w, auto h) {
-            // Editor-initiated resize (corner-drag handle → Request_resize). Ask the host to
-            // resize us; it echoes back via onSize, which resizes the platform view.
-            _deps.controller->edit_store().requested({static_cast<int32_t>(w), static_cast<int32_t>(h)});
-            _request_size(static_cast<int32_t>(w), static_cast<int32_t>(h));
-        }
+        *_deps.tasks
     );
 }
 

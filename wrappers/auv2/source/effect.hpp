@@ -190,7 +190,7 @@ private:
     static constexpr auto num_meters = User_meters::num_meters;
 
     // Undo history and action queue live on the Effect (plug-in lifetime), not in the
-    // view, so the editor's Edit_context (built once at construction) stays valid across
+    // view, so the editor's edit::Context (built once at construction) stays valid across
     // window open/close and host preset loads are captured with the window closed.
     // Declared before `_view` so its Deps can borrow pointers to them.
     Undo_history _undo_history{};
@@ -364,7 +364,7 @@ private:
 #endif
                 .action_handler = [this](auto& action) {
                     std::visit(Inline_visitor{
-                        [&](const Action_start& a) {
+                        [&](const edit::Action::Start& a) {
                             auto event = AudioUnitEvent{};
                             event.mEventType = kAudioUnitEvent_BeginParameterChangeGesture;
                             event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
@@ -373,7 +373,7 @@ private:
                             event.mArgument.mParameter.mElement = 0;
                             AUEventListenerNotify(NULL, NULL, &event);
                         },
-                        [&](const Set_param& a) {
+                        [&](const edit::Action::Set& a) {
                             using namespace params;
 
                             // Notify host
@@ -391,7 +391,7 @@ private:
                             AUEventListenerNotify(NULL, NULL, &event);
                             _changes.push(process::Event::Set{.value = plain_value, .address = a.address});
                         },
-                        [&](const Action_end& a) {
+                        [&](const edit::Action::End& a) {
                             auto event = AudioUnitEvent{};
                             event.mEventType = kAudioUnitEvent_EndParameterChangeGesture;
                             event.mArgument.mParameter.mAudioUnit = GetComponentInstance();

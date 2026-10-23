@@ -14,7 +14,7 @@ public:
     
     struct Deps {
         User_editor* editor{};
-        Ui_receiver receiver{};
+        edit::Connection receiver{};
         Task_manager* tasks{};
         Undo_history* undo_history{}; // Owned by the AU (survives the view).
         Action_queue* actions{};      // Owned by the AU (survives the view).

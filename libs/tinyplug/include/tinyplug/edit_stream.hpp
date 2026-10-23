@@ -7,7 +7,7 @@
 
 #include <tiny_core/tiny_utils.hpp> // Inline_visitor
 
-#include "tiny_events.hpp"
+#include "edit_types.hpp"
 
 namespace tiny {
 
@@ -27,11 +27,11 @@ class Edit_stream {
 public:
 
     // Append the normalized form of `in` to `out`.
-    auto normalize(std::span<const User_action> in, std::vector<User_action>& out) -> void
+    auto normalize(std::span<const edit::Action::Any> in, std::vector<edit::Action::Any>& out) -> void
     {
         for (const auto& action : in) {
             std::visit(Inline_visitor{
-                [&](const Action_start& s) {
+                [&](const edit::Action::Start& s) {
                     ++_depth;
                     if (s.address) {
                         grow(*s.address);
@@ -42,7 +42,7 @@ public:
                         out.push_back(s);
                     }
                 },
-                [&](const Set_param& p) {
+                [&](const edit::Action::Set& p) {
                     if (count(p.address) > 0) {
                         out.push_back(p);
                     }
@@ -52,12 +52,12 @@ public:
                         out.push_back(p);
                     }
                     else {
-                        out.push_back(Action_start{p.address});
+                        out.push_back(edit::Action::Start{p.address});
                         out.push_back(p);
-                        out.push_back(Action_end{p.address});
+                        out.push_back(edit::Action::End{p.address});
                     }
                 },
-                [&](const Action_end& e) {
+                [&](const edit::Action::End& e) {
                     if (_depth == 0) return; // A stray end: nothing is open.
                     if (e.address) {
                         if (*e.address >= _starts.size() || _starts[*e.address] == 0) return; // Never started.
@@ -78,7 +78,7 @@ public:
     }
 
     // End everything still open, as when the editor's view goes away mid-gesture.
-    auto close_all(std::vector<User_action>& out) -> void
+    auto close_all(std::vector<edit::Action::Any>& out) -> void
     {
         auto addressed = uint32_t{};
         for (const auto n : _starts) addressed += n;
@@ -87,7 +87,7 @@ public:
             while (_touches[addr] > 0) release(addr, out);
             _starts[addr] = 0;
         }
-        for (auto open = _depth - addressed; open > 0; --open) out.push_back(Action_end{}); // The transactions.
+        for (auto open = _depth - addressed; open > 0; --open) out.push_back(edit::Action::End{}); // The transactions.
         _depth = 0;
     }
 
@@ -110,19 +110,19 @@ private:
         }
     }
 
-    auto touch(uint32_t addr, std::vector<User_action>& out) -> void
+    auto touch(uint32_t addr, std::vector<edit::Action::Any>& out) -> void
     {
         grow(addr);
-        if (_touches[addr]++ == 0) out.push_back(Action_start{addr});
+        if (_touches[addr]++ == 0) out.push_back(edit::Action::Start{addr});
     }
 
-    auto release(uint32_t addr, std::vector<User_action>& out) -> void
+    auto release(uint32_t addr, std::vector<edit::Action::Any>& out) -> void
     {
         if (count(addr) == 0) return;
-        if (--_touches[addr] == 0) out.push_back(Action_end{addr});
+        if (--_touches[addr] == 0) out.push_back(edit::Action::End{addr});
     }
 
-    auto release_implicit(std::vector<User_action>& out) -> void
+    auto release_implicit(std::vector<edit::Action::Any>& out) -> void
     {
         for (const auto addr : _implicit) release(addr, out);
         _implicit.clear();

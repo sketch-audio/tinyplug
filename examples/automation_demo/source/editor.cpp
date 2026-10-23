@@ -90,7 +90,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
         {ui::column(controls_row, 3, 5, 8), enum_raw(Address::Dc_out), Kind::Toggle, "DC OUT", ui::red},
         {ui::column(controls_row, 4, 5, 8), enum_raw(Address::Phase_out), Kind::Toggle, "PHASE OUT", ui::blue},
     }};
-    _controls.interact(view.interaction, _edit.actions, controls, knobs);
+    _controls.interact(view.interaction, _edit.params, controls, knobs);
     for (const auto& event : view.interaction.events.events) {
         if (const auto* down = std::get_if<Pointer_down>(&event.event); down && !event.consumed && log_panel.contains(down->pos)) {
             _lines.clear();
