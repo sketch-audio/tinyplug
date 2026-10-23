@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include <tiny_text/fonts.hpp>
 #include <tiny_ui/controls.hpp>
 #include <tinyplug/tinyplug.hpp>
@@ -11,7 +13,8 @@ namespace tiny::edit {
 // specimen. Placement: each anchor on a guide line, tracked capitals centred on their letters, case-sensitive
 // forms, optical alignment, overflow. Multiline and spans: a paragraph wrapped and held to three lines,
 // value-and-unit readouts, mixed styles in one paragraph. Sweep animates the weight axis live; the header
-// reads frame rate and what the caches hold.
+// reads frame rate and what the caches hold. Typing, in native fields drawn in Inter: right-click (or Ctrl-click)
+// the Weight or Size slider to type a value, click the specimen to type your own sample.
 class Editor {
 public:
 
@@ -20,10 +23,10 @@ public:
     explicit Editor(const Edit_context& edit);
     ~Editor() = default;
 
-    auto on_gui_create(Gui_info) -> void {}
+    auto on_gui_create(Gui_info info) -> void { _window = info.window; } // Text fields open in this window.
     auto on_gui_show() -> void {}
     auto on_gui_draw(Plugin_state&) -> void;
-    auto on_gui_hide() -> void { _controls.cancel(_edit.actions); }
+    auto on_gui_hide() -> void;
     auto on_gui_destroy() -> void {}
 
 private:
@@ -31,12 +34,17 @@ private:
     using Address = models::Params::Address;
 
     Edit_context _edit{};
+    Window_token _window{};
     ui::Controls _controls{};
     text::Fonts _fonts;
+    std::string _specimen{"Sphinx of black quartz, judge my vow"};
 
     Time_point _start{};
     Time_point _last{};
     double _fps{};
+
+    auto _type_value(Address address, const Frame& frame, std::span<const double> knobs, bool dark) -> void;
+    auto _type_specimen(const Frame& frame, float size, float weight, bool dark) -> void;
 
 };
 

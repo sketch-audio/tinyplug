@@ -12,8 +12,9 @@ namespace tiny::edit {
 
 // A quick check of the platform layer. Left, a pad watched by every gesture recognizer, each
 // with a lamp that flashes on its callbacks and a count; beneath it the raw pointer events,
-// modifiers and scroll. Right, one button per dialog, the last result, and what the window
-// reports about itself.
+// modifiers and scroll. Right, one button per dialog and two for inline text fields (one over the
+// gain slider, one over the result line that clicking away cancels), the last result, and what the
+// window reports about itself.
 class Editor {
 public:
 
@@ -25,7 +26,7 @@ public:
     auto on_gui_create(Gui_info info) -> void { _window = info.window; } // Dialogs hang off this window.
     auto on_gui_show() -> void {}
     auto on_gui_draw(Plugin_state&) -> void;
-    auto on_gui_hide() -> void { _controls.cancel(_edit.actions); }
+    auto on_gui_hide() -> void;
     auto on_gui_destroy() -> void {} // Keeps `_window`: a retired token already resolves to nothing.
 
 private:
@@ -57,7 +58,7 @@ private:
     double _fps{};
 
     auto _make_probes() -> void;
-    auto _dialog(int which) -> void;
+    auto _dialog(int which, const Frame& gain, const Frame& note, double gain_knob) -> void;
 
 };
 

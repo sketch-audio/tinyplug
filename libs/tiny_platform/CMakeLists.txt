@@ -25,6 +25,7 @@ if(APPLE)
             source/ios_dialogs.mm
             source/ios_paths.mm
             source/ios_view.mm
+            source/platform_text_modal.cpp
         )
     else()
         # mac_view.mm is compiled per-plugin-format (in each make_xxx_plugin.cmake)
@@ -55,6 +56,7 @@ elseif(WIN32)
         source/win_dialogs.cpp
         source/win_paths.cpp
         source/win_view.cpp
+        source/platform_text_modal.cpp
     )
 endif()
 
@@ -68,6 +70,7 @@ target_sources(${TINY_PLATFORM_LIB} PRIVATE
     include/tiny_platform/tiny_platform.hpp
     include/tiny_platform/platform_dialogs.hpp
     include/tiny_platform/platform_paths.hpp
+    include/tiny_platform/platform_text.hpp
     include/tiny_platform/platform_view.hpp
     include/tiny_platform/view_delegate.hpp
     include/tiny_platform/window_context.hpp

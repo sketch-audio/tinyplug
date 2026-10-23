@@ -2,7 +2,7 @@
 
 // Umbrella header for the platform library. Pulls in the format-facing platform
 // surface: compile-time platform detection, the native view + its delegate,
-// dialogs, and paths.
+// dialogs, inline text fields, and paths.
 //
 // `window_context.hpp` is intentionally excluded — it is an internal
 // implementation header (and the only one that pulls in Skia). Platform sources
@@ -13,3 +13,4 @@
 #include <tiny_platform/platform_view.hpp>
 #include <tiny_platform/platform_dialogs.hpp>
 #include <tiny_platform/platform_paths.hpp>
+#include <tiny_platform/platform_text.hpp>

@@ -1,6 +1,7 @@
 #include "editor.hpp"
 
 #include <embedded/fonts.hpp>
+#include <tiny_platform/platform_text.hpp>
 #include <tiny_ui/draw.hpp>
 
 #include <array>
@@ -21,7 +22,6 @@ auto faces() -> std::array<text::Face, 2>
     }};
 }
 
-constexpr auto pangram = "Sphinx of black quartz, judge my vow";
 constexpr auto prose =
     "A variable font carries its whole design space in one file: weight, optical size, and whatever "
     "else its designer exposed. HarfBuzz shapes each run against the instance it will be drawn with, "
@@ -54,6 +54,12 @@ auto tabular(text::Style s) -> text::Style
 } // namespace
 
 Editor::Editor(const Edit_context& edit) : _edit{edit}, _fonts{faces()}, _start{System_clock::now()} {}
+
+auto Editor::on_gui_hide() -> void
+{
+    _controls.cancel(_edit.actions);
+    Platform_text::cancel(_window);
+}
 
 auto Editor::on_gui_draw(Plugin_state& state) -> void
 {
@@ -90,6 +96,24 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
         {ui::column(bar, 1, 3, 12), enum_raw(Address::Size), ui::Control::Kind::Slider, "", ui::purple},
         {ui::column(bar, 2, 3, 12), enum_raw(Address::Sweep), ui::Control::Kind::Toggle, "", ui::green},
     }};
+    const auto body = Frame{page.x, bar.y + bar.h + 24, page.w, page.y + page.h - (bar.y + bar.h + 24)};
+    const auto col = [&](int i) { return ui::column(body, i, 3, 28); };
+    const auto specimen = Frame{col(0).x, col(0).y + 22, col(0).w, std::max(size * 1.3, 24.)};
+
+    // Typing: a right-click (or Ctrl-click) on a slider types its value; a click on the specimen types new text.
+    for (auto& event : view.interaction.events.events) {
+        if (const auto* down = std::get_if<Pointer_down>(&event.event); down && down->button == Pointer_button::right) {
+            for (auto i = 0; i < 2; ++i) {
+                if (!controls[static_cast<size_t>(i)].frame.contains(down->pos)) continue;
+                event.consumed = true;
+                _type_value(i == 0 ? Address::Weight : Address::Size, controls[static_cast<size_t>(i)].frame, knobs, view.dark);
+            }
+        }
+        if (const auto* click = std::get_if<Pointer_click>(&event.event); click && click->button == Pointer_button::left && specimen.contains(click->pos)) {
+            event.consumed = true;
+            _type_specimen(specimen, size, weight, view.dark);
+        }
+    }
     _controls.interact(view.interaction, _edit.actions, controls, knobs);
 
     canvas->save();
@@ -118,8 +142,6 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     value_label(1, print("Size  %.1f", static_cast<double>(size)));
     value_label(2, sweep ? "Sweep  on" : "Sweep  off");
 
-    const auto body = Frame{page.x, bar.y + bar.h + 24, page.w, page.y + page.h - (bar.y + bar.h + 24)};
-    const auto col = [&](int i) { return ui::column(body, i, 3, 28); };
     const auto heading = text::Style{.family = "Inter", .size = 11, .weight = 650, .tracking = 80, .transform = text::Case::Upper};
 
     // MARK: single line
@@ -129,9 +151,8 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     _fonts.text(*canvas, "Single line", heading, {c1.x, y + 6}, dim);
     y += 22;
 
-    const auto specimen = Frame{c1.x, y, c1.w, std::max(size * 1.3, 24.)};
     ui::outline(*canvas, specimen, t.track);
-    _fonts.line(*canvas, pangram, inter(size, weight), specimen, ink);
+    _fonts.line(*canvas, _specimen, inter(size, weight), specimen, ink);
     y += specimen.h + 14;
 
     for (auto wt = 100; wt <= 900; wt += 200) {
@@ -298,6 +319,49 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     _fonts.paragraph(*canvas, rich, {c3.x, ry, c3.w, 0});
 
     canvas->restore();
+}
+
+auto Editor::_type_value(Address address, const Frame& frame, std::span<const double> knobs, bool dark) -> void
+{
+    const auto a = enum_raw(address);
+    const auto& spec = User_params::param_spec(a);
+    const auto t = ui::theme(dark);
+    const auto field = Text_field{
+        .frame = frame,
+        .initial = Host_formatter::to_string(params::Value_helper::knob_to_host(knobs[a], spec.semantics), spec.semantics),
+        .label = spec.name,
+        .font = {.data = embedded::fonts::intervariable_ttf(), .size = 13, .weight = 500},
+        .ink = t.text,
+        .background = t.panel,
+    };
+    // One gesture, so the typed value is one undo step and the host sees a touch.
+    Platform_text::edit(field, [this, a](Text_result result) {
+        if (!result.committed()) return;
+        const auto& semantics = User_params::param_spec(a).semantics;
+        const auto plain = Host_formatter::to_value(result.text, semantics); // Plain space, though to_string takes host.
+        if (!plain) return;
+        _edit.actions.push(Action_start{a});
+        _edit.actions.push(Set_param{a, params::Value_helper::plain_to_knob(params::Value_helper::clamp(*plain, semantics), semantics)});
+        _edit.actions.push(Action_end{a});
+    }, Dialog_context{_edit.tasks, _window});
+}
+
+auto Editor::_type_specimen(const Frame& frame, float size, float weight, bool dark) -> void
+{
+    const auto t = ui::theme(dark);
+    const auto field = Text_field{
+        .frame = frame,
+        .initial = _specimen,
+        .label = "Specimen",
+        .font = {.data = embedded::fonts::intervariable_ttf(), .size = size, .weight = weight},
+        .ink = t.text,
+        .background = t.background,
+        .align = Text_field::Align::Left,
+        .select_all = false,
+    };
+    Platform_text::edit(field, [this](Text_result result) {
+        if (result.committed() && !result.text.empty()) _specimen = result.text;
+    }, Dialog_context{_edit.tasks, _window});
 }
 
 } // namespace tiny::edit

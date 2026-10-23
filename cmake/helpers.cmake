@@ -453,6 +453,8 @@ function(configure_mac_view FORMAT_TARGET BASE_FILENAME VERSION_STRING BUILD_NUM
     string(REPLACE "." "_" _version_safe "${VERSION_STRING}")
     set(TINY_MAC_VIEW "MacView_${BASE_FILENAME}_${FORMAT}_${_version_safe}_${BUILD_NUMBER}")
     set(TINY_MAC_METAL_VIEW "MacMetalView_${BASE_FILENAME}_${FORMAT}_${_version_safe}_${BUILD_NUMBER}")
+    set(TINY_MAC_TEXT_FIELD "MacTextField_${BASE_FILENAME}_${FORMAT}_${_version_safe}_${BUILD_NUMBER}")
+    set(TINY_MAC_TEXT_CELL "MacTextCell_${BASE_FILENAME}_${FORMAT}_${_version_safe}_${BUILD_NUMBER}")
     # Generate into a per-FORMAT directory. `CMAKE_CURRENT_BINARY_DIR` is per *plug-in*,
     # so every format target was writing the same mac_config.hpp and the last one to
     # configure won — which is why all five bundles ended up carrying whichever format's

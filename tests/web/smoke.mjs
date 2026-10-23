@@ -1,6 +1,8 @@
 // Headless Chrome over CDP: a demo's smoke page, offline-rendered and muted. No dependencies (Node's WebSocket).
 // usage: node tests/web/smoke.mjs <Base> [--build build-web] [--page smoke.html] [--result tiny_smoke] [--shot out.png]
 //        [--viewport 900x700] (CSS pixels, at 2x)
+//        [--type x,y,button,text] (a click on the canvas, left or right, then text typed and Enter: an inline field)
+//        [--key Escape] (instead of Enter) [--shot-open out.png] (the field, before the key)
 //        [--no-isolation] (serve without COOP / COEP, as a nonisolated build's page)
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -71,6 +73,33 @@ try {
         await sleep(hold);
         await mouse("mouseReleased", x1, y1, 0);
         await sleep(500);
+    }
+    const typing = arg("--type", null);
+    if (typing && result?.ok) {
+        const [x, y, button, ...rest] = typing.split(",");
+        const box = (await send("Runtime.evaluate", { expression: "JSON.stringify(document.querySelector('canvas').getBoundingClientRect())", returnByValue: true })).result.result.value;
+        const rect = JSON.parse(box);
+        const at = { x: rect.left + Number(x), y: rect.top + Number(y) };
+        const mouse = (type, buttons) => send("Input.dispatchMouseEvent", { type, ...at, button, buttons, clickCount: 1 });
+        await mouse("mouseMoved", 0);
+        await mouse("mousePressed", button === "right" ? 2 : 1);
+        await mouse("mouseReleased", 0);
+        await sleep(400); // The editor's next frame opens the field.
+        const field = await send("Runtime.evaluate", { expression: "document.activeElement?.tagName === 'INPUT'", returnByValue: true });
+        console.log(`field open: ${field.result?.result?.value === true}`);
+        await send("Input.insertText", { text: rest.join(",") });
+        const open_shot = arg("--shot-open", null);
+        if (open_shot) {
+            await sleep(300);
+            const { result: { data } } = await send("Page.captureScreenshot", { format: "png" });
+            const { writeFile } = await import("node:fs/promises");
+            await writeFile(open_shot, Buffer.from(data, "base64"));
+        }
+        const name = arg("--key", "Enter");
+        const key = (type) => send("Input.dispatchKeyEvent", { type, key: name, code: name, windowsVirtualKeyCode: name === "Escape" ? 27 : 13 });
+        await key("keyDown");
+        await key("keyUp");
+        await sleep(400);
     }
     await sleep(Number(arg("--wait", 0)));
     if (arg("--perf", null) && result?.ok) { // Main-thread busy time over a window, from Chrome's own task metrics.

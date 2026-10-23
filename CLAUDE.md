@@ -1006,8 +1006,9 @@ its rules are in this file and its history in git.
   on the view model and transactions. Holds the 0.4 client defects the port should fix.
 - **[fonts-and-text.md](plans/fonts-and-text.md)** — in progress. `tiny_text`, `tiny_embed` and text_demo are in
   (macOS and web); remaining: Windows and iOS builds, the clients.
-- **[keyboard-input.md](plans/keyboard-input.md)** — design. Inline native text fields first, then key events
-  for shortcuts under per-frame claims; no hooks or event monitors, unclaimed keys go back to the host.
+- **[keyboard-input.md](plans/keyboard-input.md)** — part 1 in progress (branch `keyboard-text-fields`).
+  `Platform_text`: inline native text fields (macOS, web; modal fallback on iOS and Windows). Then key events for
+  shortcuts under per-frame claims; no hooks or event monitors, unclaimed keys go back to the host.
 - **[buffer-system.md](plans/buffer-system.md)** — design. Managed large audio buffers (looper, granular,
   sampler, drum machine): a processor-owned canonical source, off-thread prepare, pointer-swap install,
   persisted in the session.

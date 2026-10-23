@@ -1,10 +1,18 @@
 # Plan: Keyboard input — native text fields, then best-effort shortcuts, never stolen keys
 
-> Status: **design.** No platform view delivers a key today: `mac_view.mm` has no `keyDown:`, `win_view.cpp` no
-> `WM_KEYDOWN` / `WM_CHAR`, `web_view.cpp` and `editor.js` no key listeners, and `tiny_input.hpp` no key event.
-> Modifiers work everywhere because they're polled each frame (`[NSEvent modifierFlags]`, `GetKeyState`), not
-> delivered. Text entry is `Platform_dialogs::text_input`, a modal dialog. This plan adds inline native text fields
-> (part 1) and key events for shortcuts (part 2).
+> Status: **part 1 in progress on `keyboard-text-fields` (2026-10-23).** `Platform_text`
+> ([platform_text.hpp](../libs/tiny_platform/include/tiny_platform/platform_text.hpp)) is in on macOS (an
+> `NSTextField` over the view, in `mac_view.mm` with per-plug-in class names) and web (an `<input>` over the canvas,
+> `web_view.cpp`), both in the editor's embedded font, registered nowhere. iOS and Windows fall back to the modal
+> `text_input` ([platform_text_modal.cpp](../libs/tiny_platform/source/platform_text_modal.cpp)). text_demo types
+> slider values (right-click) and its specimen; platform_demo has INLINE > GAIN and INLINE NOTE. Checked in headless
+> Chrome (commit, Escape, clamping, the field drawn in Inter); macOS built and installed, not yet tried in hosts.
+> Remaining: the host matrix, iOS and Windows natives, part 2.
+>
+> Before: no platform view delivered a key: `mac_view.mm` has no `keyDown:`, `win_view.cpp` no `WM_KEYDOWN` /
+> `WM_CHAR`, `web_view.cpp` and `editor.js` no key listeners, and `tiny_input.hpp` no key event. Modifiers work
+> everywhere because they're polled each frame (`[NSEvent modifierFlags]`, `GetKeyState`), not delivered. Text entry
+> was `Platform_dialogs::text_input`, a modal dialog.
 
 ## Principles
 
@@ -124,10 +132,26 @@ key mapping and the claims answer.
 
 ## Order of work
 
-1. Part 1 on macOS and web; `tiny_ui` gets a value-entry control that uses it (double-click a knob to type).
-2. Part 1 on Windows and iOS.
-3. The matrix for part 1; the per-host fallback only for hosts that fail.
+1. ~~Part 1 on macOS and web~~, in the demos. A value-entry control in `tiny_ui` is left out: tiny_ui is header-only
+   over tinyplug and doesn't link `tiny_platform`; the demos show the pattern (a right-click opens a field, the
+   result goes through `Host_formatter::to_value` as one gesture).
+2. The matrix for part 1 on macOS; the per-host fallback only for hosts that fail.
+3. Part 1 on Windows (`EDIT`) and iOS (`UITextField`), replacing the modal fallback.
 4. Part 2, macOS first, then VST3 `onKeyDown`, Windows, web, iOS.
+
+## Learned building part 1
+
+- **The web processor module includes the editor's header** (through `<tiny_plugin.hpp>`) without linking
+  `tiny_platform`: an editor includes `platform_text.hpp` in its `.cpp`, as platform_demo always did for dialogs.
+- **`??=` and friends are trigraphs** to the C preprocessor inside `EM_JS`; write the JS without them.
+- **`Host_formatter::to_value` returns plain**, while `to_string` takes host. Easy to get wrong (text_demo did,
+  first): convert with `plain_to_knob`.
+- **Web's `text_input` never answers a cancel** ([web_dialogs.cpp](../libs/tiny_platform/source/web_dialogs.cpp)),
+  against the header's contract (an empty string on cancel). Not fixed here.
+- **A double-click to type moves the slider first** (the first press sets the value), so Escape couldn't restore it;
+  the demos use right-click / Ctrl-click, which tiny_ui's controls ignore.
+- **On web, `focus()` from the frame loop** works on desktop; iOS Safari only raises its keyboard from a user gesture,
+  so a field opened a frame later may not show it there. Unverified.
 
 ## Open questions
 

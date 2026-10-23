@@ -3,9 +3,11 @@
 #include <chrono>
 
 #import <Cocoa/Cocoa.h>
+#import <CoreText/CoreText.h>
 #import <CoreVideo/CVDisplayLink.h>
 #import <QuartzCore/QuartzCore.h> // CAMetalDisplayLink
 
+#include <tiny_platform/platform_text.hpp>
 #include <tiny_platform/window_context.hpp>
 
 #include "window_registry.hpp"
@@ -19,6 +21,156 @@
 static_assert(false, "This is a non-ARC file");
 #endif
 
+// MARK: - Text field
+
+// Centres a single line vertically; NSTextFieldCell draws it at the top.
+@interface TINY_MAC_TEXT_CELL : NSTextFieldCell
+@end
+
+@implementation TINY_MAC_TEXT_CELL
+
+- (NSRect)drawingRectForBounds:(NSRect)bounds {
+    auto rect = [super drawingRectForBounds:bounds];
+    const auto height = [self cellSizeForBounds:rect].height;
+    if (height < rect.size.height) {
+        rect.origin.y += (rect.size.height - height) / 2;
+        rect.size.height = height;
+    }
+    return rect;
+}
+
+@end
+
+// A field over the editor, its own delegate. Ends once: Return commits, Escape cancels, clicking away does what
+// `blur` says.
+@interface TINY_MAC_TEXT_FIELD : NSTextField <NSTextFieldDelegate>
+- (id)initWithSpec:(const tiny::Text_field&)spec frame:(NSRect)frame done:(std::function<void(tiny::Text_result)>)done;
+- (void)finish:(tiny::Text_result::Kind)kind;
+@end
+
+namespace {
+
+auto ns_color(std::uint32_t argb) -> NSColor*
+{
+    return [NSColor colorWithSRGBRed:((argb >> 16) & 0xff) / 255.0 green:((argb >> 8) & 0xff) / 255.0
+                                blue:(argb & 0xff) / 255.0 alpha:((argb >> 24) & 0xff) / 255.0];
+}
+
+// The editor's embedded font at its weight and size, never registered with the system; else the system font.
+auto ns_font(const tiny::Text_field::Font& font) -> NSFont*
+{
+    if (!font.data.empty()) {
+        auto* data = CFDataCreateWithBytesNoCopy(nullptr, reinterpret_cast<const UInt8*>(font.data.data()), static_cast<CFIndex>(font.data.size()), kCFAllocatorNull);
+        auto* base = CTFontManagerCreateFontDescriptorFromData(data);
+        CFRelease(data);
+        if (base) {
+            auto* variation = @{@(0x77676874): @(font.weight), @(0x6f70737a): @(font.size)}; // 'wght', 'opsz'
+            auto* descriptor = CTFontDescriptorCreateCopyWithAttributes(base, (CFDictionaryRef)@{(id)kCTFontVariationAttribute: variation});
+            CFRelease(base);
+            auto* ct = CTFontCreateWithFontDescriptor(descriptor, font.size, nullptr);
+            CFRelease(descriptor);
+            if (ct) return [(NSFont*)ct autorelease];
+        }
+    }
+    const auto weight = font.weight >= 650 ? NSFontWeightBold : font.weight >= 550 ? NSFontWeightSemibold : font.weight >= 450 ? NSFontWeightMedium : NSFontWeightRegular;
+    return [NSFont systemFontOfSize:font.size weight:weight];
+}
+
+} // namespace
+
+@implementation TINY_MAC_TEXT_FIELD {
+    std::function<void(tiny::Text_result)> _done;
+    tiny::Text_field::Blur _blur;
+    NSResponder* _previous; // Retained: who had the keyboard before us, given it back after.
+    bool _finished;
+}
+
+- (id)initWithSpec:(const tiny::Text_field&)spec frame:(NSRect)frame done:(std::function<void(tiny::Text_result)>)done {
+    self = [super initWithFrame:frame];
+    if (!self) return nil;
+    _done = std::move(done);
+    _blur = spec.blur;
+
+    auto* initial = [NSString stringWithUTF8String:spec.initial.c_str()]; // nil for invalid UTF-8
+    auto* cell = [[[TINY_MAC_TEXT_CELL alloc] initTextCell:initial ? initial : @""] autorelease];
+    cell.editable = YES;
+    cell.scrollable = YES;
+    cell.wraps = NO;
+    cell.usesSingleLineMode = YES;
+    self.cell = cell;
+
+    self.bezeled = NO;
+    self.bordered = NO;
+    self.drawsBackground = YES;
+    self.backgroundColor = ns_color(spec.background);
+    self.textColor = ns_color(spec.ink);
+    self.font = ns_font(spec.font);
+    self.alignment = spec.align == tiny::Text_field::Align::Left ? NSTextAlignmentLeft
+                   : spec.align == tiny::Text_field::Align::Right ? NSTextAlignmentRight : NSTextAlignmentCenter;
+    self.focusRingType = NSFocusRingTypeNone;
+    if (!spec.label.empty()) self.accessibilityLabel = [NSString stringWithUTF8String:spec.label.c_str()];
+    self.delegate = self;
+    return self;
+}
+
+- (void)dealloc {
+    [_previous release];
+    [super dealloc];
+}
+
+// Takes the keyboard in `window`, remembering who had it.
+- (void)beginIn:(NSWindow*)window selectAll:(bool)selectAll {
+    _previous = [window.firstResponder retain];
+    if (window.canBecomeKeyWindow && !window.isKeyWindow) [window makeKeyWindow];
+    [window makeFirstResponder:self];
+    if (auto* editor = (NSTextView*)self.currentEditor) {
+        editor.insertionPointColor = self.textColor;
+        if (selectAll) [editor selectAll:nil];
+        else [editor setSelectedRange:NSMakeRange(editor.string.length, 0)];
+    }
+}
+
+- (BOOL)control:(NSControl*)control textView:(NSTextView*)textView doCommandBySelector:(SEL)command {
+    if (command == @selector(insertNewline:)) {
+        [self finish:tiny::Text_result::Kind::Committed];
+        return YES;
+    }
+    if (command == @selector(cancelOperation:) || command == @selector(complete:)) { // Escape: the field editor calls it complete:.
+        [self finish:tiny::Text_result::Kind::Cancelled];
+        return YES;
+    }
+    return NO;
+}
+
+- (void)controlTextDidEndEditing:(NSNotification*)notification {
+    [self finish:_blur == tiny::Text_field::Blur::Commit ? tiny::Text_result::Kind::Committed : tiny::Text_result::Kind::Cancelled];
+}
+
+- (void)finish:(tiny::Text_result::Kind)kind {
+    if (_finished) return;
+    _finished = true;
+    auto result = tiny::Text_result{.kind = kind, .text = std::string{self.stringValue.UTF8String ? self.stringValue.UTF8String : ""}};
+    auto done = std::move(_done);
+    _done = {};
+
+    // The keyboard goes back to whoever had it, if they're still in this window.
+    auto* window = self.window;
+    auto* previous = [_previous isKindOfClass:[NSView class]] && ((NSView*)_previous).window == window ? _previous : nil;
+    if (window && window.firstResponder == self.currentEditor) [window makeFirstResponder:previous];
+
+    // Out of the view after this event: AppKit is still inside our delegate callbacks.
+    [self retain];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self removeFromSuperview];
+        [self release];
+    });
+    if (done) done(std::move(result));
+}
+
+@end
+
+// MARK: - View
+
 // TINY_MAC_VIEW
 @interface TINY_MAC_VIEW : NSView {
     std::shared_ptr<tiny::View_delegate> _delegate;
@@ -28,6 +180,8 @@ static_assert(false, "This is a non-ARC file");
 - (void)stopDisplayLink;
 - (void)draw;
 - (void)detach;
+- (void)beginTextField:(const tiny::Text_field&)spec done:(std::function<void(tiny::Text_result)>)done;
+- (void)endTextField;
 @end
 
 // 
@@ -44,6 +198,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     tiny::Event_stream _events;
     CVDisplayLinkRef _displayLink;
     dispatch_source_t _displaySource;
+    TINY_MAC_TEXT_FIELD* _textField; // Not retained: the subview list holds it while it's open.
 }
 
 - (id)initWithDelegate:(std::shared_ptr<tiny::View_delegate>)delegate onAutorelease:(std::function<void()>)onAutorelease {
@@ -76,6 +231,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 }
 
 - (void)dealloc {
+    [self endTextField];
     _on_autorelease(); // Need this for AUv2
     [self stopDisplayLink];
     [super dealloc];
@@ -84,9 +240,37 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 // The owner is going away while AppKit still holds this view (AUv2: a host can dispose of the unit
 // with its view on screen). Stop drawing and forget everything that points back at the owner.
 - (void)detach {
+    [self endTextField];
     [self stopDisplayLink];
     _on_autorelease = []() {};
     _delegate->detach();
+}
+
+// A native field over `spec.frame` (logical, top-down); one at a time, so an open one ends as its blur says.
+- (void)beginTextField:(const tiny::Text_field&)spec done:(std::function<void(tiny::Text_result)>)done {
+    if (_textField) [_textField controlTextDidEndEditing:[NSNotification notificationWithName:NSControlTextDidEndEditingNotification object:_textField]];
+    _textField = nil;
+    if (!self.window) {
+        done({.kind = tiny::Text_result::Kind::Cancelled});
+        return;
+    }
+    const auto frame = NSMakeRect(spec.frame.x, self.bounds.size.height - spec.frame.y - spec.frame.h, spec.frame.w, spec.frame.h);
+    TINY_MAC_VIEW* view = self; // Unretained: the view ends its field before it goes.
+    auto* field = [[TINY_MAC_TEXT_FIELD alloc] initWithSpec:spec frame:frame done:[view, done = std::move(done)](tiny::Text_result result) {
+        view->_textField = nil;
+        done(std::move(result));
+    }];
+    [self addSubview:field];
+    [field release];
+    _textField = field;
+    [field beginIn:self.window selectAll:spec.select_all];
+}
+
+- (void)endTextField {
+    if (auto* field = _textField) {
+        _textField = nil;
+        [field finish:tiny::Text_result::Kind::Cancelled];
+    }
 }
 
 - (void)startDisplayLink {
@@ -474,6 +658,27 @@ auto Platform_view::resize(int32_t w, int32_t h) -> void
 {
     [(NSView*)_view setFrameSize:NSMakeSize(w, h)];
     _delegate->on_resize({w, h});
+}
+
+// MARK: - Platform text
+
+auto Platform_text::edit(const Text_field& field, std::function<void(Text_result)> on_done, Dialog_context ctx) -> void
+{
+    // As the dialogs: the answer arrives through the task manager, on main, or not at all once it's shut down.
+    auto deliver = [ctx, on_done = std::move(on_done)](Text_result result) {
+        if (on_done) ctx.tasks.on_main([on_done, result = std::move(result)] { on_done(result); });
+    };
+    auto* view = static_cast<TINY_MAC_VIEW*>(Window_registry::resolve(ctx.window));
+    if (!view) {
+        deliver({.kind = Text_result::Kind::Cancelled});
+        return;
+    }
+    [view beginTextField:field done:std::move(deliver)];
+}
+
+auto Platform_text::cancel(Window_token window) -> void
+{
+    if (auto* view = static_cast<TINY_MAC_VIEW*>(Window_registry::resolve(window))) [view endTextField];
 }
 
 } // namespace tiny

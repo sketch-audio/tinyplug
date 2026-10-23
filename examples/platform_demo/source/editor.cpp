@@ -2,6 +2,7 @@
 
 #include <tiny_ui/draw.hpp>
 #include <tiny_platform/platform_dialogs.hpp>
+#include <tiny_platform/platform_text.hpp>
 
 #if !TINY_PLATFORM_WASM
 #include "include/gpu/ganesh/GrRecordingContext.h"
@@ -14,7 +15,8 @@ namespace tiny::edit {
 namespace {
 
 constexpr auto raw_lines = size_t{9};
-constexpr auto dialog_names = std::array<const char*, 8>{"MESSAGE", "CONFIRM", "TEXT > GAIN", "CHAINED", "OPEN FILE", "SAVE FILE", "CHOOSE DIR", "OPEN URL"};
+constexpr auto dialog_names = std::array<const char*, 10>{"MESSAGE", "CONFIRM", "TEXT > GAIN", "CHAINED", "OPEN FILE", "SAVE FILE", "CHOOSE DIR", "OPEN URL", "INLINE > GAIN", "INLINE NOTE"};
+constexpr auto dialog_rows = 5;
 
 auto point(Coords p) -> std::string { return std::to_string(static_cast<int>(p.x)) + "," + std::to_string(static_cast<int>(p.y)); }
 
@@ -89,10 +91,17 @@ auto Editor::_make_probes() -> void
     _probes[6] = {"DRAG", std::make_unique<Drag_recognizer>(callbacks.template operator()<Drag_info>(6, [this](const Drag_info& d) { _drag = d; }), false, true, 3.)};
 }
 
-auto Editor::_dialog(int which) -> void
+auto Editor::on_gui_hide() -> void
+{
+    _controls.cancel(_edit.actions);
+    Platform_text::cancel(_window);
+}
+
+auto Editor::_dialog(int which, const Frame& gain, const Frame& note, double gain_knob) -> void
 {
     const auto ctx = Dialog_context{_edit.tasks, _window};
     const auto report = [this](std::string what) { _result = std::move(what); };
+    const auto t = ui::theme(_dark);
     switch (which) {
         case 0: Platform_dialogs::message("Message", "One button. The callback fires once, however it closes.", [=]() { report("MESSAGE CLOSED"); }, ctx); break;
         case 1: Platform_dialogs::confirm("Confirm", "OK or Cancel: both answer.", [=](bool ok) { report(ok ? "CONFIRM: OK" : "CONFIRM: CANCEL"); }, ctx); break;
@@ -118,6 +127,44 @@ auto Editor::_dialog(int which) -> void
         case 5: Platform_dialogs::save_file("Save", "", "untitled", "txt", [=](std::optional<std::string> p) { report(p ? "SAVE: " + *p : "SAVE: CANCELLED"); }, ctx); break;
         case 6: Platform_dialogs::choose_dir("Choose", "", [=](std::optional<std::string> p) { report(p ? "DIR: " + *p : "DIR: CANCELLED"); }, ctx); break;
         case 7: Platform_dialogs::open_url("https://github.com/sketch-audio/tinyplug", ctx); report("URL: REQUESTED"); break;
+        case 8: { // A native field over the slider: Enter applies it as one gesture, Escape or clicking away leaves it.
+            const auto address = enum_raw(Address::Gain);
+            const auto& spec = User_params::param_spec(address);
+            const auto field = Text_field{
+                .frame = gain,
+                .initial = Host_formatter::to_string(params::Value_helper::knob_to_host(gain_knob, spec.semantics), spec.semantics),
+                .label = spec.name,
+                .ink = t.text,
+                .background = t.panel,
+                .blur = Text_field::Blur::Cancel,
+            };
+            Platform_text::edit(field, [this, report](Text_result r) {
+                if (!r.committed()) return report("INLINE: CANCELLED");
+                const auto address = enum_raw(Address::Gain);
+                const auto& spec = User_params::param_spec(address);
+                const auto value = Host_formatter::to_value(r.text, spec.semantics);
+                if (!value) return report("INLINE: NOT A NUMBER");
+                _edit.actions.push(Action_start{address});
+                _edit.actions.push(Set_param{address, params::Value_helper::plain_to_knob(params::Value_helper::clamp(*value, spec.semantics), spec.semantics)});
+                _edit.actions.push(Action_end{address});
+                report("INLINE: GAIN = " + r.text);
+            }, ctx);
+            break;
+        }
+        case 9: { // Free text, left-aligned and not preselected; clicking away cancels.
+            const auto field = Text_field{
+                .frame = note,
+                .initial = "",
+                .label = "Note",
+                .ink = ui::amber,
+                .background = t.panel,
+                .align = Text_field::Align::Left,
+                .select_all = false,
+                .blur = Text_field::Blur::Cancel,
+            };
+            Platform_text::edit(field, [report](Text_result r) { report(r.committed() ? "INLINE: " + r.text : "INLINE: CANCELLED"); }, ctx);
+            break;
+        }
         default: break;
     }
 }
@@ -144,7 +191,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     const auto pad = Frame{left.x, left.y, left.w, 200};
     const auto lamps = Frame{left.x, pad.y + pad.h + 8, left.w, 84};
     const auto raw = Frame{left.x, lamps.y + lamps.h + 8, left.w, left.y + left.h - (lamps.y + lamps.h + 8)};
-    const auto buttons = Frame{right.x, right.y, right.w, 150};
+    const auto buttons = Frame{right.x, right.y, right.w, 190};
     const auto gain = Frame{right.x, buttons.y + buttons.h + 10, right.w, 24};
     const auto info = Frame{right.x, gain.y + gain.h + 10, right.w, right.y + right.h - (gain.y + gain.h + 10)};
 
@@ -163,7 +210,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
         const auto* down = std::get_if<Pointer_down>(&event.event);
         if (!down || event.consumed || down->button != Pointer_button::left) continue;
         for (auto i = 0; i < static_cast<int>(dialog_names.size()); ++i) {
-            if (ui::row(ui::column(buttons, i % 2, 2, 8), i / 2, 4, 8).contains(down->pos)) { event.consumed = true; _dialog(i); }
+            if (ui::row(ui::column(buttons, i % 2, 2, 8), i / 2, dialog_rows, 8).contains(down->pos)) { event.consumed = true; _dialog(i, gain, {info.x + 4, info.y + 2, info.w - 8, 18}, knobs[enum_raw(Address::Gain)]); }
         }
         if (lamps.contains(down->pos)) { _scroll = {}; for (auto& p : _probes) p.count = 0; } // Click the lamps to zero them.
     }
@@ -212,7 +259,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
 
     // Dialogs, the gain the text dialog sets, and the last result.
     for (auto i = 0; i < static_cast<int>(dialog_names.size()); ++i) {
-        const auto cell = ui::row(ui::column(buttons, i % 2, 2, 8), i / 2, 4, 8);
+        const auto cell = ui::row(ui::column(buttons, i % 2, 2, 8), i / 2, dialog_rows, 8);
         ui::fill(*canvas, cell, t.track);
         ui::text_in(*canvas, cell, dialog_names[static_cast<size_t>(i)], t.text);
     }
