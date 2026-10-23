@@ -59,6 +59,7 @@ static_assert(false, "This is a non-ARC file");
 @interface TINY_MAC_TEXT_FIELD : NSTextField <NSTextFieldDelegate>
 - (id)initWithSpec:(const tiny::Text_field&)spec frame:(NSRect)frame done:(std::function<void(tiny::Text_result)>)done;
 - (void)finish:(tiny::Text_result::Kind)kind;
+- (void)blur;
 @end
 
 namespace {
@@ -161,6 +162,10 @@ auto ns_font(const tiny::Text_field::Font& font) -> NSFont*
 }
 
 - (void)controlTextDidEndEditing:(NSNotification*)notification {
+    [self blur];
+}
+
+- (void)blur {
     [self finish:_blur == tiny::Text_field::Blur::Commit ? tiny::Text_result::Kind::Committed : tiny::Text_result::Kind::Cancelled];
 }
 
@@ -199,6 +204,7 @@ auto ns_font(const tiny::Text_field::Font& font) -> NSFont*
 - (void)draw;
 - (void)detach;
 - (void)beginTextField:(const tiny::Text_field&)spec done:(std::function<void(tiny::Text_result)>)done;
+- (void)blurTextField;
 - (void)endTextField;
 @end
 
@@ -266,8 +272,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 
 // A native field over `spec.frame` (logical, top-down); one at a time, so an open one ends as its blur says.
 - (void)beginTextField:(const tiny::Text_field&)spec done:(std::function<void(tiny::Text_result)>)done {
-    if (_textField) [_textField controlTextDidEndEditing:[NSNotification notificationWithName:NSControlTextDidEndEditingNotification object:_textField]];
-    _textField = nil;
+    [self blurTextField];
     if (!self.window) {
         done({.kind = tiny::Text_result::Kind::Cancelled});
         return;
@@ -282,6 +287,14 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     [field release];
     _textField = field;
     [field beginIn:self.window selectAll:spec.select_all];
+}
+
+// A click elsewhere in the editor, which never takes the keyboard, ends an open field as its blur says.
+- (void)blurTextField {
+    if (auto* field = _textField) {
+        _textField = nil;
+        [field blur];
+    }
 }
 
 - (void)endTextField {
@@ -426,6 +439,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 }
 
 - (void)mouseDown:(NSEvent *)event {
+    [self blurTextField];
     using namespace tiny;
     const auto locationInView = [self convertPoint:event.locationInWindow fromView:nil];
     const auto y = self.bounds.size.height - locationInView.y;
@@ -491,6 +505,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 }
 
 - (void)rightMouseDown:(NSEvent *)event {
+    [self blurTextField];
     using namespace tiny;
     const auto locationInView = [self convertPoint:event.locationInWindow fromView:nil];
     const auto y = self.bounds.size.height - locationInView.y;

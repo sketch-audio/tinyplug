@@ -6,11 +6,16 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cwchar>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <random>
 #include <ranges>
 #include <span>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -284,9 +289,9 @@ auto colorref(std::uint32_t argb) -> COLORREF
     return RGB((argb >> 16) & 0xff, (argb >> 8) & 0xff, argb & 0xff);
 }
 
-// The font's legacy family name (name ID 1, else the typographic one, 16), Windows platform strings first: what GDI
-// matches a LOGFONT against.
-auto font_family(std::span<const std::byte> data) -> std::wstring
+// One of the font's names (1: legacy family, 16: typographic family), from its Windows-platform strings, US English
+// first: the names GDI knows a font by.
+auto font_name(std::span<const std::byte> data, std::uint32_t wanted) -> std::wstring
 {
     const auto u8 = [&](size_t at) -> std::uint32_t { return at < data.size() ? std::to_integer<std::uint32_t>(data[at]) : 0u; };
     const auto u16 = [&](size_t at) -> std::uint32_t { return (u8(at) << 8) | u8(at + 1); };
@@ -303,12 +308,12 @@ auto font_family(std::span<const std::byte> data) -> std::wstring
         for (auto j = std::uint32_t{}; j < count; ++j) {
             const auto r = name + 6 + 12 * size_t{j};
             const auto platform = u16(r), encoding = u16(r + 2), language = u16(r + 4), id = u16(r + 6), length = u16(r + 8), offset = u16(r + 10);
-            if (platform != 3 || (encoding != 1 && encoding != 10) || (id != 1 && id != 16)) continue;
-            const auto rank = (id == 1 ? 4 : 2) + (language == 0x409 ? 1 : 0);
+            if (platform != 3 || (encoding != 1 && encoding != 10) || id != wanted) continue;
+            const auto rank = language == 0x409 ? 2 : 1;
             if (rank <= best_rank) continue;
-            auto s = std::wstring{};
-            for (auto k = size_t{}; k + 1 < length; k += 2) s.push_back(static_cast<wchar_t>(u16(strings + offset + k)));
-            best = std::move(s);
+            auto text = std::wstring{};
+            for (auto k = size_t{}; k + 1 < length; k += 2) text.push_back(static_cast<wchar_t>(u16(strings + offset + k)));
+            best = std::move(text);
             best_rank = rank;
         }
         return best;
@@ -316,32 +321,87 @@ auto font_family(std::span<const std::byte> data) -> std::wstring
     return {};
 }
 
-// The editor's font for GDI: its bytes added to this process only (AddFontMemResourceEx), once, matched by family
-// and weight. Without bytes, the system's message font.
-auto field_font(const Text_field::Font& font, double scale) -> HFONT
+// The font's bytes added to this process only: from memory, else from a temporary file with FR_PRIVATE. Never the
+// system's fonts. Once per font.
+auto add_font(std::span<const std::byte> data) -> bool
 {
-    static auto added = std::unordered_map<const void*, HANDLE>{};
-    auto face = std::wstring{L"Segoe UI"};
-    if (!font.data.empty()) {
-        auto& handle = added[font.data.data()];
-        if (!handle) {
-            auto count = DWORD{};
-            handle = AddFontMemResourceEx(const_cast<std::byte*>(font.data.data()), static_cast<DWORD>(font.data.size()), nullptr, &count);
+    static auto added = std::unordered_map<const void*, bool>{};
+    if (const auto found = added.find(data.data()); found != added.end()) return found->second;
+    auto count = DWORD{};
+    auto ok = AddFontMemResourceEx(const_cast<std::byte*>(data.data()), static_cast<DWORD>(data.size()), nullptr, &count) != nullptr && count > 0;
+    if (!ok) {
+        const auto bytes = std::string_view{reinterpret_cast<const char*>(data.data()), data.size()};
+        auto error = std::error_code{};
+        const auto path = std::filesystem::temp_directory_path(error) / (L"tinyplug-font-" + std::to_wstring(std::hash<std::string_view>{}(bytes)) + L".ttf");
+        if (!error) {
+            if (auto file = std::ofstream{path, std::ios::binary}) file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            ok = AddFontResourceExW(path.c_str(), FR_PRIVATE, nullptr) > 0;
         }
-        if (auto family = font_family(font.data); handle && !family.empty()) face = std::move(family);
     }
-    else {
-        auto metrics = NONCLIENTMETRICSW{};
-        metrics.cbSize = sizeof(metrics);
-        if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0)) face = metrics.lfMessageFont.lfFaceName;
+    added[data.data()] = ok;
+    return ok;
+}
+
+// The face GDI actually chose for `font`, which may not be the one asked for.
+auto chosen_face(HFONT font) -> std::wstring
+{
+    auto face = std::wstring(LF_FACESIZE, L'\0');
+    if (auto* dc = CreateCompatibleDC(nullptr)) {
+        auto* old = SelectObject(dc, font);
+        GetTextFaceW(dc, LF_FACESIZE, face.data());
+        SelectObject(dc, old);
+        DeleteDC(dc);
     }
+    face.resize(std::wcslen(face.c_str()));
+    return face;
+}
+
+auto make_font(const std::wstring& face, LONG height, LONG weight) -> HFONT
+{
     auto lf = LOGFONTW{};
-    lf.lfHeight = -static_cast<LONG>(std::lround(font.size * scale));
-    lf.lfWeight = std::clamp(static_cast<LONG>(std::lround(font.weight)), LONG{1}, LONG{1000});
+    lf.lfHeight = height;
+    lf.lfWeight = weight;
     lf.lfCharSet = DEFAULT_CHARSET;
     lf.lfQuality = CLEARTYPE_QUALITY;
     wcsncpy_s(lf.lfFaceName, face.c_str(), _TRUNCATE);
     return CreateFontIndirectW(&lf);
+}
+
+// The editor's font for GDI, private to this process. GDI matches by name, and lists a variable font's weights under
+// named instances ("Inter Variable Medium"); each candidate is kept only if GDI really chose it. Else the system's
+// message font, as without bytes.
+auto field_font(const Text_field::Font& font, double scale) -> HFONT
+{
+    const auto height = -static_cast<LONG>(std::lround(font.size * scale));
+    const auto weight = std::clamp(static_cast<LONG>(std::lround(font.weight)), LONG{1}, LONG{1000});
+    if (!font.data.empty() && add_font(font.data)) {
+        static constexpr const wchar_t* instance_names[] = {L"Thin", L"ExtraLight", L"Light", L"Regular", L"Medium", L"SemiBold", L"Bold", L"ExtraBold", L"Black"};
+        const auto hundred = std::clamp((weight + 50) / 100, LONG{1}, LONG{9});
+        const auto family = font_name(font.data, 1);
+        const auto typographic = font_name(font.data, 16);
+        auto candidates = std::vector<std::pair<std::wstring, LONG>>{};
+        if (!family.empty() && hundred != 4 && hundred != 7) candidates.emplace_back(family + L" " + instance_names[hundred - 1], LONG{400});
+        if (!family.empty()) candidates.emplace_back(family, weight);
+        if (!typographic.empty() && typographic != family) candidates.emplace_back(typographic, weight);
+        for (const auto& [face, w] : candidates) {
+            auto* candidate = make_font(face, height, w);
+            if (candidate && _wcsicmp(chosen_face(candidate).c_str(), face.c_str()) == 0) {
+#ifndef NDEBUG
+                OutputDebugStringW((L"tinyplug: text field font " + face + L"\n").c_str());
+#endif
+                return candidate;
+            }
+            if (candidate) DeleteObject(candidate);
+        }
+#ifndef NDEBUG
+        OutputDebugStringW((L"tinyplug: text field font not matched (" + family + L"), the system's instead\n").c_str());
+#endif
+    }
+    auto face = std::wstring{L"Segoe UI"};
+    auto metrics = NONCLIENTMETRICSW{};
+    metrics.cbSize = sizeof(metrics);
+    if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0)) face = metrics.lfMessageFont.lfFaceName;
+    return make_font(face, height, weight);
 }
 
 auto field_text(HWND edit) -> std::string
@@ -857,7 +917,11 @@ auto Platform_text::edit(const Text_field& spec, std::function<void(Text_result)
     const auto logical = binder->delegate->get_size();
     const auto scale = logical.w > 0 && client.right > 0 ? static_cast<double>(client.right) / logical.w : 1.0;
     const auto px = [scale](double v) { return static_cast<int>(std::lround(v * scale)); };
-    const auto x = px(spec.frame.x), y = px(spec.frame.y), w = px(spec.frame.w), h = px(spec.frame.h);
+    // Outwards to whole pixels: the field covers every pixel the frame touches, so no antialiased edge of what's
+    // drawn under it shows (a slider at x 358.67 left a sliver).
+    const auto x = static_cast<int>(std::floor(spec.frame.x * scale)), y = static_cast<int>(std::floor(spec.frame.y * scale));
+    const auto w = static_cast<int>(std::ceil((spec.frame.x + spec.frame.w) * scale)) - x;
+    const auto h = static_cast<int>(std::ceil((spec.frame.y + spec.frame.h) * scale)) - y;
 
     auto* field = new Win_field{
         .editor = editor,
