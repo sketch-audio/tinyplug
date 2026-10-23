@@ -10,7 +10,7 @@
 
 namespace tiny {
 
-auto Platform_paths::format_readable(const std::string& bundle_id) -> std::filesystem::path
+auto platform::Paths::format_readable(const std::string& bundle_id) -> std::filesystem::path
 {
     // Look up by bundle identifier. Succeeds in both standlone and extension.
     const auto bundle_str = CFStringCreateWithCString(kCFAllocatorDefault, bundle_id.c_str(), kCFStringEncodingUTF8);
@@ -32,7 +32,7 @@ auto Platform_paths::format_readable(const std::string& bundle_id) -> std::files
     return bundle_path;
 }
 
-auto Platform_paths::shared_writable(const Subpath& subpath) -> std::filesystem::path
+auto platform::Paths::shared_writable(const Subpath& subpath) -> std::filesystem::path
 {
     if (!subpath.app_group_id.empty()) {
         NSString* group = [NSString stringWithUTF8String:subpath.app_group_id.c_str()];

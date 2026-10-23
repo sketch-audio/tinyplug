@@ -94,19 +94,19 @@ auto Editor::_make_probes() -> void
 auto Editor::on_hide() -> void
 {
     _controls.cancel(_edit.params);
-    Platform_text::cancel(_window);
+    platform::Text::cancel(_window);
 }
 
 auto Editor::_dialog(int which, const Frame& gain, const Frame& note, double gain_knob) -> void
 {
-    const auto ctx = Dialog_context{_edit.tasks, _window};
+    const auto ctx = platform::Context{_edit.tasks, _window};
     const auto report = [this](std::string what) { _result = std::move(what); };
     const auto t = ui::theme(_dark);
     switch (which) {
-        case 0: Platform_dialogs::message("Message", "One button. The callback fires once, however it closes.", [=]() { report("MESSAGE CLOSED"); }, ctx); break;
-        case 1: Platform_dialogs::confirm("Confirm", "OK or Cancel: both answer.", [=](bool ok) { report(ok ? "CONFIRM: OK" : "CONFIRM: CANCEL"); }, ctx); break;
+        case 0: platform::Dialogs::message("Message", "One button. The callback fires once, however it closes.", [=]() { report("MESSAGE CLOSED"); }, ctx); break;
+        case 1: platform::Dialogs::confirm("Confirm", "OK or Cancel: both answer.", [=](bool ok) { report(ok ? "CONFIRM: OK" : "CONFIRM: CANCEL"); }, ctx); break;
         case 2:
-            Platform_dialogs::text_input("Gain", "A value between 0 and 1. This prompt is long on purpose, so the dialog has to wrap it rather than grow to fit it on one line.", [this, report](std::string text) {
+            platform::Dialogs::text_input("Gain", "A value between 0 and 1. This prompt is long on purpose, so the dialog has to wrap it rather than grow to fit it on one line.", [this, report](std::string text) {
                 if (text.empty()) return report("TEXT: CANCELLED");
                 const auto address = enum_raw(Address::Gain);
                 const auto& spec = User_params::param_spec(address);
@@ -119,26 +119,26 @@ auto Editor::_dialog(int which, const Frame& gain, const Frame& note, double gai
             }, ctx);
             break;
         case 3: // The second is asked for while the first is still closing: it must queue, not vanish.
-            Platform_dialogs::confirm("Chained", "Answer, and a second dialog should follow.", [this, ctx, report](bool ok) {
-                Platform_dialogs::message(ok ? "Second dialog" : "Second, after cancel", "It queued behind the first.", [=]() { report("CHAINED: BOTH SHOWN"); }, ctx);
+            platform::Dialogs::confirm("Chained", "Answer, and a second dialog should follow.", [this, ctx, report](bool ok) {
+                platform::Dialogs::message(ok ? "Second dialog" : "Second, after cancel", "It queued behind the first.", [=]() { report("CHAINED: BOTH SHOWN"); }, ctx);
             }, ctx);
             break;
-        case 4: Platform_dialogs::open_file("Open", "", [=](std::optional<std::string> p) { report(p ? "OPEN: " + *p : "OPEN: CANCELLED"); }, ctx); break;
-        case 5: Platform_dialogs::save_file("Save", "", "untitled", "txt", [=](std::optional<std::string> p) { report(p ? "SAVE: " + *p : "SAVE: CANCELLED"); }, ctx); break;
-        case 6: Platform_dialogs::choose_dir("Choose", "", [=](std::optional<std::string> p) { report(p ? "DIR: " + *p : "DIR: CANCELLED"); }, ctx); break;
-        case 7: Platform_dialogs::open_url("https://github.com/sketch-audio/tinyplug", ctx); report("URL: REQUESTED"); break;
+        case 4: platform::Dialogs::open_file("Open", "", [=](std::optional<std::string> p) { report(p ? "OPEN: " + *p : "OPEN: CANCELLED"); }, ctx); break;
+        case 5: platform::Dialogs::save_file("Save", "", "untitled", "txt", [=](std::optional<std::string> p) { report(p ? "SAVE: " + *p : "SAVE: CANCELLED"); }, ctx); break;
+        case 6: platform::Dialogs::choose_dir("Choose", "", [=](std::optional<std::string> p) { report(p ? "DIR: " + *p : "DIR: CANCELLED"); }, ctx); break;
+        case 7: platform::Dialogs::open_url("https://github.com/sketch-audio/tinyplug", ctx); report("URL: REQUESTED"); break;
         case 8: { // A native field over the slider: Enter applies it as one gesture, Escape or clicking away leaves it.
             const auto address = enum_raw(Address::Gain);
             const auto& spec = User_params::param_spec(address);
-            const auto field = Text_field{
+            const auto field = platform::Text::Field{
                 .frame = gain,
                 .initial = params::to_text(params::knob_to_plain(gain_knob, spec.semantics), spec.semantics),
                 .label = spec.name,
                 .ink = t.text,
                 .background = t.panel,
-                .blur = Text_field::Blur::Cancel,
+                .blur = platform::Text::Field::Blur::Cancel,
             };
-            Platform_text::edit(field, [this, report](Text_result r) {
+            platform::Text::edit(field, [this, report](platform::Text::Result r) {
                 if (!r.committed()) return report("INLINE: CANCELLED");
                 const auto address = enum_raw(Address::Gain);
                 const auto& spec = User_params::param_spec(address);
@@ -152,17 +152,17 @@ auto Editor::_dialog(int which, const Frame& gain, const Frame& note, double gai
             break;
         }
         case 9: { // Free text, left-aligned and not preselected; clicking away cancels.
-            const auto field = Text_field{
+            const auto field = platform::Text::Field{
                 .frame = note,
                 .initial = "",
                 .label = "Note",
                 .ink = ui::amber,
                 .background = t.panel,
-                .align = Text_field::Align::Left,
+                .align = platform::Text::Field::Align::Left,
                 .select_all = false,
-                .blur = Text_field::Blur::Cancel,
+                .blur = platform::Text::Field::Blur::Cancel,
             };
-            Platform_text::edit(field, [report](Text_result r) { report(r.committed() ? "INLINE: " + r.text : "INLINE: CANCELLED"); }, ctx);
+            platform::Text::edit(field, [report](platform::Text::Result r) { report(r.committed() ? "INLINE: " + r.text : "INLINE: CANCELLED"); }, ctx);
             break;
         }
         default: break;

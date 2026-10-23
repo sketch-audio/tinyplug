@@ -20,7 +20,7 @@ auto Gui::CreateViewContents() -> void
     );
     _params->edit_store().set_apply([this](Rect_size size) { _resize(size.w, size.h); });
 
-    _platform_view = Platform_views::make_owning(delegate);
+    _platform_view = platform::View::make_owning(delegate);
     _platform_view->on_create();
     _editor->on_create(Gui_info{.window = _platform_view->token()});
 }

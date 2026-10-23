@@ -43,7 +43,7 @@ private:
     Parameters* _params{};
     Action_queue* _actions{}; // Owned by Parameters (survives the Gui).
 
-    std::unique_ptr<Platform_view> _platform_view{nullptr};
+    std::unique_ptr<platform::View> _platform_view{nullptr};
 
     using enum params::Space;
     std::array<double, num_params> _ui_params{tiny::params::make_defaults<double, User_params>(Knob)};

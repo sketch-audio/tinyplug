@@ -151,7 +151,7 @@ auto to_ns(const std::string& value) -> NSString*
 
 } // namespace
 
-auto Platform_dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, Dialog_context ctx) -> void
+auto platform::Dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, platform::Context ctx) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -169,7 +169,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
     });
 }
 
-auto Platform_dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_confirm, Dialog_context ctx) -> void
+auto platform::Dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_confirm, platform::Context ctx) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -191,7 +191,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
     });
 }
 
-auto Platform_dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Dialog_context ctx) -> void
+auto platform::Dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, platform::Context ctx) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -221,7 +221,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
     });
 }
 
-auto Platform_dialogs::open_url(const std::string& url, Dialog_context /*ctx*/) -> void
+auto platform::Dialogs::open_url(const std::string& url, platform::Context /*ctx*/) -> void
 {
     // Copy to locals.
     const auto url_copy = url;
@@ -234,7 +234,7 @@ auto Platform_dialogs::open_url(const std::string& url, Dialog_context /*ctx*/) 
     });
 }
 
-auto Platform_dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Dialog_context ctx) -> void
+auto platform::Dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, platform::Context ctx) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -284,7 +284,7 @@ auto Platform_dialogs::save_file(const std::string& title, const std::string& de
 
 // Shared by `open_file`/`choose_dir` -- an NSOpenPanel restricted to either
 // files or directories, dispatched the same way either way.
-static auto run_open_panel(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Dialog_context ctx, bool choose_directory) -> void
+static auto run_open_panel(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, platform::Context ctx, bool choose_directory) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -317,12 +317,12 @@ static auto run_open_panel(const std::string& title, const std::string& default_
     });
 }
 
-auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Dialog_context ctx) -> void
+auto platform::Dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, platform::Context ctx) -> void
 {
     run_open_panel(title, default_path, std::move(on_open), ctx, false);
 }
 
-auto Platform_dialogs::choose_dir(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_choose, Dialog_context ctx) -> void
+auto platform::Dialogs::choose_dir(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_choose, platform::Context ctx) -> void
 {
     run_open_panel(title, default_path, std::move(on_choose), ctx, true);
 }

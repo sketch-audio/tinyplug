@@ -17,7 +17,7 @@ auto View::on_create() noexcept -> void
     );
 
     // Create the platform view and notify the editor.
-    _platform_view = Platform_views::make_owning(delegate);
+    _platform_view = platform::View::make_owning(delegate);
     _platform_view->on_create();
 
     _deps.editor->on_create(Gui_info{.window = _platform_view->token()});

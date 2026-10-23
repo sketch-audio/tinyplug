@@ -1,4 +1,4 @@
-// The browser's Platform_view: a <canvas> the page names, drawn from requestAnimationFrame. Input arrives from the
+// The browser's platform::View: a <canvas> the page names, drawn from requestAnimationFrame. Input arrives from the
 // page's own listeners through the exports below (wrappers/web/js/editor.js), as window messages do on Windows.
 #include <tiny_platform/platform_view.hpp>
 
@@ -141,7 +141,7 @@ EM_JS(void, web_text_end, (std::uint32_t id, int kind), {
 });
 
 struct Web_field {
-    std::function<void(Text_result)> done{};
+    std::function<void(platform::Text::Result)> done{};
     Window_token window{};
     bool blur_commits{};
 };
@@ -167,33 +167,33 @@ extern "C" EMSCRIPTEN_KEEPALIVE auto tiny_web_text_done(std::uint32_t id, int ki
     if (found == fields.end()) return;
     auto done = std::move(found->second.done);
     fields.erase(found);
-    if (done) done({.kind = kind == 1 ? Text_result::Kind::Committed : Text_result::Kind::Cancelled, .text = text ? text : ""});
+    if (done) done({.kind = kind == 1 ? platform::Text::Result::Kind::Committed : platform::Text::Result::Kind::Cancelled, .text = text ? text : ""});
 }
 
-auto Platform_text::edit(const Text_field& field, std::function<void(Text_result)> on_done, Dialog_context ctx) -> void
+auto platform::Text::edit(const platform::Text::Field& field, std::function<void(platform::Text::Result)> on_done, platform::Context ctx) -> void
 {
-    auto deliver = [ctx, on_done = std::move(on_done)](Text_result result) {
+    auto deliver = [ctx, on_done = std::move(on_done)](platform::Text::Result result) {
         if (on_done) ctx.tasks.on_main([on_done, result = std::move(result)] { on_done(result); });
     };
     const auto* binder = static_cast<Web_binder*>(Window_registry::resolve(ctx.window));
     if (!binder || binder->selector.empty()) {
-        deliver({.kind = Text_result::Kind::Cancelled});
+        deliver({.kind = platform::Text::Result::Kind::Cancelled});
         return;
     }
     end_field(ctx.window, std::nullopt); // One per view.
     const auto id = next_field++;
-    fields[id] = {std::move(deliver), ctx.window, field.blur == Text_field::Blur::Commit};
+    fields[id] = {std::move(deliver), ctx.window, field.blur == platform::Text::Field::Blur::Commit};
     web_text_open(id, binder->selector.c_str(), field.frame.x, field.frame.y, field.frame.w, field.frame.h, field.initial.c_str(), field.label.c_str(),
                   field.font.data.data(), field.font.data.size(), field.font.size, field.font.weight, field.ink, field.background,
-                  field.inset, static_cast<int>(field.align), field.select_all ? 1 : 0, field.blur == Text_field::Blur::Commit ? 1 : 0);
+                  field.inset, static_cast<int>(field.align), field.select_all ? 1 : 0, field.blur == platform::Text::Field::Blur::Commit ? 1 : 0);
 }
 
-auto Platform_text::cancel(Window_token window) -> void
+auto platform::Text::cancel(Window_token window) -> void
 {
     end_field(window, 0);
 }
 
-Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view, std::function<void()>)
+platform::View::View(std::shared_ptr<View_delegate> delegate, bool owns_view, std::function<void()>)
     : _owns_view{owns_view}, _delegate{delegate}
 {
     auto* binder = new Web_binder{.delegate = _delegate.get()};
@@ -204,9 +204,9 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
     _token = Window_registry::add(_view);
 }
 
-Platform_view::~Platform_view()
+platform::View::~View()
 {
-    Platform_text::cancel(_token);
+    platform::Text::cancel(_token);
     Window_registry::remove(_token);
     auto* binder = static_cast<Web_binder*>(_view);
     if (current == binder) current = nullptr;
@@ -215,11 +215,11 @@ Platform_view::~Platform_view()
     else delete binder;
 }
 
-auto Platform_view::on_create() -> void {}
-auto Platform_view::on_destroy() -> void {}
+auto platform::View::on_create() -> void {}
+auto platform::View::on_destroy() -> void {}
 
 // `parent` is the canvas's CSS selector, e.g. "#editor".
-auto Platform_view::receive_parent(void* parent) -> void
+auto platform::View::receive_parent(void* parent) -> void
 {
     auto* binder = static_cast<Web_binder*>(_view);
     binder->selector = static_cast<const char*>(parent);
@@ -228,7 +228,7 @@ auto Platform_view::receive_parent(void* parent) -> void
     _delegate->assign_context(std::move(context));
 }
 
-auto Platform_view::on_show() -> void
+auto platform::View::on_show() -> void
 {
     auto* binder = static_cast<Web_binder*>(_view);
     binder->shown = true;
@@ -238,12 +238,12 @@ auto Platform_view::on_show() -> void
     }
 }
 
-auto Platform_view::on_hide() -> void
+auto platform::View::on_hide() -> void
 {
     static_cast<Web_binder*>(_view)->shown = false; // The next frame stops the loop.
 }
 
-auto Platform_view::resize(int32_t w, int32_t h) -> void
+auto platform::View::resize(int32_t w, int32_t h) -> void
 {
     const auto* binder = static_cast<Web_binder*>(_view);
     emscripten_set_element_css_size(binder->selector.c_str(), w, h);

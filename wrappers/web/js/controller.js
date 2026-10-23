@@ -1,7 +1,7 @@
 // The controller module's JS end: the Emscripten factory, the exports as a small API, and its wire table.
 import { read_controller_table } from "./pump.js";
 
-// Platform_paths::shared_writable lives under /tinyplug/user: IndexedDB in a browser, so an editor's prefs and user
+// platform::Paths::shared_writable lives under /tinyplug/user: IndexedDB in a browser, so an editor's prefs and user
 // presets survive a reload. Loaded before the controller exists, since an editor may read them as it starts.
 const persist = "/tinyplug/user";
 const mount = async (m) => {

@@ -751,7 +751,7 @@ history; follow-ups are item 4 of [roadmap-misc.md](plans/roadmap-misc.md).
   `build-skia-web.sh nonisolated`. manifest.json's `"variant"` tells `host.js` which wire to use.
 - **Platform**: [web_view.cpp](libs/tiny_platform/source/web_view.cpp) draws from requestAnimationFrame, input
   arrives through exports the page's listeners call ([editor.js](wrappers/web/js/editor.js)); CPU raster with
-  `putImageData` ([web_context.cpp](libs/tiny_platform/source/web_context.cpp)); `Platform_paths` under an
+  `putImageData` ([web_context.cpp](libs/tiny_platform/source/web_context.cpp)); `platform::Paths` under an
   IndexedDB mount; browser dialogs. Skia for wasm comes from tiny_deps' `build-skia-web.sh` with its pinned emsdk,
   which the `web` presets also use — one toolchain for every object in a module.
 - **Build and test**: `cmake --preset web && cmake --build --preset web && ctest --preset web`. Labels:
@@ -882,7 +882,7 @@ OS's CPU/GPU backend. Planned backend work: [roadmap-misc.md](plans/roadmap-misc
   [libs/tiny_platform/CMakeLists.txt](libs/tiny_platform/CMakeLists.txt)) pending
   non-blocking frame sync.
 - Web: a `<canvas>`, Skia CPU raster blitted with `putImageData`; see "Web" above.
-- **`Platform_text`** ([platform_text.hpp](libs/tiny_platform/include/tiny_platform/platform_text.hpp)) opens a native
+- **`platform::Text`** ([platform_text.hpp](libs/tiny_platform/include/tiny_platform/platform_text.hpp)) opens a native
   single-line field over the editor (`NSTextField` in `mac_view.mm`, `UITextField` in `ios_view.mm`, a subclassed
   `EDIT` in `win_view.cpp`, an `<input>` in `web_view.cpp`) in the editor's embedded font; its callback fires once,
   through the `Task_manager`, like the dialogs. Editors include it from their `.cpp`: the web processor module
@@ -1021,7 +1021,7 @@ its rules are in this file and its history in git.
   on the view model and transactions. Holds the 0.4 client defects the port should fix.
 - **[fonts-and-text.md](plans/fonts-and-text.md)** — landed for the framework, on every platform; the clients remain
   (client-port.md), plus paragraph tracking and SVG later.
-- **[keyboard-input.md](plans/keyboard-input.md)** — part 1 landed: `Platform_text`, inline native text fields on
+- **[keyboard-input.md](plans/keyboard-input.md)** — part 1 landed: `platform::Text`, inline native text fields on
   every platform; the host matrix remains. Part 2 is design: key events for shortcuts under per-frame claims; no
   hooks or event monitors, unclaimed keys go back to the host.
 - **[buffer-system.md](plans/buffer-system.md)** — design. Managed large audio buffers (looper, granular,

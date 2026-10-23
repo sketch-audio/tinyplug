@@ -44,7 +44,7 @@ private:
 
     Deps _deps{};
 
-    std::unique_ptr<Platform_view> _platform_view{nullptr};
+    std::unique_ptr<platform::View> _platform_view{nullptr};
 
     // Plain values now: the mailbox coalesces on the way in, so the editor no
     // longer reconstructs per-frame peak/latest/one-shot state of its own.

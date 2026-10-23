@@ -53,7 +53,7 @@ auto ui_color(std::uint32_t argb) -> UIColor*
 }
 
 // The editor's embedded font at its weight and size, never registered with the system; else the system font.
-auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
+auto ui_font(const tiny::platform::Text::Field::Font& font) -> UIFont*
 {
     if (!font.data.empty()) {
         auto* data = CFDataCreateWithBytesNoCopy(nullptr, reinterpret_cast<const UInt8*>(font.data.data()), static_cast<CFIndex>(font.data.size()), kCFAllocatorNull);
@@ -77,20 +77,20 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
 // A field over the editor, its own delegate. Ends once: Return commits, a hardware keyboard's Escape cancels,
 // a tap elsewhere in the editor does what `blur` says. Floats above the on-screen keyboard while it covers it.
 @interface IosTextField : UITextField <UITextFieldDelegate>
-- (id)initWithSpec:(const tiny::Text_field&)spec frame:(CGRect)frame done:(std::function<void(tiny::Text_result)>)done;
+- (id)initWithSpec:(const tiny::platform::Text::Field&)spec frame:(CGRect)frame done:(std::function<void(tiny::platform::Text::Result)>)done;
 - (void)begin:(bool)selectAll;
 - (void)blur;
-- (void)finish:(tiny::Text_result::Kind)kind;
+- (void)finish:(tiny::platform::Text::Result::Kind)kind;
 @end
 
 @implementation IosTextField {
-    std::function<void(tiny::Text_result)> _done;
-    tiny::Text_field::Blur _blur;
+    std::function<void(tiny::platform::Text::Result)> _done;
+    tiny::platform::Text::Field::Blur _blur;
     CGRect _home; // Where the editor put it; it floats up from here over the keyboard.
     bool _finished;
 }
 
-- (id)initWithSpec:(const tiny::Text_field&)spec frame:(CGRect)frame done:(std::function<void(tiny::Text_result)>)done {
+- (id)initWithSpec:(const tiny::platform::Text::Field&)spec frame:(CGRect)frame done:(std::function<void(tiny::platform::Text::Result)>)done {
     self = [super initWithFrame:frame];
     if (!self) return nil;
     _done = std::move(done);
@@ -103,8 +103,8 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
     self.textColor = ui_color(spec.ink);
     self.tintColor = ui_color(spec.ink); // The caret and selection handles.
     self.backgroundColor = (spec.background >> 24) != 0 ? ui_color(spec.background) : UIColor.clearColor;
-    self.textAlignment = spec.align == tiny::Text_field::Align::Left ? NSTextAlignmentLeft
-                       : spec.align == tiny::Text_field::Align::Right ? NSTextAlignmentRight : NSTextAlignmentCenter;
+    self.textAlignment = spec.align == tiny::platform::Text::Field::Align::Left ? NSTextAlignmentLeft
+                       : spec.align == tiny::platform::Text::Field::Align::Right ? NSTextAlignmentRight : NSTextAlignmentCenter;
     self.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
     self.borderStyle = UITextBorderStyleNone;
     const auto pad = [](CGFloat w) { return [[[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 1)] autorelease]; };
@@ -143,11 +143,11 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
 }
 
 - (void)escape:(UIKeyCommand*)command {
-    [self finish:tiny::Text_result::Kind::Cancelled];
+    [self finish:tiny::platform::Text::Result::Kind::Cancelled];
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField*)field {
-    [self finish:tiny::Text_result::Kind::Committed];
+    [self finish:tiny::platform::Text::Result::Kind::Committed];
     return NO;
 }
 
@@ -156,7 +156,7 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
 }
 
 - (void)blur {
-    [self finish:_blur == tiny::Text_field::Blur::Commit ? tiny::Text_result::Kind::Committed : tiny::Text_result::Kind::Cancelled];
+    [self finish:_blur == tiny::platform::Text::Field::Blur::Commit ? tiny::platform::Text::Result::Kind::Committed : tiny::platform::Text::Result::Kind::Cancelled];
 }
 
 // Clear of the keyboard: up just far enough, never above the editor's top.
@@ -177,10 +177,10 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
     self.frame = _home;
 }
 
-- (void)finish:(tiny::Text_result::Kind)kind {
+- (void)finish:(tiny::platform::Text::Result::Kind)kind {
     if (_finished) return;
     _finished = true;
-    auto result = tiny::Text_result{.kind = kind, .text = std::string{self.text.UTF8String ? self.text.UTF8String : ""}};
+    auto result = tiny::platform::Text::Result{.kind = kind, .text = std::string{self.text.UTF8String ? self.text.UTF8String : ""}};
     auto done = std::move(_done);
     _done = {};
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -209,7 +209,7 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
 - (void)applyFrameRate;   // Retunes the live link; overridden by IosMetalView.
 - (void)resumeDisplayLink; // Visibility entry points — these track `_link_wanted`.
 - (void)suspendDisplayLink;
-- (void)beginTextField:(const tiny::Text_field&)spec done:(std::function<void(tiny::Text_result)>)done;
+- (void)beginTextField:(const tiny::platform::Text::Field&)spec done:(std::function<void(tiny::platform::Text::Result)>)done;
 - (void)endTextField;
 @end
 
@@ -230,18 +230,18 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
 }
 
 // A native field over `spec.frame` (logical, top-down); one at a time, so an open one ends as its blur says.
-- (void)beginTextField:(const tiny::Text_field&)spec done:(std::function<void(tiny::Text_result)>)done {
+- (void)beginTextField:(const tiny::platform::Text::Field&)spec done:(std::function<void(tiny::platform::Text::Result)>)done {
     if (auto* open = _textField) {
         _textField = nil;
         [open blur];
     }
     if (!self.window) {
-        done({.kind = tiny::Text_result::Kind::Cancelled});
+        done({.kind = tiny::platform::Text::Result::Kind::Cancelled});
         return;
     }
     IosView* view = self; // Unretained: the view ends its field before it goes.
     auto* field = [[IosTextField alloc] initWithSpec:spec frame:CGRectMake(spec.frame.x, spec.frame.y, spec.frame.w, spec.frame.h)
-                                                done:[view, done = std::move(done)](tiny::Text_result result) {
+                                                done:[view, done = std::move(done)](tiny::platform::Text::Result result) {
         view->_textField = nil;
         done(std::move(result));
     }];
@@ -254,7 +254,7 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
 - (void)endTextField {
     if (auto* field = _textField) {
         _textField = nil;
-        [field finish:tiny::Text_result::Kind::Cancelled];
+        [field finish:tiny::platform::Text::Result::Kind::Cancelled];
     }
 }
 
@@ -329,7 +329,7 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
     if (_link_wanted) [self startDisplayLink];
 }
 
-// Visibility entry points from `Platform_view`. These own `_link_wanted`; the
+// Visibility entry points from `platform::View`. These own `_link_wanted`; the
 // start/stop pair below is the raw mechanism and is overridden by `IosMetalView`.
 - (void)resumeDisplayLink {
     _link_wanted = YES;
@@ -598,11 +598,11 @@ API_AVAILABLE(ios(17.0))
 
 @end
 
-// MARK: - Platform_view
+// MARK: - platform::View
 
 namespace tiny {
 
-Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view, std::function<void()>) : _delegate{delegate}, _owns_view{owns_view}
+platform::View::View(std::shared_ptr<View_delegate> delegate, bool owns_view, std::function<void()>) : _delegate{delegate}, _owns_view{owns_view}
 {
     UIView* view;
     
@@ -622,10 +622,10 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
     _delegate->assign_context(std::move(context));
 
     _view = view;
-    _token = Window_registry::add(_view); // Names this window for Platform_dialogs.
+    _token = Window_registry::add(_view); // Names this window for platform::Dialogs.
 }
 
-Platform_view::~Platform_view() 
+platform::View::~View() 
 {
     if (auto* view = static_cast<IosView*>(_view)) [view endTextField];
     Window_registry::remove(_token);
@@ -637,36 +637,36 @@ Platform_view::~Platform_view()
     _view = nullptr;
 }
 
-auto Platform_view::on_create() -> void
+auto platform::View::on_create() -> void
 {
 
 }
 
-auto Platform_view::on_show() -> void
+auto platform::View::on_show() -> void
 {
     if (auto view = static_cast<IosView*>(_view)) {
         [view resumeDisplayLink];
     }
 }
 
-auto Platform_view::on_hide() -> void
+auto platform::View::on_hide() -> void
 {
     if (auto view = static_cast<IosView*>(_view)) {
         [view suspendDisplayLink];
     }
 }
 
-auto Platform_view::on_destroy() -> void
+auto platform::View::on_destroy() -> void
 {
     _delegate->invalidate_context();
 }
 
-auto Platform_view::receive_parent(void* parent) -> void
+auto platform::View::receive_parent(void* parent) -> void
 {
     [(UIView*)parent addSubview:(UIView*)_view];
 }
 
-auto Platform_view::resize(int32_t w, int32_t h) -> void
+auto platform::View::resize(int32_t w, int32_t h) -> void
 {
     [(UIView*)_view setFrame:CGRectMake(0, 0, w, h)]; // So the context can get the size from the view.
     _delegate->on_resize({w, h});
@@ -674,21 +674,21 @@ auto Platform_view::resize(int32_t w, int32_t h) -> void
 
 // MARK: - Platform text
 
-auto Platform_text::edit(const Text_field& field, std::function<void(Text_result)> on_done, Dialog_context ctx) -> void
+auto platform::Text::edit(const platform::Text::Field& field, std::function<void(platform::Text::Result)> on_done, platform::Context ctx) -> void
 {
     // As the dialogs: the answer arrives through the task manager, on main, or not at all once it's shut down.
-    auto deliver = [ctx, on_done = std::move(on_done)](Text_result result) {
+    auto deliver = [ctx, on_done = std::move(on_done)](platform::Text::Result result) {
         if (on_done) ctx.tasks.on_main([on_done, result = std::move(result)] { on_done(result); });
     };
     auto* view = static_cast<IosView*>(Window_registry::resolve(ctx.window));
     if (!view) {
-        deliver({.kind = Text_result::Kind::Cancelled});
+        deliver({.kind = platform::Text::Result::Kind::Cancelled});
         return;
     }
     [view beginTextField:field done:std::move(deliver)];
 }
 
-auto Platform_text::cancel(Window_token window) -> void
+auto platform::Text::cancel(Window_token window) -> void
 {
     if (auto* view = static_cast<IosView*>(Window_registry::resolve(window))) [view endTextField];
 }

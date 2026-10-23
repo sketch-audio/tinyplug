@@ -7,7 +7,7 @@ A quick check of the platform layer: input, gestures, dialogs and what the windo
   draws across the pad. Click the lamps to zero the counts.
 - **Raw input**: the last pointer events with their pointer tags, the modifier keys, and the
   accumulated scroll (lit while inertial, P for a precise device).
-- **Dialogs**: one button per `Platform_dialogs` call. Text sets Gain through a gesture;
+- **Dialogs**: one button per `platform::Dialogs` call. Text sets Gain through a gesture;
   Chained asks for a second dialog from the first one's callback, which must queue rather than
   vanish. The last result shows at the top of the info panel.
 - **Info**: format, graphics backend, scale, logical and pixel size, frame rate, held pointers.

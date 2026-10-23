@@ -34,7 +34,7 @@ Steinberg::tresult PLUGIN_API View::attached(void* parent, Steinberg::FIDString 
     store.set_apply([this](Rect_size size) { _request_size(size.w, size.h); });
 
     // Create the platform view and notify the editor.
-    _platform_view = Platform_views::make_owning(delegate);
+    _platform_view = platform::View::make_owning(delegate);
     _platform_view->on_create();
     _deps.editor->on_create(Gui_info{.window = _platform_view->token()});
 

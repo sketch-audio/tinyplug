@@ -88,7 +88,7 @@ public:
         indexer()->declare_filetype(indexer(), &filetype);
 
         const auto bundle_id = std::string{Plug_info::base_identifier} + ".clap";
-        const auto location_path = Platform_paths::format_readable(bundle_id);
+        const auto location_path = platform::Paths::format_readable(bundle_id);
 
         // Only declare a location that actually exists. (We may not have bundled presets).
         if (!location_exists(location_path)) {
@@ -154,7 +154,7 @@ public:
     {
         indexer()->declare_filetype(indexer(), &filetype);
 
-        const auto location_path = Platform_paths::shared_writable({
+        const auto location_path = platform::Paths::shared_writable({
             .manufacturer = Plug_info::company_directory_name,
             .product = Plug_info::product_directory_name,
         });

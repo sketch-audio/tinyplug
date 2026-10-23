@@ -263,8 +263,8 @@ struct Win_field {
     COLORREF ink{};
     COLORREF background{};
     HWND previous{}; // Who had the keyboard before us, given it back after.
-    Text_field::Blur blur{};
-    std::function<void(Text_result)> done{};
+    platform::Text::Field::Blur blur{};
+    std::function<void(platform::Text::Result)> done{};
     bool finished{};
 };
 
@@ -385,7 +385,7 @@ auto make_font(const std::wstring& face, LONG height, LONG weight) -> HFONT
 
 // The editor's font for GDI, private to this process. GDI has only a variable font's named instances, so the weight
 // snaps to the nearest one; it's kept only if GDI really chose it. Else the system's message font, as without bytes.
-auto field_font(const Text_field::Font& font, double scale) -> HFONT
+auto field_font(const platform::Text::Field::Font& font, double scale) -> HFONT
 {
     const auto height = -static_cast<LONG>(std::lround(font.size * scale));
     const auto weight = std::clamp(static_cast<LONG>(std::lround(font.weight)), LONG{1}, LONG{1000});
@@ -426,12 +426,12 @@ auto field_text(HWND edit) -> std::string
 }
 
 // Ends `field` once: the answer goes out now, the windows close after this message.
-auto finish_field(Win_field* field, Text_result::Kind kind) -> void
+auto finish_field(Win_field* field, platform::Text::Result::Kind kind) -> void
 {
     if (field->finished) return;
     field->finished = true;
     if (const auto open = open_fields.find(field->editor); open != open_fields.end() && open->second == field) open_fields.erase(open);
-    auto result = Text_result{.kind = kind, .text = field_text(field->edit)};
+    auto result = platform::Text::Result{.kind = kind, .text = field_text(field->edit)};
     auto done = std::move(field->done);
     field->done = {};
     ShowWindow(field->container, SW_HIDE);
@@ -440,9 +440,9 @@ auto finish_field(Win_field* field, Text_result::Kind kind) -> void
     if (done) done(std::move(result));
 }
 
-auto blur_kind(const Win_field* field) -> Text_result::Kind
+auto blur_kind(const Win_field* field) -> platform::Text::Result::Kind
 {
-    return field->blur == Text_field::Blur::Commit ? Text_result::Kind::Committed : Text_result::Kind::Cancelled;
+    return field->blur == platform::Text::Field::Blur::Commit ? platform::Text::Result::Kind::Committed : platform::Text::Result::Kind::Cancelled;
 }
 
 // The field open over `editor`, if any, ends as its blur says: a click elsewhere in the editor, which takes no focus.
@@ -458,8 +458,8 @@ LRESULT CALLBACK edit_callback(HWND edit, UINT message, WPARAM wparam, LPARAM lp
         case WM_GETDLGCODE: // A host's dialog handling must not take Enter, Escape or Tab from us.
             return DefSubclassProc(edit, message, wparam, lparam) | DLGC_WANTALLKEYS;
         case WM_KEYDOWN:
-            if (wparam == VK_RETURN) { finish_field(field, Text_result::Kind::Committed); return 0; }
-            if (wparam == VK_ESCAPE) { finish_field(field, Text_result::Kind::Cancelled); return 0; }
+            if (wparam == VK_RETURN) { finish_field(field, platform::Text::Result::Kind::Committed); return 0; }
+            if (wparam == VK_ESCAPE) { finish_field(field, platform::Text::Result::Kind::Cancelled); return 0; }
             break;
         case WM_CHAR: // Their characters would beep in a single-line edit.
             if (wparam == L'\r' || wparam == 0x1B || wparam == L'\t') return 0;
@@ -503,7 +503,7 @@ LRESULT CALLBACK field_callback(HWND container, UINT message, WPARAM wparam, LPA
             if (!field->finished) {
                 field->finished = true;
                 if (const auto open = open_fields.find(field->editor); open != open_fields.end() && open->second == field) open_fields.erase(open);
-                if (auto done = std::move(field->done)) done({.kind = Text_result::Kind::Cancelled});
+                if (auto done = std::move(field->done)) done({.kind = platform::Text::Result::Kind::Cancelled});
             }
             SetWindowLongPtrW(container, GWLP_USERDATA, 0);
             DeleteObject(field->font);
@@ -538,7 +538,7 @@ auto field_class() -> const std::wstring&
 LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
 {
     // Retrieve the graphics delegate stored in window's user data.
-    auto* binder = reinterpret_cast<Platform_binder*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    auto* binder = reinterpret_cast<platform::Binder*>(GetWindowLongPtrW(window, GWLP_USERDATA));
     if (!binder) return DefWindowProcW(window, message, wparam, lparam);
 
     auto* delegate = binder->delegate;
@@ -810,7 +810,7 @@ public:
 
 // MARK: - platform view
 
-Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view, std::function<void()> /*unused on windows*/) : _delegate{delegate}, _owns_view{owns_view}
+platform::View::View(std::shared_ptr<View_delegate> delegate, bool owns_view, std::function<void()> /*unused on windows*/) : _delegate{delegate}, _owns_view{owns_view}
 {
     const auto& registrar = Window_registrar::instance(); // Register/unregisters the window class.
 
@@ -848,12 +848,12 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
     _delegate->assign_context(std::move(context));
 
     _view = window;
-    _token = Window_registry::add(_view); // Names this window for Platform_dialogs.
+    _token = Window_registry::add(_view); // Names this window for platform::Dialogs.
 }
 
-Platform_view::~Platform_view()
+platform::View::~View()
 {
-    Platform_text::cancel(_token);
+    platform::Text::cancel(_token);
     Window_registry::remove(_token);
     discard_queued_dialogs(static_cast<HWND>(_view)); // Posted but not yet dispatched.
 
@@ -865,29 +865,29 @@ Platform_view::~Platform_view()
     DestroyWindow(window);
 }
 
-auto Platform_view::on_create() -> void
+auto platform::View::on_create() -> void
 {
 
 }
 
-auto Platform_view::on_show() -> void
+auto platform::View::on_show() -> void
 {
     if (!_vsync_loop) {
         _vsync_loop = std::make_unique<Vsync_loop>([this]() { InvalidateRect(static_cast<HWND>(_view), nullptr, TRUE); });
     }
 }
 
-auto Platform_view::on_hide() -> void
+auto platform::View::on_hide() -> void
 {
     _vsync_loop = nullptr;
 }
 
-auto Platform_view::on_destroy() -> void
+auto platform::View::on_destroy() -> void
 {
 
 }
 
-auto Platform_view::receive_parent(void* parent) -> void
+auto platform::View::receive_parent(void* parent) -> void
 {
     auto parent_window = static_cast<HWND>(parent);
     auto window = static_cast<HWND>(_view);
@@ -900,7 +900,7 @@ auto Platform_view::receive_parent(void* parent) -> void
     UpdateWindow(window);
 }
 
-auto Platform_view::resize(int32_t w, int32_t h) -> void
+auto platform::View::resize(int32_t w, int32_t h) -> void
 {
     auto window = static_cast<HWND>(_view);
     SetWindowPos(window, nullptr, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
@@ -909,16 +909,16 @@ auto Platform_view::resize(int32_t w, int32_t h) -> void
 
 // MARK: - Platform text
 
-auto Platform_text::edit(const Text_field& spec, std::function<void(Text_result)> on_done, Dialog_context ctx) -> void
+auto platform::Text::edit(const platform::Text::Field& spec, std::function<void(platform::Text::Result)> on_done, platform::Context ctx) -> void
 {
     // As the dialogs: the answer arrives through the task manager, on main, or not at all once it's shut down.
-    auto deliver = [ctx, on_done = std::move(on_done)](Text_result result) {
+    auto deliver = [ctx, on_done = std::move(on_done)](platform::Text::Result result) {
         if (on_done) ctx.tasks.on_main([on_done, result = std::move(result)] { on_done(result); });
     };
     auto* editor = static_cast<HWND>(Window_registry::resolve(ctx.window));
-    const auto* binder = editor ? reinterpret_cast<Platform_binder*>(GetWindowLongPtrW(editor, GWLP_USERDATA)) : nullptr;
+    const auto* binder = editor ? reinterpret_cast<platform::Binder*>(GetWindowLongPtrW(editor, GWLP_USERDATA)) : nullptr;
     if (!binder || !binder->delegate) {
-        deliver({.kind = Text_result::Kind::Cancelled});
+        deliver({.kind = platform::Text::Result::Kind::Cancelled});
         return;
     }
     blur_field(editor); // One per view.
@@ -951,7 +951,7 @@ auto Platform_text::edit(const Text_field& spec, std::function<void(Text_result)
         DeleteObject(field->font);
         DeleteObject(field->brush);
         delete field;
-        done({.kind = Text_result::Kind::Cancelled});
+        done({.kind = platform::Text::Result::Kind::Cancelled});
         return;
     }
     SetWindowLongPtrW(field->container, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(field));
@@ -965,11 +965,11 @@ auto Platform_text::edit(const Text_field& spec, std::function<void(Text_result)
         SelectObject(dc, old);
         ReleaseDC(field->container, dc);
     }
-    const auto align = spec.align == Text_field::Align::Left ? ES_LEFT : spec.align == Text_field::Align::Right ? ES_RIGHT : ES_CENTER;
+    const auto align = spec.align == platform::Text::Field::Align::Left ? ES_LEFT : spec.align == platform::Text::Field::Align::Right ? ES_RIGHT : ES_CENTER;
     field->edit = CreateWindowExW(0, WC_EDITW, widen(spec.initial).c_str(), WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | static_cast<DWORD>(align),
                                   0, (h - line) / 2, w, line, field->container, nullptr, nullptr, nullptr);
     if (!field->edit) {
-        finish_field(field, Text_result::Kind::Cancelled);
+        finish_field(field, platform::Text::Result::Kind::Cancelled);
         return;
     }
     SendMessageW(field->edit, WM_SETFONT, reinterpret_cast<WPARAM>(field->font), FALSE);
@@ -984,10 +984,10 @@ auto Platform_text::edit(const Text_field& spec, std::function<void(Text_result)
     SendMessageW(field->edit, EM_SETSEL, spec.select_all ? 0 : static_cast<WPARAM>(end), end);
 }
 
-auto Platform_text::cancel(Window_token window) -> void
+auto platform::Text::cancel(Window_token window) -> void
 {
     auto* editor = static_cast<HWND>(Window_registry::resolve(window));
-    if (const auto open = open_fields.find(editor); editor && open != open_fields.end()) finish_field(open->second, Text_result::Kind::Cancelled);
+    if (const auto open = open_fields.find(editor); editor && open != open_fields.end()) finish_field(open->second, platform::Text::Result::Kind::Cancelled);
 }
 
 // MARK: - dialog support

@@ -31,7 +31,7 @@ using Auv3_pending_ptr = std::shared_ptr<const Auv3_pending_state>;
 static auto presets_path() -> std::filesystem::path
 {
     using namespace tiny;
-    return Platform_paths::shared_writable({Plug_info::company_directory_name, Plug_info::product_directory_name}) / "Presets";
+    return platform::Paths::shared_writable({Plug_info::company_directory_name, Plug_info::product_directory_name}) / "Presets";
 }
 
 @interface Auv3_AUAudioUnit()
@@ -1239,7 +1239,7 @@ static auto presets_path() -> std::filesystem::path
         // Factory preset. The files are bundled into the AUv3 appex, so resolve against
         // its identifier — `format_readable` looks the bundle up by id.
         const auto bundle_id = std::string{Plug_info::base_identifier} + ".auv3";
-        const auto bundle_resources = Platform_paths::format_readable(bundle_id);
+        const auto bundle_resources = platform::Paths::format_readable(bundle_id);
         const auto filename = std::string{[currentPreset.name UTF8String]} + "." + Plug_info::Presets::extension;
         
         const auto path = bundle_resources / filename;

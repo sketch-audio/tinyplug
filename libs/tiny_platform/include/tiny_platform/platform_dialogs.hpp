@@ -7,7 +7,7 @@
 #include <tiny_core/task_manager.hpp>
 #include <tiny_core/window_token.hpp>
 
-namespace tiny {
+namespace tiny::platform {
 
 // Where a dialog runs its callback and which window it hangs off.
 //
@@ -19,15 +19,15 @@ namespace tiny {
 // Construction is explicit: naming no window is a real decision (a controller with
 // no editor, say), not something a call site should fall into by passing the wrong
 // handle. Editors pass the token they were given in `on_create`.
-struct Dialog_context {
+struct Context {
     Task_manager::Actor tasks{};
     Window_token window{};
 
-    Dialog_context() = default;
-    explicit Dialog_context(Task_manager::Actor t, Window_token w = {}) : tasks{t}, window{w} {}
+    Context() = default;
+    explicit Context(Task_manager::Actor t, Window_token w = {}) : tasks{t}, window{w} {}
 };
 
-struct Platform_dialogs {
+struct Dialogs {
     // Callbacks below are pushed into the executor's task queue. You will need to drain this queue somewhere, probably on the main thread!
     //
     // Every one of them fires exactly once, on every path — including "the user
@@ -37,24 +37,24 @@ struct Platform_dialogs {
     // The one exception: once the context's Task_manager has shut down (the plug-in
     // is being destroyed), a late answer is dropped, so a callback may capture `this`.
 
-    static auto message(const std::string& title, const std::string& message, std::function<void()> on_done, Dialog_context ctx) -> void;
+    static auto message(const std::string& title, const std::string& message, std::function<void()> on_done, Context ctx) -> void;
 
-    static auto confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_done, Dialog_context ctx) -> void;
+    static auto confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_done, Context ctx) -> void;
 
     // `on_text` receives an empty string on cancel (and if the dialog could not be shown).
-    static auto text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Dialog_context ctx) -> void;
+    static auto text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Context ctx) -> void;
 
     // On Windows we use the executor to launch the browser from a background thread.
-    static auto open_url(const std::string& url, Dialog_context ctx) -> void;
+    static auto open_url(const std::string& url, Context ctx) -> void;
 
     // Callback runs automatically in the executor's task launcher (some background thread). Because of sandboxing requirements on iOS, we can only guarantee access to the file during your callback scope! You are responsible for escaping back to main safely.
-    static auto save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Dialog_context ctx) -> void;
+    static auto save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Context ctx) -> void;
 
     // Callback runs automatically in the executor's task launcher (some background thread). Because of sandboxing requirements on iOS, we can only guarantee access to the file during your callback scope! You are responsible for escaping back to main safely.
-    static auto open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Dialog_context ctx) -> void;
+    static auto open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Context ctx) -> void;
 
     // Same as `open_file`, but restricted to picking a folder instead of a file.
-    static auto choose_dir(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_choose, Dialog_context ctx) -> void;
+    static auto choose_dir(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_choose, Context ctx) -> void;
 };
 
-} // namespace tiny
+} // namespace tiny::platform

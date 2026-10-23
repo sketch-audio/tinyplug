@@ -142,7 +142,7 @@ public:
         auto delegate = std::make_shared<View_delegate>(size,
             [this](View_context& context) { this->_draw(context); });
         _edit_store.set_apply([this](Rect_size s) { if (_view) _view->resize(s.w, s.h); });
-        _view = Platform_views::make_owning(delegate);
+        _view = platform::View::make_owning(delegate);
         _view->on_create();
         _editor->on_create(Gui_info{.window = _view->token()});
         _selector = selector;
@@ -280,7 +280,7 @@ private:
     }
 
     Controller_table _table{};
-    std::unique_ptr<Platform_view> _view{};
+    std::unique_ptr<platform::View> _view{};
     std::string _selector{};
     std::array<double, num_meters> _view_meters{};
     blocks::Frames<models::Resolved::Blocks> _ui_blocks{}; // Retained between draws.

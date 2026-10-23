@@ -48,7 +48,7 @@ function(make_web_plugin USER_TARGET)
     target_link_options(${CTL} PRIVATE
         ${CTL_THREADS} -sMODULARIZE -sEXPORT_ES6 -sENVIRONMENT=web,worker,node
         -sALLOW_MEMORY_GROWTH -sINITIAL_MEMORY=64MB -sSTACK_SIZE=1MB
-        -sFORCE_FILESYSTEM -lidbfs.js # Platform_paths' folders persist in IndexedDB (controller.js mounts them).
+        -sFORCE_FILESYSTEM -lidbfs.js # platform::Paths' folders persist in IndexedDB (controller.js mounts them).
         -sEXPORTED_FUNCTIONS=_malloc,_free -sEXPORTED_RUNTIME_METHODS=HEAPU8,UTF8ToString,stringToNewUTF8,FS,IDBFS)
     set_target_properties(${CTL} PROPERTIES
         OUTPUT_NAME ${TINY_BASE_FILENAME}_controller

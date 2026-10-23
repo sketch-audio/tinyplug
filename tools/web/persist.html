@@ -2,7 +2,7 @@
 <meta charset="utf-8">
 <title>tinyplug persistence</title>
 <script type="module">
-  // Writes a file where Platform_paths::shared_writable points, flushes, reloads; the reload must still see it.
+  // Writes a file where platform::Paths::shared_writable points, flushes, reloads; the reload must still see it.
   import { load_controller } from "/js/controller.js";
   const params = new URLSearchParams(location.search);
   const name = params.get("plugin") ?? "GainDemo";

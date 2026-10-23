@@ -61,7 +61,7 @@ auto top_view_controller(Window_token token) -> UIViewController*
 
 } // namespace
 
-auto Platform_dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, Dialog_context ctx) -> void
+auto platform::Dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, platform::Context ctx) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -81,7 +81,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
     });
 }
 
-auto Platform_dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_confirm, Dialog_context ctx) -> void
+auto platform::Dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_confirm, platform::Context ctx) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -110,7 +110,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
     });
 }
 
-auto Platform_dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Dialog_context ctx) -> void
+auto platform::Dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, platform::Context ctx) -> void
 {
     // Copy to locals.
     const auto title_copy = title;
@@ -145,7 +145,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
     });
 }
 
-auto Platform_dialogs::open_url(const std::string& url, Dialog_context /*ctx*/) -> void
+auto platform::Dialogs::open_url(const std::string& url, platform::Context /*ctx*/) -> void
 {
     // Copy to locals.
     const auto url_copy = url;
@@ -157,7 +157,7 @@ auto Platform_dialogs::open_url(const std::string& url, Dialog_context /*ctx*/) 
     }
 }
 
-auto Platform_dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Dialog_context ctx) -> void {
+auto platform::Dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, platform::Context ctx) -> void {
     
     //const auto title_copy = title;
     //const auto default_path_copy = default_path;
@@ -196,7 +196,7 @@ auto Platform_dialogs::save_file(const std::string& title, const std::string& de
 
 // Shared by `open_file`/`choose_dir` -- the document picker only differs in
 // which content type it's restricted to (any item vs. folders only).
-static auto present_document_picker(NSString* content_type, std::function<void(std::optional<std::string>)> on_open, Dialog_context ctx) -> void
+static auto present_document_picker(NSString* content_type, std::function<void(std::optional<std::string>)> on_open, platform::Context ctx) -> void
 {
     dispatch_async(dispatch_get_main_queue(), ^{
         UIDocumentPickerViewController* documentPicker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[content_type]
@@ -243,12 +243,12 @@ static auto present_document_picker(NSString* content_type, std::function<void(s
     });
 }
 
-auto Platform_dialogs::open_file(const std::string& /*title*/, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_open, Dialog_context ctx) -> void
+auto platform::Dialogs::open_file(const std::string& /*title*/, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_open, platform::Context ctx) -> void
 {
     present_document_picker(UTTypeItem.identifier, std::move(on_open), ctx);
 }
 
-auto Platform_dialogs::choose_dir(const std::string& /*title*/, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_choose, Dialog_context ctx) -> void
+auto platform::Dialogs::choose_dir(const std::string& /*title*/, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_choose, platform::Context ctx) -> void
 {
     present_document_picker(UTTypeFolder.identifier, std::move(on_choose), ctx);
 }

@@ -4,8 +4,8 @@
 
 namespace tiny {
 
-// An opaque handle to a live plug-in view. Minted by `Platform_view` when the
-// window opens, retired when it closes, and threaded down to `Platform_dialogs`
+// An opaque handle to a live plug-in view. Minted by `platform::View` when the
+// window opens, retired when it closes, and threaded down to `platform::Dialogs`
 // so a dialog parents itself to the window that asked for it instead of guessing
 // at whatever the host happens to have key.
 //

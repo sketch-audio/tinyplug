@@ -6,7 +6,7 @@
 
 namespace tiny {
 
-auto Platform_paths::format_readable(const std::string& /*bundle_id*/) -> std::filesystem::path
+auto platform::Paths::format_readable(const std::string& /*bundle_id*/) -> std::filesystem::path
 {
     auto hmodule = HMODULE{};
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCWSTR>(&format_readable), &hmodule)) {
@@ -33,7 +33,7 @@ auto Platform_paths::format_readable(const std::string& /*bundle_id*/) -> std::f
     return resource_path;
 }
 
-auto Platform_paths::shared_writable(const Subpath& subpath) -> std::filesystem::path
+auto platform::Paths::shared_writable(const Subpath& subpath) -> std::filesystem::path
 {
     const auto* env = std::getenv("APPDATA");
     if (!env) return {};

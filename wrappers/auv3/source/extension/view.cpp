@@ -8,7 +8,7 @@ auto View::create_view() -> void*
         sizing_of<User_editor>().preferred,
         [this](auto& context) { this->on_draw(context); }
     );
-    _platform_view = Platform_views::make_owning(delegate); // TODO: - revisit
+    _platform_view = platform::View::make_owning(delegate); // TODO: - revisit
 
     _platform_view->on_create();
     _deps.editor->on_create(Gui_info{.window = _platform_view->token()});

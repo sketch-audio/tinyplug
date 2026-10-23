@@ -58,7 +58,7 @@ Editor::Editor(const edit::Context& edit) : _edit{edit}, _fonts{faces()}, _start
 auto Editor::on_hide() -> void
 {
     _controls.cancel(_edit.params);
-    Platform_text::cancel(_window);
+    platform::Text::cancel(_window);
 }
 
 auto Editor::on_draw(Plugin_state& state) -> void
@@ -326,7 +326,7 @@ auto Editor::_type_value(Address address, const Frame& frame, std::span<const do
     const auto a = enum_raw(address);
     const auto& spec = User_params::param_spec(a);
     const auto t = ui::theme(dark);
-    const auto field = Text_field{
+    const auto field = platform::Text::Field{
         .frame = frame,
         .initial = params::to_text(params::knob_to_plain(knobs[a], spec.semantics), spec.semantics),
         .label = spec.name,
@@ -335,7 +335,7 @@ auto Editor::_type_value(Address address, const Frame& frame, std::span<const do
         .background = t.panel,
     };
     // One gesture, so the typed value is one undo step and the host sees a touch.
-    Platform_text::edit(field, [this, a](Text_result result) {
+    platform::Text::edit(field, [this, a](platform::Text::Result result) {
         if (!result.committed()) return;
         const auto& semantics = User_params::param_spec(a).semantics;
         const auto plain = params::from_text(result.text, semantics);
@@ -343,25 +343,25 @@ auto Editor::_type_value(Address address, const Frame& frame, std::span<const do
         _edit.params.start(a);
         _edit.params.set(a, params::plain_to_knob(params::clamp(*plain, semantics), semantics));
         _edit.params.end(a);
-    }, Dialog_context{_edit.tasks, _window});
+    }, platform::Context{_edit.tasks, _window});
 }
 
 auto Editor::_type_specimen(const Frame& frame, float size, float weight, bool dark) -> void
 {
     const auto t = ui::theme(dark);
-    const auto field = Text_field{
+    const auto field = platform::Text::Field{
         .frame = frame,
         .initial = _specimen,
         .label = "Specimen",
         .font = {.data = embedded::fonts::intervariable_ttf(), .size = size, .weight = weight},
         .ink = t.text,
         .background = t.background,
-        .align = Text_field::Align::Left,
+        .align = platform::Text::Field::Align::Left,
         .select_all = false,
     };
-    Platform_text::edit(field, [this](Text_result result) {
+    platform::Text::edit(field, [this](platform::Text::Result result) {
         if (result.committed() && !result.text.empty()) _specimen = result.text;
-    }, Dialog_context{_edit.tasks, _window});
+    }, platform::Context{_edit.tasks, _window});
 }
 
 } // namespace tiny::edit

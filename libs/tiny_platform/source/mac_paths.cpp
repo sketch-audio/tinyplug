@@ -10,7 +10,7 @@
 
 namespace tiny {
 
-auto Platform_paths::format_readable(const std::string& bundle_id) -> std::filesystem::path
+auto platform::Paths::format_readable(const std::string& bundle_id) -> std::filesystem::path
 {
     const auto bundle_str = CFStringCreateWithCString(kCFAllocatorDefault, bundle_id.c_str(), kCFStringEncodingUTF8);
     const auto release_bundle_str = Deferred{[&]() { if (bundle_str) CFRelease(bundle_str); }};
@@ -31,7 +31,7 @@ auto Platform_paths::format_readable(const std::string& bundle_id) -> std::files
     return bundle_path;
 }
 
-auto Platform_paths::shared_writable(const Subpath& subpath) -> std::filesystem::path
+auto platform::Paths::shared_writable(const Subpath& subpath) -> std::filesystem::path
 {
     auto pw = getpwuid(getuid()); // See: https://developer.apple.com/forums/thread/107593
     if (!pw || !pw->pw_dir) return {};

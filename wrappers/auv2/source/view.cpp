@@ -18,7 +18,7 @@ auto View::create_view() -> void*
         _deps.editor->on_destroy();
         _platform_view->on_destroy();
     };
-    _platform_view = Platform_views::make_autoreleasing(delegate, on_autorelease);
+    _platform_view = platform::View::make_autoreleasing(delegate, on_autorelease);
 
     _platform_view->on_create();
     _deps.editor->on_create(Gui_info{.window = _platform_view->token()});
@@ -31,7 +31,7 @@ auto View::create_view() -> void*
 }
 
 // A host can dispose of the unit with its view still on screen, so the view can outlive us. Close the
-// editor's GUI lifecycle as the view's dealloc would have; ~Platform_view then leaves the view inert.
+// editor's GUI lifecycle as the view's dealloc would have; ~platform::View then leaves the view inert.
 View::~View()
 {
     _deps.edit_store->set_apply({});

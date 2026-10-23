@@ -24,7 +24,7 @@
 
 namespace tiny {
 
-// MARK: - Platform_dialogs
+// MARK: - platform::Dialogs
 
 // Dialog element IDs
 #define ID_TEXT 200
@@ -95,7 +95,7 @@ inline auto owner_window(Window_token token) -> HWND
 // cross-thread, i.e. the old behaviour, but shown. Note it must not run inline:
 // the caller is typically already inside WM_PAINT, which is the case that
 // freezes the editor for as long as the modal is up.
-inline auto dispatch_to_ui(Dialog_context ctx, std::function<void()> job) -> void
+inline auto dispatch_to_ui(platform::Context ctx, std::function<void()> job) -> void
 {
     auto* view = view_window(ctx.window);
 
@@ -327,7 +327,7 @@ inline auto align_dword(LPWORD lpIn) -> LPWORD
 
 // MARK: - message 
 
-auto Platform_dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, Dialog_context ctx) -> void
+auto platform::Dialogs::message(const std::string& title, const std::string& message, std::function<void()> on_done, platform::Context ctx) -> void
 {
     dispatch_to_ui(ctx, [=, on_done=std::move(on_done)]() {
         auto* owner = owner_window(ctx.window);
@@ -441,7 +441,7 @@ auto Platform_dialogs::message(const std::string& title, const std::string& mess
 
 // MARK: - confirm
 
-auto Platform_dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_done, Dialog_context ctx) -> void
+auto platform::Dialogs::confirm(const std::string& title, const std::string& message, std::function<void(bool)> on_done, platform::Context ctx) -> void
 {
     dispatch_to_ui(ctx, [=, on_done=std::move(on_done)]() {
         auto* owner = owner_window(ctx.window);
@@ -579,7 +579,7 @@ auto Platform_dialogs::confirm(const std::string& title, const std::string& mess
 
 // MARK: - text_input
 
-auto Platform_dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, Dialog_context ctx) -> void
+auto platform::Dialogs::text_input(const std::string& title, const std::string& message, std::function<void(std::string)> on_text, platform::Context ctx) -> void
 {
     dispatch_to_ui(ctx, [=, on_text=std::move(on_text)]() {
         auto* owner = owner_window(ctx.window);
@@ -746,7 +746,7 @@ auto Platform_dialogs::text_input(const std::string& title, const std::string& m
     });
 }
 
-auto Platform_dialogs::open_url(const std::string& url, Dialog_context ctx) -> void
+auto platform::Dialogs::open_url(const std::string& url, platform::Context ctx) -> void
 {
     // Stays on a worker: ShellExecuteW can block while a browser cold-starts,
     // and it owns no window, so none of the reasons above apply.
@@ -757,7 +757,7 @@ auto Platform_dialogs::open_url(const std::string& url, Dialog_context ctx) -> v
     });
 }
 
-auto Platform_dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, Dialog_context ctx) -> void
+auto platform::Dialogs::save_file(const std::string& title, const std::string& default_path, const std::string& name, const std::string& extension, std::function<void(std::optional<std::string>)> on_save, platform::Context ctx) -> void
 {
     dispatch_to_ui(ctx, [=, on_save = std::move(on_save)]() {
         auto* owner = owner_window(ctx.window);
@@ -863,7 +863,7 @@ static auto run_dir_dialog(HWND owner, const std::wstring& wtitle) -> std::optio
     return selected_path;
 }
 
-auto Platform_dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, Dialog_context ctx) -> void
+auto platform::Dialogs::open_file(const std::string& title, const std::string& default_path, std::function<void(std::optional<std::string>)> on_open, platform::Context ctx) -> void
 {
     dispatch_to_ui(ctx, [=, on_open=std::move(on_open)]() {
         auto* owner = owner_window(ctx.window);
@@ -876,7 +876,7 @@ auto Platform_dialogs::open_file(const std::string& title, const std::string& de
     });
 }
 
-auto Platform_dialogs::choose_dir(const std::string& title, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_choose, Dialog_context ctx) -> void
+auto platform::Dialogs::choose_dir(const std::string& title, const std::string& /*default_path*/, std::function<void(std::optional<std::string>)> on_choose, platform::Context ctx) -> void
 {
     dispatch_to_ui(ctx, [=, on_choose=std::move(on_choose)]() {
         auto* owner = owner_window(ctx.window);

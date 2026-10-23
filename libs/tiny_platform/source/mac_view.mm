@@ -57,8 +57,8 @@ static_assert(false, "This is a non-ARC file");
 // A field over the editor, its own delegate. Ends once: Return commits, Escape cancels, clicking away does what
 // `blur` says.
 @interface TINY_MAC_TEXT_FIELD : NSTextField <NSTextFieldDelegate>
-- (id)initWithSpec:(const tiny::Text_field&)spec frame:(NSRect)frame done:(std::function<void(tiny::Text_result)>)done;
-- (void)finish:(tiny::Text_result::Kind)kind;
+- (id)initWithSpec:(const tiny::platform::Text::Field&)spec frame:(NSRect)frame done:(std::function<void(tiny::platform::Text::Result)>)done;
+- (void)finish:(tiny::platform::Text::Result::Kind)kind;
 - (void)blur;
 @end
 
@@ -71,7 +71,7 @@ auto ns_color(std::uint32_t argb) -> NSColor*
 }
 
 // The editor's embedded font at its weight and size, never registered with the system; else the system font.
-auto ns_font(const tiny::Text_field::Font& font) -> NSFont*
+auto ns_font(const tiny::platform::Text::Field::Font& font) -> NSFont*
 {
     if (!font.data.empty()) {
         auto* data = CFDataCreateWithBytesNoCopy(nullptr, reinterpret_cast<const UInt8*>(font.data.data()), static_cast<CFIndex>(font.data.size()), kCFAllocatorNull);
@@ -93,13 +93,13 @@ auto ns_font(const tiny::Text_field::Font& font) -> NSFont*
 } // namespace
 
 @implementation TINY_MAC_TEXT_FIELD {
-    std::function<void(tiny::Text_result)> _done;
-    tiny::Text_field::Blur _blur;
+    std::function<void(tiny::platform::Text::Result)> _done;
+    tiny::platform::Text::Field::Blur _blur;
     NSResponder* _previous; // Retained: who had the keyboard before us, given it back after.
     bool _finished;
 }
 
-- (id)initWithSpec:(const tiny::Text_field&)spec frame:(NSRect)frame done:(std::function<void(tiny::Text_result)>)done {
+- (id)initWithSpec:(const tiny::platform::Text::Field&)spec frame:(NSRect)frame done:(std::function<void(tiny::platform::Text::Result)>)done {
     self = [super initWithFrame:frame];
     if (!self) return nil;
     _done = std::move(done);
@@ -124,8 +124,8 @@ auto ns_font(const tiny::Text_field::Font& font) -> NSFont*
     if (opaque) self.layer.backgroundColor = self.backgroundColor.CGColor;
     self.textColor = ns_color(spec.ink);
     self.font = ns_font(spec.font);
-    self.alignment = spec.align == tiny::Text_field::Align::Left ? NSTextAlignmentLeft
-                   : spec.align == tiny::Text_field::Align::Right ? NSTextAlignmentRight : NSTextAlignmentCenter;
+    self.alignment = spec.align == tiny::platform::Text::Field::Align::Left ? NSTextAlignmentLeft
+                   : spec.align == tiny::platform::Text::Field::Align::Right ? NSTextAlignmentRight : NSTextAlignmentCenter;
     self.focusRingType = NSFocusRingTypeNone;
     if (!spec.label.empty()) self.accessibilityLabel = [NSString stringWithUTF8String:spec.label.c_str()];
     self.delegate = self;
@@ -151,11 +151,11 @@ auto ns_font(const tiny::Text_field::Font& font) -> NSFont*
 
 - (BOOL)control:(NSControl*)control textView:(NSTextView*)textView doCommandBySelector:(SEL)command {
     if (command == @selector(insertNewline:)) {
-        [self finish:tiny::Text_result::Kind::Committed];
+        [self finish:tiny::platform::Text::Result::Kind::Committed];
         return YES;
     }
     if (command == @selector(cancelOperation:) || command == @selector(complete:)) { // Escape: the field editor calls it complete:.
-        [self finish:tiny::Text_result::Kind::Cancelled];
+        [self finish:tiny::platform::Text::Result::Kind::Cancelled];
         return YES;
     }
     return NO;
@@ -166,13 +166,13 @@ auto ns_font(const tiny::Text_field::Font& font) -> NSFont*
 }
 
 - (void)blur {
-    [self finish:_blur == tiny::Text_field::Blur::Commit ? tiny::Text_result::Kind::Committed : tiny::Text_result::Kind::Cancelled];
+    [self finish:_blur == tiny::platform::Text::Field::Blur::Commit ? tiny::platform::Text::Result::Kind::Committed : tiny::platform::Text::Result::Kind::Cancelled];
 }
 
-- (void)finish:(tiny::Text_result::Kind)kind {
+- (void)finish:(tiny::platform::Text::Result::Kind)kind {
     if (_finished) return;
     _finished = true;
-    auto result = tiny::Text_result{.kind = kind, .text = std::string{self.stringValue.UTF8String ? self.stringValue.UTF8String : ""}};
+    auto result = tiny::platform::Text::Result{.kind = kind, .text = std::string{self.stringValue.UTF8String ? self.stringValue.UTF8String : ""}};
     auto done = std::move(_done);
     _done = {};
 
@@ -203,7 +203,7 @@ auto ns_font(const tiny::Text_field::Font& font) -> NSFont*
 - (void)stopDisplayLink;
 - (void)draw;
 - (void)detach;
-- (void)beginTextField:(const tiny::Text_field&)spec done:(std::function<void(tiny::Text_result)>)done;
+- (void)beginTextField:(const tiny::platform::Text::Field&)spec done:(std::function<void(tiny::platform::Text::Result)>)done;
 - (void)blurTextField;
 - (void)endTextField;
 @end
@@ -271,15 +271,15 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 }
 
 // A native field over `spec.frame` (logical, top-down); one at a time, so an open one ends as its blur says.
-- (void)beginTextField:(const tiny::Text_field&)spec done:(std::function<void(tiny::Text_result)>)done {
+- (void)beginTextField:(const tiny::platform::Text::Field&)spec done:(std::function<void(tiny::platform::Text::Result)>)done {
     [self blurTextField];
     if (!self.window) {
-        done({.kind = tiny::Text_result::Kind::Cancelled});
+        done({.kind = tiny::platform::Text::Result::Kind::Cancelled});
         return;
     }
     const auto frame = NSMakeRect(spec.frame.x, self.bounds.size.height - spec.frame.y - spec.frame.h, spec.frame.w, spec.frame.h);
     TINY_MAC_VIEW* view = self; // Unretained: the view ends its field before it goes.
-    auto* field = [[TINY_MAC_TEXT_FIELD alloc] initWithSpec:spec frame:frame done:[view, done = std::move(done)](tiny::Text_result result) {
+    auto* field = [[TINY_MAC_TEXT_FIELD alloc] initWithSpec:spec frame:frame done:[view, done = std::move(done)](tiny::platform::Text::Result result) {
         view->_textField = nil;
         done(std::move(result));
     }];
@@ -300,7 +300,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 - (void)endTextField {
     if (auto* field = _textField) {
         _textField = nil;
-        [field finish:tiny::Text_result::Kind::Cancelled];
+        [field finish:tiny::platform::Text::Result::Kind::Cancelled];
     }
 }
 
@@ -619,7 +619,7 @@ API_AVAILABLE(macos(14.0))
 
 namespace tiny {
 
-Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_view, std::function<void()> on_release) : _owns_view{owns_view}, _delegate{delegate}
+platform::View::View(std::shared_ptr<View_delegate> delegate, bool owns_view, std::function<void()> on_release) : _owns_view{owns_view}, _delegate{delegate}
 {
     NSView* view;
 
@@ -639,10 +639,10 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
     _delegate->assign_context(std::move(context));
 
     _view = view;
-    _token = Window_registry::add(_view); // Names this window for Platform_dialogs.
+    _token = Window_registry::add(_view); // Names this window for platform::Dialogs.
 }
 
-Platform_view::~Platform_view()
+platform::View::~View()
 {
     Window_registry::remove(_token);
 
@@ -657,19 +657,19 @@ Platform_view::~Platform_view()
     _view = nullptr;
 }
 
-auto Platform_view::on_create() -> void
+auto platform::View::on_create() -> void
 {
 
 }
 
-auto Platform_view::on_show() -> void
+auto platform::View::on_show() -> void
 {
     if (auto view = static_cast<TINY_MAC_VIEW*>(_view)) {
         [view startDisplayLink];
     }
 }
 
-auto Platform_view::on_hide() -> void
+auto platform::View::on_hide() -> void
 {
     if (!_owns_view) return;
     if (auto view = static_cast<TINY_MAC_VIEW*>(_view)) {
@@ -677,17 +677,17 @@ auto Platform_view::on_hide() -> void
     }
 }
 
-auto Platform_view::on_destroy() -> void
+auto platform::View::on_destroy() -> void
 {
     _delegate->invalidate_context();
 }
 
-auto Platform_view::receive_parent(void* parent) -> void
+auto platform::View::receive_parent(void* parent) -> void
 {
     [(NSView*)parent addSubview: (NSView*)_view];
 }
 
-auto Platform_view::resize(int32_t w, int32_t h) -> void
+auto platform::View::resize(int32_t w, int32_t h) -> void
 {
     [(NSView*)_view setFrameSize:NSMakeSize(w, h)];
     _delegate->on_resize({w, h});
@@ -695,21 +695,21 @@ auto Platform_view::resize(int32_t w, int32_t h) -> void
 
 // MARK: - Platform text
 
-auto Platform_text::edit(const Text_field& field, std::function<void(Text_result)> on_done, Dialog_context ctx) -> void
+auto platform::Text::edit(const platform::Text::Field& field, std::function<void(platform::Text::Result)> on_done, platform::Context ctx) -> void
 {
     // As the dialogs: the answer arrives through the task manager, on main, or not at all once it's shut down.
-    auto deliver = [ctx, on_done = std::move(on_done)](Text_result result) {
+    auto deliver = [ctx, on_done = std::move(on_done)](platform::Text::Result result) {
         if (on_done) ctx.tasks.on_main([on_done, result = std::move(result)] { on_done(result); });
     };
     auto* view = static_cast<TINY_MAC_VIEW*>(Window_registry::resolve(ctx.window));
     if (!view) {
-        deliver({.kind = Text_result::Kind::Cancelled});
+        deliver({.kind = platform::Text::Result::Kind::Cancelled});
         return;
     }
     [view beginTextField:field done:std::move(deliver)];
 }
 
-auto Platform_text::cancel(Window_token window) -> void
+auto platform::Text::cancel(Window_token window) -> void
 {
     if (auto* view = static_cast<TINY_MAC_VIEW*>(Window_registry::resolve(window))) [view endTextField];
 }
