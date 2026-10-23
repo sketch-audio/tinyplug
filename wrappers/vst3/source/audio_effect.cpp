@@ -1,4 +1,5 @@
 #include "audio_effect.hpp"
+#include "chunks.hpp"
 
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/ivstmidicontrollers.h"
@@ -877,55 +878,24 @@ Steinberg::tresult PLUGIN_API Audio_effect::getState(Steinberg::IBStream* state)
         return Steinberg::kResultFalse;
     }
 
-    // Streamer convenience wrapper.
-    auto streamer = Steinberg::IBStreamer{state};
-
-    // Generate the header.
-    auto header = State_rules::Vst3::Header{
-        Plug_info::framework_code, // Reserved
-        Plug_info::manufacturer_code,
-        Plug_info::plugin_code,
-        num_params
-    };
-
-    if (!streamer.writeInt32uArray(header.data(), static_cast<int32_t>(header.size()))) {
-        return Steinberg::kResultFalse;
-    }
-
+    auto values = std::array<float, num_params>{};
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
-        // Grab state from host values.
         const auto knob_value = static_cast<float>(_host_values[i].load(std::memory_order_relaxed));
-
-        const auto& spec = User_params::param_spec(i);
-        const auto to_write = State_rules::is_persistent(spec) ? knob_value : State_rules::no_value;
-
-        if (!streamer.writeFloat(to_write)) {
-            return Steinberg::kResultFalse;
-        }
+        values[i] = State_rules::is_persistent(User_params::param_spec(i)) ? knob_value : State_rules::no_value;
     }
 
-    // Write bypass.
-    const auto bypass_value = _bypass.is_bypassed() ? 1.f : 0.f;
-    if (!streamer.writeFloat(bypass_value)) {
-        return Steinberg::kResultFalse;
-    }
-
+    auto record = std::vector<std::byte>{};
 #if TINY_HAS_STATE
-    // The state record, last so older builds stop before it.
     auto doc = models::Resolved::State{};
     {
         const auto lock = std::lock_guard{_state_mutex};
         _state.snapshot(doc);
     }
-    const auto record = state::encode_record(doc);
-    auto written = Steinberg::int32{};
-    if (state->write(const_cast<std::byte*>(record.data()), static_cast<Steinberg::int32>(record.size()), &written) != Steinberg::kResultOk
-        || static_cast<size_t>(written) != record.size()) {
-        return Steinberg::kResultFalse;
-    }
+    record = state::encode_record(doc);
 #endif
 
-    return Steinberg::kResultOk;
+    const auto bypass = _bypass.is_bypassed() ? 1.f : 0.f;
+    return write_processor_chunk(state, values, bypass, record) ? Steinberg::kResultOk : Steinberg::kResultFalse;
 }
 
 // MARK: - latency, tail

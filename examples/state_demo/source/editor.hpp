@@ -1,28 +1,29 @@
 #pragma once
 
+#include <array>
+
 #include <tinyplug/tinyplug.hpp>
+
+#include "factory_presets.hpp" // Generated from presets/*.json.
 
 namespace tiny::edit {
 
 // Paint the gate pattern (state) and drag Depth (a parameter). Both land in one undo
 // history: a stroke is one step, a Depth drag is one step, and Undo/Redo walk them in order.
+// A preset button loads params, pattern and the preset's name (view state) as one step.
 class Editor {
 public:
 
-    static auto preferred_size() -> Rect_size { return {640, 300}; }
+    static constexpr auto sizing() -> Sizing { return {.preferred = {640, 300}}; }
 
     Editor(const Edit_context& edit) : _edit{edit} {}
     ~Editor() = default;
 
     auto on_gui_create(Gui_info) -> void {}
     auto on_gui_show() -> void {}
-    auto notify(const Host_event&) -> void;
     auto on_gui_draw(Plugin_state&) -> void;
     auto on_gui_hide() -> void;
     auto on_gui_destroy() -> void {}
-
-    auto save_state() -> State_map { return {}; }
-    auto load_state(const State_map&) -> void {}
 
 private:
 
@@ -34,6 +35,8 @@ private:
         Frame undo{};
         Frame redo{};
         Frame depth{};
+        std::array<Frame, factory_presets.size()> presets{};
+        Frame name{};
     };
 
     Edit_context _edit{};
@@ -50,6 +53,7 @@ private:
     auto _paint(const Frame& grid, Coords pos, bool first) -> void;
     auto _end_stroke() -> void;
     auto _set_depth(const Frame& strip, Coords pos) -> void;
+    auto _load_preset(const Factory_preset& preset) -> void;
 
 };
 

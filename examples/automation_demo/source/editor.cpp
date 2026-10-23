@@ -44,14 +44,6 @@ auto describe(const models::Log_entry& e) -> std::string
 
 } // namespace
 
-auto Editor::notify(const Host_event& notification) -> void
-{
-    std::visit(Inline_visitor{
-        [&](const Dark_mode_changed& n) { _dark = n.new_value; },
-        [](const auto&) {}
-    }, notification);
-}
-
 auto Editor::_take(const models::Log_frame& log) -> void
 {
     constexpr auto size = static_cast<uint32_t>(models::Log_frame::size);
@@ -72,6 +64,7 @@ auto Editor::_take(const models::Log_frame& log) -> void
 
 auto Editor::on_gui_draw(Plugin_state& state) -> void
 {
+    _dark = state.view_context.dark; // The host\'s or system\'s appearance, this frame.
     auto& view = state.view_context;
     auto* canvas = view.canvas;
     if (!canvas) return;

@@ -21,6 +21,7 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
         .state_adapter = _state_adapter.actor(),
         .undo_redo = _undo_history.actor(),
         .tasks = _tasks.actor(),
+        .view = _edit_store.handle(),
 #if TINY_HAS_STATE
         .state = _state_link.actor(),
 #endif
@@ -28,6 +29,8 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
         .notes = Note_sender{[this](const midi::Performance& e) { return _notes.post_from_editor(e); }},
 #endif
     });
+    _undo_history.bind_actions(_actions.actor());
+    _edit_store.bind(_undo_history);
     _view = this->_make_view();
 
 #if TINY_HAS_STATE
@@ -71,22 +74,17 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
     auto defer = Deferred([str]() { CFRelease(str); });
     Outputs().GetElement(0)->SetName(str);
 
-    // A save may come from any thread before main first ticks.
-    _refresh_state();
-    _state_tick.emplace(Relay::Spec{
-        .execute = [this] {
-            _apply_pending();
-            if (_state_image.due()) _refresh_state();
-        },
-        .interval = 0.1,
-        .repeating = true,
+    // A load or factory preset from off main is applied here, posted when it arrives.
+    _apply_relay.emplace(Relay::Spec{
+        .execute = [this] { _apply_pending(); },
+        .interval = 0.05,
     });
 }
 
 Effect::~Effect()
 {
     _tasks.shutdown(); // First: no task may outlive the editor or worker it captures.
-    _state_tick.reset();
+    _apply_relay.reset();
     _relay.reset(); // Last resort; `Cleanup` should already have done it.
     this->_release_presets();
 }
@@ -547,7 +545,6 @@ OSStatus Effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
     using namespace params;
 
     if (inID >= num_params) return kAudioUnitErr_InvalidParameter;
-    _state_image.mark_dirty(); // One relaxed store, so any thread, the render thread included.
 
     const auto& params = User_params::param_specs();
     const auto& param = params[inID];
@@ -669,8 +666,8 @@ auto Effect::_load_state_record([[maybe_unused]] std::span<const std::byte> reco
 #endif
 }
 
-auto Effect::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
-                           std::span<const std::byte> record) -> void
+auto Effect::_update_state(const Maybe_values<double>& knob_values, State_map legacy_editor,
+                           std::span<const std::byte> record, const Load_info& info) -> void
 {
     using namespace params;
 
@@ -715,75 +712,51 @@ auto Effect::_update_state(const Maybe_values<double>& knob_values, const State_
 
     _changes.push_n(change_list); // Batch publish everything.
 
-    // One undo step for the params and the document.
+    // One undo step for the params, the document and the view.
+    const auto after = _snapshot_knob_params();
     auto changes = std::vector<Set_param>{};
-    _undo_history.push_host_load(before, _snapshot_knob_params(), changes);
+    _undo_history.push_host_load(before, after, changes);
     _load_state_record(record);
-
-    // Editor
-    _editor->load_state(editor_state);
+    load_editor_state(_edit_store, std::move(legacy_editor), std::nullopt, after, info);
 }
 
 // MARK: - save state
 
 OSStatus Effect::SaveState(CFPropertyListRef* outData)
 {
-    // Off main, the image. A copy, since the caller owns what we return and may change it.
-    if (!pthread_main_np()) {
-        const auto image = _state_image.get();
-        if (image.get() == nullptr) return kAudioUnitErr_Uninitialized;
-        *outData = CFPropertyListCreateDeepCopy(kCFAllocatorDefault, *image, kCFPropertyListMutableContainersAndLeaves);
+    // A load still waiting for main is the state. A copy, since the caller owns what we return.
+    if (const auto pending = _pending.peek()) {
+        *outData = CFPropertyListCreateDeepCopy(kCFAllocatorDefault, **pending, kCFPropertyListMutableContainersAndLeaves);
         return *outData ? OSStatus{noErr} : OSStatus{kAudioUnitErr_Uninitialized};
     }
-
-    _apply_pending(); // Or this save would miss a load that arrived off main.
-    const auto result = _build_state(outData);
-    if (result == noErr) {
-        _state_image.publish(ausdk::Owned<CFPropertyListRef>::from_create(
-            CFPropertyListCreateDeepCopy(kCFAllocatorDefault, *outData, kCFPropertyListImmutable)));
-    }
-    return result;
-}
-
-auto Effect::_refresh_state() -> void
-{
-    auto built = CFPropertyListRef{};
-    if (_build_state(&built) != noErr || !built) return;
-    _state_image.publish(ausdk::Owned<CFPropertyListRef>::from_create(
-        CFPropertyListCreateDeepCopy(kCFAllocatorDefault, built, kCFPropertyListImmutable)));
-    CFRelease(built);
+    return _build_state(outData); // Any thread: everything it reads is safe anywhere.
 }
 
 auto Effect::_apply_pending() -> void
 {
-    if (const auto load = _state_image.take_load()) {
+    if (const auto load = _pending.take()) {
         _apply_state(**load);
     }
     if (const auto preset = _pending_preset.exchange(-1); preset >= 0) {
         _apply_factory_preset(static_cast<size_t>(preset));
-        _state_image.mark_dirty();
     }
 }
 
 auto Effect::_build_state(CFPropertyListRef* outData) -> OSStatus
 {
-    const auto result = Super::SaveState(outData);
+    auto result = OSStatus{};
+    {
+        const auto lock = std::lock_guard{_base_mutex}; // The base reads its current preset, which main writes.
+        result = Super::SaveState(outData);
+    }
     if (result != noErr) return result;
 
     // Cast to mutable dictionary (yee haw).
     auto dict = const_cast<CFMutableDictionaryRef>(reinterpret_cast<CFDictionaryRef>(*outData));
     if (CFGetTypeID(dict) != CFDictionaryGetTypeID()) return kAudioUnitErr_InvalidProperty;
 
-    // Get the editor state.
-    auto edit_state = _editor->save_state();
-    drop_reserved_keys(edit_state);
-
-    // Inject the framework-owned editor window size (from our own cache) so the window
-    // reopens pre-sized. The app editor never emits these keys.
-    if (_last_size) {
-        editor_size_state::inject(edit_state, _last_size->w, _last_size->h);
-    }
-
+    // The editor map holds only the framework's keys now, for older builds; the editor's record has its own key.
+    const auto edit_state = legacy_editor_map(_edit_store);
     const auto num_editor_items = static_cast<int32_t>(edit_state.size());
 
     // Helper
@@ -848,6 +821,15 @@ auto Effect::_build_state(CFPropertyListRef* outData) -> OSStatus
         CFDictionarySetValue(dict, data_key, *editor_data);
     }
 
+    auto set_data = [&](const char* key, std::span<const std::byte> bytes) {
+        auto data = ausdk::Owned<CFDataRef>::from_create(
+            CFDataCreate(nullptr, reinterpret_cast<const UInt8*>(bytes.data()), static_cast<CFIndex>(bytes.size())));
+        const auto cf_key = CFStringCreateWithCString(kCFAllocatorDefault, key, kCFStringEncodingUTF8);
+        CFDictionarySetValue(dict, cf_key, *data);
+        CFRelease(cf_key);
+    };
+    set_data(State_rules::Auv2::edit_record, encode_edit_record(_edit_store.save()));
+
 #if TINY_HAS_STATE
     {
         auto doc = models::Resolved::State{};
@@ -898,20 +880,19 @@ OSStatus Effect::RestoreState(CFPropertyListRef plist)
 {
     if (!parameter_blob_ok(plist)) return kAudioUnitErr_InvalidPropertyValue;
 
-    // Off main, the load becomes the image at once and main applies it at its next tick.
+    // Off main, the load is the state at once and main applies it when the relay delivers.
     if (!pthread_main_np()) {
         if (!plist || CFGetTypeID(plist) != CFDictionaryGetTypeID()) return kAudioUnitErr_InvalidPropertyValue;
         _pending_preset.store(-1); // The later request wins.
-        _state_image.post_load(ausdk::Owned<CFPropertyListRef>::from_create(
+        _pending.post(ausdk::Owned<CFPropertyListRef>::from_create(
             CFPropertyListCreateDeepCopy(kCFAllocatorDefault, plist, kCFPropertyListImmutable)));
+        _apply_relay->post();
         return noErr;
     }
 
-    _state_image.drop_load();
+    _pending.drop();
     _pending_preset.store(-1);
-    const auto result = _apply_state(plist);
-    _refresh_state();
-    return result;
+    return _apply_state(plist);
 }
 
 auto Effect::_apply_state(CFPropertyListRef plist) -> OSStatus
@@ -922,7 +903,11 @@ auto Effect::_apply_state(CFPropertyListRef plist) -> OSStatus
     // before Super::RestoreState, which applies the new values into Globals().
     const auto before = _snapshot_knob_params();
 
-    const auto result = Super::RestoreState(plist); // Base class maintains Globals().
+    auto result = OSStatus{};
+    {
+        const auto lock = std::lock_guard{_base_mutex};
+        result = Super::RestoreState(plist); // Base class maintains Globals().
+    }
     if (result != noErr) return result;
 
     // Cast to dictionary.
@@ -941,11 +926,9 @@ auto Effect::_apply_state(CFPropertyListRef plist) -> OSStatus
         return false;
     };
 
-    // Host-load undo/notify data — captured in the param block below, dispatched at
-    // the end of RestoreState once the editor state is also loaded.
-    auto host_after = std::array<double, num_params>{};
+    // The load's undo step opens in the param block below; the document and the editor half join it.
+    auto host_after = _snapshot_knob_params();
     auto host_changes = std::vector<Set_param>{};
-    auto host_loaded = false;
 
     // --- Parameter Values ---
     auto params_val = int32_t{};
@@ -978,13 +961,9 @@ auto Effect::_apply_state(CFPropertyListRef plist) -> OSStatus
 
         _changes.push_n(change_list); // Batch publish everything.
 
-        // Record the host load as one coalesced undo step (works editor open or
-        // closed). The editor notify() is dispatched at the end of RestoreState,
-        // after the editor state is loaded, so a preset's name/marker can fold into
-        // this step. Stash the post-load snapshot so it survives until then.
+        // Record the host load as one coalesced undo step (works editor open or closed).
         host_after = _snapshot_knob_params();
         _undo_history.push_host_load(before, host_after, host_changes);
-        host_loaded = true;
     }
 
     // --- State document --- (a session without one loads the default)
@@ -1000,7 +979,8 @@ auto Effect::_apply_state(CFPropertyListRef plist) -> OSStatus
         _load_state_record(record);
     }
 
-    // --- Editor State --- (scoped, so a missing map still reaches the notify below)
+    // --- Editor state: an older session's map, a newer one's record ---
+    auto edit_state = State_map{};
     [&] {
         auto editor_val = int32_t{};
         if (read_num(State_rules::Auv2::num_editor_items, editor_val)) {
@@ -1041,7 +1021,6 @@ auto Effect::_apply_state(CFPropertyListRef plist) -> OSStatus
                 return false;
             };
 
-            auto edit_state = State_map{};
             for (auto i = decltype(num_editor_items){}; i < num_editor_items; ++i) {
                 auto key = std::string{};
                 if (!read_container(key)) break;
@@ -1086,36 +1065,19 @@ auto Effect::_apply_state(CFPropertyListRef plist) -> OSStatus
                 edit_state.emplace(std::move(key), std::move(value));
             }
 
-            // Prime the framework-owned size cache so create_view opens pre-sized, then strip
-            // the keys so the app editor never sees them.
-            if (const auto size = editor_size_state::extract(edit_state)) {
-                _last_size = Rect_size{size->first, size->second};
-            }
-            editor_size_state::strip(edit_state);
-
-            _editor->load_state(edit_state);
         }
     }();
 
-    // Notify the editor of the host load synchronously (works editor open or closed),
-    // letting it fold its marker params into the load's single undo step via add_param.
-    if (host_loaded) {
-        auto add_param = [this](uint32_t addr, double knob) {
-            using namespace params;
-            if (addr >= num_params) return;
-            const auto& spec = User_params::param_spec(addr);
-            const auto from = Value_helper::host_to_knob(Globals()->GetParameter(addr), spec.semantics);
-            const auto host = Value_helper::knob_to_host(knob, spec.semantics);
-            Globals()->SetParameter(addr, static_cast<float>(host));
-            _changes.push(process::Event::Set{.value = Value_helper::knob_to_plain(knob, spec.semantics), .address = addr});
-            _undo_history.amend_host_load(addr, from, knob);
-        };
-        _editor->notify(Host_event{Host_preset_loaded{
-            .changes = host_changes,
-            .params = host_after,
-            .add_param = add_param,
-        }});
+    auto edit_record = std::optional<Edit_record>{};
+    {
+        const auto key = CFStringCreateWithCString(kCFAllocatorDefault, State_rules::Auv2::edit_record, kCFStringEncodingUTF8);
+        const auto* data = static_cast<CFDataRef>(CFDictionaryGetValue(dict, key));
+        CFRelease(key);
+        if (data && CFGetTypeID(data) == CFDataGetTypeID()) {
+            edit_record = decode_edit_record({reinterpret_cast<const std::byte*>(CFDataGetBytePtr(data)), static_cast<size_t>(CFDataGetLength(data))});
+        }
     }
+    load_editor_state(_edit_store, std::move(edit_state), edit_record, host_after);
 
     return result;
 }
@@ -1135,23 +1097,28 @@ OSStatus Effect::GetPresets(CFArrayRef* outData) const
     return noErr;
 }
 
+OSStatus Effect::NewCustomPresetSet(const AUPreset& inNewCustomPreset)
+{
+    const auto lock = std::lock_guard{_base_mutex};
+    return Super::NewCustomPresetSet(inNewCustomPreset);
+}
+
 OSStatus Effect::NewFactoryPresetSet(const AUPreset& inNewFactoryPreset)
 {
     const auto preset_number = static_cast<size_t>(inNewFactoryPreset.presetNumber);
     if (preset_number >= Preset_list::num_presets) return kAudioUnitErr_InvalidPropertyValue;
 
-    // Off main, like a load: main applies it at its next tick, and the later request wins.
+    // Off main, like a load: main applies it when the relay delivers, and the later request wins.
     if (!pthread_main_np()) {
-        _state_image.drop_load();
+        _pending.drop();
         _pending_preset.store(static_cast<int32_t>(preset_number));
+        _apply_relay->post();
         return noErr;
     }
 
-    _state_image.drop_load();
+    _pending.drop();
     _pending_preset.store(-1);
-    const auto result = _apply_factory_preset(preset_number);
-    _refresh_state();
-    return result;
+    return _apply_factory_preset(preset_number);
 }
 
 auto Effect::_apply_factory_preset(size_t preset_number) -> OSStatus
@@ -1206,9 +1173,11 @@ auto Effect::_apply_factory_preset(size_t preset_number) -> OSStatus
         auto json = nlohmann::json::parse(raw_bytes, raw_bytes + size);
 
         const auto param_values = _state_adapter.param_values(json);
-        const auto editor_state = _state_adapter.editor_state(json);
         const auto record = _state_adapter.state_record(json);
-        this->_update_state(param_values, editor_state, record);
+        const auto preset = _state_adapter.preset_info(json);
+        const auto name = preset.name.empty() ? std::string{Preset_list::names[preset_number]} : preset.name;
+        this->_update_state(param_values, _state_adapter.editor_state(json), record,
+                            Load_info{.kind = Load_info::Kind::Preset, .name = name, .id = preset.id});
     }
     catch (...) {
         return kAudioUnitErr_InvalidPropertyValue;

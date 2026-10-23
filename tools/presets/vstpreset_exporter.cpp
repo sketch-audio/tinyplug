@@ -14,24 +14,23 @@
 #include "base/source/fstreamer.h"
 
 #include "plug_info.hpp"
+#include "chunks.hpp" // The VST3 wrapper's chunk writers (on the include path via cmake)
 
 #ifndef PRESET_DIR
 #define PRESET_DIR ""
 #endif
 
-auto main() -> int
+auto main(int argc, char** argv) -> int
 {
     using namespace tiny;
 
-    const auto preset_path = std::filesystem::path{PRESET_DIR};
+    const auto preset_path = std::filesystem::path{argc > 1 ? argv[1] : PRESET_DIR}; // An argument overrides the built-in directory.
     const auto path_exists = std::filesystem::exists(preset_path);
     const auto path_is_directory = std::filesystem::is_directory(preset_path);
     if (!path_exists || !path_is_directory) {
         std::cerr << "Preset directory does not exist: " << preset_path << "\n";
         return 1;
     }
-
-    const auto defaults = params::make_defaults<double, User_params>(params::Space::Knob);
 
     // State adapter to convert between JSON and parameter values.
     auto state_adapter = State_adapter{{
@@ -71,100 +70,36 @@ auto main() -> int
             continue;
         }
 
-        // Extract values.
+        // Values in knob space, `no_value` for a parameter a session doesn't save, as the wrapper writes them.
         const auto preset_values = state_adapter.param_values(preset_json);
-        const auto editor_state = state_adapter.editor_state(preset_json);
+        auto values = std::vector<float>(preset_values.size(), State_rules::no_value);
+        for (auto i = size_t{}; i < preset_values.size() && i < User_params::num_params; ++i) {
+            const auto& spec = User_params::param_spec(static_cast<uint32_t>(i));
+            if (preset_values[i] && State_rules::is_persistent(spec)) values[i] = static_cast<float>(*preset_values[i]);
+        }
         const auto state_record = state_adapter.state_record(preset_json); // Opaque: passed through as the wrapper stores it.
 
-        // These are knob values or State_rules::no_value.
-        auto state_values = std::vector<float>(preset_values.size(), State_rules::no_value);
-        for (size_t i = 0; i < preset_values.size(); ++i) {
-            if (preset_values[i].has_value()) {
-                state_values[i] = static_cast<float>(*(preset_values[i]));
-            }
-        }
+        // The editor map: an older preset's author keys, and the framework's keys naming the preset, which
+        // make a host's load of the file a preset load. A preset carries no editor record.
+        auto pairs = state_adapter.editor_state(preset_json);
+        const auto info = state_adapter.preset_info(preset_json);
+        framework_keys::write(pairs, Framework_keys{
+            .preset_name = info.name.empty() ? entry.path().stem().string() : info.name,
+            .preset_id = info.id,
+        });
 
         // Make out dir (PRESETS_DIR/out).
         auto out_path = preset_path / "out";
         std::filesystem::create_directory(out_path);
         out_path /= entry.path().stem();
-
-        // MARK: - VST
         out_path.replace_extension(".vstpreset");
 
-        auto state_header = std::array<uint32_t, 4>{
-            Plug_info::framework_code,
-            Plug_info::manufacturer_code,
-            Plug_info::plugin_code,
-            static_cast<uint32_t>(state_values.size())
-        };
-
-        auto processor_data = std::vector<std::byte>{};
-        processor_data.insert(processor_data.end(),
-            reinterpret_cast<std::byte*>(state_header.data()),
-            reinterpret_cast<std::byte*>(state_header.data() + state_header.size())
-        );
-        processor_data.insert(processor_data.end(),
-            reinterpret_cast<std::byte*>(state_values.data()),
-            reinterpret_cast<std::byte*>(state_values.data() + state_values.size())
-        );
-
-        // The record sits after the bypass, so a preset with one needs a bypass placeholder:
-        // `no_value` tells the loader to leave the bypass alone.
-        if (!state_record.empty()) {
-            const auto no_bypass = State_rules::no_value;
-            const auto* p = reinterpret_cast<const std::byte*>(&no_bypass);
-            processor_data.insert(processor_data.end(), p, p + sizeof(no_bypass));
-            processor_data.insert(processor_data.end(), state_record.begin(), state_record.end());
-        }
-
-        // Header is shared.
-        state_header[3] = static_cast<uint32_t>(editor_state.size());
-
-        auto memory_stream = Steinberg::ResizableMemoryIBStream{};
-        auto streamer = Steinberg::IBStreamer{&memory_stream};
-
-        streamer.writeInt32uArray(state_header.data(), static_cast<int32_t>(state_header.size()));
-
-        // Helper
-        auto write_container = [&](const auto& container) {
-            const auto num = static_cast<uint32_t>(container.size());
-            if (!streamer.writeInt32u(num)) {
-                return false;
-            }
-            if (num > 0) {
-                if (!streamer.writeRaw(container.data(), sizeof(container[0]) * num)) {
-                    return false;
-                }
-            }
-            return true;
-        };
-
-        for (const auto& [key, val] : editor_state) {
-            write_container(key);
-            
-            const auto tag = tag_for(val);
-            streamer.writeInt32u(enum_raw(tag));
-
-            switch (tag) {
-                case State_tag::Bool: {
-                    streamer.writeBool(*std::get_if<bool>(&val));
-                    break;
-                }
-                case State_tag::Int: {
-                    streamer.writeInt32(*std::get_if<int32_t>(&val));
-                    break;
-                }
-                case State_tag::Double: {
-                    streamer.writeDouble(*std::get_if<double>(&val));
-                    break;
-                }
-                case State_tag::String: {
-                    write_container(*std::get_if<std::string>(&val));
-                    break;
-                }
-                default: break;
-            }
+        auto processor_stream = Steinberg::ResizableMemoryIBStream{};
+        auto controller_stream = Steinberg::ResizableMemoryIBStream{};
+        if (!vst3::write_processor_chunk(&processor_stream, values, State_rules::no_value, state_record)
+            || !vst3::write_controller_chunk(&controller_stream, pairs, {})) {
+            std::cerr << "Failed to build the chunks for: " << entry.path() << "\n";
+            continue;
         }
 
         using namespace Steinberg;
@@ -179,8 +114,8 @@ auto main() -> int
             ));
             preset_file.writeHeader();
             // Store component state.
-            preset_file.writeChunk(processor_data.data(), static_cast<int32>(processor_data.size()), ChunkType::kComponentState);
-            preset_file.writeChunk(memory_stream.getData(), static_cast<int32>(memory_stream.getCursor()), ChunkType::kControllerState);
+            preset_file.writeChunk(processor_stream.getData(), static_cast<int32>(processor_stream.getCursor()), ChunkType::kComponentState);
+            preset_file.writeChunk(controller_stream.getData(), static_cast<int32>(controller_stream.getCursor()), ChunkType::kControllerState);
             preset_file.writeChunkList();
             stream->release();
         }

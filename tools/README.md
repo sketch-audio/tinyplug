@@ -13,10 +13,11 @@ on any of them.
   Generates `examples/<snake_name>/` and appends it to
   [../examples/CMakeLists.txt](../examples/CMakeLists.txt).
 
-- **[presets/](presets/)** — build a per-plugin executable that writes factory
-  preset files from the plug-in's parameter defaults. `make_tfx_exporter`
-  (AAX `.tfx`) and `make_vstpreset_exporter` (VST3 `.vstpreset`) in
-  [presets/make_preset_exporters.cmake](presets/make_preset_exporters.cmake).
+- **[presets/](presets/)** — build a per-plugin executable that turns the plug-in's JSON presets
+  into factory preset files: `make_tfx_exporter` (AAX `.tfx`) and `make_vstpreset_exporter` (VST3
+  `.vstpreset`) in [presets/make_preset_exporters.cmake](presets/make_preset_exporters.cmake). They write
+  with the wrappers' own chunk writers, plus the preset's name (`"name"`, else the file name) as a framework
+  key, so a host's load reports a preset. Round trips are tested (tests/fixtures).
 
 - **[contract_checks/](contract_checks/)** — build a per-plugin executable that checks what the
   framework requires of a plug-in, on its processor and models alone, no host:

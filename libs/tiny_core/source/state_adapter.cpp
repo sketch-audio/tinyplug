@@ -5,16 +5,36 @@
 
 namespace tiny {
 
-auto State_adapter::preset_state(const State_map& extras) const -> nlohmann::ordered_json
+namespace {
+
+auto put_editor_map(nlohmann::ordered_json& json, const char* key, const State_map& map) -> void
+{
+    if (map.empty()) return;
+    auto editor_json = nlohmann::ordered_json{};
+    for (const auto& [k, value] : map) {
+        std::visit([&](const auto& v) { editor_json[k] = v; }, value);
+    }
+    json[key] = editor_json;
+}
+
+} // namespace
+
+auto State_adapter::preset_state(const Preset_info& info) const -> nlohmann::ordered_json
+{
+    return preset_json(_provider.save_model(), info);
+}
+
+auto State_adapter::preset_json(const Save_model& model, const Preset_info& info) -> nlohmann::ordered_json
 {
     using namespace params;
     using Json = nlohmann::ordered_json;
     auto preset_state = Json{};
 
-    const auto model = _provider.save_model();
     if (!model.param_tree) return preset_state;
 
     preset_state[Keys::version] = model.version;
+    if (!info.name.empty()) preset_state[Keys::name] = info.name;
+    if (!info.id.empty()) preset_state[Keys::id] = info.id;
 
     auto add_value = [](Json& json, const params::Spec& spec, double value) {
         const auto persistent = (spec.policy != params::Policy::Interface);
@@ -45,44 +65,20 @@ auto State_adapter::preset_state(const State_map& extras) const -> nlohmann::ord
         preset_state[Keys::params] = params_state;
     }
 
-    const auto& editor_state = model.editor_state;
-    if (editor_state.size() > 0 || extras.size() > 0) {
-        auto editor_json = Json{};
-
-        // Helper
-        auto do_visit = [&](const auto& key, const auto& value) {
-            std::visit(Inline_visitor{
-                [&](bool b) {
-                    editor_json[key] = b;
-                },
-                [&](int32_t i) {
-                    editor_json[key] = i;
-                },
-                [&](double d) {
-                    editor_json[key] = d;
-                },
-                [&](const std::string& s) {
-                    editor_json[key] = s;
-                }
-            }, value);
-        };
-
-        for (const auto& [key, value] : editor_state) {
-            do_visit(key, value);
-        }
-
-        for (const auto& [key, value] : extras) {
-            do_visit(key, value);
-        }
-
-        preset_state[Keys::editor] = editor_json;
-    }
-
     if (!model.state_record.empty()) {
         preset_state[Keys::state] = base64::encode(model.state_record);
     }
 
     return preset_state;
+}
+
+auto State_adapter::session_state() const -> nlohmann::ordered_json
+{
+    const auto model = _provider.save_model(); // Once: both halves from one snapshot.
+    auto json = preset_json(model, {});
+    put_editor_map(json, Keys::editor, model.legacy_editor);
+    if (!model.edit_record.empty()) json[Keys::edit] = base64::encode(model.edit_record);
+    return json;
 }
 
 auto State_adapter::param_values(const nlohmann::ordered_json& preset_state) const -> Maybe_values<double>
@@ -165,13 +161,35 @@ auto State_adapter::state_record(const nlohmann::ordered_json& preset_state) con
     return bytes ? std::move(*bytes) : std::vector<std::byte>{};
 }
 
-auto State_adapter::Actor::preset_state(const State_map& extras) const -> nlohmann::ordered_json
+auto State_adapter::edit_record(const nlohmann::ordered_json& preset_state) const -> std::optional<Edit_record>
+{
+    const auto it = preset_state.find(Keys::edit);
+    if (it == preset_state.end() || !it->is_string()) return std::nullopt;
+    const auto bytes = base64::decode(it->get_ref<const std::string&>());
+    if (!bytes) return std::nullopt;
+    return decode_edit_record(*bytes);
+}
+
+auto State_adapter::preset_info(const nlohmann::ordered_json& preset_state) const -> Preset_info
+{
+    auto info = Preset_info{};
+    if (const auto it = preset_state.find(Keys::name); it != preset_state.end() && it->is_string()) info.name = it->get<std::string>();
+    if (const auto it = preset_state.find(Keys::id); it != preset_state.end() && it->is_string()) info.id = it->get<std::string>();
+    return info;
+}
+
+auto State_adapter::Actor::preset_state(const Preset_info& info) const -> nlohmann::ordered_json
 {
     if (_receiver) {
-        return _receiver->preset_state(extras);
+        return _receiver->preset_state(info);
     } else {
         return {};
     }
+}
+
+auto State_adapter::Actor::preset_info(const nlohmann::ordered_json& preset_state) const -> Preset_info
+{
+    return _receiver ? _receiver->preset_info(preset_state) : Preset_info{};
 }
 
 auto State_adapter::Actor::param_values(const nlohmann::ordered_json& preset_state) const -> Maybe_values<double>

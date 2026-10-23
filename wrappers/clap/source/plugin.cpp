@@ -438,14 +438,9 @@ bool Plugin::stateSave(const clap_ostream* stream) noexcept
 
     if (!stream) return false;
 
-    auto edit_state = _editor->save_state();
-    drop_reserved_keys(edit_state);
-
-    // Inject the framework-owned editor window size (from our own cache) so the window
-    // reopens pre-sized. The app editor never emits these keys.
-    if (_last_size) {
-        editor_size_state::inject(edit_state, _last_size->w, _last_size->h);
-    }
+    // The editor map holds only the framework's keys now, for older builds; the editor's record follows the document's.
+    const auto edit_state = legacy_editor_map(_edit_store);
+    const auto edit_record = encode_edit_record(_edit_store.save());
 
     const auto num_editor_items = static_cast<uint32_t>(edit_state.size());
 
@@ -575,28 +570,33 @@ bool Plugin::stateSave(const clap_ostream* stream) noexcept
         return false;
     }
 
+    auto write_bytes = [&](std::span<const std::byte> bytes) {
+        auto sent = size_t{};
+        const auto* ptr = reinterpret_cast<const char*>(bytes.data());
+        while (sent < bytes.size()) {
+            const auto n = stream->write(stream, ptr + sent, bytes.size() - sent);
+            if (n <= 0) return false;
+            sent += static_cast<size_t>(n);
+        }
+        return true;
+    };
+
 #if TINY_HAS_STATE
-    // -- Write the state record, last so older builds stop before it --
+    // -- The state record, after the bypass so older builds stop before it --
     auto doc = models::Resolved::State{};
     _state.snapshot(doc);
-    const auto record = state::encode_record(doc);
-
-    auto sent = size_t{};
-    const auto* ptr = reinterpret_cast<const char*>(record.data());
-    while (sent < record.size()) {
-        const auto n = stream->write(stream, ptr + sent, record.size() - sent);
-        if (n <= 0) return false;
-        sent += static_cast<size_t>(n);
-    }
+    if (!write_bytes(state::encode_record(doc))) return false;
 #endif
 
-    return true;
+    // -- The editor's record, last --
+    return write_bytes(edit_record);
 }
 
 // MARK: - load state
 
-auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
-                           [[maybe_unused]] std::span<const std::byte> record, bool bypass_changed) -> void
+auto Plugin::_update_state(const Maybe_values<double>& knob_values, State_map legacy_editor,
+                           [[maybe_unused]] std::span<const std::byte> record, const std::optional<Edit_record>& edit_record,
+                           const Load_info& info, bool bypass_changed) -> void
 {
     using namespace params;
 
@@ -640,39 +640,14 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, const State_
         }
     }
 
-    // Editor. Prime the framework-owned size cache (present only in session state, not
-    // presets) so a subsequent guiCreate opens pre-sized, then strip the keys so the
-    // app editor never sees them.
-    auto editor_only = editor_state;
-    if (const auto size = editor_size_state::extract(editor_only)) {
-        _last_size = Rect_size{size->first, size->second};
-    }
-    editor_size_state::strip(editor_only);
-    _editor->load_state(editor_only);
-
-    // Record the host load as one coalesced undo step (works editor open or closed)
-    // and notify the editor synchronously, so it can fold its marker params into the
-    // same step via add_param. Dispatching here (not the view loop) means each load
-    // notifies on its own step, even with the window closed — no intermediate is lost.
+    // One undo step for the whole load, editor open or closed: parameters, document, view.
     const auto after = _snapshot_knob_params();
     auto changes = std::vector<Set_param>{};
     _undo_history.push_host_load(before, after, changes);
 #if TINY_HAS_STATE
     _state_link.load(doc); // Into the same step.
 #endif
-
-    auto add_param = [this](uint32_t addr, double knob) {
-        if (addr >= num_params) return;
-        const auto& spec = User_params::param_spec(addr);
-        const auto from = Value_helper::host_to_knob(_hostvalues[addr].load(std::memory_order_relaxed), spec.semantics);
-        this->_load_param(addr, knob);                   // With the load's own values.
-        _undo_history.amend_host_load(addr, from, knob); // Fold into the load's single step.
-    };
-    _editor->notify(Host_event{Host_preset_loaded{
-        .changes = changes,
-        .params = after,
-        .add_param = add_param,
-    }});
+    load_editor_state(_edit_store, std::move(legacy_editor), edit_record, after, info);
 
     // Notify if host values changed, bypass included.
     const auto settled = _snapshot_knob_params();
@@ -855,11 +830,10 @@ auto Plugin::_read_state_chunk(const clap_istream* stream) -> bool
         //_bypass.set_bypassed(false);
     }
 
-    // The state record follows the bypass; a session without one loads the default document.
-    auto record = std::vector<std::byte>{};
-#if TINY_HAS_STATE
+    // The document's record and the editor's follow the bypass; a session without them loads defaults.
+    auto trailing = Trailing_records{};
     if (has_bypass) {
-        record = state::read_record([&](std::byte* out, size_t size) {
+        trailing = read_trailing_records([&](std::byte* out, size_t size) {
             auto got = size_t{};
             while (got < size) {
                 const auto n = stream->read(stream, out + got, size - got);
@@ -869,9 +843,9 @@ auto Plugin::_read_state_chunk(const clap_istream* stream) -> bool
             return true;
         });
     }
-#endif
+    const auto edit_record = trailing.edit.empty() ? std::nullopt : decode_edit_record(trailing.edit);
 
-    this->_update_state(stored_values, edit_state, record, _bypass.is_bypassed() != bypass_before);
+    this->_update_state(stored_values, std::move(edit_state), trailing.state, edit_record, Load_info{}, _bypass.is_bypassed() != bypass_before);
 
     return true;
 }
@@ -899,9 +873,11 @@ bool Plugin::presetLoadFromLocation(uint32_t location_kind, const char* location
             return false;
         }
         const auto params = _state_adapter.param_values(json);
-        const auto editor_state = _state_adapter.editor_state(json);
         const auto record = _state_adapter.state_record(json);
-        this->_update_state(params, editor_state, record);
+        const auto preset = _state_adapter.preset_info(json);
+        const auto name = preset.name.empty() ? preset_path.stem().string() : preset.name;
+        this->_update_state(params, _state_adapter.editor_state(json), record, std::nullopt,
+                            Load_info{.kind = Load_info::Kind::Preset, .name = name, .id = preset.id});
 
         // Tell the host
         if (auto* preset_ext = (const clap_host_preset_load_t*)_host->get_extension(_host, CLAP_EXT_PRESET_LOAD); preset_ext) {
@@ -1246,7 +1222,16 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
 #if TINY_HAS_STATE
         .sync_state = [this]() { _state_link.sync(); },
 #endif
+        .end_frame = [this]() { _edit_store.end_frame(); },
     };
+
+    auto request_resize = [this](uint32_t w, uint32_t h) {
+        auto* gui_ext = static_cast<const clap_host_gui_t*>(_host->get_extension(_host, CLAP_EXT_GUI));
+        if (gui_ext && gui_ext->request_resize) gui_ext->request_resize(_host, w, h);
+    };
+    _edit_store.set_apply([request_resize](Rect_size size) {
+        request_resize(static_cast<uint32_t>(size.w), static_cast<uint32_t>(size.h));
+    });
 
     _view = std::make_unique<View>(View::Deps{
         .editor = &(*_editor),
@@ -1254,10 +1239,10 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
         .tasks = &_tasks,
         .undo_history = &_undo_history,
         .actions = &_actions,
-        .initial_size = _last_size.value_or(User_editor::preferred_size()),
-        .request_resize = [this](uint32_t w, uint32_t h) {
-            auto* gui_ext = static_cast<const clap_host_gui_t*>(_host->get_extension(_host, CLAP_EXT_GUI));
-            if (gui_ext && gui_ext->request_resize) gui_ext->request_resize(_host, w, h);
+        .initial_size = _edit_store.size(),
+        .request_resize = [this, request_resize](uint32_t w, uint32_t h) {
+            _edit_store.requested({static_cast<int32_t>(w), static_cast<int32_t>(h)});
+            request_resize(w, h);
         },
 #if TINY_HAS_WORKER
         .drain_worker_to_editor = [this]() { this->_drain_worker_to_editor(); }
@@ -1269,6 +1254,7 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
 
 void Plugin::guiDestroy() noexcept
 {
+    _edit_store.set_apply({});
     _view->on_destroy();
     _view = nullptr;
 }
@@ -1315,17 +1301,21 @@ bool Plugin::guiGetResizeHints(clap_gui_resize_hints_t* /*hints*/) noexcept
     return true;
 }
 
-bool Plugin::guiAdjustSize(uint32_t* /*width*/, uint32_t* /*height*/) noexcept
+bool Plugin::guiAdjustSize(uint32_t* width, uint32_t* height) noexcept
 {
+    if (!width || !height) return false;
+    const auto size = _edit_store.sizing().clamp({static_cast<int32_t>(*width), static_cast<int32_t>(*height)});
+    *width = static_cast<uint32_t>(size.w);
+    *height = static_cast<uint32_t>(size.h);
     return true;
 }
 
 bool Plugin::guiSetSize(uint32_t width, uint32_t height) noexcept
 {
-    // Host-echoed resize (host frame drag or our own request_resize). Keep the size
-    // cache current so the latest size is what gets persisted.
-    _last_size = Rect_size{static_cast<int32_t>(width), static_cast<int32_t>(height)};
-    return _view->set_size(width, height);
+    // Host-echoed resize (host frame drag or our own request_resize): the size the session keeps.
+    _edit_store.resized({static_cast<int32_t>(width), static_cast<int32_t>(height)});
+    const auto size = _edit_store.size();
+    return _view->set_size(static_cast<uint32_t>(size.w), static_cast<uint32_t>(size.h));
 }
 
 void Plugin::guiSuggestTitle(const char* /*title*/) noexcept
@@ -1392,7 +1382,7 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
     while (_from_ui.pop(user_action)) {
         std::visit(Inline_visitor{
             [&](const Action_start& a) {
-                const auto& param = User_params::param_spec(a.address);
+                const auto& param = User_params::param_spec(*a.address);
                 if (wants_host_notify(param.policy)) {
                     const auto e = clap_event_param_gesture{
                         .header = {
@@ -1432,7 +1422,7 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
                 _processor->handle(process::Event::Set{.value = plain_value, .address = param.identity.address});
             },
             [&](const Action_end& a) {
-                const auto& param = User_params::param_spec(a.address);
+                const auto& param = User_params::param_spec(*a.address);
                 if (wants_host_notify(param.policy)) {
                     const auto e = clap_event_param_gesture{
                         .header = {

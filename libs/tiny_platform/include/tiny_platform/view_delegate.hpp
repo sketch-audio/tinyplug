@@ -13,14 +13,14 @@ class Window_context; // Keep it out of the headers.
 class View_delegate {
 public:
 
-    View_delegate(Rect_size initial_size, Draw_callback callback, Notify_callback notify);
+    View_delegate(Rect_size initial_size, Draw_callback callback);
     ~View_delegate();
 
     auto assign_context(std::unique_ptr<Window_context> context) -> void;
 
     auto set_drawable(void* drawable) -> void; // macOS 14
     auto draw(const User_interaction& interaction, const Time_point& time_now) -> void;
-    auto notify(const Dark_mode_changed&) -> void;
+    auto notify(const Dark_mode_changed&) -> void; // From the platform view: carried into each frame's View_context.
     auto invalidate_context() -> void;
     auto detach() -> void; // Its owner is gone: draw and notify become no-ops, the context goes.
 
@@ -32,7 +32,7 @@ private:
     Rect_size _size{}; // Logical
     double _scale{1};
     Draw_callback _draw{};
-    Notify_callback _notify{};
+    bool _dark{};
 
     std::unique_ptr<Window_context> _context{nullptr};
     

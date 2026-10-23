@@ -1,9 +1,14 @@
 #include "support.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <iterator>
 #include <new>
 #include <stdexcept>
 #include <thread>
@@ -142,9 +147,146 @@ auto parse_options(int argc, char** argv) -> Options
     for (auto i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--seed") && i + 1 < argc) options.seed = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
         else if (!std::strcmp(argv[i], "--seconds") && i + 1 < argc) options.chaos_seconds = std::strtod(argv[++i], nullptr);
+        else if (!std::strcmp(argv[i], "--fixtures") && i + 1 < argc) options.fixtures = argv[++i];
+        else if (!std::strcmp(argv[i], "--preset") && i + 1 < argc) options.preset = argv[++i];
+        else if (!std::strcmp(argv[i], "--write-fixtures")) options.write_fixtures = true;
         else options.bundle = argv[i];
     }
     return options;
+}
+
+// MARK: - session fixtures
+
+namespace {
+
+auto write_bytes(const std::filesystem::path& path, const std::vector<uint8_t>& bytes) -> void
+{
+    auto file = std::ofstream{path, std::ios::binary};
+    file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    if (!file) throw std::runtime_error("can't write " + path.string());
+}
+
+auto with_suffix(std::filesystem::path base, const char* suffix) -> std::filesystem::path
+{
+    base += suffix;
+    return base;
+}
+
+} // namespace
+
+auto read_file(const std::filesystem::path& path) -> std::optional<std::vector<uint8_t>>
+{
+    auto file = std::ifstream{path, std::ios::binary};
+    if (!file) return std::nullopt;
+    return std::vector<uint8_t>{std::istreambuf_iterator<char>{file}, {}};
+}
+
+auto fixture_base(const Options& options, const std::string& demo, const std::string& format) -> std::filesystem::path
+{
+    if (options.fixtures.empty()) return {};
+    return std::filesystem::path{options.fixtures} / (demo + "." + format);
+}
+
+auto preset_base(const Options& options, const std::string& format) -> std::filesystem::path
+{
+    if (options.fixtures.empty() || options.preset.empty()) return {};
+    return std::filesystem::path{options.fixtures} / (std::filesystem::path{options.preset}.stem().string() + "." + format);
+}
+
+auto write_expect(const std::filesystem::path& base, const Session_fixture& fixture) -> void
+{
+    std::filesystem::create_directories(base.parent_path());
+    auto expect = std::ofstream{with_suffix(base, ".expect")};
+    for (const auto& [id, value] : fixture.params) expect << "param " << id << ' ' << std::setprecision(17) << value << '\n';
+    if (fixture.width > 0) expect << "size " << fixture.width << ' ' << fixture.height << '\n';
+    for (const auto& text : fixture.texts) expect << "text " << text << '\n';
+    if (!expect) throw std::runtime_error("can't write " + base.string() + ".expect");
+    std::printf("  wrote %s\n", base.string().c_str());
+}
+
+auto read_expect(const std::filesystem::path& base, Session_fixture& fixture) -> bool
+{
+    auto expect = std::ifstream{with_suffix(base, ".expect")};
+    if (!expect) return false;
+    auto kind = std::string{};
+    while (expect >> kind) {
+        if (kind == "param") {
+            auto id = uint32_t{};
+            auto value = 0.;
+            expect >> id >> value;
+            fixture.params.emplace_back(id, value);
+        }
+        else if (kind == "size") {
+            expect >> fixture.width >> fixture.height;
+        }
+        else if (kind == "text") {
+            auto text = std::string{};
+            std::getline(expect >> std::ws, text);
+            fixture.texts.push_back(text);
+        }
+        else {
+            throw std::runtime_error("unknown line in " + base.string() + ".expect: " + kind);
+        }
+    }
+    return true;
+}
+
+auto write_fixture(const std::filesystem::path& base, const Session_fixture& fixture) -> void
+{
+    std::filesystem::create_directories(base.parent_path());
+    write_bytes(with_suffix(base, ".state"), fixture.state);
+    if (!fixture.extra.empty()) write_bytes(with_suffix(base, ".extra"), fixture.extra);
+    write_expect(base, fixture);
+}
+
+auto read_fixture(const std::filesystem::path& base) -> std::optional<Session_fixture>
+{
+    if (base.empty()) return std::nullopt;
+    auto state = read_file(with_suffix(base, ".state"));
+    if (!state) return std::nullopt;
+
+    auto fixture = Session_fixture{.state = std::move(*state)};
+    if (auto extra = read_file(with_suffix(base, ".extra"))) fixture.extra = std::move(*extra);
+    read_expect(base, fixture);
+    return fixture;
+}
+
+auto contains_text(std::span<const uint8_t> bytes, const std::string& text) -> bool
+{
+    return std::search(bytes.begin(), bytes.end(), text.begin(), text.end()) != bytes.end();
+}
+
+auto find_record(std::span<const uint8_t> bytes) -> std::vector<uint8_t>
+{
+    // u32 magic 'tSTA', u32 version, u32 kind, u32 payload length: see state_record.hpp. The editor's
+    // record ('tEDT', edit_record.hpp) frames the view's own state records, so skip over it.
+    constexpr auto magic = uint32_t{'tSTA'};
+    constexpr auto edit_magic = uint32_t{'tEDT'};
+    constexpr auto header = size_t{16};
+    for (auto i = size_t{}; i + header <= bytes.size(); ++i) {
+        auto word = uint32_t{};
+        std::memcpy(&word, bytes.data() + i, sizeof word);
+        if (word == edit_magic) {
+            auto length = uint32_t{};
+            std::memcpy(&length, bytes.data() + i + 12, sizeof length);
+            if (length <= bytes.size() - i - header) i += header + length - 1;
+            continue;
+        }
+        if (word != magic) continue;
+        auto length = uint32_t{};
+        std::memcpy(&length, bytes.data() + i + 12, sizeof length);
+        if (length > bytes.size() - i - header) continue;
+        return {bytes.begin() + static_cast<std::ptrdiff_t>(i), bytes.begin() + static_cast<std::ptrdiff_t>(i + header + length)};
+    }
+    return {};
+}
+
+auto fixture_value(size_t index, double lo, double hi, bool stepped) -> double
+{
+    // Golden-ratio steps: spread over the range, never landing on an end or repeating early.
+    const auto t = 0.15 + 0.7 * std::fmod(0.31 + 0.618033988749895 * static_cast<double>(index), 1.);
+    const auto value = lo + (hi - lo) * t;
+    return stepped ? std::round(value) : value;
 }
 
 auto bundle_name(const std::string& path) -> std::string

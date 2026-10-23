@@ -143,17 +143,8 @@ tinyplug ships with several demo plug-ins, each small enough to read in one sitt
 - macOS AUv3: `cmake -S . -B build-macos -G Xcode`
 
 ## Roadmap
-- **Additonal processor state** (loop content, etc.)
-- **MIDI I/O**
-- **Synth plug-ins**
-- **Block metering**
-- Basic control library
 - Multitouch on Windows
 - Software (CPU) graphics backend for macOS
 - Figure out GPU synchronization situation on Windows
-- More demo plug-ins
-    - Meters
-    - Timeline
-    - Sidechain
 - Linux (CLAP & VST3)
 - LV2 plug-ins

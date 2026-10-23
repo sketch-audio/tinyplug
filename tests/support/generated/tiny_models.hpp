@@ -9,6 +9,7 @@
 #define TINY_HAS_BLOCKS 0
 #define TINY_HAS_STATE 0
 #define TINY_HAS_WORK 0
+#define TINY_HAS_VIEW 0
 #define TINY_HAS_NOTES_IN 0
 #define TINY_HAS_NOTES_OUT 0
 #define TINY_HAS_NOTE_EXPRESSION 0
@@ -21,6 +22,7 @@ struct Resolved {
     using Blocks = blocks::None;
     using State = state::None;
     using Work = work::None;
+    using View = view::None;
 };
 
 } // namespace tiny::models
@@ -32,12 +34,14 @@ using User_meters = meters::Infos<models::Resolved::Meters>;
 using User_blocks = blocks::Infos<models::Resolved::Blocks>;
 using User_state = models::Resolved::State;
 using User_work = models::Resolved::Work;
+using User_view = models::Resolved::View;
 
 inline constexpr bool has_params = false;
 inline constexpr bool has_meters = false;
 inline constexpr bool has_blocks = false;
 inline constexpr bool has_state = false;
 inline constexpr bool has_work = false;
+inline constexpr bool has_view = false;
 inline constexpr bool has_notes_in = false;
 inline constexpr bool has_notes_out = false;
 

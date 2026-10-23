@@ -26,14 +26,12 @@ Steinberg::tresult PLUGIN_API View::attached(void* parent, Steinberg::FIDString 
 
     if (!_deps.controller || !_deps.editor) return Steinberg::kResultFalse;
 
-    const auto initial_size = _deps.controller->get_last_size()
-        .value_or(User_editor::preferred_size());
-
+    auto& store = _deps.controller->edit_store();
     auto delegate = std::make_shared<View_delegate>(
-        initial_size,
-        [this](auto& context) { this->on_draw(context); },
-        [this](const auto& notification) { this->on_notify(notification); }
+        store.size(),
+        [this](auto& context) { this->on_draw(context); }
     );
+    store.set_apply([this](Rect_size size) { _request_size(size.w, size.h); });
 
     // Create the platform view and notify the editor.
     _platform_view = Platform_views::make_owning(delegate);
@@ -56,7 +54,9 @@ Steinberg::tresult PLUGIN_API View::attached(void* parent, Steinberg::FIDString 
 
 Steinberg::tresult PLUGIN_API View::removed()
 {
+    _deps.controller->edit_store().set_apply({});
     _deps.editor->on_gui_hide();
+    view_impl::close_session(_deps.receiver, _ui_params, *_deps.actions, *_deps.undo_history);
     _platform_view->on_hide();
 
     _deps.editor->on_gui_destroy();
@@ -68,14 +68,8 @@ Steinberg::tresult PLUGIN_API View::removed()
 
 Steinberg::tresult PLUGIN_API View::getSize(Steinberg::ViewRect* size)
 {
-    const auto initial_size = _deps.controller->get_last_size()
-        .value_or(User_editor::preferred_size());
-
-    const auto platform_size = _platform_view ? _platform_view->get_size() : initial_size;
+    const auto platform_size = _platform_view ? _platform_view->get_size() : _deps.controller->edit_store().size();
     *size = {0, 0, platform_size.w, platform_size.h};
-
-    _deps.controller->resized({platform_size.w, platform_size.h}); // Remember for next time.
-
     return Steinberg::kResultTrue;
 }
 
@@ -83,12 +77,12 @@ Steinberg::tresult PLUGIN_API View::onSize(Steinberg::ViewRect* newSize)
 {
     if (!newSize) return Steinberg::kResultFalse;
 
-    const auto w = newSize->getWidth();
-    const auto h = newSize->getHeight();
-    _deps.controller->resized({w, h}); // Remember for next time.
+    auto& store = _deps.controller->edit_store();
+    store.resized({newSize->getWidth(), newSize->getHeight()}); // The size the session keeps.
+    const auto size = store.size();
 
     if (!_platform_view) return Steinberg::kResultTrue;
-    _platform_view->resize(w, h);
+    _platform_view->resize(size.w, size.h);
 
     return Steinberg::kResultTrue;
 }
@@ -110,8 +104,12 @@ Steinberg::tresult PLUGIN_API View::canResize()
     return Steinberg::kResultTrue;
 }
 
-Steinberg::tresult PLUGIN_API View::checkSizeConstraint(Steinberg::ViewRect* /*rect*/)
+Steinberg::tresult PLUGIN_API View::checkSizeConstraint(Steinberg::ViewRect* rect)
 {
+    if (!rect) return Steinberg::kInvalidArgument;
+    const auto size = _deps.controller->edit_store().sizing().clamp({rect->getWidth(), rect->getHeight()});
+    rect->right = rect->left + size.w;
+    rect->bottom = rect->top + size.h;
     return Steinberg::kResultTrue;
 }
 
@@ -139,20 +137,19 @@ void View::on_draw(View_context& view_context)
         *_deps.undo_history,
         *_deps.tasks,
         [this](auto w, auto h) {
-            // Editor-initiated resize (corner-drag handle → Request_resize). Ask the
-            // host to resize us; it echoes back via onSize, which resizes the platform
-            // view and refreshes the controller's size cache.
-            if (plugFrame) {
-                auto rect = Steinberg::ViewRect{0, 0, static_cast<Steinberg::int32>(w), static_cast<Steinberg::int32>(h)};
-                plugFrame->resizeView(this, &rect);
-            }
+            // Editor-initiated resize (corner-drag handle → Request_resize). Ask the host to
+            // resize us; it echoes back via onSize, which resizes the platform view.
+            _deps.controller->edit_store().requested({static_cast<int32_t>(w), static_cast<int32_t>(h)});
+            _request_size(static_cast<int32_t>(w), static_cast<int32_t>(h));
         }
     );
 }
 
-auto View::on_notify(const Dark_mode_changed& notification) -> void
+auto View::_request_size(int32_t w, int32_t h) -> void
 {
-    _deps.editor->notify(notification);
+    if (!plugFrame) return;
+    auto rect = Steinberg::ViewRect{0, 0, w, h};
+    plugFrame->resizeView(this, &rect);
 }
 
 } // namespace tiny::vst3

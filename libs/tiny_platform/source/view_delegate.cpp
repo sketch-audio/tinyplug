@@ -4,8 +4,8 @@
 
 namespace tiny {
 
-View_delegate::View_delegate(Rect_size initial_size, Draw_callback callback, Notify_callback notify)
-    : _size{initial_size}, _draw{std::move(callback)}, _notify{std::move(notify)}
+View_delegate::View_delegate(Rect_size initial_size, Draw_callback callback)
+    : _size{initial_size}, _draw{std::move(callback)}
 {
 }
 
@@ -41,14 +41,15 @@ auto View_delegate::draw(const User_interaction& interaction, const Time_point& 
         .interaction = interaction,
         .canvas = canvas.skia_canvas,
         .logical_size = _size,
-        .scale = _scale
+        .scale = _scale,
+        .dark = _dark,
     };
     _draw(view_context);
 }
 
 auto View_delegate::notify(const Dark_mode_changed& notification) -> void
 {
-    _notify(notification);
+    _dark = notification.new_value;
 }
 
 auto View_delegate::invalidate_context() -> void
@@ -59,7 +60,6 @@ auto View_delegate::invalidate_context() -> void
 auto View_delegate::detach() -> void
 {
     _draw = [](View_context&) {};
-    _notify = [](const Dark_mode_changed&) {};
     this->destroy_context();
 }
 

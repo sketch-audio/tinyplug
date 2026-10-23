@@ -12,16 +12,9 @@ auto ms(double frames, double sr) -> std::string { return ui::fixed(frames * 100
 
 } // namespace
 
-auto Editor::notify(const Host_event& notification) -> void
-{
-    std::visit(Inline_visitor{
-        [&](const Dark_mode_changed& n) { _dark = n.new_value; },
-        [](const auto&) {}
-    }, notification);
-}
-
 auto Editor::on_gui_draw(Plugin_state& state) -> void
 {
+    _dark = state.view_context.dark; // The host\'s or system\'s appearance, this frame.
     auto& view = state.view_context;
     auto* canvas = view.canvas;
     if (!canvas) return;

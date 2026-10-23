@@ -140,16 +140,9 @@ auto Editor::on_gui_show() -> void
     _drag->set_frame(_gain_frame);
 }
 
-auto Editor::notify(const Host_event& notification) -> void
-{
-    std::visit(Inline_visitor{
-        [&](const Dark_mode_changed& n) { _dark = n.new_value; },
-        [](const auto&) {}
-    }, notification);
-}
-
 auto Editor::on_gui_draw(Plugin_state& state) -> void
 {
+    _dark = state.view_context.dark; // The host\'s or system\'s appearance, this frame.
     auto& view_context = state.view_context;
     auto* canvas = view_context.canvas;
     if (!canvas) return;

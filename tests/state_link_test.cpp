@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <new>
+#include <variant>
 #include <vector>
 
 #include <tinyplug/tiny_state_link.hpp>
@@ -172,6 +173,107 @@ auto test_remote_both_write() -> void
     after = block(r.processor);
     expect(after.level[2] == 0, "the second reverts the editor's edit");
     expect(after.recorded[8] == 33 && r.link.view().recorded[8] == 33, "and a write made meanwhile survives it");
+}
+
+// MARK: - transactions
+
+// A transaction over parameters and a document the processor also writes: the step is held until
+// the processor confirms the edit, later edits stay local meanwhile, and undo takes back both.
+auto test_held_transaction() -> void
+{
+    std::printf("remote, Writers::Both, a transaction held until confirmed\n");
+    auto r = Remote{};
+    auto editor = r.link.actor();
+    auto params = std::array<double, 2>{};
+    r.history.bind_actions(r.actions.actor());
+
+    // run_frame's order, without a wrapper: sync, the draw, the frame's actions, sync.
+    auto tx_frame = [&](const auto& draw) {
+        r.actions.clear();
+        r.link.sync();
+        draw();
+        r.actions.normalize();
+        auto ps = tiny::Processor_state{};
+        ps.params = params;
+        r.history.process_actions(r.actions.get_actions(), ps);
+        r.history.perform_actions(r.actions.actor());
+        r.actions.normalize();
+        for (const auto& a : r.actions.get_actions()) {
+            if (const auto* p = std::get_if<tiny::Set_param>(&a)) params[p->address] = p->value;
+        }
+        r.link.sync();
+        r.history.end_frame();
+    };
+
+    tx_frame([&] {
+        r.history.actor().transaction([&] {
+            r.actions.actor().push(tiny::Set_param{0, 0.7});
+            editor.edit([](Both_doc& d) { d.level[3] = 40; });
+        });
+    });
+    expect(!r.history.can_undo() && r.history.holding(tiny::Undo_history::Source::Document), "the step is held while its edit is on the wire");
+
+    tx_frame([&] { editor.edit([](Both_doc& d) { d.level[4] = 10; }); });
+    const auto sent_while_held = r.down.pending();
+    expect(sent_while_held == 1, "an edit made meanwhile stays local");
+
+    r.round_trip();
+    tx_frame([] {});
+    expect(r.history.can_undo() && !r.history.holding(tiny::Undo_history::Source::Document), "the confirmation lands the step");
+    tx_frame([] {});
+    r.round_trip();
+    tx_frame([] {});
+    expect(block(r.processor).level[4] == 10, "and the later edit goes out after it");
+
+    // The later edit is a step of its own; the transaction's undoes params and document together.
+    r.history.actor().undo();
+    tx_frame([] {});
+    r.round_trip();
+    tx_frame([] {});
+    expect(block(r.processor).level[4] == 0 && block(r.processor).level[3] == 40, "the first undo takes back the later edit");
+    r.history.actor().undo();
+    tx_frame([] {});
+    r.round_trip();
+    tx_frame([] {});
+    expect(block(r.processor).level[3] == 0 && params[0] == 0., "the second takes back the transaction, both halves");
+}
+
+// A host load while a transaction is held: the load replaces what the step waited for, so the hold
+// releases, edits flow again, and the earlier step sits below the load's.
+auto test_load_during_hold() -> void
+{
+    std::printf("remote, Writers::Both, a host load while a step is held\n");
+    auto r = Remote{};
+    auto editor = r.link.actor();
+    auto params = std::array<double, 2>{};
+    r.history.bind_actions(r.actions.actor());
+
+    r.actions.clear();
+    r.link.sync();
+    r.history.actor().transaction([&] {
+        r.actions.actor().push(tiny::Set_param{0, 0.7});
+        editor.edit([](Both_doc& d) { d.level[3] = 40; });
+    });
+    r.actions.normalize();
+    auto ps = tiny::Processor_state{};
+    ps.params = params;
+    r.history.process_actions(r.actions.get_actions(), ps);
+    r.link.sync();
+    r.history.end_frame();
+    expect(r.history.holding(tiny::Undo_history::Source::Document), "held");
+
+    auto changes = std::vector<tiny::Set_param>{};
+    const auto after = std::array<double, 2>{0.7, 0.2};
+    r.history.push_host_load(std::array<double, 2>{0.7, 0}, after, changes);
+    auto loaded = Both_doc{};
+    loaded.level[9] = 12;
+    r.link.load(loaded);
+    expect(!r.history.holding(tiny::Undo_history::Source::Document) && r.history.can_undo(), "the load releases the hold");
+
+    const auto before = r.down.pending();
+    editor.edit([](Both_doc& d) { d.level[5] = 5; });
+    r.link.sync();
+    expect(r.down.pending() > before, "and edits go out again");
 }
 
 // MARK: - reset seed
@@ -398,14 +500,14 @@ auto test_budget() -> void
     for (auto i = 0; i < 10; ++i) {
         auto b = a;
         b.level[0] = static_cast<std::uint8_t>(i + 1);
-        history.record_state(state::as_bytes(a), state::as_bytes(b), sizeof(Editor_doc));
+        history.record_state(tiny::Undo_history::Source::Document, state::as_bytes(a), state::as_bytes(b), sizeof(Editor_doc));
         a = b;
     }
 
     auto steps = 0;
     auto actions = tiny::Action_queue{};
     auto replayed = std::uint8_t{};
-    history.bind_state({.commit = [] { return false; },
+    history.bind_state(tiny::Undo_history::Source::Document, {.commit = [] { return tiny::Undo_history::Commit::None; },
                         .replay = [&](const std::byte*, const std::byte* next, std::size_t) {
                             replayed = static_cast<std::uint8_t>(next[0]);
                         }});
@@ -424,6 +526,8 @@ auto main() -> int
 {
     test_in_process_undo_redo();
     std::printf("\n"); test_remote_both_write();
+    std::printf("\n"); test_held_transaction();
+    std::printf("\n"); test_load_during_hold();
     std::printf("\n"); test_reseeded_processor();
     std::printf("\n"); test_host_load_undo();
     std::printf("\n"); test_load_resend();

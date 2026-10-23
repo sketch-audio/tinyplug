@@ -12,7 +12,7 @@
 #include "AAX.h"
 #include "AAX_CChunkDataParser.h"
 #include "AAX_EndianSwap.h"
-#include "adapters.hpp" // AAX wrapper's param-ID adapters (on the include path via cmake)
+#include "chunk_writer.hpp" // The AAX wrapper's chunk writer (on the include path via cmake)
 
 #include "plug_info.hpp"
 
@@ -20,19 +20,17 @@
 #define PRESET_DIR ""
 #endif
 
-auto main() -> int
+auto main(int argc, char** argv) -> int
 {
     using namespace tiny;
 
-    const auto preset_path = std::filesystem::path{PRESET_DIR};
+    const auto preset_path = std::filesystem::path{argc > 1 ? argv[1] : PRESET_DIR}; // An argument overrides the built-in directory.
     const auto path_exists = std::filesystem::exists(preset_path);
     const auto path_is_directory = std::filesystem::is_directory(preset_path);
     if (!path_exists || !path_is_directory) {
         std::cerr << "Preset directory does not exist: " << preset_path << "\n";
         return 1;
     }
-
-    const auto defaults = params::make_defaults<double, User_params>(params::Space::Knob);
 
     // State adapter to convert between JSON and parameter values.
     auto state_adapter = State_adapter{{
@@ -73,94 +71,34 @@ auto main() -> int
             continue;
         }
 
-        // Extract values.
+        // Plain values, `no_value` for a parameter a session doesn't save, as the wrapper writes them.
         const auto preset_values = state_adapter.param_values(preset_json);
-        const auto editor_state = state_adapter.editor_state(preset_json);
-        const auto state_record = state_adapter.state_record(preset_json); // Opaque: passed through as the wrapper stores it.
-
-        // These are knob values or State_rules::no_value.
-        auto state_values = std::vector<float>(preset_values.size(), State_rules::no_value);
-        for (size_t i = 0; i < preset_values.size(); ++i) {
-            if (preset_values[i].has_value()) {
-                state_values[i] = static_cast<float>(*(preset_values[i]));
+        auto values = std::vector<float>(preset_values.size(), State_rules::no_value);
+        for (auto i = size_t{}; i < preset_values.size() && i < User_params::num_params; ++i) {
+            const auto& spec = User_params::param_spec(static_cast<uint32_t>(i));
+            if (preset_values[i] && State_rules::is_persistent(spec)) {
+                values[i] = static_cast<float>(params::Value_helper::knob_to_plain(*preset_values[i], spec.semantics));
             }
         }
+        const auto state_record = state_adapter.state_record(preset_json); // Opaque: passed through as the wrapper stores it.
+
+        // The editor keys: an older preset's author keys, and the framework's keys naming the preset, which
+        // make a host's load of the file a preset load. A preset carries no editor record and no bypass.
+        auto editor = state_adapter.editor_state(preset_json);
+        const auto info = state_adapter.preset_info(preset_json);
+        framework_keys::write(editor, Framework_keys{
+            .preset_name = info.name.empty() ? entry.path().stem().string() : info.name,
+            .preset_id = info.id,
+        });
 
         // Make out dir (PRESETS_DIR/out).
         auto out_path = preset_path / "out";
         std::filesystem::create_directory(out_path);
         out_path /= entry.path().stem();
-
-        // MARK: - AAX
         out_path.replace_extension(".tfx");
 
-        const auto num_params = state_values.size();
         auto chunk_parser = AAX_CChunkDataParser{};
-        // Add the number of parameters and the edit keys.
-
-        const auto edit_keys = join_keys(editor_state);
-        chunk_parser.AddInt32(State_rules::Aax::num_params, static_cast<int32_t>(num_params));
-        chunk_parser.AddString(State_rules::Aax::edit_keys, edit_keys.c_str());
-
-        // Add the parameter values.
-        for (auto i = decltype(num_params){}; i < num_params; ++i) {
-            if (auto aax_id = tiny::tiny_id_to_aax(i); aax_id.has_value()) {
-                const auto* id_cstr = (*aax_id).c_str();
-
-                const auto& spec = User_params::param_spec(i);
-
-                // For AAX we need plain value or State_rules::no_value.
-                const auto to_write = [&]() {
-                    if (state_values[i] == State_rules::no_value) {
-                        return State_rules::no_value;
-                    }
-                    else {
-                        const auto as_double = static_cast<double>(state_values[i]);
-                        const auto plain = params::Value_helper::knob_to_plain(as_double, spec.semantics);
-                        return static_cast<float>(plain);
-                    }
-                }();
-                chunk_parser.AddFloat(id_cstr, to_write);
-            }
-        }
-
-        for (const auto& [key, val] : editor_state) {
-            const auto tag = tag_for(val);
-
-            switch (tag) {
-                case State_tag::Bool: {
-                    if (const auto b = std::get_if<bool>(&val)) {
-                        chunk_parser.AddInt32(key.c_str(), *b ? 1 : 0);
-                    }
-                    break;
-                }
-                case State_tag::Int: {
-                    if (const auto i = std::get_if<int32_t>(&val)) {
-                        chunk_parser.AddInt32(key.c_str(), *i);
-                    }
-                    break;
-                }
-                case State_tag::Double: {
-                    if (const auto d = std::get_if<double>(&val)) {
-                        chunk_parser.AddDouble(key.c_str(), *d);
-                        break;
-                    }
-                }
-                case State_tag::String: {
-                    if (const auto s = std::get_if<std::string>(&val)) {
-                        chunk_parser.AddString(key.c_str(), (*s).c_str());
-                    }
-                    break;
-                }
-                default: {
-                    break;
-                }
-            }
-        }
-
-        if (!state_record.empty()) {
-            chunk_parser.AddString(State_rules::Aax::state_record, base64::encode(state_record).c_str());
-        }
+        aax::write_chunk(chunk_parser, aax::Chunk_contents{.plain_values = values, .editor = &editor, .record = state_record});
 
         auto chunk_size = chunk_parser.GetChunkDataSize();
 

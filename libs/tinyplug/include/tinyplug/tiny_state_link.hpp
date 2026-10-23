@@ -1,10 +1,12 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <mutex>
 #include <span>
 
 #include <tiny_core/data_port.hpp>
@@ -92,7 +94,7 @@ public:
     auto bind(Undo_history& history) -> void
     {
         _history = &history;
-        history.bind_state(Undo_history::State_hooks{
+        history.bind_state(Undo_history::Source::Document, Undo_history::State_hooks{
             .commit = [this]() { return _commit_now(); },
             .replay = [this](const std::byte* base, const std::byte* next, std::size_t n) {
                 _side.apply_replay(base, next, n);
@@ -119,20 +121,37 @@ public:
 
     auto in_flight() const -> bool { return _side.in_flight(); }
 
-    // Once per editor frame: take in snapshots, send edits, close a waiting step.
+    // Once per editor frame: take in snapshots, send edits, close a waiting step. While the history
+    // holds a step for this document, new edits stay local: a confirmation must credit only the held step.
     auto sync() -> void
     {
         if (_poll) _poll(*this);
-        if (_down) _side.flush(_down);
+        if (_down && !(_history && _history->holding(Undo_history::Source::Document))) _side.flush(_down);
         _try_commit();
+        _publish();
     }
+
+    // [any thread] The document as last published on main, at each sync and load: what a save from
+    // another thread reads, since main changes the link itself without a lock.
+    auto published() const -> M
+    {
+        const auto lock = std::lock_guard{_published_mutex};
+        return _published;
+    }
+
+    // [any thread] Bumped by every publish that changed the document.
+    auto published_revision() const -> std::uint32_t { return _published_revision.load(std::memory_order_acquire); }
 
     auto on_snapshot(std::span<const std::byte> bytes, std::uint32_t gen) -> bool requires (processor_writes)
     {
         return _side.on_snapshot(bytes, gen);
     }
 
-    auto seed(const M& value) -> void { _side.seed(value); }
+    auto seed(const M& value) -> void
+    {
+        _side.seed(value);
+        _publish();
+    }
 
     // A host load replaced the document. Folds {view -> doc} into the load's undo step, then
     // reseeds. `Resend::Yes` for a processor that did not take the load itself: the next flush
@@ -142,15 +161,17 @@ public:
     auto load(const M& doc, Resend resend = Resend::No) -> void
     {
         if (_poll) _poll(*this); // Take a waiting snapshot now, so it cannot land on top of the load.
+        if (_history) _history->settle(Undo_history::Source::Document); // The load replaces what a held step waited for.
 
         const auto& was = _side.view();
         if (_history && std::memcmp(&was, &doc, sizeof(M)) != 0) {
-            _history->amend_host_state(as_bytes(was), as_bytes(doc), sizeof(M));
+            _history->amend_host_state(Undo_history::Source::Document, as_bytes(was), as_bytes(doc), sizeof(M));
         }
 
         _commit_wanted = false;
         if (resend == Resend::Yes) _side.seed_and_resend(doc);
         else _side.seed(doc);
+        _publish();
     }
 
     // Send what is waiting now rather than at the next frame. False if the wire refused it.
@@ -161,20 +182,53 @@ public:
 
 private:
 
-    auto _commit_now() -> bool
+    // What `Editor_side::commit` records into: this document's source.
+    struct Recorder {
+        Undo_history& history;
+        auto record_state(const std::byte* from, const std::byte* to, std::size_t n) -> void
+        {
+            history.record_state(Undo_history::Source::Document, from, to, n);
+        }
+    };
+
+    // The history asks, e.g. closing a transaction. This frame's edits go out first, so a transaction
+    // waits for them too; in flight, the commit waits for the confirmation.
+    auto _commit_now() -> Undo_history::Commit
     {
-        if (!_history || _side.in_flight()) return false;
-        return _side.commit(*_history);
+        if (!_history) return Undo_history::Commit::None;
+        if (_down && !_history->holding(Undo_history::Source::Document)) _side.flush(_down);
+        if (_side.awaiting()) {
+            _commit_wanted = true;
+            return Undo_history::Commit::Waiting;
+        }
+        auto recorder = Recorder{*_history};
+        return _side.commit(recorder) ? Undo_history::Commit::Recorded : Undo_history::Commit::None;
     }
 
     auto _try_commit() -> void
     {
-        if (!_commit_wanted || !_history || _side.in_flight()) return;
-        _side.commit(*_history);
+        if (!_commit_wanted || !_history) return;
+        // Held, only what was sent counts: later edits stay local until the held step lands.
+        const auto busy = _history->holding(Undo_history::Source::Document) ? _side.awaiting() : _side.in_flight();
+        if (busy) return;
+        auto recorder = Recorder{*_history};
+        // Nothing to record (the processor refused the edit): a step held for it lands without it.
+        if (!_side.commit(recorder)) _history->settle(Undo_history::Source::Document);
         _commit_wanted = false;
     }
 
+    auto _publish() -> void
+    {
+        const auto lock = std::lock_guard{_published_mutex};
+        if (std::memcmp(&_published, &_side.view(), sizeof(M)) == 0) return;
+        _published = _side.view();
+        _published_revision.fetch_add(1, std::memory_order_release);
+    }
+
     Side _side{};
+    M _published{};
+    mutable std::mutex _published_mutex{};
+    std::atomic<std::uint32_t> _published_revision{};
     Undo_history* _history{};
     Send _down{};
     Poll _poll{};

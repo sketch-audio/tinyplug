@@ -3,7 +3,7 @@
 // real data model (Parameters), Direct Data module, GUI and algorithm through the SDK's
 // interfaces, from the threads Pro Tools uses, so the sanitizers can see the wrapper:
 //
-//     aax_host_<Demo> [--seed N] [--seconds S]
+//     aax_host_<Demo> [--seed N] [--seconds S] [--fixtures DIR [--write-fixtures] [--preset FILE]]
 //
 // Main is the host and GUI thread. The algorithm renders on an audio thread, the Direct Data
 // timer runs on its own, and chunk calls also come from other threads, concurrently, as the
@@ -25,12 +25,16 @@
 
 #include <audio_bench/audio_bench.hpp>
 
+#include "AAX_CChunkDataParser.h"
+#include "AAX_EndianSwap.h"
 #include "AAX_IACFAutomationDelegate.h"
 #include "AAX_IACFController.h"
 #include "AAX_IACFViewContainer.h"
 #include "AAX_IPrivateDataAccess.h"
 #include "AAX_UIDs.h"
 #include "acfextras.h"
+
+#include <tiny_core/base64.hpp>
 
 #include "alg_proc.hpp"
 #include "direct_data.hpp"
@@ -994,6 +998,156 @@ auto add_scenarios() -> void
     });
 }
 
+// MARK: - session fixtures
+
+// The document record a chunk carries, decoded from its base64 key; empty when there is none.
+auto chunk_record(const Chunk& c) -> std::vector<uint8_t>
+{
+    auto parser = AAX_CChunkDataParser{};
+    parser.LoadChunk(reinterpret_cast<const AAX_SPlugInChunk*>(c.data()));
+    auto encoded = AAX_CString{};
+    if (!parser.FindString(tiny::State_rules::Aax::state_record, &encoded)) return {};
+    const auto bytes = tiny::base64::decode(encoded.CString());
+    if (!bytes) return {};
+    return {reinterpret_cast<const uint8_t*>(bytes->data()), reinterpret_cast<const uint8_t*>(bytes->data()) + bytes->size()};
+}
+
+// The editor's record a chunk carries, decoded from its base64 key; empty when there is none.
+auto chunk_edit_record(const Chunk& c) -> std::vector<uint8_t>
+{
+    auto parser = AAX_CChunkDataParser{};
+    parser.LoadChunk(reinterpret_cast<const AAX_SPlugInChunk*>(c.data()));
+    auto encoded = AAX_CString{};
+    if (!parser.FindString(tiny::State_rules::Aax::edit_record, &encoded)) return {};
+    const auto bytes = tiny::base64::decode(encoded.CString());
+    if (!bytes) return {};
+    return {reinterpret_cast<const uint8_t*>(bytes->data()), reinterpret_cast<const uint8_t*>(bytes->data()) + bytes->size()};
+}
+
+auto param_id(Instance& instance, uint32_t index) -> AAX_CString
+{
+    auto id = AAX_CString{};
+    instance.params->GetParameterIDFromIndex(static_cast<int32_t>(index), &id);
+    return id;
+}
+
+// Sessions saved by an older build must keep loading: parameters and the document record. (AAX
+// persists a size only when the editor asks for one, so size isn't checked.) Parameters are keyed
+// by index. With --write-fixtures, this saves them instead.
+auto add_fixture_scenarios() -> void
+{
+    const auto base = tiny::hosts::fixture_base(g_options, tiny::Plug_info::base_file_name, "aax");
+    if (base.empty()) return;
+
+    if (g_options.write_fixtures) {
+        Tests::add("fixtures: write a session", [base] {
+            auto violations = Violations{};
+            auto instance = Instance{violations};
+            auto count = int32_t{};
+            instance.params->GetNumberOfParameters(&count);
+            for (auto i = uint32_t{}; i < static_cast<uint32_t>(count); ++i) {
+                const auto id = param_id(instance, i);
+                instance.params->UpdateParameterNormalizedValue(id.CString(), tiny::hosts::fixture_value(i, 0, 1, false), AAX_eUpdateSource_Unspecified);
+            }
+            instance.service();
+            auto fixture = tiny::hosts::Session_fixture{};
+            const auto chunk = instance.save_chunk();
+            fixture.state.assign(chunk.begin(), chunk.end());
+            for (auto i = uint32_t{}; i < static_cast<uint32_t>(count); ++i) {
+                auto value = double{};
+                instance.params->GetParameterNormalizedValue(param_id(instance, i).CString(), &value);
+                fixture.params.emplace_back(i, value);
+            }
+            tiny::hosts::write_fixture(base, fixture);
+            check_clean(violations, "fixtures");
+        });
+        return;
+    }
+
+    const auto fixture = tiny::hosts::read_fixture(base);
+    if (!fixture) return;
+
+    Tests::add("fixtures: a session saved by an older build loads", [fixture = *fixture] {
+        auto violations = Violations{};
+        {
+            auto instance = Instance{violations};
+            const auto chunk = Chunk(fixture.state.begin(), fixture.state.end());
+            expect_true(instance.load_chunk(chunk), "SetChunk failed");
+            instance.service();
+            for (const auto& [index, expected] : fixture.params) {
+                auto value = double{};
+                instance.params->GetParameterNormalizedValue(param_id(instance, index).CString(), &value);
+                expect_true(std::abs(value - expected) <= 1e-6, std::format("param {}: {} after load, saved {}", index, value, expected));
+            }
+            const auto saved = instance.save_chunk();
+            expect_true(chunk_record(saved) == chunk_record(chunk), "the document record didn't survive a load and save");
+            for (const auto& text : fixture.texts) expect_true(tiny::hosts::contains_text(chunk_edit_record(saved), text), std::format("'{}' isn't in the view after the load", text));
+        }
+        check_clean(violations, "fixtures");
+    });
+}
+
+// MARK: - exported presets
+
+// A .tfx from tools/presets' exporter, as Pro Tools hands it to SetChunk: the file's header is
+// big-endian and its size counts the header; SetChunk gets native fields and the data's size.
+auto read_tfx(const std::string& path) -> std::optional<Chunk>
+{
+    const auto bytes = tiny::hosts::read_file(path);
+    if (!bytes || bytes->size() < sizeof(AAX_SPlugInChunkHeader)) return std::nullopt;
+    auto chunk = Chunk(bytes->begin(), bytes->end());
+    auto* header = reinterpret_cast<AAX_SPlugInChunkHeader*>(chunk.data());
+    header->fSize = AAX_BigEndianNativeSwap(header->fSize) - static_cast<int32_t>(sizeof(AAX_SPlugInChunkHeader));
+    header->fVersion = AAX_BigEndianNativeSwap(header->fVersion);
+    header->fManufacturerID = AAX_BigEndianNativeSwap(header->fManufacturerID);
+    header->fProductID = AAX_BigEndianNativeSwap(header->fProductID);
+    header->fPlugInID = AAX_BigEndianNativeSwap(header->fPlugInID);
+    header->fChunkID = AAX_BigEndianNativeSwap(header->fChunkID);
+    if (header->fSize < 0 || static_cast<size_t>(header->fSize) > chunk.size() - sizeof(AAX_SPlugInChunkHeader)) return std::nullopt;
+    return chunk;
+}
+
+auto add_preset_scenarios() -> void
+{
+    const auto base = tiny::hosts::preset_base(g_options, "aax");
+    Tests::add("presets: an exported .tfx loads", [base] {
+        auto violations = Violations{};
+        {
+            const auto chunk = read_tfx(g_options.preset);
+            expect_true(chunk.has_value(), std::format("{} isn't a .tfx", g_options.preset));
+            if (!chunk) return;
+            auto instance = Instance{violations};
+            expect_true(chunk_id == reinterpret_cast<const AAX_SPlugInChunkHeader*>(chunk->data())->fChunkID, "the chunk id isn't ours");
+            expect_true(instance.load_chunk(*chunk), "SetChunk failed");
+            instance.service();
+
+            auto count = int32_t{};
+            instance.params->GetNumberOfParameters(&count);
+            auto loaded = tiny::hosts::Session_fixture{};
+            for (auto i = uint32_t{}; i < static_cast<uint32_t>(count); ++i) {
+                auto value = double{};
+                instance.params->GetParameterNormalizedValue(param_id(instance, i).CString(), &value);
+                loaded.params.emplace_back(i, value);
+            }
+            if (g_options.write_fixtures) {
+                tiny::hosts::write_expect(base, loaded);
+                return;
+            }
+            auto expected = tiny::hosts::Session_fixture{};
+            expect_true(tiny::hosts::read_expect(base, expected), std::format("no {}.expect", base.string()));
+            for (const auto& [index, value] : expected.params) {
+                auto got = double{};
+                instance.params->GetParameterNormalizedValue(param_id(instance, index).CString(), &got);
+                expect_true(std::abs(got - value) <= 1e-6, std::format("param {}: {} after load, expected {}", index, got, value));
+            }
+            const auto saved = instance.save_chunk();
+            expect_true(chunk_record(saved) == chunk_record(*chunk), "the preset's document didn't load");
+            for (const auto& text : expected.texts) expect_true(tiny::hosts::contains_text(chunk_edit_record(saved), text), std::format("'{}' isn't in the view after the load", text));
+        }
+        check_clean(violations, "presets");
+    });
+}
+
 } // namespace
 
 auto main(int argc, char** argv) -> int
@@ -1001,6 +1155,15 @@ auto main(int argc, char** argv) -> int
     g_options = tiny::hosts::parse_options(argc, argv);
     std::printf("aax_host: %s, seed %u\n", tiny::Plug_info::product_name, g_options.seed);
     tiny::hosts::gui_init();
+    if (!g_options.preset.empty()) {
+        add_preset_scenarios();
+        return audio_bench::Tests::run_all() == 0 ? 0 : 1;
+    }
+    if (g_options.write_fixtures) {
+        add_fixture_scenarios();
+        return audio_bench::Tests::run_all() == 0 ? 0 : 1;
+    }
     add_scenarios();
+    add_fixture_scenarios();
     return audio_bench::Tests::run_all() == 0 ? 0 : 1;
 }

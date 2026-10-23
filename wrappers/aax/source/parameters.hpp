@@ -41,6 +41,7 @@ public:
             .state_adapter = _state_adapter.actor(),
             .undo_redo = _undo_history.actor(),
             .tasks = _tasks.actor(),
+            .view = _edit_store.handle(),
 #if TINY_HAS_STATE
             .state = _state_link.actor(),
 #endif
@@ -49,6 +50,8 @@ public:
             .notes = Note_sender{[this](const midi::Performance& e) { return _editor_notes.push(e); }},
 #endif
         });
+        _undo_history.bind_actions(_actions.actor());
+        _edit_store.bind(_undo_history);
 #if TINY_HAS_STATE
         _setup_state();
 #endif
@@ -124,18 +127,7 @@ public:
         return &_tasks;
     }
 
-    // Framework-owned editor window-size cache (Parameters lifetime, survives view
-    // recreation). Primed from the persisted chunk in SetChunk; read by the Gui to open
-    // pre-sized; updated on every editor-initiated resize.
-    auto resized(Rect_size size) -> void
-    {
-        _last_size = size;
-    }
-
-    auto get_last_size() const -> std::optional<Rect_size>
-    {
-        return _last_size;
-    }
+    auto edit_store() -> Edit_store& { return _edit_store; }
 
     // Undo history and action queue live on Parameters (plug-in lifetime), not in the
     // Gui, so the editor's Edit_context (built once at construction) stays valid across
@@ -164,9 +156,10 @@ public:
 
 private:
 
-    // Chunks. Pro Tools calls the chunk methods from any thread, several at once, so off main they
-    // touch only `_chunk_image` (see State_image), which main keeps current in TimerWakeup. A
-    // GetChunkSize/GetChunk pair keeps the image it sized. No parser is shared.
+    // Chunks. Pro Tools calls the chunk methods from any thread, several at once. Each builds its own
+    // chunk from what is safe anywhere (`_knob_mirror`, the document under its lock, the edit store);
+    // a load from off main waits in `_pending`, and is the state, until TimerWakeup applies it. A
+    // GetChunkSize/GetChunk pair keeps the chunk it sized. No parser is shared.
     struct Chunk_image {
         std::vector<char> bytes{}; // A whole AAX_SPlugInChunk: header, then fSize bytes of data.
         auto chunk() const -> const AAX_SPlugInChunk* { return reinterpret_cast<const AAX_SPlugInChunk*>(bytes.data()); }
@@ -175,7 +168,21 @@ private:
 
     auto _build_chunk(AAX_CChunkDataParser& parser) const -> void;
     auto _apply_chunk(const AAX_SPlugInChunk* chunk) -> AAX_Result;
-    auto _refresh_chunk() const -> Chunk_ptr; // [main] Rebuilds the image, unless a load is waiting.
+    auto _make_chunk() const -> Chunk_ptr; // [any] The waiting load, else the cached chunk, rebuilt when its key moved.
+
+    // What a chunk is current as of: cheap to read on any thread, so a compare or a save rebuilds only on change.
+    struct Chunk_key {
+        uint64_t params{};
+        uint32_t edit{};
+        uint32_t document{}; // The editor link's published revision.
+        auto operator==(const Chunk_key&) const -> bool = default;
+    };
+    auto _chunk_key() const -> Chunk_key;
+    mutable std::mutex _cache_mutex{};
+    mutable Chunk_ptr _cached{};
+    mutable Chunk_key _cached_key{};
+    std::atomic<uint64_t> _param_revision{1}; // Bumped with `_knob_mirror`; the cache starts empty.
+    auto _mirror_params() -> void;           // [main] Every parameter into `_knob_mirror`.
     auto _on_main() const -> bool { return std::this_thread::get_id() == _main_thread; }
 
     // Coefficient staging. One Coef_segment per port; a segment is rebuilt and posted
@@ -187,11 +194,15 @@ private:
     auto _plain_value(uint32_t address) const -> double;
 
     std::unique_ptr<User_editor> _editor{};
-    std::optional<Rect_size> _last_size{};
     Task_manager _tasks{};
 
     Undo_history _undo_history{};
     Action_queue _actions{};
+    Edit_store _edit_store{sizing_of<User_editor>()}; // The editor's view state, window size and load count.
+
+    // Every parameter in knob space, then the master bypass: what a chunk built off main reads, since
+    // the AAX parameters themselves are main's.
+    std::array<std::atomic<double>, num_params + 1> _knob_mirror{};
 
 #if TINY_HAS_NOTES_IN
     mutable Lock_free_queue<midi::Performance, process::Note_io::editor_capacity, Queue_concurrency::spsc> _editor_notes{}; // Drained from the const GetCustomData.
@@ -215,8 +226,7 @@ private:
     // The document as the editor holds it; the algorithm's copy trails it by a Direct Data wakeup.
     auto _state_record() const -> std::vector<std::byte>
     {
-        const auto lock = std::lock_guard{_state_mutex};
-        return state::encode_record(_state_link.view());
+        return state::encode_record(_state_link.published()); // Any thread: the copy main published.
     }
 
     auto _load_state(std::span<const std::byte> record) -> void;
@@ -241,7 +251,6 @@ private:
                 .version = 1,
                 .param_tree = &User_params::param_tree(),
                 .param_values = std::vector<double>(knob.begin(), knob.end()),
-                .editor_state = _editor ? _editor->save_state() : State_map{},
 #if TINY_HAS_STATE
                 .state_record = _state_record(),
 #endif
@@ -271,7 +280,7 @@ private:
     std::atomic<bool> _pending_latency{false};
 
     std::thread::id _main_thread{}; // Where EffectInit ran.
-    mutable State_image<Chunk_ptr> _chunk_image{};
+    Pending_load<Chunk_ptr> _pending{};
     mutable std::mutex _chunk_mutex{}; // Guards `_chunk_pairs`.
     mutable std::vector<std::pair<std::thread::id, Chunk_ptr>> _chunk_pairs{}; // Sized, not yet fetched.
 

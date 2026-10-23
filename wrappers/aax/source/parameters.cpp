@@ -13,6 +13,7 @@
 #include "AAX_TransportTypes.h"
 
 #include "adapters.hpp"
+#include "chunk_writer.hpp"
 #include "display_delegate.hpp"
 #include "taper_delegate.hpp"
 
@@ -163,7 +164,7 @@ AAX_Result Parameters::EffectInit()
     _worker_runner.start(sample_rate);
 #endif
 
-    _refresh_chunk(); // A save may come from any thread before main next wakes.
+    _mirror_params(); // A save may come from any thread before a parameter moves.
     return AAX_SUCCESS;
 }
 
@@ -227,12 +228,15 @@ AAX_Result Parameters::UpdateParameterNormalizedValue(AAX_CParamID iParamID, dou
     const auto result = Super::UpdateParameterNormalizedValue(iParamID, aValue, inSource);
     if (result != AAX_SUCCESS) return result;
 
-    _chunk_image.mark_dirty();
     if (const auto tiny_id = aax_id_to_tiny(iParamID); tiny_id && *tiny_id < num_params) {
         _mark_dirty(*tiny_id);
+        _knob_mirror[*tiny_id].store(aValue, std::memory_order_relaxed);
+        _param_revision.fetch_add(1, std::memory_order_release);
     }
     else if (std::strcmp(iParamID, cDefaultMasterBypassID) == 0) {
         _mark_dirty(bypass_address);
+        _knob_mirror[num_params].store(aValue, std::memory_order_relaxed);
+        _param_revision.fetch_add(1, std::memory_order_release);
     }
 
     return AAX_SUCCESS;
@@ -311,12 +315,9 @@ AAX_Result Parameters::TimerWakeup()
         _post_runtime();
     }
 
-    // A load that arrived off main, then an image that keeps up with the editor and the document.
-    if (const auto load = _chunk_image.take_load()) {
+    // A load that arrived off main.
+    if (const auto load = _pending.take()) {
         _apply_chunk((*load)->chunk());
-    }
-    if (_chunk_image.due()) {
-        _refresh_chunk();
     }
 
     return Super::TimerWakeup();
@@ -611,25 +612,58 @@ AAX_Result Parameters::GetChunkIDFromIndex(int32_t iIndex, AAX_CTypeID* oChunkID
     return AAX_SUCCESS;
 }
 
-auto Parameters::_refresh_chunk() const -> Chunk_ptr
+auto Parameters::_make_chunk() const -> Chunk_ptr
 {
+    if (const auto pending = _pending.peek()) return *pending; // A load still waiting for main is the state.
+
+    // Read before building: a change during the build leaves a newer chunk under an older key, which
+    // the next call simply rebuilds.
+    const auto key = _chunk_key();
+    {
+        const auto lock = std::lock_guard{_cache_mutex};
+        if (_cached && _cached_key == key) return _cached;
+    }
+
     auto parser = AAX_CChunkDataParser{};
     _build_chunk(parser);
 
-    // A failed build keeps the last image rather than publishing an empty chunk.
     const auto size = parser.GetChunkDataSize();
-    if (size <= 0) return _chunk_image.get();
+    if (size <= 0) return nullptr;
     auto image = std::make_shared<Chunk_image>();
     image->bytes.resize(chunk_data_offset() + static_cast<size_t>(size));
     auto* chunk = reinterpret_cast<AAX_SPlugInChunk*>(image->bytes.data());
-    if (parser.GetChunkData(chunk) != 0) return _chunk_image.get();
+    if (parser.GetChunkData(chunk) != 0) return nullptr;
     chunk->fVersion = parser.GetChunkVersion();
     static constexpr char name[] = "AAX Plug-in State";
     static_assert(sizeof(name) <= sizeof(chunk->fName), "Chunk name must fit fName.");
     std::memcpy(chunk->fName, name, sizeof(name));
 
-    if (!_chunk_image.publish(image)) return _chunk_image.get(); // The waiting load is the state; this build is not.
+    const auto lock = std::lock_guard{_cache_mutex};
+    _cached = image;
+    _cached_key = key;
     return image;
+}
+
+auto Parameters::_mirror_params() -> void
+{
+    for (auto i = decltype(num_params){}; i < num_params; ++i) {
+        if (const auto* aax_param = get_aax_param(&mParameterManager, i)) {
+            _knob_mirror[i].store(aax_param->GetNormalizedValue(), std::memory_order_relaxed);
+        }
+    }
+    if (const auto* bypass = mParameterManager.GetParameterByID(cDefaultMasterBypassID)) {
+        _knob_mirror[num_params].store(bypass->GetNormalizedValue(), std::memory_order_relaxed);
+    }
+    _param_revision.fetch_add(1, std::memory_order_release);
+}
+
+auto Parameters::_chunk_key() const -> Chunk_key
+{
+    auto key = Chunk_key{.params = _param_revision.load(std::memory_order_acquire), .edit = _edit_store.revision()};
+#if TINY_HAS_STATE
+    key.document = _state_link.published_revision();
+#endif
+    return key;
 }
 
 AAX_Result Parameters::GetChunkSize(AAX_CTypeID iChunkID, uint32_t* oSize) const
@@ -639,9 +673,9 @@ AAX_Result Parameters::GetChunkSize(AAX_CTypeID iChunkID, uint32_t* oSize) const
         return AAX_ERROR_INVALID_CHUNK_ID;
     }
 
-    // Current on main, where the state lives; elsewhere the image main last made.
-    const auto image = _on_main() ? _refresh_chunk() : _chunk_image.get();
-    if (!image) { *oSize = 0; return AAX_ERROR_NOT_INITIALIZED; } // Before EffectInit built the first.
+    // Built here, on whichever thread asks: everything it reads is safe anywhere.
+    const auto image = _make_chunk();
+    if (!image) { *oSize = 0; return AAX_ERROR_NOT_INITIALIZED; }
 
     const auto lock = std::lock_guard{_chunk_mutex};
     const auto thread = std::this_thread::get_id();
@@ -688,14 +722,12 @@ AAX_Result Parameters::SetChunk(AAX_CTypeID iChunkID, const AAX_SPlugInChunk* iC
     if (iChunk == nullptr || iChunk->fSize < 0) return AAX_ERROR_MALFORMED_CHUNK;
 
     if (!_on_main()) {
-        _chunk_image.post_load(std::make_shared<Chunk_image>(Chunk_image{.bytes = copy_chunk(iChunk)}));
+        _pending.post(std::make_shared<Chunk_image>(Chunk_image{.bytes = copy_chunk(iChunk)}));
         return AAX_SUCCESS;
     }
 
-    _chunk_image.drop_load();
-    const auto result = _apply_chunk(iChunk);
-    _refresh_chunk();
-    return result;
+    _pending.drop();
+    return _apply_chunk(iChunk);
 }
 
 AAX_Result Parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_CBoolean* oIsEqual) const
@@ -706,8 +738,8 @@ AAX_Result Parameters::CompareActiveChunk(const AAX_SPlugInChunk* iChunkP, AAX_C
         return AAX_SUCCESS;
     }
 
-    const auto ours = _on_main() && _chunk_image.due() ? _refresh_chunk() : _chunk_image.get();
-    if (!ours) { *oIsEqual = true; return AAX_SUCCESS; } // Nothing to compare against yet: keep the light off.
+    const auto ours = _make_chunk();
+    if (!ours) { *oIsEqual = true; return AAX_SUCCESS; } // Nothing to compare against: keep the light off.
     *oIsEqual = chunks_equal(iChunkP, ours->chunk());
     return AAX_SUCCESS;
 }
@@ -725,7 +757,7 @@ auto Parameters::_snapshot_knob_params() -> std::array<double, num_params>
     return out;
 }
 
-// [main] What a load does: parameters, document, editor state, bypass, one undo step and the notify.
+// [main] What a load does: parameters, document, the editor's half, bypass, one undo step.
 auto Parameters::_apply_chunk(const AAX_SPlugInChunk* iChunk) -> AAX_Result
 {
     using namespace params;
@@ -809,10 +841,8 @@ auto Parameters::_apply_chunk(const AAX_SPlugInChunk* iChunk) -> AAX_Result
         }
     }
 
-    // Record the host load as one coalesced undo step (works editor open or closed).
-    // Done here, after the param section, so it survives the editor-state early
-    // returns below. The editor notify() is dispatched at the end of SetChunk, after
-    // the editor state loads, so a preset's name/marker can fold into this step.
+    // Record the host load as one coalesced undo step (works editor open or closed). The
+    // document and the editor's half join it below.
     const auto host_after = _snapshot_knob_params();
     auto host_changes = std::vector<Set_param>{};
     _undo_history.push_host_load(before, host_after, host_changes);
@@ -829,60 +859,48 @@ auto Parameters::_apply_chunk(const AAX_SPlugInChunk* iChunk) -> AAX_Result
     }
 #endif
 
-    // Editor state.
+    // Editor state. A key the chunk lists but doesn't hold drops the map, and the load still completes
+    // (editor half, bypass, mirror) so nothing is left half-applied; the host hears it was malformed.
     auto state_map = State_map{};
+    auto malformed = false;
     for (const auto& [key, raw_tag] : parsed_edit_keys) {
-        const auto tag = static_cast<State_tag>(raw_tag);
-
-        auto value = State_item{};
-        switch (tag) {
+        auto value = std::optional<State_item>{};
+        switch (static_cast<State_tag>(raw_tag)) {
             case State_tag::Bool: {
-                auto v = int32_t{};
-                if (parser.FindInt32(key.c_str(), &v)) {
-                    value = v > 0;
-                    break;
-                }
-                return AAX_ERROR_MALFORMED_CHUNK;
+                if (auto v = int32_t{}; parser.FindInt32(key.c_str(), &v)) value = v > 0;
+                break;
             }
             case State_tag::Int: {
-                auto v = int32_t{};
-                if (parser.FindInt32(key.c_str(), &v)) {
-                    value = v;
-                    break;
-                }
-                return AAX_ERROR_MALFORMED_CHUNK;
+                if (auto v = int32_t{}; parser.FindInt32(key.c_str(), &v)) value = v;
+                break;
             }
             case State_tag::Double: {
-                auto v = double{};
-                if (parser.FindDouble(key.c_str(), &v)) {
-                    value = v;
-                    break;
-                }
-                return AAX_ERROR_MALFORMED_CHUNK;
+                if (auto v = double{}; parser.FindDouble(key.c_str(), &v)) value = v;
+                break;
             }
             case State_tag::String: {
-                auto v = AAX_CString{};
-                if (parser.FindString(key.c_str(), &v)) {
-                    value = std::string{v.CString()};
-                    break;
-                }
-                return AAX_ERROR_MALFORMED_CHUNK;
+                if (auto v = AAX_CString{}; parser.FindString(key.c_str(), &v)) value = std::string{v.CString()};
+                break;
             }
             default:
+                value = State_item{}; // A tag from a newer build: kept as the old reader did.
                 break;
         }
-
-        state_map.emplace(std::move(key), std::move(value));
+        if (!value) {
+            malformed = true;
+            state_map.clear();
+            break;
+        }
+        state_map.emplace(key, std::move(*value));
     }
 
-    // Prime the framework-owned size cache so the view opens pre-sized, then strip the
-    // keys so the app editor never sees them.
-    if (const auto size = editor_size_state::extract(state_map)) {
-        resized({size->first, size->second});
+    // The editor's half: a newer chunk's record, an older one's keys. A factory .tfx carries the
+    // preset's name among the framework's keys, which makes the load a preset's.
+    auto edit_record = std::optional<Edit_record>{};
+    if (auto encoded = AAX_CString{}; parser.FindString(State_rules::Aax::edit_record, &encoded)) {
+        if (const auto bytes = base64::decode(encoded.CString())) edit_record = decode_edit_record(*bytes);
     }
-    editor_size_state::strip(state_map);
-
-    _editor->load_state(state_map);
+    load_editor_state(_edit_store, std::move(state_map), edit_record, host_after);
 
     // Bypass is a real AAX parameter now, so restoring it goes through the normal
     // parameter path and reaches the algorithm as a coefficient like anything else.
@@ -893,125 +911,37 @@ auto Parameters::_apply_chunk(const AAX_SPlugInChunk* iChunk) -> AAX_Result
         }
     }
 
-    // Notify the editor of the host load synchronously (works editor open or closed),
-    // letting it fold its marker params into the load's single undo step via add_param.
-    if (_editor) {
-        auto add_param = [this](uint32_t addr, double knob) {
-            if (auto* aax_param = get_aax_param(&mParameterManager, addr)) {
-                const auto from = aax_param->GetNormalizedValue(); // Normalized == knob space.
-                aax_param->SetNormalizedValue(knob);
-                _undo_history.amend_host_load(addr, from, knob);
-            }
-        };
-        _editor->notify(Host_event{Host_preset_loaded{
-            .changes = host_changes,
-            .params = host_after,
-            .add_param = add_param,
-        }});
-    }
-
-    return AAX_SUCCESS;
+    _mirror_params();
+    return malformed ? AAX_ERROR_MALFORMED_CHUNK : AAX_SUCCESS;
 }
 
 // MARK: - private
 
 auto Parameters::_build_chunk(AAX_CChunkDataParser& parser) const -> void
 {
-
-    auto edit_state = _editor->save_state();
-    drop_reserved_keys(edit_state);
-
-    // Inject the framework-owned editor window size (from our own cache) so the window
-    // reopens pre-sized. The app editor never emits these keys.
-    if (_last_size) {
-        editor_size_state::inject(edit_state, _last_size->w, _last_size->h);
-    }
-
-    const auto edit_keys = join_keys(edit_state);
-
-    // Add the number of parameters and the edit keys.
-    parser.AddInt32(State_rules::Aax::num_params, static_cast<int32_t>(num_params));
-    parser.AddString(State_rules::Aax::edit_keys, edit_keys.c_str());
-
-    // Add the parameter values.
+    // [any thread] Values from the mirror, the document under its lock, the editor's half from the
+    // store. The editor keys hold only the framework's now, for older builds.
+    auto values = std::array<float, num_params>{};
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
-        if (const auto* aax_param = get_aax_param(&mParameterManager, i)) {
-
-            const auto& spec = User_params::param_spec(i);
-            const auto* id_cstr = aax_param->Identifier();
-
-            // Params should be either bool, int32_t, or double.
-            auto b_value = bool{};
-            auto i_value = int32_t{};
-            auto d_value = double{};
-
-            if (aax_param->GetValueAsBool(&b_value)) {
-                const auto as_float = b_value ? 1.f : 0.f;
-                const auto to_write = State_rules::is_persistent(spec) ? as_float : State_rules::no_value;
-                parser.AddFloat(id_cstr, to_write);
-            }
-            else if (aax_param->GetValueAsInt32(&i_value)) {
-                const auto as_float = static_cast<float>(i_value);
-                const auto to_write = State_rules::is_persistent(spec) ? as_float : State_rules::no_value;
-                parser.AddFloat(id_cstr, to_write);
-            }
-            else if (aax_param->GetValueAsDouble(&d_value)) {
-                const auto as_float = static_cast<float>(d_value);
-                const auto to_write = State_rules::is_persistent(spec) ? as_float : State_rules::no_value;
-                parser.AddFloat(id_cstr, to_write);
-            }
-            else {
-                assert(false && "Unexpected parameter value type.");
-            }
-        }
+        const auto& spec = User_params::param_spec(i);
+        const auto knob = _knob_mirror[i].load(std::memory_order_relaxed);
+        values[i] = State_rules::is_persistent(spec) ? static_cast<float>(params::Value_helper::knob_to_plain(knob, spec.semantics)) : State_rules::no_value;
     }
-
-    // Add the editor state.
-    for (const auto& [key, val] : edit_state) {
-        const auto tag = tag_for(val);
-
-        switch (tag) {
-            case State_tag::Bool: {
-                if (const auto b = std::get_if<bool>(&val)) {
-                    parser.AddInt32(key.c_str(), *b ? 1 : 0);
-                }
-                break;
-            }
-            case State_tag::Int: {
-                if (const auto i = std::get_if<int32_t>(&val)) {
-                    parser.AddInt32(key.c_str(), *i);
-                }
-                break;
-            }
-            case State_tag::Double: {
-                if (const auto d = std::get_if<double>(&val)) {
-                    parser.AddDouble(key.c_str(), *d);
-                    break;
-                }
-            }
-            case State_tag::String: {
-                if (const auto s = std::get_if<std::string>(&val)) {
-                    parser.AddString(key.c_str(), (*s).c_str());
-                }
-                break;
-            }
-            default:
-                break;
-        }
-    }
-
-    // Add the bypass state, read back from the parameter that now owns it.
-    auto bypassed = bool{};
-    if (const auto* bypass_param = mParameterManager.GetParameterByID(cDefaultMasterBypassID)) {
-        bypass_param->GetValueAsBool(&bypassed);
-    }
-    parser.AddFloat(State_rules::Aax::host_bypass, bypassed ? 1.f : 0.f);
-
+    const auto editor = legacy_editor_map(_edit_store);
+    const auto bypassed = _knob_mirror[num_params].load(std::memory_order_relaxed) >= 0.5;
 #if TINY_HAS_STATE
-    // Base64: the parser has no binary type, and its strings have no length limit.
-    parser.AddString(State_rules::Aax::state_record, base64::encode(_state_record()).c_str());
+    const auto record = _state_record();
+#else
+    const auto record = std::vector<std::byte>{};
 #endif
-
+    const auto edit_record = encode_edit_record(_edit_store.save());
+    write_chunk(parser, Chunk_contents{
+        .plain_values = values,
+        .editor = &editor,
+        .bypass = bypassed ? 1.f : 0.f,
+        .record = record,
+        .edit_record = edit_record,
+    });
 }
 
 } // namespace tiny::aax

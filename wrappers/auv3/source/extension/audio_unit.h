@@ -11,6 +11,7 @@
 -(tiny::Action_queue*)actions;
 -(tiny::Task_manager*)tasks;
 -(tiny::State_adapter*)stateAdapter;
+-(tiny::Edit_store*)editStore;
 -(void)setEditor:(std::shared_ptr<tiny::User_editor>)editor;
 #if TINY_HAS_STATE
 -(tiny::state::Editor_actor<tiny::models::Resolved::State>)stateActor;

@@ -237,6 +237,7 @@ struct View_context {
     SkCanvas* canvas{nullptr};
     Rect_size logical_size{};
     double scale{1};
+    bool dark{}; // The host's or system's appearance.
     //bool operator==(const View_context&) const = default;
 };
 
@@ -255,6 +256,5 @@ struct Draw_context {
 // The plug-in format's view will have a draw callback.
 // This is where it will resolve the application state and pass it to your custom view.
 using Draw_callback = std::function<void(View_context&)>;
-using Notify_callback = std::function<void(const Dark_mode_changed&)>;
 
 } // namespace tiny

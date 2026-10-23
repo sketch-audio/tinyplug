@@ -28,7 +28,7 @@ test with one `tiny_add_test(<name>)` line. Test executables target macOS 13.3, 
 audio_bench's `std::format` needs.
 
 `tests/support/` holds shared fixtures: stand-ins for the generated `<tiny_models.hpp>`
-(`generated/` with no models, `work_models/` with a work model), a queued `Pipe`, a toy undo log
+(`generated/` with no models, `work_models/` with a work model, `view_models/` with a view model), a queued `Pipe`, a toy undo log
 and two example documents.
 
 ## Fake hosts
@@ -58,6 +58,14 @@ reconfigures); and teardown straight after activity. The AU and AAX hosts also s
 from another thread during chaos, and check that a load from off main reads back at once and is
 then applied on main. Each audio block runs with an allocation trap
 armed, and the first few allocations print their stacks. Options: `--seed N`, `--seconds S`.
+
+### Old sessions and presets
+
+Each host also loads the sessions in [fixtures/sessions](fixtures/sessions), saved by an older build, and checks
+parameters, the document record and the editor size come back (`--fixtures`). The native preset exporters run on
+[fixtures/presets](fixtures/presets) (tests `export.<Demo>.*`), and the VST3 and AAX hosts load what they wrote as a
+DAW loads a factory preset (`vst3_preset.<Demo>`, `aax_preset.<Demo>`). How each was made, and the rule (never
+regenerate one to make a test pass), is in [fixtures/README.md](fixtures/README.md).
 
 ### Reproducible bounces
 

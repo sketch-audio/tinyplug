@@ -17,7 +17,8 @@
 
 #include "adapters.hpp"
 #include <tiny_core/relay.hpp>
-#include <tiny_core/state_image.hpp>
+#include <tiny_core/pending_load.hpp>
+#include <mutex>
 #include "view.hpp"
 
 #include "preset_list.hpp" // Generated.
@@ -82,6 +83,7 @@ public:
 
     OSStatus GetPresets(CFArrayRef* outData) const override;
     OSStatus NewFactoryPresetSet(const AUPreset& inNewFactoryPreset) override;
+    OSStatus NewCustomPresetSet(const AUPreset& inNewCustomPreset) override;
 
     // latency
     Float64 GetLatency() override
@@ -124,21 +126,25 @@ public:
 
 private:
 
-    // `record` is the document's `state::encode_record`; empty loads the default.
-    auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
-                       std::span<const std::byte> record) -> void;
+    // `record` is the document's `state::encode_record`; empty loads the default. `legacy_editor` is an
+    // older preset's editor map.
+    auto _update_state(const Maybe_values<double>& knob_values, State_map legacy_editor,
+                       std::span<const std::byte> record, const Load_info& info) -> void;
     auto _load_state_record(std::span<const std::byte> record) -> void;
 
-    // ClassInfo. Hosts may save and load it from any thread, but the editor, undo and document are
-    // main's, so off main only `_state_image` is touched; `_state_tick` keeps it current on main.
+    // ClassInfo. Hosts may save and load it from any thread. A save builds on the calling thread from
+    // what is safe anywhere (Globals(), the processor's document, the edit store); a load from off
+    // main waits in `_pending` (and is the state meanwhile) until `_apply_relay` applies it on main.
     auto _build_state(CFPropertyListRef* outData) -> OSStatus;
     auto _apply_state(CFPropertyListRef plist) -> OSStatus;
     auto _apply_factory_preset(size_t preset_number) -> OSStatus;
     auto _apply_pending() -> void; // [main] A load or preset that arrived off main.
-    auto _refresh_state() -> void; // [main]
-    State_image<ausdk::Owned<CFPropertyListRef>> _state_image{};
+    Pending_load<ausdk::Owned<CFPropertyListRef>> _pending{};
+    // The base's current preset: written on main, read by a save from anywhere. Recursive: the base's
+    // RestoreState calls PresentPreset listeners synchronously with it held, and one may read ClassInfo.
+    std::recursive_mutex _base_mutex{};
     std::atomic<int32_t> _pending_preset{-1}; // A factory preset asked for off main.
-    std::optional<Relay> _state_tick{};
+    std::optional<Relay> _apply_relay{};
 
     auto _input(const process::Event::Any& input, int32_t offset) -> void;
     auto _send_notes(const AudioTimeStamp& time) -> void;
@@ -164,7 +170,6 @@ private:
                 .version = 1,
                 .param_tree = &User_params::param_tree(),
                 .param_values = std::vector<double>(knob.begin(), knob.end()),
-                .editor_state = _editor ? _editor->save_state() : State_map{},
 #if TINY_HAS_STATE
                 .state_record = state::encode_record(_state_link.view()),
 #endif
@@ -177,10 +182,8 @@ private:
     std::optional<User_editor> _editor{};
     Task_manager _tasks{};
 
-    // Framework-owned editor window-size cache (Effect lifetime, survives view
-    // recreation). Primed from persisted state in RestoreState; read by the view's
-    // initial_size provider; updated on every editor-initiated resize.
-    std::optional<Rect_size> _last_size{};
+    // The editor's view state, window size and load count (Effect lifetime, survives the view).
+    Edit_store _edit_store{sizing_of<User_editor>()};
 
 
     static constexpr auto num_params = User_params::num_params;
@@ -365,7 +368,7 @@ private:
                             auto event = AudioUnitEvent{};
                             event.mEventType = kAudioUnitEvent_BeginParameterChangeGesture;
                             event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                            event.mArgument.mParameter.mParameterID = a.address;
+                            event.mArgument.mParameter.mParameterID = *a.address;
                             event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
                             event.mArgument.mParameter.mElement = 0;
                             AUEventListenerNotify(NULL, NULL, &event);
@@ -392,7 +395,7 @@ private:
                             auto event = AudioUnitEvent{};
                             event.mEventType = kAudioUnitEvent_EndParameterChangeGesture;
                             event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                            event.mArgument.mParameter.mParameterID = a.address;
+                            event.mArgument.mParameter.mParameterID = *a.address;
                             event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
                             event.mArgument.mParameter.mElement = 0;
                             AUEventListenerNotify(NULL, NULL, &event);
@@ -403,14 +406,12 @@ private:
 #if TINY_HAS_STATE
                 .sync_state = [this]() { _state_link.sync(); },
 #endif
+                .end_frame = [this]() { _edit_store.end_frame(); },
             },
             .tasks = &_tasks,
             .undo_history = &_undo_history,
             .actions = &_actions,
-            .initial_size = [this]() { return _last_size.value_or(User_editor::preferred_size()); },
-            .on_resized = [this](uint32_t w, uint32_t h) {
-                _last_size = Rect_size{static_cast<int32_t>(w), static_cast<int32_t>(h)};
-            },
+            .edit_store = &_edit_store,
 #if TINY_HAS_WORKER
             .drain_worker_to_editor = [this]() { this->_drain_worker_to_editor(); }
 #endif

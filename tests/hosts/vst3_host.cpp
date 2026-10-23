@@ -2,7 +2,7 @@
 // controller (IEditController) apart the way a distributable host does, and drives them from a UI
 // thread and an audio thread, so the sanitizers can see the wrapper:
 //
-//     vst3_host <path/to/Plugin.vst3> [--seed N] [--seconds S]
+//     vst3_host <path/to/Plugin.vst3> [--seed N] [--seconds S] [--fixtures DIR [--write-fixtures] [--preset FILE]]
 //
 // Messages between the two halves go through a proxy that, like the SDK's reference ConnectionProxy,
 // only delivers on the UI thread: IConnectionPoint::notify is [UI-thread & Connected]. A send from
@@ -598,6 +598,19 @@ public:
         tiny::hosts::pump_main(8ms);
     }
 
+    // The view's size, after resizing it to `w`×`h` when given, as a host's frame drag does.
+    auto size(int32 w = 0, int32 h = 0) -> std::pair<int32_t, int32_t>
+    {
+        if (!_view) return {};
+        if (w > 0) {
+            auto rect = ViewRect{0, 0, w, h};
+            _view->onSize(&rect);
+        }
+        auto rect = ViewRect{};
+        _view->getSize(&rect);
+        return {rect.getWidth(), rect.getHeight()};
+    }
+
 private:
     IPtr<IPlugView> _view{};
     IPtr<Plug_frame> _frame{};
@@ -1094,21 +1107,196 @@ auto add_scenarios(const Bundle& bundle) -> void
     });
 }
 
+// MARK: - session fixtures
+
+auto to_bytes(const std::vector<char>& v) -> std::vector<uint8_t> { return {v.begin(), v.end()}; }
+auto to_chars(const std::vector<uint8_t>& v) -> std::vector<char> { return {v.begin(), v.end()}; }
+
+// The parameters a session restores: not read-only, not hidden (MIDI mapping, meters).
+auto persisted(const ParameterInfo& p) -> bool
+{
+    return !(p.flags & ParameterInfo::kIsReadOnly) && !(p.flags & ParameterInfo::kIsHidden);
+}
+
+// Sessions saved by an older build must keep loading: parameters, the document record and the
+// editor size. With --write-fixtures, this saves them instead.
+auto add_fixture_scenarios(const Bundle& bundle) -> void
+{
+    const auto base = tiny::hosts::fixture_base(g_options, tiny::hosts::bundle_name(g_options.bundle), "vst3");
+    if (base.empty()) return;
+
+    if (g_options.write_fixtures) {
+        Tests::add("fixtures: write a session", [&bundle, base] {
+            auto violations = Violations{};
+            auto window = tiny::hosts::Window{};
+            auto instance = Instance{bundle, violations};
+            auto random = Random{g_options.seed};
+
+            // A host's automation: to the processor in a sample-less flush, mirrored to the controller.
+            auto changes = ParameterChanges{static_cast<int32>(instance.params.size())};
+            for (auto k = size_t{}; k < instance.params.size(); ++k) {
+                const auto& p = instance.params[k];
+                if (!persisted(p)) continue;
+                const auto value = p.stepCount > 0
+                    ? tiny::hosts::fixture_value(k, 0, p.stepCount, true) / p.stepCount
+                    : tiny::hosts::fixture_value(k, 0, 1, false);
+                auto index = int32{}, point = int32{};
+                if (auto* queue = changes.addParameterData(p.id, index)) queue->addPoint(0, value, point);
+                instance.controller->setParamNormalized(p.id, value);
+            }
+            activate(instance, 48000, 512, false);
+            instance.processor->setProcessing(true);
+            auto flush = ProcessData{};
+            flush.processMode = kRealtime;
+            flush.symbolicSampleSize = kSample32;
+            flush.inputParameterChanges = &changes;
+            expect_true(instance.processor->process(flush) == kResultOk, "flush failed");
+            instance.processor->setProcessing(false);
+            deactivate(instance);
+            instance.service();
+
+            auto fixture = tiny::hosts::Session_fixture{};
+            {
+                auto editor = Editor_session{instance, window, violations};
+                const auto [w, h] = editor.size(tiny::hosts::fixture_width, tiny::hosts::fixture_height);
+                fixture.width = w;
+                fixture.height = h;
+            }
+            fixture.state = to_bytes(instance.save_component(random));
+            fixture.extra = to_bytes(instance.save_controller(random));
+            for (const auto& p : instance.params) {
+                if (persisted(p)) fixture.params.emplace_back(p.id, instance.controller->getParamNormalized(p.id));
+            }
+            tiny::hosts::write_fixture(base, fixture);
+            check_clean(violations, "fixtures");
+        });
+        return;
+    }
+
+    const auto fixture = tiny::hosts::read_fixture(base);
+    if (!fixture) return;
+
+    Tests::add("fixtures: a session saved by an older build loads", [&bundle, fixture = *fixture] {
+        auto violations = Violations{};
+        {
+            auto window = tiny::hosts::Window{};
+            auto instance = Instance{bundle, violations};
+            auto random = Random{g_options.seed};
+            expect_true(instance.load(to_chars(fixture.state), to_chars(fixture.extra), random), "load failed");
+            instance.service();
+            for (const auto& [id, expected] : fixture.params) {
+                const auto value = instance.controller->getParamNormalized(id);
+                expect_true(std::abs(value - expected) <= 1e-6, std::format("param {}: {} after load, saved {}", id, value, expected));
+            }
+            const auto record = tiny::hosts::find_record(fixture.state);
+            expect_true(tiny::hosts::find_record(to_bytes(instance.save_component(random))) == record, "the document record didn't survive a load and save");
+            const auto controller = to_bytes(instance.save_controller(random));
+            for (const auto& text : fixture.texts) expect_true(tiny::hosts::contains_text(controller, text), std::format("'{}' isn't in the view after the load", text));
+            if (fixture.width > 0) {
+                auto editor = Editor_session{instance, window, violations};
+                const auto [w, h] = editor.size();
+                expect_true(w == fixture.width && h == fixture.height, std::format("editor opened at {}x{}, saved at {}x{}", w, h, fixture.width, fixture.height));
+            }
+        }
+        tiny::hosts::pump_main(20ms);
+        check_clean(violations, "fixtures");
+    });
+}
+
+// MARK: - exported presets
+
+// A .vstpreset's component and controller chunks. The SDK's layout: 'VST3', a version, a 32-byte class
+// id and the chunk list's offset; the list is 'List', a count, then {id[4], offset, size} per chunk.
+auto read_vstpreset(const std::string& path) -> std::optional<std::pair<std::vector<char>, std::vector<char>>>
+{
+    const auto bytes = tiny::hosts::read_file(path);
+    if (!bytes || bytes->size() < 48 || std::memcmp(bytes->data(), "VST3", 4) != 0) return std::nullopt;
+    auto read = [&](size_t at, auto& out) { std::memcpy(&out, bytes->data() + at, sizeof(out)); };
+    auto list = int64_t{};
+    read(40, list);
+    if (list < 0 || static_cast<size_t>(list) + 8 > bytes->size() || std::memcmp(bytes->data() + list, "List", 4) != 0) return std::nullopt;
+    auto count = int32_t{};
+    read(static_cast<size_t>(list) + 4, count);
+
+    auto comp = std::vector<char>{}, ctrl = std::vector<char>{};
+    for (auto k = 0; k < count; ++k) {
+        const auto entry = static_cast<size_t>(list) + 8 + static_cast<size_t>(k) * 20;
+        if (entry + 20 > bytes->size()) return std::nullopt;
+        auto offset = int64_t{}, size = int64_t{};
+        read(entry + 4, offset);
+        read(entry + 12, size);
+        if (offset < 0 || size < 0 || static_cast<size_t>(offset + size) > bytes->size()) return std::nullopt;
+        const auto* begin = reinterpret_cast<const char*>(bytes->data()) + offset;
+        if (!std::memcmp(bytes->data() + entry, "Comp", 4)) comp.assign(begin, begin + size);
+        if (!std::memcmp(bytes->data() + entry, "Cont", 4)) ctrl.assign(begin, begin + size);
+    }
+    return std::pair{comp, ctrl};
+}
+
+// A factory preset from tools/presets' exporter, loaded as a host loads a .vstpreset: both chunks.
+auto add_preset_scenarios(const Bundle& bundle) -> void
+{
+    const auto base = tiny::hosts::preset_base(g_options, "vst3");
+    Tests::add("presets: an exported .vstpreset loads", [&bundle, base] {
+        auto violations = Violations{};
+        {
+            const auto chunks = read_vstpreset(g_options.preset);
+            expect_true(chunks.has_value(), std::format("{} isn't a .vstpreset", g_options.preset));
+            if (!chunks) return;
+            const auto& [comp, ctrl] = *chunks;
+            auto instance = Instance{bundle, violations};
+            auto random = Random{g_options.seed};
+            expect_true(instance.load(comp, ctrl, random), "load failed");
+            instance.service();
+
+            auto loaded = tiny::hosts::Session_fixture{};
+            for (const auto& p : instance.params) {
+                if (persisted(p)) loaded.params.emplace_back(p.id, instance.controller->getParamNormalized(p.id));
+            }
+            if (g_options.write_fixtures) {
+                tiny::hosts::write_expect(base, loaded);
+                return;
+            }
+            auto expected = tiny::hosts::Session_fixture{};
+            expect_true(tiny::hosts::read_expect(base, expected), std::format("no {}.expect", base.string()));
+            for (const auto& [id, value] : expected.params) {
+                const auto got = instance.controller->getParamNormalized(id);
+                expect_true(std::abs(got - value) <= 1e-6, std::format("param {}: {} after load, expected {}", id, got, value));
+            }
+            const auto record = tiny::hosts::find_record(to_bytes(comp));
+            expect_true(tiny::hosts::find_record(to_bytes(instance.save_component(random))) == record, "the preset's document didn't load");
+            const auto controller = to_bytes(instance.save_controller(random));
+            for (const auto& text : expected.texts) expect_true(tiny::hosts::contains_text(controller, text), std::format("'{}' isn't in the view after the load", text));
+        }
+        tiny::hosts::pump_main(20ms);
+        check_clean(violations, "presets");
+    });
+}
+
 } // namespace
 
 auto main(int argc, char** argv) -> int
 {
     g_options = tiny::hosts::parse_options(argc, argv);
     if (g_options.bundle.empty()) {
-        std::printf("usage: vst3_host <Plugin.vst3> [--seed N] [--seconds S]\n");
+        std::printf("usage: vst3_host <Plugin.vst3> [--seed N] [--seconds S] [--fixtures DIR [--write-fixtures] [--preset FILE]]\n");
         return 2;
     }
     std::printf("vst3_host: %s, seed %u\n", g_options.bundle.c_str(), g_options.seed);
     tiny::hosts::gui_init();
     try {
         const auto bundle = Bundle{g_options.bundle};
+        if (!g_options.preset.empty()) {
+            add_preset_scenarios(bundle);
+            return audio_bench::Tests::run_all() == 0 ? 0 : 1;
+        }
+        if (g_options.write_fixtures) {
+            add_fixture_scenarios(bundle);
+            return audio_bench::Tests::run_all() == 0 ? 0 : 1;
+        }
         add_scenarios(bundle);
         add_bounce_scenarios(bundle);
+        add_fixture_scenarios(bundle);
         return audio_bench::Tests::run_all() == 0 ? 0 : 1;
     }
     catch (const std::exception& e) {

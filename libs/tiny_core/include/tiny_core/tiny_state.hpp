@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <concepts>
 #include <cstddef>
@@ -7,6 +8,7 @@
 #include <cstring>
 #include <deque>
 #include <functional>
+#include <mutex>
 #include <span>
 #include <type_traits>
 #include <vector>
@@ -142,6 +144,7 @@ public:
     // published before the load and not yet sent is skipped: it holds the document being replaced.
     auto on_session_load(const T& value, std::uint32_t applied = 0) -> void
     {
+        const auto lock = std::lock_guard{_readers};
         _store.reset_to(value, applied);
         _last_sent = _edits.load(std::memory_order_acquire);
     }
@@ -154,31 +157,37 @@ public:
         _last_sent = edits;
     }
 
-    // [single reader] Send a snapshot if anything was published since the last one.
+    // [off the audio thread] Send a snapshot if anything was published since the last one.
     template<typename Wire>
     auto pump(Wire&& up) -> bool requires (processor_writes)
     {
+        const auto lock = std::lock_guard{_readers};
         const auto seen = _edits.load(std::memory_order_acquire);
         if (seen == _last_sent) return false;
 
         _buf.resize(snapshot_bytes<T>);
-        read_snapshot(_buf.data());
+        _read_snapshot(_buf.data());
         if (!detail::send(up, _buf, seen)) return false;
 
         _last_sent = seen;
         return true;
     }
 
-    // [single reader] {Ack, T} into `out`, for a transport that owns its own buffer.
+    // [the single reader; no lock, so the audio thread may call it] {Ack, T} into `out`, for a transport
+    // that owns its own buffer: the AAX algorithm, from process. Never on a processor that also serves
+    // `snapshot` or `pump`.
     auto read_snapshot(std::byte* out) -> void requires (processor_writes)
     {
-        auto ack = Ack{};
-        _store.read_bytes(out + sizeof(Ack), ack.applied, ack.rejected);
-        std::memcpy(out, &ack, sizeof(Ack));
+        _read_snapshot(out);
     }
 
-    // [single reader] The current document, answering from a staged edit if one is pending.
-    auto snapshot(T& out) -> void { _store.save(out); }
+    // [off the audio thread, any thread] The current document, answering from a staged edit if one
+    // is pending: what a save writes, from wherever the host saves.
+    auto snapshot(T& out) -> void
+    {
+        const auto lock = std::lock_guard{_readers};
+        _store.save(out);
+    }
 
     auto edits() const -> std::uint32_t { return _edits.load(std::memory_order_acquire); }
     auto conflicts() const -> std::size_t { return _conflicts.load(std::memory_order_relaxed); }
@@ -192,6 +201,14 @@ private:
     std::atomic<std::size_t> _rejections{};
     std::uint32_t _last_sent{};
     std::vector<std::byte> _buf{};
+    std::mutex _readers{}; // The store has one reader; saves, pumps and loads share it, never from the audio thread.
+
+    auto _read_snapshot(std::byte* out) -> void requires (processor_writes)
+    {
+        auto ack = Ack{};
+        _store.read_bytes(out + sizeof(Ack), ack.applied, ack.rejected);
+        std::memcpy(out, &ack, sizeof(Ack));
+    }
 
 };
 
@@ -246,6 +263,14 @@ public:
     auto in_flight() const -> bool
     {
         if constexpr (processor_writes) return !_pending.empty();
+        else return false;
+    }
+
+    // Some edit the wire took is not yet confirmed. Edits not yet sent don't count: a commit
+    // leaves them out anyway, since it diffs what the processor confirmed.
+    auto awaiting() const -> bool
+    {
+        if constexpr (processor_writes) return std::ranges::any_of(_pending, [](const Attempt& a) { return a.seq != 0; });
         else return false;
     }
 
@@ -361,14 +386,14 @@ public:
     }
 
     // Record one undo step for everything that changed since the last commit. Diffs the
-    // authoritative copy, so a step never claims an edit the processor has not accepted.
-    // `history.record_state(from, to, n)`.
+    // authoritative copy, so a step never claims an edit the processor has not accepted, and
+    // waits while one it sent is unconfirmed. `history.record_state(from, to, n)`.
     template<typename History>
     auto commit(History& history) -> bool
     {
         const auto& against = authoritative();
 
-        if (in_flight()) return false;
+        if (awaiting()) return false;
         if (std::memcmp(&_baseline, &against, sizeof(T)) == 0) return false;
 
         history.record_state(as_bytes(_baseline), as_bytes(against), sizeof(T));

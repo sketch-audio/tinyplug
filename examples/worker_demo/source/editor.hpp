@@ -13,20 +13,16 @@ namespace tiny::edit {
 class Editor {
 public:
 
-    static auto preferred_size() -> Rect_size { return {720, 420}; }
+    static constexpr auto sizing() -> Sizing { return {.preferred = {720, 420}}; }
 
     Editor(const Edit_context& edit) : _edit{edit} {}
     ~Editor() = default;
 
     auto on_gui_create(Gui_info) -> void {}
     auto on_gui_show() -> void {}
-    auto notify(const Host_event&) -> void;
     auto on_gui_draw(Plugin_state&) -> void;
     auto on_gui_hide() -> void { _controls.cancel(_edit.actions); }
     auto on_gui_destroy() -> void {}
-
-    auto save_state() -> State_map { return {}; }
-    auto load_state(const State_map&) -> void {}
 
     auto bind_worker(Worker_editor_actor worker) -> void { _worker = worker; }
     auto on_worker_reply(const User_work::To_editor& reply) -> void;

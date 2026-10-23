@@ -42,6 +42,7 @@ public:
             .state_adapter = _state_adapter.actor(),
             .undo_redo = _undo_history.actor(),
             .tasks = _tasks.actor(),
+            .view = _edit_store.handle(),
 #if TINY_HAS_STATE
             .state = _state_link.actor(),
 #endif
@@ -49,6 +50,8 @@ public:
             .notes = Note_sender{[this](const midi::Performance& e) { return _notes.post_from_editor(e); }},
 #endif
         });
+        _undo_history.bind_actions(_actions.actor());
+        _edit_store.bind(_undo_history);
 
 #if TINY_HAS_STATE
         state::connect_in_process(_state_link, _state);
@@ -202,10 +205,8 @@ private:
     // GUI
     std::unique_ptr<View> _view{nullptr};
 
-    // Framework-owned editor window-size cache (plug-in lifetime, survives view
-    // recreation). Primed from persisted state on load; reports the initial size so
-    // the window reopens pre-sized. Updated on every host-echoed resize (guiSetSize).
-    std::optional<Rect_size> _last_size{};
+    // The editor's view state, window size and load count (plug-in lifetime, survives the view).
+    Edit_store _edit_store{sizing_of<User_editor>()};
 
     // Undo history and action queue live here (plug-in lifetime), not in the view,
     // so the editor's Edit_context (built once at construction) stays valid across
@@ -334,7 +335,6 @@ private:
                 .version = 1,
                 .param_tree = &User_params::param_tree(),
                 .param_values = std::vector<double>(knob.begin(), knob.end()),
-                .editor_state = _editor ? _editor->save_state() : State_map{},
 #if TINY_HAS_STATE
                 .state_record = state::encode_record(_state_link.view()),
 #endif
@@ -347,9 +347,10 @@ private:
     auto _resolve_transport(const clap_process* process) -> process::Timeline;
     auto _read_state_chunk(const clap_istream* stream) -> bool;
 
-    // `record` is the document's `state::encode_record`; empty loads the default.
-    auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state,
-                       std::span<const std::byte> record, bool bypass_changed = false) -> void;
+    // `record` is the document's `state::encode_record`; empty loads the default. `legacy_editor` is the
+    // editor map of an older session or preset, `edit_record` the editor's record of a newer one.
+    auto _update_state(const Maybe_values<double>& knob_values, State_map legacy_editor, std::span<const std::byte> record,
+                       const std::optional<Edit_record>& edit_record, const Load_info& info, bool bypass_changed = false) -> void;
     auto _handle_host_flushed() -> void;
     auto _input(const process::Event::Any& input, uint32_t time) -> void;
     auto _handle_note_event(const clap_event_header* event) -> void;
