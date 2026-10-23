@@ -293,3 +293,9 @@ if(TINY_BUILD_PLUGINS AND NOT EMSCRIPTEN)
         endforeach()
     endif()
 endif()
+
+# The suppressions reach every test here however ctest is run; the presets pass the rest of TSAN_OPTIONS.
+if(TINY_SANITIZE STREQUAL "thread")
+    get_property(_tests DIRECTORY PROPERTY TESTS)
+    set_property(TEST ${_tests} APPEND PROPERTY ENVIRONMENT_MODIFICATION "TSAN_OPTIONS=string_append::suppressions=${CMAKE_CURRENT_SOURCE_DIR}/sanitizers/tsan.supp")
+endif()
