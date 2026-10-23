@@ -1,21 +1,23 @@
 # Plan: Keyboard input — native text fields, then best-effort shortcuts, never stolen keys
 
-> Status: **part 1 in progress on `keyboard-text-fields` (2026-10-23).** `Platform_text`
-> ([platform_text.hpp](../libs/tiny_platform/include/tiny_platform/platform_text.hpp)) is in on macOS (an
-> `NSTextField` over the view, in `mac_view.mm` with per-plug-in class names) and web (an `<input>` over the canvas,
-> `web_view.cpp`), both in the editor's embedded font, registered nowhere (Windows: `AddFontMemResourceEx`, private to
-> the process, matched by the family name read from the font's `name` table).
-> Windows has a subclassed `EDIT` in a container child (win_view.cpp), built and checked on Windows; iOS a
-> `UITextField` (ios_view.mm): a tap elsewhere in the editor ends it, a hardware keyboard's Escape cancels, and it
-> floats above the on-screen keyboard while that covers it (checked on a device in an AUv3 host, 2026-10-23). text_demo types
-> slider values (right-click) and its specimen; platform_demo has INLINE > GAIN and INLINE NOTE. Checked in headless
-> Chrome (commit, Escape, clamping, the field drawn in Inter); macOS built and installed, not yet tried in hosts.
-> Remaining: a Windows build and check, the host matrix, part 2.
+> Status: **part 1 landed (2026-10-23); part 2 is design.** `Platform_text`
+> ([platform_text.hpp](../libs/tiny_platform/include/tiny_platform/platform_text.hpp)) opens a native single-line field
+> over the editor, in the editor's embedded font (registered nowhere outside the process), and works on every
+> platform:
 >
-> Before: no platform view delivered a key: `mac_view.mm` has no `keyDown:`, `win_view.cpp` no `WM_KEYDOWN` /
-> `WM_CHAR`, `web_view.cpp` and `editor.js` no key listeners, and `tiny_input.hpp` no key event. Modifiers work
-> everywhere because they're polled each frame (`[NSEvent modifierFlags]`, `GetKeyState`), not delivered. Text entry
-> was `Platform_dialogs::text_input`, a modal dialog.
+> | Platform | Field | Checked |
+> |---|---|---|
+> | macOS | `NSTextField` in `mac_view.mm`, per-plug-in class names | in a DAW (VST3, AU, CLAP) |
+> | iOS | `UITextField` in `ios_view.mm`; floats above the on-screen keyboard | on a device, in an AUv3 host |
+> | Windows | a subclassed `EDIT` in a container child, `win_view.cpp`; the font by GDI's per-instance names | in a DAW |
+> | web | an `<input>` over the canvas, `web_view.cpp`, the font as a `FontFace` | headless Chrome (`smoke.mjs --type`) |
+>
+> Enter commits, Escape cancels, and focus loss or any press elsewhere in the editor ends a field as its `blur`
+> says, on every platform. text_demo types slider values (right-click) and its specimen; platform_demo has INLINE >
+> GAIN and INLINE NOTE. Remaining: the host matrix (below), and part 2.
+>
+> Before: no platform view delivered a key, and modifiers worked only because they're polled each frame
+> (`[NSEvent modifierFlags]`, `GetKeyState`). Text entry was `Platform_dialogs::text_input`, a modal dialog.
 
 ## Principles
 
@@ -138,10 +140,21 @@ key mapping and the claims answer.
 1. ~~Part 1 on macOS and web~~, in the demos. A value-entry control in `tiny_ui` is left out: tiny_ui is header-only
    over tinyplug and doesn't link `tiny_platform`; the demos show the pattern (a right-click opens a field, the
    result goes through `Host_formatter::to_value` as one gesture).
-2. The matrix for part 1 on macOS; the per-host fallback only for hosts that fail.
-3. ~~Part 1 on Windows (`EDIT`) and iOS (`UITextField`)~~. Both work on their devices. A transparent background
+2. ~~Part 1 on Windows (`EDIT`) and iOS (`UITextField`)~~. Both work on their devices. A transparent background
    can't show our pixels through a native Win32 control: Windows paints the RGB opaque.
+3. The matrix for part 1 (Logic, Live, Reaper, Cubase, Bitwig, Pro Tools, FL Studio, Studio One); the per-host modal
+   fallback only for hosts that fail.
 4. Part 2, macOS first, then VST3 `onKeyDown`, Windows, web, iOS.
+
+## Linux
+
+No native field is toolkit-neutral there: GTK or Qt in a plug-in collides with whichever the host loaded (the dialog
+note in [linux-feasibility.md](linux-feasibility.md)). So Linux's `Platform_text` would be our own field, drawn with
+`tiny_text` on the editor's X11 child window: SkParagraph's `getGlyphPositionAtCoordinate` and `getRectsForRange`
+give caret placement and selection, keys arrive by X11 focus on our window (or VST3's `onKeyDown`), IME through XIM
+(`XOpenIM` / `XCreateIC`), the clipboard through X11 selections. The same API, more work than the native fields: it
+is part 2's key events plus a small line editor. Until then, a modal fallback (an out-of-process prompt, as the
+dialogs plan) keeps the API whole.
 
 ## Learned building part 1
 

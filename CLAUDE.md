@@ -875,6 +875,14 @@ OS's CPU/GPU backend. Planned backend work: [roadmap-misc.md](plans/roadmap-misc
   [libs/tiny_platform/CMakeLists.txt](libs/tiny_platform/CMakeLists.txt)) pending
   non-blocking frame sync.
 - Web: a `<canvas>`, Skia CPU raster blitted with `putImageData`; see "Web" above.
+- **`Platform_text`** ([platform_text.hpp](libs/tiny_platform/include/tiny_platform/platform_text.hpp)) opens a native
+  single-line field over the editor (`NSTextField` in `mac_view.mm`, `UITextField` in `ios_view.mm`, a subclassed
+  `EDIT` in `win_view.cpp`, an `<input>` in `web_view.cpp`) in the editor's embedded font; its callback fires once,
+  through the `Task_manager`, like the dialogs. Editors include it from their `.cpp`: the web processor module
+  includes `editor.hpp` without linking `tiny_platform`. A press anywhere else in the editor ends a field (none of
+  the views takes focus). Windows: the editor window has `WS_CLIPCHILDREN`, and a variable font is matched by GDI's
+  per-instance names from DirectWrite, not the name table's family. Design and the host matrix:
+  [keyboard-input.md](plans/keyboard-input.md).
 - `Relay` delivers on the main thread everywhere. On Windows that is a per-DLL hidden
   message window bound to the thread that constructs the first relay, so **construct
   relays on the UI thread**. A drain on main must be bounded, never `while (pop())`
@@ -1004,11 +1012,11 @@ its rules are in this file and its history in git.
 - **[client-port.md](plans/client-port.md)** — next (0.5). Bring all_plugins up on main: the `Restart` port and
   contract checks per product, and the editor features (preset names, `*`, A/B, linked controls, layout) rebuilt
   on the view model and transactions. Holds the 0.4 client defects the port should fix.
-- **[fonts-and-text.md](plans/fonts-and-text.md)** — in progress. `tiny_text`, `tiny_embed` and text_demo are in
-  (macOS and web); remaining: Windows and iOS builds, the clients.
-- **[keyboard-input.md](plans/keyboard-input.md)** — part 1 in progress (branch `keyboard-text-fields`).
-  `Platform_text`: inline native text fields (macOS, iOS, Windows, web). Then key events for
-  shortcuts under per-frame claims; no hooks or event monitors, unclaimed keys go back to the host.
+- **[fonts-and-text.md](plans/fonts-and-text.md)** — landed for the framework, on every platform; the clients remain
+  (client-port.md), plus paragraph tracking and SVG later.
+- **[keyboard-input.md](plans/keyboard-input.md)** — part 1 landed: `Platform_text`, inline native text fields on
+  every platform; the host matrix remains. Part 2 is design: key events for shortcuts under per-frame claims; no
+  hooks or event monitors, unclaimed keys go back to the host.
 - **[buffer-system.md](plans/buffer-system.md)** — design. Managed large audio buffers (looper, granular,
   sampler, drum machine): a processor-owned canonical source, off-thread prepare, pointer-swap install,
   persisted in the session.

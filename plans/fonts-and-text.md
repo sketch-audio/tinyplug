@@ -1,13 +1,15 @@
 # Plan: Fonts and text — embedded fonts, HarfBuzz shaping, one result on every platform
 
-> Status: **in progress (2026-10-23), ready for clients.** `tiny_text` ([fonts.hpp](../libs/tiny_text/include/tiny_text/fonts.hpp)) and
-> `tiny_embed` ([embed.cmake](../cmake/embed.cmake)) are in, with [text_demo](../examples/text_demo/) (Inter,
-> variable) and `tiny_text_test`. Built and run on macOS (VST3, tests) and web (both modules, the web tests and a
-> headless-Chrome screenshot of the editor). Not yet built on Windows or iOS. Remaining: "Next" below.
+> Status: **landed for the framework (2026-10-23); the clients remain.** `tiny_text`
+> ([fonts.hpp](../libs/tiny_text/include/tiny_text/fonts.hpp)) and `tiny_embed` ([embed.cmake](../cmake/embed.cmake))
+> are in, with [text_demo](../examples/text_demo/) (Inter, variable) and `tiny_text_test` (18 tests, native and wasm).
+> Built and checked by eye on macOS (VST3, AU, CLAP in a DAW), Windows, iOS (a device, in an AUv3 host) and web
+> (headless Chrome). What remains is the client port ([client-port.md](client-port.md), "Text") and the items under
+> "Next". Text fields that type in the same fonts are [keyboard-input.md](keyboard-input.md)'s `Platform_text`.
 >
 > Fonts embedded in the binary, static or variable, shaped with HarfBuzz and laid out by SkParagraph, rasterised by
-> each platform's Skia font manager. Same glyph positions on macOS, iOS, Windows and web. `tiny_ui` and the other
-> demos keep the 3×5 pixel font.
+> each platform's Skia font manager. Same glyph positions on every platform. `tiny_ui` and the other demos keep the
+> 3×5 pixel font.
 
 ## Why the earlier Skia text looked wrong
 
@@ -108,16 +110,20 @@ A product embedding one weight-limited static font pays much less than the two f
 
 ## Next
 
-1. **Windows and iOS builds** of `tiny_text` and text_demo; check DirectWrite's rasterisation and the variable
-   clone on Windows.
-2. ~~The CoreText A/B tool~~: dropped. text_demo's spacing reads natural by eye in a DAW (2026-10-23); build one
-   (all_plugins' `Typesetter` as the oracle, diffing positions) only if a product's font shows a difference.
+1. ~~Windows and iOS builds~~: both run text_demo (2026-10-23).
+2. ~~The CoreText A/B tool~~: dropped. text_demo's spacing reads natural by eye in a DAW; build one (all_plugins'
+   `Typesetter` as the oracle, diffing positions) only if a product's font shows a difference.
 3. **Paragraph tracking**: a tracked paragraph's lines still carry SkParagraph's trailing space and half-space shift
    (single lines don't); a paragraph's last-line ellipsis breaks at a word (`drawn …`). Fix if a product needs it.
-4. **Clients** (after [client-port.md](client-port.md)): `Font_manager` and `Typesetter` replaced by `tiny_text`,
-   monorobot's `Painter` ported, font data through `tiny_embed`. Products then build for web with their own fonts.
-5. Later: SVG icons through Skia's `svg` module and `tiny_embed`; rich runs (several styles in one paragraph) if a
-   product needs them; LCD antialiasing on Windows only if text looks soft at 100 %.
+4. **Clients** (after [client-port.md](client-port.md)): monorobot's `Painter` and SUI's `Text` onto `tiny_text`,
+   font data through `tiny_embed`, then `text_helpers` goes. Products then build for web with their own fonts.
+5. Later: SVG icons through Skia's `svg` module and `tiny_embed`; LCD antialiasing on Windows only if text looks soft
+   at 100 %.
+
+**Linux** ([linux-feasibility.md](linux-feasibility.md)) needs nothing new from this design: the FreeType backend web
+already uses (`makeFromData`, no system fonts required), HarfBuzz in `skshaper` and libgrapheme build there as
+everywhere. The one choice is the fallback manager for characters our fonts lack: fontconfig (the user's fonts) or
+none (as web).
 
 ## Rejected
 

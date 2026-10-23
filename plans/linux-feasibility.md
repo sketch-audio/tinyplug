@@ -78,6 +78,9 @@ Then add an `elseif(UNIX AND NOT APPLE)` branch to
   (`WIN_GRAPHICS_GPU` defaults off); add a GL/EGL surface later. This keeps the
   first milestone small and reuses the proven software-raster model.
 - **Paths:** XDG base dirs (`$XDG_CONFIG_HOME`, `~/.local/share`) — trivial.
+- **Text:** `tiny_text` needs only FreeType, as on web ([fonts-and-text.md](fonts-and-text.md)). `Platform_text`'s
+  inline field has no toolkit-neutral native control here: a field drawn with `tiny_text` plus XIM, or a modal
+  fallback first ([keyboard-input.md](keyboard-input.md), "Linux").
 - **Dialogs:** Linux has no single native file dialog — see the dedicated note
   below. **Stub/defer** initially regardless of choice; file pickers are only
   needed by the editor-origin acquire in [buffer-system.md](buffer-system.md), not
