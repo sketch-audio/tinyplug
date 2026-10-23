@@ -26,7 +26,7 @@ private:
     Frame _frame{};
     Coords _translation{};
     double _value{};
-    std::unique_ptr<Gesture_recognizer> _drag{};
+    std::unique_ptr<gesture::Recognizer> _drag{};
 
     edit::Context _edit{};
     bool _dark{};

@@ -35,8 +35,8 @@ auto Editor::on_show() -> void
         return clamped;
     };
 
-    _drag = std::make_unique<Drag_recognizer>(Gesture_callbacks<Drag_info>{
-        .on_started = [=, this](const Drag_info& info) {
+    _drag = std::make_unique<gesture::Drag>(gesture::Callbacks<gesture::Drag::Info>{
+        .on_started = [=, this](const gesture::Drag::Info& info) {
             _translation = {};
             const auto translation = make_translation(info.fpos, info.tpos);
             const auto deltas = resolve_deltas(translation, _frame);
@@ -45,14 +45,14 @@ auto Editor::on_show() -> void
             _edit.params.start(addr);
             _edit.params.set(addr, value);
         },
-        .on_updated = [=, this](const Drag_info& info) {
+        .on_updated = [=, this](const gesture::Drag::Info& info) {
             const auto translation = make_translation(info.fpos, info.tpos);
             const auto deltas = resolve_deltas(translation, _frame);
             const auto value = resolve_incremented(_value, deltas);
             const auto addr = enum_raw(Address::Gain);
             _edit.params.set(addr, value);
         },
-        .on_ended = [=, this](const Drag_info& info) {
+        .on_ended = [=, this](const gesture::Drag::Info& info) {
             const auto translation = make_translation(info.fpos, info.tpos);
             const auto deltas = resolve_deltas(translation, _frame);
             const auto value = resolve_incremented(_value, deltas);

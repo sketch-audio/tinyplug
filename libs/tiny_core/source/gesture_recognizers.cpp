@@ -5,11 +5,11 @@
 
 #include "tiny_core/platform_defs.hpp" // TINY_PLATFORM_* (used below)
 
-namespace tiny {
+namespace tiny::gesture {
 
 // MARK: - Over
 
-auto Over_recognizer::set_frame(const Frame& frame) -> void
+auto Over::set_frame(const Frame& frame) -> void
 {
     const auto moved = (frame != _frame); // Make sure we really changed frame.
     _frame = frame;
@@ -21,7 +21,7 @@ auto Over_recognizer::set_frame(const Frame& frame) -> void
     }
 }
 
-auto Over_recognizer::process_events(Event_list& events) -> void
+auto Over::process_events(Event_list& events) -> void
 {
     const auto has_touches = !events.pointer_origins.empty();
     auto touch_is_ours = [&](auto tag) {
@@ -68,7 +68,7 @@ auto Over_recognizer::process_events(Event_list& events) -> void
     }
 }
 
-auto Over_recognizer::resolve_events(Coords pos, bool was_over, bool now_over, uintptr_t tag) -> void
+auto Over::resolve_events(Coords pos, bool was_over, bool now_over, uintptr_t tag) -> void
 {
     if (!was_over && now_over) {
         _callbacks.on_started({pos, true});
@@ -83,7 +83,7 @@ auto Over_recognizer::resolve_events(Coords pos, bool was_over, bool now_over, u
 
 // MARK: - Down
 
-auto Down_recognizer::set_frame(const Frame& frame) -> void
+auto Down::set_frame(const Frame& frame) -> void
 {
     const auto moved = (frame != _frame); // Make sure we really changed frame.
     _frame = frame;
@@ -95,7 +95,7 @@ auto Down_recognizer::set_frame(const Frame& frame) -> void
     }
 }
 
-auto Down_recognizer::process_events(Event_list& events) -> void
+auto Down::process_events(Event_list& events) -> void
 {
     for (const auto& event : events.events) {
         if (event.consumed) continue;
@@ -130,7 +130,7 @@ auto Down_recognizer::process_events(Event_list& events) -> void
 
 // MARK: - Dwell
 
-auto Dwell_recognizer::set_frame(const Frame& frame) -> void
+auto Dwell::set_frame(const Frame& frame) -> void
 {
     const auto moved = (frame != _frame); // Make sure we really changed frame.
     _frame = frame;
@@ -143,7 +143,7 @@ auto Dwell_recognizer::set_frame(const Frame& frame) -> void
     _over_t = std::nullopt;
 }
 
-auto Dwell_recognizer::process_events(Event_list& events) -> void
+auto Dwell::process_events(Event_list& events) -> void
 {
     // Replaces global down.
     auto pointer_is_down = [&](uintptr_t tag) {
@@ -169,7 +169,7 @@ auto Dwell_recognizer::process_events(Event_list& events) -> void
                 // hovering. `pointer_origins` is erased when the up is pushed but the list
                 // is snapshotted at consume, so any move sharing a frame with the up reads
                 // as "nothing down" and arms the timer — the tooltip then lands seconds
-                // after the gesture ended. Same reason `Over_recognizer` ends hover here.
+                // after the gesture ended. Same reason `Over` ends hover here.
                 _over_t = std::nullopt;
 #endif
             },
@@ -224,7 +224,7 @@ auto Dwell_recognizer::process_events(Event_list& events) -> void
     }
 }
 
-auto Dwell_recognizer::end_dwell(Coords pos) -> void
+auto Dwell::end_dwell(Coords pos) -> void
 {
     _callbacks.on_ended({pos, false});
     _dwelling = false;
@@ -232,12 +232,12 @@ auto Dwell_recognizer::end_dwell(Coords pos) -> void
 
 // MARK: - Click
 
-auto Click_recognizer::set_frame(const Frame& frame) -> void
+auto Click::set_frame(const Frame& frame) -> void
 {
     _frame = frame;
 }
 
-auto Click_recognizer::process_events(Event_list& events) -> void
+auto Click::process_events(Event_list& events) -> void
 {
     for (auto& event : events.events) {
         if (event.consumed) continue;
@@ -274,7 +274,7 @@ auto Click_recognizer::process_events(Event_list& events) -> void
 
 // MARK: - Drag
 
-auto Drag_recognizer::set_frame(const Frame& frame) -> void
+auto Drag::set_frame(const Frame& frame) -> void
 {
     _frame = frame;
     if (!_cancels_on_frame_change) return;
@@ -285,7 +285,7 @@ auto Drag_recognizer::set_frame(const Frame& frame) -> void
     }
 }
 
-auto Drag_recognizer::process_events(Event_list& events) -> void
+auto Drag::process_events(Event_list& events) -> void
 {
     for (auto& event : events.events) {
         if (event.consumed) continue;
@@ -336,7 +336,7 @@ auto Drag_recognizer::process_events(Event_list& events) -> void
     }
 }
 
-auto Drag_recognizer::past_slop(Coords fpos, Coords tpos) const -> bool
+auto Drag::past_slop(Coords fpos, Coords tpos) const -> bool
 {
     if (_start_slop <= 0.) return true;
     const auto dx = tpos.x - fpos.x;
@@ -344,11 +344,11 @@ auto Drag_recognizer::past_slop(Coords fpos, Coords tpos) const -> bool
     return (dx * dx + dy * dy) >= (_start_slop * _start_slop);
 }
 
-auto Drag_recognizer::reset() -> void
+auto Drag::reset() -> void
 {
     _fpos = std::nullopt;
     _tag = std::nullopt;
     _initiated = false;
 }
 
-} // namespace tiny
+} // namespace tiny::gesture

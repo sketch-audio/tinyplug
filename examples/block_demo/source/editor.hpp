@@ -51,7 +51,7 @@ private:
     Frame _gain_frame{};
     Coords _translation{};
     double _gain{};
-    std::unique_ptr<Gesture_recognizer> _drag{};
+    std::unique_ptr<gesture::Recognizer> _drag{};
 
 };
 static_assert(Interface<Editor>);

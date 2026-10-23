@@ -6,39 +6,28 @@
 
 #include "tiny_input.hpp"
 
-namespace tiny {
+namespace tiny::gesture {
 
 // MARK: - Interface
 
-class Gesture_recognizer {
+class Recognizer {
 public:
-    virtual ~Gesture_recognizer() = default;
+    virtual ~Recognizer() = default;
     virtual auto set_frame(const Frame& frame) -> void = 0;
     virtual auto process_events(Event_list& events) -> void = 0;
 };
 
 template<typename T>
-using On_started = std::function<void(const T&)>;
-
-template<typename T>
-using On_updated = std::function<void(const T&)>;
-
-template<typename T>
-using On_ended = std::function<void(const T&)>;
-
-using On_cancelled = std::function<void()>;
-
-template<typename T>
-struct Gesture_callbacks {
-    On_started<T> on_started{[](auto) {}};
-    On_updated<T> on_updated{[](auto) {}};
-    On_ended<T> on_ended{[](auto) {}};
-    On_cancelled on_cancelled{[]() {}};
+struct Callbacks {
+    std::function<void(const T&)> on_started{[](auto) {}};
+    std::function<void(const T&)> on_updated{[](auto) {}};
+    std::function<void(const T&)> on_ended{[](auto) {}};
+    std::function<void()> on_cancelled{[]() {}};
 };
 
 // MARK: - Over
 
-class Over_recognizer : public Gesture_recognizer {
+class Over : public Recognizer {
 public:
     
     struct Info {
@@ -46,7 +35,7 @@ public:
         bool over{};
     };
 
-    explicit Over_recognizer(const Gesture_callbacks<Info>& callbacks)
+    explicit Over(const Callbacks<Info>& callbacks)
         : _callbacks{callbacks} {}
 
     auto set_frame(const Frame& frame) -> void override;
@@ -54,7 +43,7 @@ public:
 
 private:
     
-    Gesture_callbacks<Info> _callbacks{};
+    Callbacks<Info> _callbacks{};
     Frame _frame{};
     bool _over{};
     std::optional<uintptr_t> _tag{};
@@ -63,11 +52,9 @@ private:
 
 };
 
-using Over_info = Over_recognizer::Info;
-
 // MARK: - Down
 
-class Down_recognizer : public Gesture_recognizer {
+class Down : public Recognizer {
 public:
 
     struct Info {
@@ -75,7 +62,7 @@ public:
         bool down{};
     };
 
-    explicit Down_recognizer(const Gesture_callbacks<Info>& callbacks)
+    explicit Down(const Callbacks<Info>& callbacks)
         : _callbacks{callbacks} {}
 
     auto set_frame(const Frame& frame) -> void override;
@@ -83,18 +70,16 @@ public:
 
 private:
 
-    Gesture_callbacks<Info> _callbacks{};
+    Callbacks<Info> _callbacks{};
     Frame _frame{};
     bool _down{};
     std::optional<uintptr_t> _tag{};
 
 };
 
-using Down_info = Down_recognizer::Info;
-
 // MARK: - Dwell
 
-class Dwell_recognizer : public Gesture_recognizer {
+class Dwell : public Recognizer {
 public:
 
     struct Info {
@@ -102,7 +87,7 @@ public:
         bool dwelling{};
     };
 
-    explicit Dwell_recognizer(const Gesture_callbacks<Info>& callbacks)
+    explicit Dwell(const Callbacks<Info>& callbacks)
         : _callbacks{callbacks} {}
 
     auto set_frame(const Frame& frame) -> void override;
@@ -113,7 +98,7 @@ private:
 
     static constexpr auto dwell_ms = 2000;
 
-    Gesture_callbacks<Info> _callbacks{};
+    Callbacks<Info> _callbacks{};
     Frame _frame{};
 
     std::optional<Steady_time> _over_t{};
@@ -124,11 +109,9 @@ private:
 
 };
 
-using Dwell_info = Dwell_recognizer::Info;
-
 // MARK: - Click
 
-class Click_recognizer : public Gesture_recognizer {
+class Click : public Recognizer {
 public:
 
     struct Desc {
@@ -141,7 +124,7 @@ public:
         Coords pos{};
     };
 
-    explicit Click_recognizer(Gesture_callbacks<Info> callbacks, const Desc& desc)
+    explicit Click(Callbacks<Info> callbacks, const Desc& desc)
         : _callbacks{callbacks}, _desc{desc} {}
 
     auto set_frame(const Frame& frame) -> void override;
@@ -150,17 +133,15 @@ public:
 
 private:
 
-    Gesture_callbacks<Info> _callbacks{};
+    Callbacks<Info> _callbacks{};
     Desc _desc{};
     Frame _frame{};
 
 };
 
-using Click_info = Click_recognizer::Info;
-
 // MARK: - Drag
 
-class Drag_recognizer : public Gesture_recognizer {
+class Drag : public Recognizer {
 public:
 
     struct Info {
@@ -171,7 +152,7 @@ public:
     // `start_slop` is the pointer travel, in points, a press must exceed before the
     // drag begins. 0 (the default) keeps the pixel-0 tracking drag-primary controls
     // want; click-primary controls set it so a wobble during a click is not a drag.
-    explicit Drag_recognizer(const Gesture_callbacks<Info>& callbacks, bool greedy = false,
+    explicit Drag(const Callbacks<Info>& callbacks, bool greedy = false,
                              bool cancels_on_frame_change = true, double start_slop = 0.)
         : _callbacks{callbacks}, _greedy{greedy}, _cancels_on_frame_change{cancels_on_frame_change},
           _start_slop{start_slop} {}
@@ -181,7 +162,7 @@ public:
 
 private:
 
-    Gesture_callbacks<Info> _callbacks{};
+    Callbacks<Info> _callbacks{};
     bool _greedy{};
     bool _cancels_on_frame_change{};
     double _start_slop{};
@@ -197,15 +178,13 @@ private:
     
 };
 
-using Drag_info = Drag_recognizer::Info;
-
 // MARK: - Factory
 
 // Factory to create recognizers with deduced callback types.
-template<typename Recognizer, typename... Args>
-auto make_recognizer(Gesture_callbacks<typename Recognizer::Info> callbacks, Args&&... args) -> std::unique_ptr<Recognizer>
+template<typename R, typename... Args>
+auto make(Callbacks<typename R::Info> callbacks, Args&&... args) -> std::unique_ptr<R>
 {
-    return std::make_unique<Recognizer>(std::move(callbacks), std::forward<Args>(args)...);
+    return std::make_unique<R>(std::move(callbacks), std::forward<Args>(args)...);
 }
 
-} // namespace tiny
+} // namespace tiny::gesture

@@ -36,7 +36,7 @@ private:
     // One recognizer, and what it has said lately.
     struct Probe {
         const char* name{};
-        std::unique_ptr<Gesture_recognizer> recognizer{};
+        std::unique_ptr<gesture::Recognizer> recognizer{};
         uint32_t count{};
         double flash{};        // Seconds of lamp left.
         const char* phase{""}; // The last callback.
@@ -49,7 +49,7 @@ private:
 
     std::array<Probe, 7> _probes{};
     Frame _pad{};
-    std::optional<Drag_info> _drag{};
+    std::optional<gesture::Drag::Info> _drag{};
     std::deque<std::string> _raw{};
     Coords _scroll{};
     std::string _result{"NO DIALOG YET"};

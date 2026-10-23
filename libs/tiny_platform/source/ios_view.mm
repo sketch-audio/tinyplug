@@ -480,7 +480,7 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
     // Taps stay reliable because the tap recognizer only fires for genuine taps (its own
     // movement tolerance fails it on a real drag, so it never produces a spurious click),
     // and the click is emitted unconditionally by the handlers. Any tap/drag tie-break
-    // now lives in the surface's own Drag_recognizer (per-surface slop), not here.
+    // now lives in the surface's own gesture::Drag (per-surface slop), not here.
     for (UITouch* touch in touches) {
         const CGPoint location = [touch locationInView:self];
         const auto pos = Coords{location.x, location.y};

@@ -115,23 +115,23 @@ auto Editor::on_show() -> void
 {
     const auto addr = enum_raw(Address::Gain);
 
-    auto knob_after = [this](const Drag_info& info) {
+    auto knob_after = [this](const gesture::Drag::Info& info) {
         const auto translation = Coords{info.tpos.x - info.fpos.x, info.tpos.y - info.fpos.y};
         const auto dy = (translation.y - _translation.y) / _gain_frame.h;
         _translation = translation;
         return std::clamp(_gain - dy, 0., 1.);
     };
 
-    _drag = std::make_unique<Drag_recognizer>(Gesture_callbacks<Drag_info>{
-        .on_started = [=, this](const Drag_info& info) {
+    _drag = std::make_unique<gesture::Drag>(gesture::Callbacks<gesture::Drag::Info>{
+        .on_started = [=, this](const gesture::Drag::Info& info) {
             _translation = {};
             _edit.params.start(addr);
             _edit.params.set(addr, knob_after(info));
         },
-        .on_updated = [=, this](const Drag_info& info) {
+        .on_updated = [=, this](const gesture::Drag::Info& info) {
             _edit.params.set(addr, knob_after(info));
         },
-        .on_ended = [=, this](const Drag_info& info) {
+        .on_ended = [=, this](const gesture::Drag::Info& info) {
             _edit.params.set(addr, knob_after(info));
             _edit.params.end(addr);
         },

@@ -74,21 +74,21 @@ auto Editor::_make_probes() -> void
     // Each callback lights its probe's lamp and names the phase.
     const auto callbacks = [this]<typename Info>(size_t i, std::function<void(const Info&)> extra = {}) {
         const auto hit = [this, i](const char* phase) { auto& p = _probes[i]; p.phase = phase; p.flash = 0.25; };
-        return Gesture_callbacks<Info>{
+        return gesture::Callbacks<Info>{
             .on_started = [=, this](const Info& info) { hit("STARTED"); ++_probes[i].count; if (extra) extra(info); },
             .on_updated = [=](const Info& info) { hit("UPDATED"); if (extra) extra(info); },
-            .on_ended = [=, this](const Info& info) { hit("ENDED"); if (extra) extra(info); if constexpr (std::is_same_v<Info, Drag_info>) _drag.reset(); },
-            .on_cancelled = [=, this]() { hit("CANCELLED"); if constexpr (std::is_same_v<Info, Drag_info>) _drag.reset(); },
+            .on_ended = [=, this](const Info& info) { hit("ENDED"); if (extra) extra(info); if constexpr (std::is_same_v<Info, gesture::Drag::Info>) _drag.reset(); },
+            .on_cancelled = [=, this]() { hit("CANCELLED"); if constexpr (std::is_same_v<Info, gesture::Drag::Info>) _drag.reset(); },
         };
     };
 
-    _probes[0] = {"OVER", std::make_unique<Over_recognizer>(callbacks.template operator()<Over_info>(0))};
-    _probes[1] = {"DOWN", std::make_unique<Down_recognizer>(callbacks.template operator()<Down_info>(1))};
-    _probes[2] = {"DWELL 2S", std::make_unique<Dwell_recognizer>(callbacks.template operator()<Dwell_info>(2))};
-    _probes[3] = {"CLICK L", std::make_unique<Click_recognizer>(callbacks.template operator()<Click_info>(3), Click_recognizer::Desc{})};
-    _probes[4] = {"DOUBLE L", std::make_unique<Click_recognizer>(callbacks.template operator()<Click_info>(4), Click_recognizer::Desc{.count = 2})};
-    _probes[5] = {"CLICK R", std::make_unique<Click_recognizer>(callbacks.template operator()<Click_info>(5), Click_recognizer::Desc{.button = Pointer::Button::right})};
-    _probes[6] = {"DRAG", std::make_unique<Drag_recognizer>(callbacks.template operator()<Drag_info>(6, [this](const Drag_info& d) { _drag = d; }), false, true, 3.)};
+    _probes[0] = {"OVER", std::make_unique<gesture::Over>(callbacks.template operator()<gesture::Over::Info>(0))};
+    _probes[1] = {"DOWN", std::make_unique<gesture::Down>(callbacks.template operator()<gesture::Down::Info>(1))};
+    _probes[2] = {"DWELL 2S", std::make_unique<gesture::Dwell>(callbacks.template operator()<gesture::Dwell::Info>(2))};
+    _probes[3] = {"CLICK L", std::make_unique<gesture::Click>(callbacks.template operator()<gesture::Click::Info>(3), gesture::Click::Desc{})};
+    _probes[4] = {"DOUBLE L", std::make_unique<gesture::Click>(callbacks.template operator()<gesture::Click::Info>(4), gesture::Click::Desc{.count = 2})};
+    _probes[5] = {"CLICK R", std::make_unique<gesture::Click>(callbacks.template operator()<gesture::Click::Info>(5), gesture::Click::Desc{.button = Pointer::Button::right})};
+    _probes[6] = {"DRAG", std::make_unique<gesture::Drag>(callbacks.template operator()<gesture::Drag::Info>(6, [this](const gesture::Drag::Info& d) { _drag = d; }), false, true, 3.)};
 }
 
 auto Editor::on_hide() -> void
