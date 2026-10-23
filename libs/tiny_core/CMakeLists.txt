@@ -58,7 +58,6 @@ target_sources(${TINY_CORE_LIB} PRIVATE
     include/tiny_core/tiny_log.hpp
     include/tiny_core/tiny_meters.hpp
     include/tiny_core/tiny_midi.hpp
-    include/tiny_core/tiny_notifications.hpp
     include/tiny_core/tiny_params.hpp
     include/tiny_core/tiny_state.hpp
     include/tiny_core/tiny_utils.hpp

@@ -235,7 +235,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
         // Dark mode
         NSString* mode = [[NSUserDefaults standardUserDefaults] stringForKey:@"AppleInterfaceStyle"];
         const auto dark_mode = [mode isEqualToString:@"Dark"];
-        _delegate->notify(tiny::Dark_mode_changed{.new_value = dark_mode > 0});
+        _delegate->set_dark(dark_mode > 0);
 
         [[NSDistributedNotificationCenter defaultCenter] addObserver:self 
                                                             selector:@selector(themeChanged:) 
@@ -370,7 +370,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
 -(void)themeChanged:(NSNotification *)notification {
     NSString* mode = [[NSUserDefaults standardUserDefaults] stringForKey:@"AppleInterfaceStyle"];
     const auto dark_mode = [mode isEqualToString:@"Dark"];
-    _delegate->notify(tiny::Dark_mode_changed{.new_value = dark_mode > 0});
+    _delegate->set_dark(dark_mode > 0);
 }
 
 - (void)windowDidChangeScreen:(NSNotification *)notification {

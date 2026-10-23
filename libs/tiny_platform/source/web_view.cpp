@@ -59,7 +59,7 @@ auto frame(double, void* user) -> EM_BOOL
     }
     if (const auto dark = web_dark_mode() != 0; dark != b->dark) {
         b->dark = dark;
-        b->delegate->notify(Dark_mode_changed{dark});
+        b->delegate->set_dark(dark);
     }
     b->interaction.events = b->events.consume(Steady_clock::now());
     b->delegate->draw(b->interaction, System_clock::now());
@@ -198,7 +198,7 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
 {
     auto* binder = new Web_binder{.delegate = _delegate.get()};
     binder->dark = web_dark_mode() != 0;
-    _delegate->notify(Dark_mode_changed{binder->dark});
+    _delegate->set_dark(binder->dark);
     current = binder;
     _view = binder;
     _token = Window_registry::add(_view);

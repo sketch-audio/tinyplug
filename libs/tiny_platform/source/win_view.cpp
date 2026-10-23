@@ -836,9 +836,9 @@ Platform_view::Platform_view(std::shared_ptr<View_delegate> delegate, bool owns_
     _binder.dark_mode = dark;
     enable_dark_title_bar(window, dark);
     _dark_watcher = std::make_unique<Dark_mode_watcher>([this](auto dark) { 
-        _delegate->notify(Dark_mode_changed{dark});
+        _delegate->set_dark(dark);
     });
-    _delegate->notify(Dark_mode_changed{dark});
+    _delegate->set_dark(dark);
 
     _binder.delegate = _delegate.get();
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&_binder));

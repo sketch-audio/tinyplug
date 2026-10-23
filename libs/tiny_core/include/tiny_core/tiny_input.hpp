@@ -9,7 +9,6 @@
 #include <variant>
 #include <vector>
 
-#include "tiny_notifications.hpp"
 #include "tiny_utils.hpp"
 
 class SkCanvas; // Skia canvas
@@ -239,18 +238,6 @@ struct View_context {
     double scale{1};
     bool dark{}; // The host's or system's appearance.
     //bool operator==(const View_context&) const = default;
-};
-
-struct Scroll_data {
-    Coords deltas{};
-    bool inertial{};
-};
-
-struct Draw_context {
-    SkCanvas* canvas{};
-    Rect_size logical_size{};
-    double scale{1};
-    Time_point time_now{};
 };
 
 // The plug-in format's view will have a draw callback.

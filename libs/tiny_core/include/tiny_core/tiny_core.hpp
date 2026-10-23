@@ -27,7 +27,6 @@
 #include "tiny_log.hpp"
 #include "tiny_meters.hpp"
 #include "tiny_midi.hpp"
-#include "tiny_notifications.hpp"
 #include "tiny_params.hpp"
 #include "tiny_state.hpp"
 #include "tiny_utils.hpp"

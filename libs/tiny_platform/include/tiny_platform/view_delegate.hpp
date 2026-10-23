@@ -20,7 +20,7 @@ public:
 
     auto set_drawable(void* drawable) -> void; // macOS 14
     auto draw(const User_interaction& interaction, const Time_point& time_now) -> void;
-    auto notify(const Dark_mode_changed&) -> void; // From the platform view: carried into each frame's View_context.
+    auto set_dark(bool dark) -> void; // The host's or system's appearance, from the platform view: each frame's View_context::dark.
     auto invalidate_context() -> void;
     auto detach() -> void; // Its owner is gone: draw and notify become no-ops, the context goes.
 

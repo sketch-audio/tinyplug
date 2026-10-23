@@ -47,9 +47,9 @@ auto View_delegate::draw(const User_interaction& interaction, const Time_point& 
     _draw(view_context);
 }
 
-auto View_delegate::notify(const Dark_mode_changed& notification) -> void
+auto View_delegate::set_dark(bool dark) -> void
 {
-    _dark = notification.new_value;
+    _dark = dark;
 }
 
 auto View_delegate::invalidate_context() -> void
