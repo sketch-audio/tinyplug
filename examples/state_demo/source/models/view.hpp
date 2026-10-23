@@ -4,15 +4,16 @@
 
 namespace tiny::models {
 
-// What the editor wants back with the session. The loaded preset's name follows undo: undoing a
-// preset load brings back the name from before it. Nothing here is only restored, so that part is empty.
+// What the editor wants back with the session. The current preset's name follows undo: undoing a
+// preset load, from the editor's buttons or the host's menu, brings back the name from before it.
 struct View {
     struct Undoable {
         Fixed_string<64> preset_name{};
     } undoable{};
     struct Restored {} restored{};
 
-    // Every host load, window open or closed, inside the load's undo step.
+    // Every host load, window open or closed, inside the load's undo step. A session restores the name
+    // it saved; a preset names itself.
     static auto on_host_load(View& v, std::span<const double>, const Load_info& info) -> void
     {
         if (info.kind == Load_info::Kind::Preset) {

@@ -1,9 +1,0 @@
-{
-    "version": 1,
-    "params": {
-        "gain": 2.5
-    },
-    "editor": {
-        "preset-name": "Round Trip"
-    }
-}

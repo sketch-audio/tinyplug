@@ -20,11 +20,11 @@
 #define PRESET_DIR ""
 #endif
 
-auto main() -> int
+auto main(int argc, char** argv) -> int
 {
     using namespace tiny;
 
-    const auto preset_path = std::filesystem::path{PRESET_DIR};
+    const auto preset_path = std::filesystem::path{argc > 1 ? argv[1] : PRESET_DIR}; // An argument overrides the built-in directory.
     const auto path_exists = std::filesystem::exists(preset_path);
     const auto path_is_directory = std::filesystem::is_directory(preset_path);
     if (!path_exists || !path_is_directory) {

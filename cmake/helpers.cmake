@@ -199,6 +199,7 @@ function(configure_plug_info plugin_target output)
     read_property(${plugin_target} TINY_PRESET_EXTENSION)
     if (NOT TINY_PRESET_EXTENSION)
         set(TINY_PRESET_EXTENSION "json")
+        add_property(${plugin_target} TINY_PRESET_EXTENSION ${TINY_PRESET_EXTENSION}) # The wrappers read it to copy and list presets.
     endif()
 
     tiny_resolve_capabilities(${plugin_target})

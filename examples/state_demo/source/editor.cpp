@@ -4,6 +4,8 @@
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
 
+#include <tiny_ui/draw.hpp>
+
 #include <algorithm>
 #include <cmath>
 
@@ -15,6 +17,7 @@ constexpr auto margin = 12.;
 constexpr auto strip_w = 28.;
 constexpr auto button_h = 32.;
 constexpr auto button_w = 64.;
+constexpr auto preset_w = 80.;
 constexpr auto num_steps = static_cast<int>(models::State::num_steps);
 
 constexpr auto bar_color = SkColorSetRGB(96, 200, 120);
@@ -91,12 +94,19 @@ auto Editor::_layout(Rect_size size) const -> Layout
     const auto grid_h = h - 3. * margin - button_h;
     const auto buttons_y = margin + grid_h + margin;
 
-    return {
+    auto layout = Layout{
         .grid = {margin, margin, grid_w, grid_h},
         .undo = {margin, buttons_y, button_w, button_h},
         .redo = {margin * 2. + button_w, buttons_y, button_w, button_h},
         .depth = {w - margin - strip_w, margin, strip_w, grid_h},
     };
+    auto x = margin * 4. + button_w * 2.; // A wider gap after redo.
+    for (auto& preset : layout.presets) {
+        preset = {x, buttons_y, preset_w, button_h};
+        x += preset_w + margin;
+    }
+    layout.name = {x, buttons_y, w - margin - x, button_h};
+    return layout;
 }
 
 // Every touched column in one edit, interpolating across columns a fast move skipped.
@@ -131,6 +141,17 @@ auto Editor::_set_depth(const Frame& strip, Coords pos) -> void
 {
     _depth = std::clamp((strip.y + strip.h - pos.y) / strip.h, 0., 1.);
     _edit.actions.push(Set_param{enum_raw(Address::Depth), _depth});
+}
+
+// Params, pattern and name in one transaction: one undo step, as a host's preset load is.
+auto Editor::_load_preset(const Factory_preset& preset) -> void
+{
+    const auto json = nlohmann::ordered_json::parse(preset.json, nullptr, false);
+    if (json.is_discarded()) return;
+    _edit.undo_redo.transaction([&] {
+        _edit.apply_preset(json);
+        _edit.view.edit([&](models::View& v) { v.undoable.preset_name = preset.name; });
+    });
 }
 
 auto Editor::on_gui_hide() -> void
@@ -172,6 +193,11 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
                 }
                 else if (layout.redo.contains(down.pos)) {
                     _edit.undo_redo.redo();
+                }
+                else {
+                    for (auto i = size_t{}; i < factory_presets.size(); ++i) {
+                        if (layout.presets[i].contains(down.pos)) _load_preset(factory_presets[i]);
+                    }
                 }
             },
             [&](const Pointer_move& move) {
@@ -234,6 +260,15 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     fill(*canvas, rect(layout.redo), colors.panel);
     arrow(*canvas, layout.undo, true, can_undo ? colors.ink : colors.dim);
     arrow(*canvas, layout.redo, false, can_redo ? colors.ink : colors.dim);
+
+    // Presets, the current one lit, and its name as the view keeps it: restored with the session, walked by undo.
+    const auto& current = _edit.view.get().preset_name;
+    for (auto i = size_t{}; i < factory_presets.size(); ++i) {
+        const auto lit = current.view() == factory_presets[i].name;
+        fill(*canvas, rect(layout.presets[i]), lit ? bar_color : colors.panel);
+        ui::text_in(*canvas, layout.presets[i], factory_presets[i].name, lit ? colors.background : colors.ink);
+    }
+    ui::text_in(*canvas, layout.name, current.empty() ? std::string_view{"NO PRESET"} : current.view(), current.empty() ? colors.dim : colors.ink);
 
     // Depth.
     const auto strip = rect(layout.depth);

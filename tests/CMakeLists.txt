@@ -263,19 +263,23 @@ if(TINY_BUILD_PLUGINS AND NOT EMSCRIPTEN)
     # The native preset exporters (tools/presets), run on a copy of each fixture preset in the build tree;
     # the VST3 and AAX hosts then load what they wrote, as a DAW loads a factory preset.
     if(APPLE OR WIN32)
-        foreach(demo GainDemo StateDemo)
+        foreach(demo StateDemo)
             if(NOT TARGET ${demo}_lib OR NOT TARGET vst3_host OR NOT TARGET aax_host_${demo})
                 continue()
             endif()
             set(_preset_src ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/presets/${demo})
             set(_preset_dir ${CMAKE_CURRENT_BINARY_DIR}/presets/${demo})
             file(COPY ${_preset_src}/ DESTINATION ${_preset_dir} FILES_MATCHING PATTERN "*.json")
-            make_vstpreset_exporter(${demo}_lib ${_preset_dir})
-            make_tfx_exporter(${demo}_lib ${_preset_dir})
+            if(NOT TARGET ${demo}_vstpreset_exporter) # A demo with its own presets made them already.
+                make_vstpreset_exporter(${demo}_lib ${_preset_dir})
+            endif()
+            if(NOT TARGET ${demo}_tfx_exporter)
+                make_tfx_exporter(${demo}_lib ${_preset_dir})
+            endif()
             add_dependencies(tiny_host_tests ${demo}_vstpreset_exporter ${demo}_tfx_exporter)
 
-            add_test(NAME export.${demo}.vst3 COMMAND ${demo}_vstpreset_exporter)
-            add_test(NAME export.${demo}.aax COMMAND ${demo}_tfx_exporter)
+            add_test(NAME export.${demo}.vst3 COMMAND ${demo}_vstpreset_exporter ${_preset_dir})
+            add_test(NAME export.${demo}.aax COMMAND ${demo}_tfx_exporter ${_preset_dir})
             set_tests_properties(export.${demo}.vst3 export.${demo}.aax PROPERTIES LABELS host FIXTURES_SETUP exported_${demo})
 
             if(WIN32)

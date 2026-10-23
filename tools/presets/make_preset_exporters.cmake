@@ -1,11 +1,11 @@
 # Preset exporters — build a per-plugin executable that writes factory preset
 # files (AAX .tfx / VST3 .vstpreset) from the plug-in's JSON presets, with the
-# wrappers' own chunk writers.
+# wrappers' own chunk writers, into <dir>/out. The directory is PRESET_DIR, or the first argument.
 # Opt-in: a plug-in's CMakeLists calls these explicitly.
 
 # AAX SDK required.
 function(make_tfx_exporter USER_TARGET PRESET_DIR)
-    if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR EMSCRIPTEN)
         return()
     endif()
 
@@ -28,7 +28,7 @@ endfunction()
 
 # VST3 SDK required.
 function(make_vstpreset_exporter USER_TARGET PRESET_DIR)
-    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS" OR EMSCRIPTEN)
         return()
     endif()
 

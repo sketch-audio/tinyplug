@@ -244,7 +244,8 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   window size; the editor's handle is `Edit_context::view` (`get`, `edit(fn)`, `restored()`,
   `generation`, `loads`). An undoable edit becomes a step at the frame's end, or joins the gesture
   or transaction that's open. **Features on top (preset names, `*`, A/B, linked controls) are
-  the plug-in's**; the framework stores, restores, undoes and reports. GainDemo has one.
+  the plug-in's**; the framework stores, restores, undoes and reports. StateDemo has one: its preset
+  buttons load JSON presets through `Edit_context::apply_preset` in a transaction with the name.
 - **Sizing** — the editor declares `static constexpr auto sizing() -> Sizing` (`preferred`, `min`,
   `max`, `undoable`; `preferred_size()` still works through `sizing_of<E>()`). The `Edit_store`
   keeps the size with the session, clamps in each format's size check, and with `undoable`
@@ -781,7 +782,8 @@ measurements: [plans/web-format.md](plans/web-format.md).
   them into bundle Resources for AAX/AUv2/AUv3/CLAP/VST3 macOS bundles, and
   the format-native preset directory at install time on macOS/Windows.
   AAX uses `.tfx` placed in the bundle; VST3 uses `.vstpreset` placed by
-  the installer.
+  the installer. Both are written by the exporters in [tools/presets](tools/presets/) and checked in;
+  [examples/state_demo](examples/state_demo/) is the worked example (`presets/` and `presets/out/`).
 
 ### Host-initiated loads → one undo step, reported to the view model
 
