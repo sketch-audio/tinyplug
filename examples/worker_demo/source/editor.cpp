@@ -104,7 +104,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
 
     // The curve the processor shapes with; amber until it matches the Drive asked for.
     const auto spec = User_params::param_spec(enum_raw(Address::Drive)).semantics;
-    const auto wanted = params::Value_helper::knob_to_plain(knobs[enum_raw(Address::Drive)], spec);
+    const auto wanted = params::knob_to_plain(knobs[enum_raw(Address::Drive)], spec);
     const auto current = std::abs(ch.drive - wanted) < 1e-6;
     ui::fill(*canvas, curve, t.panel);
     ui::line(*canvas, {curve.x, curve.y + curve.h / 2}, {curve.x + curve.w, curve.y + curve.h / 2}, t.track);

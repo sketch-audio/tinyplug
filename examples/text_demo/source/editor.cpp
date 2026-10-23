@@ -40,7 +40,7 @@ auto print(const char* format, Args... args) -> std::string
 auto plain(std::span<const double> knobs, models::Params::Address address) -> double
 {
     const auto a = enum_raw(address);
-    return params::Value_helper::knob_to_plain(knobs[a], User_params::param_spec(a).semantics);
+    return params::knob_to_plain(knobs[a], User_params::param_spec(a).semantics);
 }
 
 auto inter(float size, float weight = 400) -> text::Style { return {.family = "Inter", .size = size, .weight = weight}; }
@@ -328,7 +328,7 @@ auto Editor::_type_value(Address address, const Frame& frame, std::span<const do
     const auto t = ui::theme(dark);
     const auto field = Text_field{
         .frame = frame,
-        .initial = Host_formatter::to_string(params::Value_helper::knob_to_host(knobs[a], spec.semantics), spec.semantics),
+        .initial = params::to_text(params::knob_to_plain(knobs[a], spec.semantics), spec.semantics),
         .label = spec.name,
         .font = {.data = embedded::fonts::intervariable_ttf(), .size = 13, .weight = 500},
         .ink = t.text,
@@ -338,10 +338,10 @@ auto Editor::_type_value(Address address, const Frame& frame, std::span<const do
     Platform_text::edit(field, [this, a](Text_result result) {
         if (!result.committed()) return;
         const auto& semantics = User_params::param_spec(a).semantics;
-        const auto plain = Host_formatter::to_value(result.text, semantics); // Plain space, though to_string takes host.
+        const auto plain = params::from_text(result.text, semantics);
         if (!plain) return;
         _edit.params.start(a);
-        _edit.params.set(a, params::Value_helper::plain_to_knob(params::Value_helper::clamp(*plain, semantics), semantics));
+        _edit.params.set(a, params::plain_to_knob(params::clamp(*plain, semantics), semantics));
         _edit.params.end(a);
     }, Dialog_context{_edit.tasks, _window});
 }

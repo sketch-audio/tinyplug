@@ -77,7 +77,7 @@ auto main(int argc, char** argv) -> int
         for (auto i = size_t{}; i < preset_values.size() && i < User_params::num_params; ++i) {
             const auto& spec = User_params::param_spec(static_cast<uint32_t>(i));
             if (preset_values[i] && State_rules::is_persistent(spec)) {
-                values[i] = static_cast<float>(params::Value_helper::knob_to_plain(*preset_values[i], spec.semantics));
+                values[i] = static_cast<float>(params::knob_to_plain(*preset_values[i], spec.semantics));
             }
         }
         const auto state_record = state_adapter.state_record(preset_json); // Opaque: passed through as the wrapper stores it.

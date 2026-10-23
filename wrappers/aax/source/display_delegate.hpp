@@ -8,12 +8,12 @@
 #include "AAX_CString.h"
 #include "AAX_IDisplayDelegate.h"
 
-#include <tiny_core/host_formatter.hpp>
+#include <tiny_core/param_text.hpp>
 #include <tiny_core/value_helper.hpp>
 
 namespace tiny {
 
-// Parameter text through Host_formatter, so AAX reads and writes the same strings as every other format.
+// Parameter text through params::to_text / from_text, so AAX reads and writes the same strings as every other format.
 // `T` is the AAX parameter's value type; its values are plain space.
 template<typename T>
 class Semantics_display_delegate final : public AAX_IDisplayDelegate<T> {
@@ -49,9 +49,9 @@ public:
     bool StringToValue(const AAX_CString& valueString, T* value) const override
     {
         using namespace params;
-        const auto plain = Host_formatter::to_value(std::string{valueString.CString()}, _semantics);
+        const auto plain = params::from_text(std::string{valueString.CString()}, _semantics);
         if (!plain) return false;
-        const auto clamped = Value_helper::clamp(*plain, _semantics);
+        const auto clamped = params::clamp(*plain, _semantics);
         if constexpr (std::is_same_v<T, bool>) *value = clamped >= 0.5;
         else if constexpr (std::is_integral_v<T>) *value = static_cast<T>(std::lround(clamped));
         else *value = static_cast<T>(clamped);
@@ -63,7 +63,7 @@ private:
     auto _to_string(T value) const -> std::string
     {
         using namespace params;
-        return Host_formatter::to_string(Value_helper::plain_to_host(static_cast<double>(value), _semantics), _semantics);
+        return params::to_text(static_cast<double>(value), _semantics);
     }
 
     params::Semantics::Any _semantics;

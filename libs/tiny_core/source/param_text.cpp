@@ -1,4 +1,4 @@
-#include "tiny_core/host_formatter.hpp"
+#include "tiny_core/param_text.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -9,13 +9,10 @@
 
 #include "tiny_core/value_helper.hpp"
 
-namespace tiny {
+namespace tiny::params {
 
-auto Host_formatter::to_string(double host_value, const Semantics::Any& semantics) -> std::string
+auto to_text(double plain_value, const Semantics::Any& semantics) -> std::string
 {
-    using namespace params;
-
-    const auto plain_value = Value_helper::host_to_plain(host_value, semantics);
 
     // Rounded as displayed, with no negative zero: "-0.0" would re-parse and print as "+0.0".
     auto shown = [](double value, int precision) {
@@ -102,9 +99,8 @@ auto Host_formatter::to_string(double host_value, const Semantics::Any& semantic
     }, semantics);
 }
 
-auto Host_formatter::to_value(const std::string& string, const Semantics::Any& semantics) -> std::optional<double>
+auto from_text(const std::string& string, const Semantics::Any& semantics) -> std::optional<double>
 {
-    using namespace params;
 
     // Parse a double.
     auto parse_double = [](const std::string& s) -> std::optional<double> {

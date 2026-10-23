@@ -44,7 +44,7 @@ public:
         for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
             const auto& param = User_params::param_spec(addr);
             const auto host = _hostvalues[addr].load(std::memory_order_relaxed);
-            const auto plain = Value_helper::host_to_plain(host, param.semantics);
+            const auto plain = params::host_to_plain(host, param.semantics);
             config_params[addr] = plain;
         }
         _processor->configure(tiny::process::Config{
@@ -116,13 +116,13 @@ public:
         if (plan.restart != tiny::process::Stream_sync::Restart::None) {
             auto values = tiny::process::restart_values<num_params>([this](uint32_t address) {
                 const auto host = _hostvalues[address].load(std::memory_order_relaxed);
-                return tiny::params::Value_helper::host_to_plain(host, User_params::param_spec(address).semantics);
+                return tiny::params::host_to_plain(host, User_params::param_spec(address).semantics);
             }, {});
             for (const auto* e = events; e; e = e->head.next) {
                 if (e->head.eventSampleTime > start) break;
                 if (e->head.eventType != AURenderEventParameter || e->parameter.parameterAddress >= num_params) continue;
                 const auto address = static_cast<uint32_t>(e->parameter.parameterAddress);
-                values[address] = tiny::params::Value_helper::host_to_plain(e->parameter.value, User_params::param_spec(address).semantics);
+                values[address] = tiny::params::host_to_plain(e->parameter.value, User_params::param_spec(address).semantics);
             }
             _processor->reset(tiny::process::Reset::Restart{values});
             if (plan.restart == tiny::process::Stream_sync::Restart::Stream) {
@@ -184,7 +184,7 @@ public:
         if (address >= num_params) return;
         const auto addr = static_cast<uint32_t>(address);
         const auto& spec = User_params::param_spec(addr);
-        const auto plain = tiny::params::Value_helper::host_to_plain(value, spec.semantics);
+        const auto plain = tiny::params::host_to_plain(value, spec.semantics);
 
         // Coalesces, so nothing is lost however long process() goes without running.
         _param_changes.push(tiny::process::Event::Set{.value = plain, .address = addr});
@@ -341,7 +341,7 @@ public:
                 const auto address = static_cast<uint32_t>(event->parameter.parameterAddress);
                 if (address >= num_params) return;
                 const auto& spec = User_params::param_spec(address);
-                const auto plain = tiny::params::Value_helper::host_to_plain(event->parameter.value, spec.semantics);
+                const auto plain = tiny::params::host_to_plain(event->parameter.value, spec.semantics);
                 _processor->handle(tiny::process::Event::Set{.value = plain, .address = address});
                 _hostvalues[address].store(event->parameter.value, std::memory_order_relaxed); // Maintain host values.
                 break;
@@ -351,7 +351,7 @@ public:
                 if (address >= num_params) return;
                 const auto dur_samples = static_cast<int32_t>(event->parameter.rampDurationSampleFrames);
                 const auto& spec = User_params::param_spec(address);
-                const auto plain = tiny::params::Value_helper::host_to_plain(event->parameter.value, spec.semantics);
+                const auto plain = tiny::params::host_to_plain(event->parameter.value, spec.semantics);
                 _processor->handle(tiny::process::Event::Ramp{.value = plain, .address = address, .samples = dur_samples});
                 _hostvalues[address].store(event->parameter.value, std::memory_order_relaxed); // Maintain host values.
                 break;

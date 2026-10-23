@@ -58,7 +58,7 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
 
     Globals()->UseIndexedParameters(User_params::num_params);
     for (const auto& param : params) {
-        const auto def_val = Value_helper::default_value(param, Space::Host);
+        const auto def_val = params::default_value(param, Space::Host);
         Globals()->SetParameter(param.identity.address, static_cast<float>(def_val));
     }
 
@@ -107,7 +107,7 @@ OSStatus Effect::Initialize()
     for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
         const auto& param = User_params::param_spec(addr);
         const auto host = Globals()->GetParameter(static_cast<AudioUnitParameterID>(addr));
-        const auto plain = Value_helper::host_to_plain(host, param.semantics);
+        const auto plain = params::host_to_plain(host, param.semantics);
         config_values[addr] = plain;
     }
 
@@ -283,7 +283,7 @@ OSStatus Effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
             const auto id = data->inParamID;
             const auto& params = User_params::param_specs();
             const auto& param = params[id];
-            const auto str = Host_formatter::to_string(*data->inValue, param.semantics);
+            const auto str = params::to_text(params::host_to_plain(*data->inValue, param.semantics), param.semantics);
             data->outString = CFStringCreateWithCString(kCFAllocatorDefault, str.c_str(), kCFStringEncodingUTF8);
 
             return noErr;
@@ -297,8 +297,8 @@ OSStatus Effect::GetProperty(AudioUnitPropertyID inID, AudioUnitScope inScope, A
 
             const auto str = cf_to_std(data->inString);
 
-            if (const auto plain = Host_formatter::to_value(str, param.semantics)) {
-                const auto host_value = Value_helper::plain_to_host(*plain, param.semantics);
+            if (const auto plain = params::from_text(str, param.semantics)) {
+                const auto host_value = params::plain_to_host(*plain, param.semantics);
                 data->outValue = static_cast<float>(host_value);
                 return noErr;
             }
@@ -477,7 +477,7 @@ OSStatus Effect::GetParameterInfo(AudioUnitScope inScope, AudioUnitParameterID i
                 .unit = kAudioUnitParameterUnit_Generic,
                 .minValue = 0,
                 .maxValue = 1,
-                .defaultValue = static_cast<float>(Value_helper::default_value(param, Space::Host)),
+                .defaultValue = static_cast<float>(params::default_value(param, Space::Host)),
                 .flags = resolve_flags(param, found_clump) | (kAudioUnitParameterFlag_CanRamp | kAudioUnitParameterFlag_IsHighResolution)
             };
         },
@@ -550,7 +550,7 @@ OSStatus Effect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
     const auto& params = User_params::param_specs();
     const auto& param = params[inID];
 
-    const auto plain_value = Value_helper::host_to_plain(inValue, param.semantics);
+    const auto plain_value = params::host_to_plain(inValue, param.semantics);
 
     if (_bypass.is_bypassed()) {
         // We may or may not be getting processed. 
@@ -593,7 +593,7 @@ OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEve
             case kParameterEvent_Immediate: {
                 const auto offset = event.eventValues.immediate.bufferOffset;
                 const auto value = event.eventValues.immediate.value;
-                const auto plain_value = Value_helper::host_to_plain(value, param.semantics);
+                const auto plain_value = params::host_to_plain(value, param.semantics);
 
                 if (_bypass.is_bypassed()) {
                     _bypass_epoch.fetch_add(1, std::memory_order_relaxed); // See SetParameter.
@@ -618,8 +618,8 @@ OSStatus Effect::ScheduleParameter(const AudioUnitParameterEvent* inParameterEve
                 const auto initial = event.eventValues.ramp.startValue;
                 const auto target = event.eventValues.ramp.endValue;
 
-                const auto plain_initial = Value_helper::host_to_plain(initial, param.semantics);
-                const auto plain_target = Value_helper::host_to_plain(target, param.semantics);
+                const auto plain_initial = params::host_to_plain(initial, param.semantics);
+                const auto plain_target = params::host_to_plain(target, param.semantics);
 
                 if (_bypass.is_bypassed()) {
                     _bypass_epoch.fetch_add(1, std::memory_order_relaxed); // See SetParameter.
@@ -680,8 +680,8 @@ auto Effect::_update_state(const Maybe_values<double>& knob_values, State_map le
     auto notify = [&](const auto& param, auto knob_value) {
         const auto can_notify = knob_value.has_value() && State_rules::is_persistent(param);
         if (can_notify) {
-            const auto host = Value_helper::knob_to_host(*knob_value, param.semantics);
-            const auto plain = Value_helper::knob_to_plain(*knob_value, param.semantics);
+            const auto host = params::knob_to_host(*knob_value, param.semantics);
+            const auto plain = params::knob_to_plain(*knob_value, param.semantics);
             Globals()->SetParameter(param.identity.address, static_cast<float>(host));
             change_list.push_back(process::Event::Set{.value = plain, .address = param.identity.address}); // We'll publish as a batch.
         }
@@ -706,7 +706,7 @@ auto Effect::_update_state(const Maybe_values<double>& knob_values, State_map le
         // Set remaining parameters to defaults.
         for (auto i = num_stored_values; i < num_params; ++i) {
             const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
-            const auto knob_value = Value_helper::default_value(param, Space::Knob);
+            const auto knob_value = params::default_value(param, Space::Knob);
             notify(param, std::optional<double>{knob_value});
         }
     }
@@ -943,7 +943,7 @@ auto Effect::_apply_state(CFPropertyListRef plist) -> OSStatus
             // Set remaining Globals() to defaults.
             for (auto i = num_stored_params; i < num_params; ++i) {
                 const auto& param = User_params::param_spec(i);
-                const auto host_value = Value_helper::default_value(param, Space::Host);
+                const auto host_value = params::default_value(param, Space::Host);
                 Globals()->SetParameter(i, static_cast<float>(host_value));
             }
         }
@@ -955,7 +955,7 @@ auto Effect::_apply_state(CFPropertyListRef plist) -> OSStatus
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
             const auto& param = User_params::param_spec(i);
             const auto host_value = Globals()->GetParameter(i);
-            const auto plain_value = Value_helper::host_to_plain(host_value, param.semantics);
+            const auto plain_value = params::host_to_plain(host_value, param.semantics);
 
             change_list.push_back(process::Event::Set{.value = plain_value, .address = param.identity.address});
         }
@@ -1250,7 +1250,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
             const auto host_value = Globals()->GetParameter(static_cast<AudioUnitParameterID>(addr));
             _events.push_back(process::Event::Ordered{
                 .event = process::Event::Set{
-                    .value = Value_helper::host_to_plain(host_value, specs[addr].semantics),
+                    .value = params::host_to_plain(host_value, specs[addr].semantics),
                     .address = static_cast<uint32_t>(addr)
                 },
                 .offset = 0,
@@ -1389,7 +1389,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     if (plan.restart != process::Stream_sync::Restart::None) {
         const auto values = process::restart_values<num_params>([this](uint32_t address) {
             const auto host = Globals()->GetParameter(static_cast<AudioUnitParameterID>(address));
-            return params::Value_helper::host_to_plain(host, User_params::param_spec(address).semantics);
+            return params::host_to_plain(host, User_params::param_spec(address).semantics);
         }, _events);
         _processor->reset(process::Reset::Restart{values});
         if (plan.restart == process::Stream_sync::Restart::Stream) {

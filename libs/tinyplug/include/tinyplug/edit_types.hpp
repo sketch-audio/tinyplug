@@ -12,7 +12,7 @@
 namespace tiny::edit {
 
 // What the parameter handle queues and a frame resolves to. **Values are KNOB space** (always 0…1), never handed
-// to a processor without `Value_helper`: `process::Event::Set` is the plain-space twin, a different type on purpose.
+// to a processor without `params::knob_to_plain`: `process::Event::Set` is the plain-space twin, a different type on purpose.
 struct Action {
     // A gesture on one parameter, or with no address a transaction: everything until the matching end is one undo
     // step, and each parameter it sets is touched for the host just before its first set. Wrappers only ever see

@@ -31,7 +31,7 @@ using Values = std::array<double, num_params>;
 auto values_at(double knob) -> Values
 {
     auto out = Values{};
-    for (auto a = std::uint32_t{}; a < num_params; ++a) out[a] = params::Value_helper::knob_to_plain(knob, User_params::param_spec(a).semantics);
+    for (auto a = std::uint32_t{}; a < num_params; ++a) out[a] = params::knob_to_plain(knob, User_params::param_spec(a).semantics);
     return out;
 }
 
@@ -42,7 +42,7 @@ auto values_seeded(std::uint32_t seed) -> Values
     for (auto a = std::uint32_t{}; a < num_params; ++a) {
         seed = seed * 1664525u + 1013904223u;
         const auto knob = static_cast<double>(seed >> 8) / static_cast<double>(1u << 24);
-        out[a] = params::Value_helper::knob_to_plain(knob, User_params::param_spec(a).semantics);
+        out[a] = params::knob_to_plain(knob, User_params::param_spec(a).semantics);
     }
     return out;
 }

@@ -171,7 +171,7 @@ static auto presets_path() -> std::filesystem::path
     for (AUParameter *param in _parameterTree.allParameters) {
         const auto addr = static_cast<uint32_t>(param.address);
         const auto& spec = User_params::param_spec(addr);
-        values[param.address] = Value_helper::host_to_knob(param.value, spec.semantics);
+        values[param.address] = params::host_to_knob(param.value, spec.semantics);
     }
 
     return State_adapter::Save_model{
@@ -364,7 +364,7 @@ static auto presets_path() -> std::filesystem::path
             if (!s) return double{};
             const auto& spec = User_params::param_spec(addr);
             const auto host = s->_kernel.getParameter(addr);
-            const auto knob = Value_helper::host_to_knob(host, spec.semantics);
+            const auto knob = params::host_to_knob(host, spec.semantics);
             return knob;
         },
 #if TINY_HAS_METERS
@@ -390,7 +390,7 @@ static auto presets_path() -> std::filesystem::path
                 },
                 [&](const edit::Action::Set& a) {
                     const auto& param = User_params::param_spec(a.address);
-                    const auto host_value = Value_helper::knob_to_host(a.value, param.semantics);
+                    const auto host_value = params::knob_to_host(a.value, param.semantics);
                     auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
                     auto it = s->_observerTokens.find(auparam.address);
                     auto* token = it != s->_observerTokens.end() ? it->second : nil;
@@ -513,7 +513,7 @@ static auto presets_path() -> std::filesystem::path
                                                                           flags:flags_for(spec.policy) | kAudioUnitParameterFlag_ValuesHaveStrings
                                                                    valueStrings:nil
                                                             dependentParameters:nil];
-            param.value = static_cast<float>(Value_helper::plain_to_host(r.def_val, r));
+            param.value = static_cast<float>(params::plain_to_host(r.def_val, r));
             return param;
         },
         [&](const params::Semantics::Fixed& f) {
@@ -556,7 +556,7 @@ static auto presets_path() -> std::filesystem::path
     tree.implementorStringFromValueCallback = ^(AUParameter *param, const AUValue *__nullable valuePtr) {
         AUValue value = valuePtr == nil ? param.value : *valuePtr;
         const auto& spec = User_params::param_spec(static_cast<uint32_t>(param.address));
-        const auto str_value = Host_formatter::to_string(value, spec.semantics);
+        const auto str_value = params::to_text(params::host_to_plain(value, spec.semantics), spec.semantics);
         return [NSString stringWithUTF8String:str_value.c_str()];
     };
     
@@ -565,8 +565,8 @@ static auto presets_path() -> std::filesystem::path
         const auto& spec = User_params::param_spec(addr);
         const auto str = std::string{[string UTF8String]};
         
-        if (const auto plain = Host_formatter::to_value(str, spec.semantics)) {
-            const auto host = Value_helper::plain_to_host(*plain, spec.semantics);
+        if (const auto plain = params::from_text(str, spec.semantics)) {
+            const auto host = params::plain_to_host(*plain, spec.semantics);
             return static_cast<float>(host);
         }
         return 0.f;
@@ -850,7 +850,7 @@ static auto presets_path() -> std::filesystem::path
         const auto value = maybe_values[i];
         if (value.has_value()) {
             const auto& spec = User_params::param_spec(i);
-            const auto host = Value_helper::knob_to_host(*value, spec.semantics);
+            const auto host = params::knob_to_host(*value, spec.semantics);
             const auto to_write = static_cast<float>(host);
             write_value(to_write);
         }
@@ -989,7 +989,7 @@ static auto presets_path() -> std::filesystem::path
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
             const auto& spec = User_params::param_spec(static_cast<uint32_t>(i));
             const auto host = _kernel.getParameter(static_cast<uint32_t>(i));
-            out[i] = params::Value_helper::host_to_knob(host, spec.semantics);
+            out[i] = params::host_to_knob(host, spec.semantics);
         }
         return out;
     };
@@ -1048,7 +1048,7 @@ static auto presets_path() -> std::filesystem::path
     if (num_params > num_stored_params) {
         for (auto i = num_stored_params; i < num_params; ++i) {
             const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
-            const auto def_val = params::Value_helper::default_value(param, params::Space::Host);
+            const auto def_val = params::default_value(param, params::Space::Host);
             [[_parameterTree parameterWithAddress:i] setValue:def_val];
         }
     }
@@ -1057,7 +1057,7 @@ static auto presets_path() -> std::filesystem::path
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
         const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
         if (param.policy == params::Policy::Interface) {
-            const auto def_val = params::Value_helper::default_value(param, params::Space::Host);
+            const auto def_val = params::default_value(param, params::Space::Host);
             [[_parameterTree parameterWithAddress:i] setValue:def_val];
         }
     }

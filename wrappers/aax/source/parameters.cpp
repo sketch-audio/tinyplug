@@ -834,7 +834,7 @@ auto Parameters::_apply_chunk(const AAX_SPlugInChunk* iChunk) -> AAX_Result
             if (auto* aax_param = get_aax_param(&mParameterManager, i)) {
                 const auto& param = User_params::param_spec(i);
                 if (State_rules::is_persistent(param)) {
-                    const auto knob_value = Value_helper::default_value(param, Space::Knob);
+                    const auto knob_value = params::default_value(param, Space::Knob);
                     aax_param->SetNormalizedValue(knob_value);
                 }
             }
@@ -925,7 +925,7 @@ auto Parameters::_build_chunk(AAX_CChunkDataParser& parser) const -> void
     for (auto i = decltype(num_params){}; i < num_params; ++i) {
         const auto& spec = User_params::param_spec(i);
         const auto knob = _knob_mirror[i].load(std::memory_order_relaxed);
-        values[i] = State_rules::is_persistent(spec) ? static_cast<float>(params::Value_helper::knob_to_plain(knob, spec.semantics)) : State_rules::no_value;
+        values[i] = State_rules::is_persistent(spec) ? static_cast<float>(params::knob_to_plain(knob, spec.semantics)) : State_rules::no_value;
     }
     const auto editor = legacy_editor_map(_edit_store);
     const auto bypassed = _knob_mirror[num_params].load(std::memory_order_relaxed) >= 0.5;

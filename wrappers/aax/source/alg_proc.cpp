@@ -469,7 +469,7 @@ auto render_instance(Alg_context* ctx) -> void
     if (st->was_skipped && !can_skip) {
         const auto values = process::restart_values<num_params>([st](uint32_t address) {
             const auto seen = st->shadow[address];
-            return std::isnan(seen) ? params::Value_helper::default_value(User_params::param_spec(address), params::Space::Plain) : seen;
+            return std::isnan(seen) ? params::default_value(User_params::param_spec(address), params::Space::Plain) : seen;
         }, {});
         st->processor.reset(process::Reset::Restart{values});
     }

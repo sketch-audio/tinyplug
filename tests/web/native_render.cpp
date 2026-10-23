@@ -12,7 +12,7 @@ using namespace tiny::web;
 
 auto plain_at(double knob) -> double
 {
-    return tiny::params::Value_helper::knob_to_plain(knob, tiny::User_params::param_spec(0).semantics);
+    return tiny::params::knob_to_plain(knob, tiny::User_params::param_spec(0).semantics);
 }
 
 } // namespace

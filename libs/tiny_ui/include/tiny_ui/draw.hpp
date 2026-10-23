@@ -225,8 +225,8 @@ inline auto draw_meter(SkCanvas& canvas, const Theme& t, const Frame& f, double 
 inline auto shown_knob(uint32_t address, double knob) -> double
 {
     const auto& semantics = User_params::param_spec(address).semantics;
-    if (!params::Value_helper::is_discrete(semantics)) return knob;
-    return params::Value_helper::plain_to_knob(params::Value_helper::knob_to_plain(knob, semantics), semantics);
+    if (!params::is_discrete(semantics)) return knob;
+    return params::plain_to_knob(params::knob_to_plain(knob, semantics), semantics);
 }
 
 // Sliders fill left to right, faders bottom to top, stepped parameters in whole steps; toggles

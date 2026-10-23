@@ -17,7 +17,7 @@ add_library(${TINY_CORE_LIB} STATIC)
 
 target_sources(${TINY_CORE_LIB} PRIVATE
     source/gesture_recognizers.cpp
-    source/host_formatter.cpp
+    source/param_text.cpp
     source/notification_queue.cpp
     source/relay.cpp
     source/serial_queue.cpp
@@ -34,7 +34,7 @@ target_sources(${TINY_CORE_LIB} PRIVATE
     include/tiny_core/data_port.hpp
     include/tiny_core/denormal_guard.hpp
     include/tiny_core/gesture_recognizers.hpp
-    include/tiny_core/host_formatter.hpp
+    include/tiny_core/param_text.hpp
     include/tiny_core/lifecycle_probe.hpp
     include/tiny_core/lock_free_queue.hpp
     include/tiny_core/midi_codec.hpp

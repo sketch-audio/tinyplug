@@ -15,14 +15,13 @@ namespace tiny::params {
 
 // MARK: - Value space
 
-// The three spaces a parameter value can live in. See Value_helper.
+// The three spaces a parameter value can live in. See the conversions below.
 enum class Space : uint32_t { Plain, Host, Knob };
 
-// MARK: - Value helper
+// MARK: - Values
 
-// All value-domain logic for a parameter: space conversions, range/default
-// queries, and semantics predicates. Stateless; every method takes the
-// parameter's semantics (or spec). Successor to the old Value_conv.
+// All value-domain logic for a parameter, as free functions: space conversions, range/default queries, and
+// semantics predicates. Stateless; each takes the parameter's semantics (or spec).
 //
 //     Semantics    Implies Linear?    Plain Space         Host Space         Knob Space
 //     -----------------------------------------------------------------------------------------
@@ -33,85 +32,68 @@ enum class Space : uint32_t { Plain, Host, Knob };
 //     Real         No                 min...max           0...1              0...1
 //
 // The DSP kernel sees plain; the host sees host; the UI draws in knob (0...1).
-// Knob space and the old "norm" space are the same thing.
-struct Value_helper {
 
-    // --- Real-adapter normalization (knob == norm) ---
+// --- Real-adapter normalization (knob == norm) ---
 
-    // Normalize a real-semantics plain value to knob space via its adapter.
-    static auto plain_to_knob(double plain_value, const Semantics::Real& real) -> double;
+// Normalize a real-semantics plain value to knob space via its adapter.
+auto plain_to_knob(double plain_value, const Semantics::Real& real) -> double;
 
-    // Denormalize a knob value to real-semantics plain space via its adapter.
-    static auto knob_to_plain(double knob_value, const Semantics::Real& real) -> double;
+// Denormalize a knob value to real-semantics plain space via its adapter.
+auto knob_to_plain(double knob_value, const Semantics::Real& real) -> double;
 
-    // --- Conversions across the three spaces ---
+// --- Conversions across the three spaces ---
 
-    // Convert a plain value to knob space.
-    static auto plain_to_knob(double plain_value, const Semantics::Any& semantics) -> double;
+auto plain_to_knob(double plain_value, const Semantics::Any& semantics) -> double;
+auto knob_to_plain(double knob_value, const Semantics::Any& semantics) -> double;
+auto plain_to_host(double plain_value, const Semantics::Any& semantics) -> double;
+auto host_to_plain(double host_value, const Semantics::Any& semantics) -> double;
+auto host_to_knob(double host_value, const Semantics::Any& semantics) -> double;
+auto knob_to_host(double knob_value, const Semantics::Any& semantics) -> double;
 
-    // Convert a knob value to plain space.
-    static auto knob_to_plain(double knob_value, const Semantics::Any& semantics) -> double;
+// Convert a value between any two spaces.
+auto convert(double value, Space from, Space to, const Semantics::Any& semantics) -> double;
 
-    // Convert a plain value to host space.
-    static auto plain_to_host(double plain_value, const Semantics::Any& semantics) -> double;
+// Quantize a plain value onto its step grid (round-trips through knob space).
+auto quantize(double plain_value, const Semantics::Any& semantics) -> double;
 
-    // Convert a host value to plain space.
-    static auto host_to_plain(double host_value, const Semantics::Any& semantics) -> double;
+// --- Spec-level range / defaults ---
 
-    // Convert a host value to knob space.
-    static auto host_to_knob(double host_value, const Semantics::Any& semantics) -> double;
+auto plain_min(const Spec& spec) -> double;
+auto plain_max(const Spec& spec) -> double;
 
-    // Convert a knob value to host space.
-    static auto knob_to_host(double knob_value, const Semantics::Any& semantics) -> double;
+// Default value of `spec` expressed in `space`.
+auto default_value(const Spec& spec, Space space) -> double;
 
-    // Convert a value between any two spaces.
-    static auto convert(double value, Space from, Space to, const Semantics::Any& semantics) -> double;
+// --- Semantics queries ---
 
-    // Quantize a plain value onto its step grid (round-trips through knob space).
-    static auto quantize(double plain_value, const Semantics::Any& semantics) -> double;
+// Whether the parameter takes only discrete values.
+auto is_discrete(const Semantics::Any& semantics) -> bool;
 
-    // --- Spec-level range / defaults ---
+// Whether the parameter displays as `D`, e.g. `Display::Decibels`.
+template<typename D>
+auto displays_as(const Semantics::Any& semantics) -> bool
+{
+    return std::visit([](const auto& s) {
+        if constexpr (requires { s.display; }) {
+            return []<typename... Ts>(const std::variant<Ts...>& display) {
+                if constexpr ((std::is_same_v<D, Ts> || ...)) return std::holds_alternative<D>(display);
+                else return false;
+            }(s.display);
+        }
+        else return false;
+    }, semantics);
+}
 
-    // Minimum plain value.
-    static auto plain_min(const Spec& spec) -> double;
+// --- Clamp / step ---
 
-    // Maximum plain value.
-    static auto plain_max(const Spec& spec) -> double;
+// Clamp a plain value to the parameter's range.
+auto clamp(double value, const Semantics::Any& semantics) -> double;
 
-    // Default value of `spec` expressed in `space`.
-    static auto default_value(const Spec& spec, Space space) -> double;
+// Advance a knob value to the next discrete step (wraps); continuous for Real.
+auto knob_next(double knob_value, const Semantics::Any& semantics) -> double;
 
-    // --- Semantics queries ---
-
-    // Whether the parameter takes only discrete values.
-    static auto is_discrete(const Semantics::Any& semantics) -> bool;
-
-    // Whether the parameter displays as `D`, e.g. `Display::Decibels`.
-    template<typename D>
-    static auto displays_as(const Semantics::Any& semantics) -> bool
-    {
-        return std::visit([](const auto& s) {
-            if constexpr (requires { s.display; }) {
-                return []<typename... Ts>(const std::variant<Ts...>& display) {
-                    if constexpr ((std::is_same_v<D, Ts> || ...)) return std::holds_alternative<D>(display);
-                    else return false;
-                }(s.display);
-            }
-            else return false;
-        }, semantics);
-    }
-
-    // --- Clamp / step ---
-
-    // Clamp a plain value to the parameter's range.
-    static auto clamp(double value, const Semantics::Any& semantics) -> double;
-
-    // Advance a knob value to the next discrete step (wraps); continuous for Real.
-    static auto knob_next(double knob_value, const Semantics::Any& semantics) -> double;
-
-    // Step a knob value to the previous discrete step (wraps); continuous for Real.
-    static auto knob_prev(double knob_value, const Semantics::Any& semantics) -> double;
-};
+// Step a knob value to the previous discrete step (wraps); continuous for Real.
+auto knob_prev(double knob_value, const Semantics::Any& semantics) -> double;
 
 // MARK: - array builders
 
@@ -150,7 +132,7 @@ auto make_defaults(Space space) -> std::array<T, Infos::num_params>
 {
     return make_array_by_indices<T, Infos::num_params>(
         [space](auto i) {
-            return Value_helper::default_value(Infos::param_spec(static_cast<uint32_t>(i)), space);
+            return default_value(Infos::param_spec(static_cast<uint32_t>(i)), space);
         }
     );
 }

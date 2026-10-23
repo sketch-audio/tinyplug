@@ -228,7 +228,7 @@ private:
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
             const auto& param = User_params::param_spec(i);
             const auto host_value = _hostvalues[i].load(std::memory_order_relaxed);
-            out[i] = params::Value_helper::host_to_knob(host_value, param.semantics);
+            out[i] = params::host_to_knob(host_value, param.semantics);
         }
         return out;
     }
@@ -386,7 +386,7 @@ private:
                 const auto& param = User_params::param_spec(id);
 
                 // Send plain value to kernel.
-                const auto plain_value = Value_helper::host_to_plain(value_event->value, param.semantics);
+                const auto plain_value = params::host_to_plain(value_event->value, param.semantics);
                 if constexpr (on_audio_thread) {
                     // On the audio thread we can handle the event now.
                     _processor->handle(process::Event::Set{.value = plain_value, .address = id});

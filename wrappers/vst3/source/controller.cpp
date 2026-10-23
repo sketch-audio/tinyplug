@@ -158,7 +158,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.identity.address),
                     .stepCount = 1,
-                    .defaultNormalizedValue = Value_helper::default_value(param, Space::Knob),
+                    .defaultNormalizedValue = params::default_value(param, Space::Knob),
                     .unitId = unit_id.unit_id,
                     .flags = {}
                 };
@@ -167,7 +167,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.identity.address),
                     .stepCount = static_cast<int32_t>(l.items.size() - 1),
-                    .defaultNormalizedValue = Value_helper::default_value(param, Space::Knob),
+                    .defaultNormalizedValue = params::default_value(param, Space::Knob),
                     .unitId = unit_id.unit_id,
                     .flags = Steinberg::Vst::ParameterInfo::kIsList
                 };
@@ -176,7 +176,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.identity.address),
                     .stepCount = i.max_val - i.min_val,
-                    .defaultNormalizedValue = Value_helper::default_value(param, Space::Knob),
+                    .defaultNormalizedValue = params::default_value(param, Space::Knob),
                     .unitId = unit_id.unit_id,
                     .flags = {}
                 };
@@ -185,7 +185,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.identity.address),
                     .stepCount = 0,
-                    .defaultNormalizedValue = Value_helper::default_value(param, Space::Knob),
+                    .defaultNormalizedValue = params::default_value(param, Space::Knob),
                     .unitId = unit_id.unit_id,
                     .flags = {}
                 };
@@ -194,7 +194,7 @@ Steinberg::tresult PLUGIN_API Controller::initialize(Steinberg::FUnknown* contex
                 return Steinberg::Vst::ParameterInfo{
                     .id = static_cast<Steinberg::Vst::ParamID>(param.identity.address),
                     .stepCount = 0,
-                    .defaultNormalizedValue = Value_helper::default_value(param, Space::Knob),
+                    .defaultNormalizedValue = params::default_value(param, Space::Knob),
                     .unitId = unit_id.unit_id,
                     .flags = {}
                 };
@@ -467,7 +467,7 @@ Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream*
         // Set remaining parameters to defaults.
         for (auto i = num_stored_values; i < num_params; ++i) {
             const auto& param = User_params::param_spec(i);
-            const auto knob_value = Value_helper::default_value(param, Space::Knob);
+            const auto knob_value = params::default_value(param, Space::Knob);
             notify(param, knob_value);
         }
     }
@@ -662,8 +662,7 @@ Steinberg::tresult PLUGIN_API Controller::getParamStringByValue(Steinberg::Vst::
 
     const auto& params = User_params::param_specs();
     const auto& param = params[tag];
-    const auto host = Value_helper::knob_to_host(valueNormalized, param.semantics);
-    const auto str = Host_formatter::to_string(host, param.semantics);
+    const auto str = params::to_text(params::knob_to_plain(valueNormalized, param.semantics), param.semantics);
     Steinberg::Vst::StringConvert::convert(str, string);
 
     return Steinberg::kResultTrue;
@@ -679,8 +678,8 @@ Steinberg::tresult PLUGIN_API Controller::getParamValueByString(Steinberg::Vst::
 
     const auto& param = User_params::param_spec(tag);
     const auto str = Steinberg::Vst::StringConvert::convert(string);
-    if (const auto plain = Host_formatter::to_value(str, param.semantics)) {
-        valueNormalized = Value_helper::plain_to_knob(*plain, param.semantics);
+    if (const auto plain = params::from_text(str, param.semantics)) {
+        valueNormalized = params::plain_to_knob(*plain, param.semantics);
         return Steinberg::kResultTrue;
     }
 
@@ -697,7 +696,7 @@ Steinberg::Vst::ParamValue PLUGIN_API Controller::normalizedParamToPlain(Steinbe
     if (tag >= User_params::num_params) return 0.f;
 
     const auto& param = User_params::param_spec(tag);
-    return Value_helper::knob_to_plain(valueNormalized, param.semantics);
+    return params::knob_to_plain(valueNormalized, param.semantics);
 }
 
 Steinberg::Vst::ParamValue PLUGIN_API Controller::plainParamToNormalized(Steinberg::Vst::ParamID tag, Steinberg::Vst::ParamValue plainValue)
@@ -710,7 +709,7 @@ Steinberg::Vst::ParamValue PLUGIN_API Controller::plainParamToNormalized(Steinbe
     if (tag >= User_params::num_params) return 0.f;
 
     const auto& param = User_params::param_spec(tag);
-    return Value_helper::plain_to_knob(plainValue, param.semantics);
+    return params::plain_to_knob(plainValue, param.semantics);
 }
 
 Steinberg::Vst::ParamValue PLUGIN_API Controller::getParamNormalized(Steinberg::Vst::ParamID tag)

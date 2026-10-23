@@ -1,4 +1,4 @@
-// Value_helper and Host_formatter as properties over a spread of parameter shapes: endpoints,
+// The params value functions and their text as properties over a spread of parameter shapes: endpoints,
 // round trips between the three spaces, monotonic knob curves, step grids, and text that
 // re-parses to the same text (what CLAP's validator checks, here for every format).
 
@@ -10,7 +10,7 @@
 #include <vector>
 
 #include <audio_bench/audio_bench.hpp>
-#include <tiny_core/host_formatter.hpp>
+#include <tiny_core/param_text.hpp>
 #include <tiny_core/value_helper.hpp>
 
 namespace {
@@ -19,9 +19,8 @@ using audio_bench::Error;
 using audio_bench::Tests;
 using audio_bench::expect_close;
 using audio_bench::expect_true;
-using tiny::Host_formatter;
 using namespace tiny::params;
-using VH = Value_helper;
+namespace VH = tiny::params;
 
 struct Case {
     std::string name{};
@@ -136,10 +135,10 @@ auto add_common(const Case& c) -> void
     Tests::add(std::format("{}: displayed text re-parses to the same text", c.name), [c] {
         for (auto i = 0; i <= 200; ++i) {
             const auto host = VH::knob_to_host(VH::plain_to_knob(VH::knob_to_plain(i / 200., c.semantics), c.semantics), c.semantics);
-            const auto text = Host_formatter::to_string(host, c.semantics);
-            const auto plain = Host_formatter::to_value(text, c.semantics);
+            const auto text = VH::to_text(VH::host_to_plain(host, c.semantics), c.semantics);
+            const auto plain = VH::from_text(text, c.semantics);
             expect_true(plain.has_value(), std::format("'{}' didn't parse", text));
-            const auto again = Host_formatter::to_string(VH::plain_to_host(VH::clamp(*plain, c.semantics), c.semantics), c.semantics);
+            const auto again = VH::to_text(VH::clamp(*plain, c.semantics), c.semantics);
             expect_true(again == text, std::format("'{}' re-parsed as '{}'", text, again));
         }
     });
@@ -184,28 +183,28 @@ auto add_text() -> void
 {
     Tests::add("text: bools, lists, and Gain's -inf", [] {
         const auto b = Semantics::Any{Semantics::Bool{}};
-        expect_true(Host_formatter::to_string(1, b) == "True" && Host_formatter::to_value("False", b) == 0., "bool");
+        expect_true(VH::to_text(1, b) == "True" && VH::from_text("False", b) == 0., "bool");
         const auto l = Semantics::Any{Semantics::List{.items = {"Low", "Mid", "High"}}};
-        expect_true(Host_formatter::to_string(2, l) == "High" && Host_formatter::to_value("Mid", l) == 1., "list");
-        expect_true(!Host_formatter::to_value("Nope", l).has_value(), "an unknown list item must not parse");
+        expect_true(VH::to_text(2, l) == "High" && VH::from_text("Mid", l) == 1., "list");
+        expect_true(!VH::from_text("Nope", l).has_value(), "an unknown list item must not parse");
         const auto g = real(0, 1, 4, Display::Gain{}, Adapter::Pow{.exp = 4});
-        expect_true(Host_formatter::to_string(0, g) == "-inf dB", "0 is -inf dB");
-        expect_true(Host_formatter::to_value("-INF", g) == 0. && Host_formatter::to_value("-inf dB", g) == 0., "-inf parses to 0");
-        expect_true(Host_formatter::to_string(VH::plain_to_host(1, g), g) == "+0.0 dB", "unity");
-        expect_close(*Host_formatter::to_value("-6", g), std::pow(10., -6. / 20.), tight, "typed dB");
+        expect_true(VH::to_text(0, g) == "-inf dB", "0 is -inf dB");
+        expect_true(VH::from_text("-INF", g) == 0. && VH::from_text("-inf dB", g) == 0., "-inf parses to 0");
+        expect_true(VH::to_text(1, g) == "+0.0 dB", "unity");
+        expect_close(*VH::from_text("-6", g), std::pow(10., -6. / 20.), tight, "typed dB");
     });
 
     Tests::add("text: Hz switches to kHz and reads it back", [] {
         const auto hz = real(20, 1000, 20000, Display::Hertz{}, Adapter::Log{});
-        expect_true(Host_formatter::to_string(VH::plain_to_host(1500, hz), hz) == "1.5 kHz", "1500 Hz");
-        expect_close(*Host_formatter::to_value("1.5 kHz", hz), 1500., tight, "kHz parse");
-        expect_true(Host_formatter::to_string(VH::plain_to_host(440, hz), hz) == "440 Hz", "440 Hz");
+        expect_true(VH::to_text(1500, hz) == "1.5 kHz", "1500 Hz");
+        expect_close(*VH::from_text("1.5 kHz", hz), 1500., tight, "kHz parse");
+        expect_true(VH::to_text(440, hz) == "440 Hz", "440 Hz");
     });
 
     Tests::add("text: Bool labels", [] {
         const auto b = Semantics::Any{Semantics::Bool{.display = Display::Labels{}}};
-        expect_true(Host_formatter::to_string(1, b) == "On" && Host_formatter::to_string(0, b) == "Off", "labels");
-        expect_true(Host_formatter::to_value("Off", b) == 0. && !Host_formatter::to_value("True", b).has_value(), "parse labels only");
+        expect_true(VH::to_text(1, b) == "On" && VH::to_text(0, b) == "Off", "labels");
+        expect_true(VH::from_text("Off", b) == 0. && !VH::from_text("True", b).has_value(), "parse labels only");
     });
 
     Tests::add("text: Custom, and its fallbacks", [] {
@@ -213,17 +212,17 @@ auto add_text() -> void
             .to_text = [](double plain) { return std::format("{:.1f}:1", plain); },
             .from_text = [](std::string_view text) -> std::optional<double> { return text == "4.0:1" ? std::optional{4.} : std::nullopt; },
         }, Adapter::Lin{});
-        expect_true(Host_formatter::to_string(VH::plain_to_host(4, ratio), ratio) == "4.0:1", "to_text");
-        expect_true(Host_formatter::to_value("4.0:1", ratio) == 4. && !Host_formatter::to_value("4", ratio).has_value(), "from_text");
+        expect_true(VH::to_text(4, ratio) == "4.0:1", "to_text");
+        expect_true(VH::from_text("4.0:1", ratio) == 4. && !VH::from_text("4", ratio).has_value(), "from_text");
 
         const auto empty = real(0, 0.5, 1, Display::Custom{}, Adapter::Lin{});
-        expect_true(Host_formatter::to_string(VH::plain_to_host(0.5, empty), empty) == "0.50", "empty to_text is the plain number");
-        expect_true(Host_formatter::to_value("0.25", empty) == 0.25, "empty from_text parses the number");
+        expect_true(VH::to_text(0.5, empty) == "0.50", "empty to_text is the plain number");
+        expect_true(VH::from_text("0.25", empty) == 0.25, "empty from_text parses the number");
     });
 
     Tests::add("text: Int takes the unit's suffix", [] {
         const auto i = Semantics::Any{Semantics::Int{.min_val = 0, .def_val = 64, .max_val = 127, .display = Display::Hertz{}}};
-        expect_true(Host_formatter::to_string(64, i) == "64 Hz", "suffix");
+        expect_true(VH::to_text(64, i) == "64 Hz", "suffix");
     });
 
     Tests::add("displays_as", [] {

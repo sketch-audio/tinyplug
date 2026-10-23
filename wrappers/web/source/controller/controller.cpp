@@ -100,7 +100,7 @@ public:
 #endif
 
         for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
-            _host[addr] = params::Value_helper::default_value(User_params::param_spec(addr), params::Space::Host);
+            _host[addr] = params::default_value(User_params::param_spec(addr), params::Space::Host);
         }
 
         _table = Controller_table{
@@ -181,7 +181,7 @@ public:
     auto plain_params(double* out) const -> void
     {
         for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
-            out[addr] = params::Value_helper::host_to_plain(_host[addr], User_params::param_spec(addr).semantics);
+            out[addr] = params::host_to_plain(_host[addr], User_params::param_spec(addr).semantics);
         }
     }
 
@@ -190,14 +190,14 @@ public:
     {
         if (address >= num_params) return;
         const auto& spec = User_params::param_spec(address);
-        _host[address] = params::Value_helper::plain_to_host(plain, spec.semantics);
+        _host[address] = params::plain_to_host(plain, spec.semantics);
         _to_processor.push_value(Kind::Param_set, Param_set{.value = plain, .address = address});
     }
 
     auto param_knob(std::uint32_t address) const -> double
     {
         if (address >= num_params) return 0;
-        return params::Value_helper::host_to_knob(_host[address], User_params::param_spec(address).semantics);
+        return params::host_to_knob(_host[address], User_params::param_spec(address).semantics);
     }
 
     auto send(Kind kind, const void* payload, std::uint32_t bytes) -> bool { return _to_processor.push(kind, payload, bytes); }
@@ -414,9 +414,9 @@ private:
     {
         if (const auto* a = std::get_if<edit::Action::Set>(&action)) {
             const auto& spec = User_params::param_spec(a->address);
-            _host[a->address] = params::Value_helper::knob_to_host(a->value, spec.semantics);
+            _host[a->address] = params::knob_to_host(a->value, spec.semantics);
             _to_processor.push_value(Kind::Param_set, Param_set{
-                .value = params::Value_helper::knob_to_plain(a->value, spec.semantics),
+                .value = params::knob_to_plain(a->value, spec.semantics),
                 .address = a->address,
             });
         }
@@ -425,8 +425,8 @@ private:
     auto _load_param(std::uint32_t address, double knob) -> void
     {
         const auto& spec = User_params::param_spec(address);
-        _host[address] = params::Value_helper::knob_to_host(knob, spec.semantics);
-        _to_processor.push_value(Kind::Param_set, Param_set{.value = params::Value_helper::knob_to_plain(knob, spec.semantics), .address = address});
+        _host[address] = params::knob_to_host(knob, spec.semantics);
+        _to_processor.push_value(Kind::Param_set, Param_set{.value = params::knob_to_plain(knob, spec.semantics), .address = address});
     }
 
     auto _knob_snapshot() const -> std::array<double, num_params>
@@ -447,7 +447,7 @@ private:
         const auto before = _knob_snapshot();
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
             const auto& spec = User_params::param_spec(i);
-            const auto knob = i < knob_values.size() ? knob_values[i] : std::optional<double>{Value_helper::default_value(spec, Space::Knob)};
+            const auto knob = i < knob_values.size() ? knob_values[i] : std::optional<double>{params::default_value(spec, Space::Knob)};
             if (knob && State_rules::is_persistent(spec)) _load_param(i, *knob);
         }
         const auto after = _knob_snapshot();

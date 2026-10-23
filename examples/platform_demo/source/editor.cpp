@@ -110,10 +110,10 @@ auto Editor::_dialog(int which, const Frame& gain, const Frame& note, double gai
                 if (text.empty()) return report("TEXT: CANCELLED");
                 const auto address = enum_raw(Address::Gain);
                 const auto& spec = User_params::param_spec(address);
-                const auto value = Host_formatter::to_value(text, spec.semantics);
+                const auto value = params::from_text(text, spec.semantics);
                 if (!value) return report("TEXT: NOT A NUMBER");
                 _edit.params.start(address);
-                _edit.params.set(address, params::Value_helper::plain_to_knob(*value, spec.semantics));
+                _edit.params.set(address, params::plain_to_knob(*value, spec.semantics));
                 _edit.params.end(address);
                 report("TEXT: GAIN = " + text);
             }, ctx);
@@ -132,7 +132,7 @@ auto Editor::_dialog(int which, const Frame& gain, const Frame& note, double gai
             const auto& spec = User_params::param_spec(address);
             const auto field = Text_field{
                 .frame = gain,
-                .initial = Host_formatter::to_string(params::Value_helper::knob_to_host(gain_knob, spec.semantics), spec.semantics),
+                .initial = params::to_text(params::knob_to_plain(gain_knob, spec.semantics), spec.semantics),
                 .label = spec.name,
                 .ink = t.text,
                 .background = t.panel,
@@ -142,10 +142,10 @@ auto Editor::_dialog(int which, const Frame& gain, const Frame& note, double gai
                 if (!r.committed()) return report("INLINE: CANCELLED");
                 const auto address = enum_raw(Address::Gain);
                 const auto& spec = User_params::param_spec(address);
-                const auto value = Host_formatter::to_value(r.text, spec.semantics);
+                const auto value = params::from_text(r.text, spec.semantics);
                 if (!value) return report("INLINE: NOT A NUMBER");
                 _edit.params.start(address);
-                _edit.params.set(address, params::Value_helper::plain_to_knob(params::Value_helper::clamp(*value, spec.semantics), spec.semantics));
+                _edit.params.set(address, params::plain_to_knob(params::clamp(*value, spec.semantics), spec.semantics));
                 _edit.params.end(address);
                 report("INLINE: GAIN = " + r.text);
             }, ctx);

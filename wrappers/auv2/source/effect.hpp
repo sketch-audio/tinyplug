@@ -209,7 +209,7 @@ private:
         for (auto i = decltype(num_params){}; i < num_params; ++i) {
             const auto& param = User_params::param_spec(i);
             const auto host = Globals()->GetParameter(i);
-            out[i] = params::Value_helper::host_to_knob(host, param.semantics);
+            out[i] = params::host_to_knob(host, param.semantics);
         }
         return out;
     }
@@ -349,7 +349,7 @@ private:
                     using namespace params;
                     const auto& param = User_params::param_spec(id);
                     const auto host = Globals()->GetParameter(id);
-                    const auto knob = Value_helper::host_to_knob(host, param.semantics);
+                    const auto knob = params::host_to_knob(host, param.semantics);
                     return knob;
                 },
 #if TINY_HAS_METERS
@@ -378,8 +378,8 @@ private:
 
                             // Notify host
                             const auto& param = User_params::param_spec(a.address);
-                            const auto plain_value = Value_helper::knob_to_plain(a.value, param.semantics);
-                            const auto host_value = Value_helper::knob_to_host(a.value, param.semantics);
+                            const auto plain_value = params::knob_to_plain(a.value, param.semantics);
+                            const auto host_value = params::knob_to_host(a.value, param.semantics);
 
                             Globals()->SetParameter(a.address, static_cast<float>(host_value));
                             auto event = AudioUnitEvent{};

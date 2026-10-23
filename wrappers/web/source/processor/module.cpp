@@ -77,7 +77,7 @@ struct Processor_module {
     {
         events.reserve(max_events);
         for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
-            params[addr] = params::Value_helper::default_value(User_params::param_spec(addr), params::Space::Plain);
+            params[addr] = params::default_value(User_params::param_spec(addr), params::Space::Plain);
         }
         table = Wire_table{
             .inbound = address_of(inbound),

@@ -9,7 +9,7 @@ namespace tiny::params {
 
 // MARK: - Real-adapter normalization
 
-auto Value_helper::plain_to_knob(double x, const Semantics::Real& r) -> double
+auto plain_to_knob(double x, const Semantics::Real& r) -> double
 {
     return std::visit(Inline_visitor{
         [&](const Adapter::Lin&) {
@@ -70,7 +70,7 @@ auto Value_helper::plain_to_knob(double x, const Semantics::Real& r) -> double
     }, r.knob_adapter);
 }
 
-auto Value_helper::knob_to_plain(double x, const Semantics::Real& r) -> double
+auto knob_to_plain(double x, const Semantics::Real& r) -> double
 {
     return std::visit(Inline_visitor{
         [&](const Adapter::Lin&) {
@@ -135,7 +135,7 @@ auto Value_helper::knob_to_plain(double x, const Semantics::Real& r) -> double
 
 // MARK: - plain <-> knob (Any)
 
-auto Value_helper::plain_to_knob(double x, const Semantics::Any& semantics) -> double
+auto plain_to_knob(double x, const Semantics::Any& semantics) -> double
 {
     return std::visit(Inline_visitor{
         [&](const Semantics::Bool&) {
@@ -159,7 +159,7 @@ auto Value_helper::plain_to_knob(double x, const Semantics::Any& semantics) -> d
     }, semantics);
 }
 
-auto Value_helper::knob_to_plain(double x, const Semantics::Any& semantics) -> double
+auto knob_to_plain(double x, const Semantics::Any& semantics) -> double
 {
     return std::visit(Inline_visitor{
         [&](const Semantics::Bool&) {
@@ -185,7 +185,7 @@ auto Value_helper::knob_to_plain(double x, const Semantics::Any& semantics) -> d
 
 // MARK: - cross-space conversions
 
-auto Value_helper::plain_to_host(double plain_value, const Semantics::Any& semantics) -> double
+auto plain_to_host(double plain_value, const Semantics::Any& semantics) -> double
 {
     // Normalize real params; quantize fixed.
     if (const auto* r = std::get_if<Semantics::Real>(&semantics)) {
@@ -197,7 +197,7 @@ auto Value_helper::plain_to_host(double plain_value, const Semantics::Any& seman
     return plain_value;
 }
 
-auto Value_helper::host_to_plain(double host_value, const Semantics::Any& semantics) -> double
+auto host_to_plain(double host_value, const Semantics::Any& semantics) -> double
 {
     // Denormalize real params; quantize fixed.
     if (const auto* r = std::get_if<Semantics::Real>(&semantics)) {
@@ -209,7 +209,7 @@ auto Value_helper::host_to_plain(double host_value, const Semantics::Any& semant
     return host_value;
 }
 
-auto Value_helper::host_to_knob(double host_value, const Semantics::Any& semantics) -> double
+auto host_to_knob(double host_value, const Semantics::Any& semantics) -> double
 {
     // Normalize list, integer, fixed params; real host space is already knob space.
     return std::visit(Inline_visitor{
@@ -220,7 +220,7 @@ auto Value_helper::host_to_knob(double host_value, const Semantics::Any& semanti
     }, semantics);
 }
 
-auto Value_helper::knob_to_host(double knob_value, const Semantics::Any& semantics) -> double
+auto knob_to_host(double knob_value, const Semantics::Any& semantics) -> double
 {
     // Denormalize list, integer, fixed params; real host space is already knob space.
     return std::visit(Inline_visitor{
@@ -231,7 +231,7 @@ auto Value_helper::knob_to_host(double knob_value, const Semantics::Any& semanti
     }, semantics);
 }
 
-auto Value_helper::convert(double value, Space from, Space to, const Semantics::Any& semantics) -> double
+auto convert(double value, Space from, Space to, const Semantics::Any& semantics) -> double
 {
     if (from == to) return value;
 
@@ -253,14 +253,14 @@ auto Value_helper::convert(double value, Space from, Space to, const Semantics::
     return plain;
 }
 
-auto Value_helper::quantize(double plain_value, const Semantics::Any& semantics) -> double
+auto quantize(double plain_value, const Semantics::Any& semantics) -> double
 {
     return knob_to_plain(plain_to_knob(plain_value, semantics), semantics);
 }
 
 // MARK: - range
 
-auto Value_helper::plain_min(const Spec& spec) -> double
+auto plain_min(const Spec& spec) -> double
 {
     return std::visit(Inline_visitor{
         [](const Semantics::Bool&) { return 0.0; },
@@ -271,7 +271,7 @@ auto Value_helper::plain_min(const Spec& spec) -> double
     }, spec.semantics);
 }
 
-auto Value_helper::plain_max(const Spec& spec) -> double
+auto plain_max(const Spec& spec) -> double
 {
     return std::visit(Inline_visitor{
         [](const Semantics::Bool&) { return 1.0; },
@@ -284,7 +284,7 @@ auto Value_helper::plain_max(const Spec& spec) -> double
 
 // MARK: - defaults
 
-auto Value_helper::default_value(const Spec& spec, Space space) -> double
+auto default_value(const Spec& spec, Space space) -> double
 {
     const auto plain_default = std::visit(Inline_visitor{
         [](const Semantics::Bool& b) { return static_cast<double>(b.def_val ? 1 : 0); },
@@ -304,7 +304,7 @@ auto Value_helper::default_value(const Spec& spec, Space space) -> double
 
 // MARK: - semantics queries
 
-auto Value_helper::is_discrete(const Semantics::Any& semantics) -> bool
+auto is_discrete(const Semantics::Any& semantics) -> bool
 {
     return std::visit(Inline_visitor{
         [](const Semantics::Bool&) { return true; },
@@ -317,7 +317,7 @@ auto Value_helper::is_discrete(const Semantics::Any& semantics) -> bool
 
 // MARK: - clamp / step
 
-auto Value_helper::clamp(double x, const Semantics::Any& semantics) -> double
+auto clamp(double x, const Semantics::Any& semantics) -> double
 {
     return std::visit(Inline_visitor{
         [x](const Semantics::Bool&) {
@@ -339,7 +339,7 @@ auto Value_helper::clamp(double x, const Semantics::Any& semantics) -> double
     }, semantics);
 }
 
-auto Value_helper::knob_next(double x, const Semantics::Any& semantics) -> double
+auto knob_next(double x, const Semantics::Any& semantics) -> double
 {
     return std::visit(Inline_visitor{
         [x](const Semantics::Bool&) {
@@ -370,7 +370,7 @@ auto Value_helper::knob_next(double x, const Semantics::Any& semantics) -> doubl
     }, semantics);
 }
 
-auto Value_helper::knob_prev(double x, const Semantics::Any& semantics) -> double
+auto knob_prev(double x, const Semantics::Any& semantics) -> double
 {
     return std::visit(Inline_visitor{
         [x](const Semantics::Bool&) {

@@ -116,7 +116,6 @@ private:
 template<typename P>
 auto check_restart(std::span<const double> a, std::span<const double> b, const Restart_check& check = {}) -> std::optional<std::string>
 {
-    using params::Value_helper;
     constexpr auto num_params = User_params::num_params;
 
     auto random = check.seed;
@@ -134,7 +133,7 @@ auto check_restart(std::span<const double> a, std::span<const double> b, const R
             if constexpr (num_params > 0) {
                 if (next() % 4 == 0) {
                     const auto address = static_cast<std::uint32_t>(next() % num_params);
-                    const auto value = Value_helper::knob_to_plain(unit(), User_params::param_spec(address).semantics);
+                    const auto value = params::knob_to_plain(unit(), User_params::param_spec(address).semantics);
                     if (next() % 2 == 0) bench.handle(Event::Set{.value = value, .address = address});
                     else bench.handle(Event::Ramp{.value = value, .address = address, .samples = static_cast<std::int32_t>(check.block)});
                 }

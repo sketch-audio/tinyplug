@@ -37,7 +37,7 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     ui::fill(*canvas, {0, 0, static_cast<double>(view.logical_size.w), static_cast<double>(view.logical_size.h)}, t.background);
 
     const auto& gain = User_params::param_spec(enum_raw(Address::Gain)).semantics;
-    const auto plain = params::Value_helper::knob_to_plain(knobs[enum_raw(Address::Gain)], gain);
+    const auto plain = params::knob_to_plain(knobs[enum_raw(Address::Gain)], gain);
     ui::text_in(*canvas, {bounds.x, bounds.y, bounds.w, 16}, (plain > 1 ? "+" : "") + ui::db(plain) + " DB", t.text, 3);
 
     ui::draw_controls(*canvas, t, controls, knobs);

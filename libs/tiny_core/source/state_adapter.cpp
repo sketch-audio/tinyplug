@@ -39,7 +39,7 @@ auto State_adapter::preset_json(const Save_model& model, const Preset_info& info
     auto add_value = [](Json& json, const params::Spec& spec, double value) {
         const auto persistent = (spec.policy != params::Policy::Interface);
         if (!persistent) return;
-        const auto plain = Value_helper::knob_to_plain(value, spec.semantics);
+        const auto plain = params::knob_to_plain(value, spec.semantics);
         json[spec.identity.identifier] = static_cast<float>(plain);
     };
 
@@ -98,11 +98,11 @@ auto State_adapter::param_values(const nlohmann::ordered_json& preset_state) con
                 const auto has_value = json.contains(spec->identity.identifier) && json[spec->identity.identifier].is_number();
                 if (has_value) {
                     const auto plain = json[spec->identity.identifier].get<double>();
-                    const auto knob = Value_helper::plain_to_knob(plain, spec->semantics);
+                    const auto knob = params::plain_to_knob(plain, spec->semantics);
                     values[spec->identity.address] = knob;
                 }
                 else {
-                    const auto def_val = Value_helper::default_value(*spec, Space::Knob);
+                    const auto def_val = params::default_value(*spec, Space::Knob);
                     values[spec->identity.address] = def_val;
                 }
             }

@@ -8,7 +8,7 @@
 #include "denormal_guard.hpp"
 #include "edit_record.hpp"
 #include "gesture_recognizers.hpp"
-#include "host_formatter.hpp"
+#include "param_text.hpp"
 #include "lock_free_queue.hpp"
 #include "midi_codec.hpp"
 #include "midi_mpe.hpp"

@@ -23,7 +23,7 @@ inline auto manifest() -> std::string
             {"name", spec.name},
             {"short_name", spec.short_name},
             {"description", spec.description},
-            {"default", params::Value_helper::default_value(spec, params::Space::Plain)},
+            {"default", params::default_value(spec, params::Space::Plain)},
         };
         std::visit(Inline_visitor{
             [&](const params::Semantics::Bool&) { p["kind"] = "bool"; p["min"] = 0; p["max"] = 1; },

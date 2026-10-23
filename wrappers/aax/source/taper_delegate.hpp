@@ -40,13 +40,13 @@ public:
     T NormalizedToReal(double normalizedValue) const override
     {
         using namespace params;
-        return static_cast<T>(Value_helper::knob_to_plain(normalizedValue, _semantics));
+        return static_cast<T>(params::knob_to_plain(normalizedValue, _semantics));
     }
 
     double RealToNormalized(T realValue) const override
     {
         using namespace params;
-        return Value_helper::plain_to_knob(static_cast<double>(realValue), _semantics);
+        return params::plain_to_knob(static_cast<double>(realValue), _semantics);
     }
 
 private:
@@ -89,13 +89,13 @@ public:
     T NormalizedToReal(double normalizedValue) const override
     {
         using namespace params;
-        return static_cast<T>(Value_helper::knob_to_plain(normalizedValue, _semantics));
+        return static_cast<T>(params::knob_to_plain(normalizedValue, _semantics));
     }
 
     double RealToNormalized(T realValue) const override
     {
         using namespace params;
-        return Value_helper::plain_to_knob(static_cast<double>(realValue), _semantics);
+        return params::plain_to_knob(static_cast<double>(realValue), _semantics);
     }
 
 private:

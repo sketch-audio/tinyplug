@@ -179,7 +179,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setupProcessing(Steinberg::Vst::Proc
         // Convert to plain space.
         const auto& param = User_params::param_spec(addr);
         const auto knob = _host_values[addr].load(std::memory_order_relaxed);
-        const auto plain = Value_helper::knob_to_plain(knob, param.semantics);
+        const auto plain = params::knob_to_plain(knob, param.semantics);
         config_values[addr] = plain;
     }
 
@@ -491,7 +491,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     }, [] { return false; });
     if (plan.restart != process::Stream_sync::Restart::None) {
         const auto values = process::restart_values<num_params>([&top_knobs](uint32_t address) {
-            return params::Value_helper::knob_to_plain(top_knobs[address], User_params::param_spec(address).semantics);
+            return params::knob_to_plain(top_knobs[address], User_params::param_spec(address).semantics);
         }, _events);
         _processor->reset(Reset::Restart{values});
         if (plan.restart == process::Stream_sync::Restart::Stream) {
@@ -796,7 +796,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
         if (!State_rules::is_persistent(spec)) return;
 
         const auto address = spec.identity.address;
-        const auto plain_value = Value_helper::knob_to_plain(knob_value, spec.semantics);
+        const auto plain_value = params::knob_to_plain(knob_value, spec.semantics);
         loaded.push_back(process::Event::Set{.value = plain_value, .address = address});
 
         // Maintain host values.
@@ -837,7 +837,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::setState(Steinberg::IBStream* state)
         // Set remaining parameters to defaults.
         for (auto i = num_stored_values; i < num_params; ++i) {
             const auto& param = User_params::param_spec(i);
-            notify(param, static_cast<float>(Value_helper::default_value(param, Space::Knob)));
+            notify(param, static_cast<float>(params::default_value(param, Space::Knob)));
         }
     }
 
@@ -1021,7 +1021,7 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
             if (ramp_dur <= 1) {
                 _events.push_back({
                     .event = process::Event::Set{
-                        .value = Value_helper::knob_to_plain(value, param.semantics),
+                        .value = params::knob_to_plain(value, param.semantics),
                         .address = id
                     },
                     .offset = std::max(previous_offset, {}),
@@ -1031,7 +1031,7 @@ auto Audio_effect::normalize_input_events(Steinberg::Vst::ProcessData& data, boo
             else {
                 _events.push_back({
                     .event = process::Event::Ramp{
-                        .value = Value_helper::knob_to_plain(value, param.semantics),
+                        .value = params::knob_to_plain(value, param.semantics),
                         .address = id,
                         .samples = ramp_dur
                     },

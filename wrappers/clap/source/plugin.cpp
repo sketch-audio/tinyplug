@@ -58,7 +58,7 @@ bool Plugin::activate(double sampleRate, uint32_t /*minFrameCount*/, uint32_t ma
         // Convert to plain space.
         const auto& param = User_params::param_spec(addr);
         const auto host = _hostvalues[addr].load(std::memory_order_relaxed);
-        const auto plain = Value_helper::host_to_plain(host, param.semantics);
+        const auto plain = params::host_to_plain(host, param.semantics);
         config_values[addr] = plain;
     }
 
@@ -126,14 +126,14 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     if (plan.restart != process::Stream_sync::Restart::None) {
         auto values = process::restart_values<num_params>([this](uint32_t address) {
             const auto host = _hostvalues[address].load(std::memory_order_relaxed);
-            return params::Value_helper::host_to_plain(host, User_params::param_spec(address).semantics);
+            return params::host_to_plain(host, User_params::param_spec(address).semantics);
         }, {});
         for (auto i = uint32_t{}; i < process->in_events->size(process->in_events); ++i) {
             const auto* header = process->in_events->get(process->in_events, i);
             if (header->time > 0 || header->space_id != CLAP_CORE_EVENT_SPACE_ID || header->type != CLAP_EVENT_PARAM_VALUE) continue;
             const auto* value_event = reinterpret_cast<const clap_event_param_value*>(header);
             if (value_event->param_id >= num_params) continue;
-            values[value_event->param_id] = params::Value_helper::host_to_plain(value_event->value, User_params::param_spec(value_event->param_id).semantics);
+            values[value_event->param_id] = params::host_to_plain(value_event->value, User_params::param_spec(value_event->param_id).semantics);
         }
         _processor->reset(process::Reset::Restart{values});
         if (plan.restart == process::Stream_sync::Restart::Stream) {
@@ -152,7 +152,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
         for (auto addr = decltype(num_params){}; addr < num_params; ++addr) {
             const auto host_value = _hostvalues[addr].load(std::memory_order_relaxed);
             const auto& spec = User_params::param_spec(addr);
-            const auto plain = Value_helper::host_to_plain(host_value, spec.semantics);
+            const auto plain = params::host_to_plain(host_value, spec.semantics);
             _processor->handle(process::Event::Set{.value = plain, .address = addr});
         }
     }
@@ -501,7 +501,7 @@ bool Plugin::stateSave(const clap_ostream* stream) noexcept
         auto raw = _hostvalues[i].load(std::memory_order_relaxed);
 
         if (std::get_if<params::Semantics::Fixed>(&spec.semantics)) {
-            raw = Value_helper::quantize(raw, spec.semantics); // Clamp fixed to step values.
+            raw = params::quantize(raw, spec.semantics); // Clamp fixed to step values.
         }
 
         const auto host_value = static_cast<float>(raw);
@@ -635,7 +635,7 @@ auto Plugin::_update_state(const Maybe_values<double>& knob_values, State_map le
         // Set remaining parameters to defaults.
         for (auto i = num_stored_values; i < num_params; ++i) {
             const auto& param = User_params::param_spec(static_cast<uint32_t>(i));
-            const auto knob_value = Value_helper::default_value(param, Space::Knob);
+            const auto knob_value = params::default_value(param, Space::Knob);
             notify(param, std::optional<double>{knob_value});
         }
     }
@@ -756,7 +756,7 @@ auto Plugin::_read_state_chunk(const clap_istream* stream) -> bool
         // Do we have a meaningful value?
         if (host_value != State_rules::no_value) {
             const auto& spec = User_params::param_spec(i);
-            const auto knob_value = Value_helper::host_to_knob(static_cast<double>(host_value), spec.semantics);
+            const auto knob_value = params::host_to_knob(static_cast<double>(host_value), spec.semantics);
             stored_values[i] = knob_value;
         }
     }
@@ -1079,7 +1079,7 @@ bool Plugin::paramsInfo(uint32_t paramIndex, clap_param_info* info) const noexce
         [&](const params::Semantics::Real& r) {
             info->min_value = 0;
             info->max_value = 1;
-            info->default_value = Value_helper::plain_to_knob(r.def_val, r);
+            info->default_value = params::plain_to_knob(r.def_val, r);
         },
     }, param.semantics);
 
@@ -1104,7 +1104,7 @@ bool Plugin::paramsValue(clap_id paramId, double* value) noexcept
 
     if (std::get_if<params::Semantics::Fixed>(&spec.semantics)) {
         // Snap to nearest step so paramsValue() round-trips through state save/load.
-        result = Value_helper::quantize(raw, spec.semantics);
+        result = params::quantize(raw, spec.semantics);
     }
 
     *value = static_cast<double>(static_cast<float>(result)); // We dump state as floats so the cast makes sure we round-trip through state save/load.
@@ -1123,7 +1123,7 @@ bool Plugin::paramsValueToText(clap_id paramId, double value, char* display, uin
     if (paramId >= num_params || !display) return false;
 
     const auto& param = User_params::param_spec(paramId);
-    const auto str = Host_formatter::to_string(value, param.semantics);
+    const auto str = params::to_text(params::host_to_plain(value, param.semantics), param.semantics);
     std::snprintf(display, size, "%s", str.c_str());
     display[size - 1] = '\0'; // In case str is longer than display.
 
@@ -1147,9 +1147,9 @@ bool Plugin::paramsTextToValue(clap_id paramId, const char* display, double* val
     const auto& param = User_params::param_spec(paramId);
     const auto str = std::string{display};
 
-    if (const auto plain = Host_formatter::to_value(str, param.semantics)) {
-        const auto clamped = Value_helper::clamp(*plain, param.semantics); // Clamp fixes some round-tripping issues flagged by the validator.
-        *value = Value_helper::plain_to_host(clamped, param.semantics);
+    if (const auto plain = params::from_text(str, param.semantics)) {
+        const auto clamped = params::clamp(*plain, param.semantics); // Clamp fixes some round-tripping issues flagged by the validator.
+        *value = params::plain_to_host(clamped, param.semantics);
         return true;
     }
 
@@ -1203,7 +1203,7 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
         .get_param = [this](auto id) {
             const auto& param = User_params::param_spec(id);
             const auto host_value = _hostvalues[id].load(std::memory_order_relaxed);
-            const auto knob_value = Value_helper::host_to_knob(host_value, param.semantics);
+            const auto knob_value = params::host_to_knob(host_value, param.semantics);
             return knob_value;
         },
 #if TINY_HAS_METERS
@@ -1399,7 +1399,7 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
                 const auto& param = User_params::param_spec(a.address);
 
                 if (wants_host_notify(param.policy)) {
-                    const auto host_value = Value_helper::knob_to_host(a.value, param.semantics);
+                    const auto host_value = params::knob_to_host(a.value, param.semantics);
                     const auto e = clap_event_param_value{
                         .header = {
                             .size = sizeof(clap_event_param_value),
@@ -1414,7 +1414,7 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
                     out_events->try_push(out_events, &e.header);
                 }
 
-                const auto plain_value = Value_helper::knob_to_plain(a.value, param.semantics);
+                const auto plain_value = params::knob_to_plain(a.value, param.semantics);
                 _processor->handle(process::Event::Set{.value = plain_value, .address = param.identity.address});
             },
             [&](const edit::Action::End& a) {
@@ -1444,7 +1444,7 @@ auto Plugin::_handle_user_action(const edit::Action::Any& action) -> void
     // Maintain host values immediately.
     if (const auto* a = std::get_if<edit::Action::Set>(&action)) {
         const auto& param = User_params::param_spec(a->address);
-        const auto host_value = Value_helper::knob_to_host(a->value, param.semantics);
+        const auto host_value = params::knob_to_host(a->value, param.semantics);
         _hostvalues[param.identity.address].store(host_value, std::memory_order_relaxed);
     }
     // Full while the host isn't processing (deactivated, asleep) and the editor keeps going. Not an
@@ -1458,8 +1458,8 @@ auto Plugin::_load_param(uint32_t address, double knob) -> void
 {
     using namespace params;
     const auto& param = User_params::param_spec(address);
-    _hostvalues[address].store(Value_helper::knob_to_host(knob, param.semantics), std::memory_order_relaxed);
-    _from_load.push(process::Event::Set{.value = Value_helper::knob_to_plain(knob, param.semantics), .address = address});
+    _hostvalues[address].store(params::knob_to_host(knob, param.semantics), std::memory_order_relaxed);
+    _from_load.push(process::Event::Set{.value = params::knob_to_plain(knob, param.semantics), .address = address});
     if (_view) _view->set_param(address, knob);
 }
 
