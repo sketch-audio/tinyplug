@@ -27,7 +27,8 @@ struct Text_field {
     } font{};
 
     std::uint32_t ink{0xff000000};    // SkColors
-    std::uint32_t background{0xffffffff};
+    std::uint32_t background{0xffffffff}; // alpha 0: transparent, over the editor's own drawing (a popover's panel)
+    float inset{4};                   // horizontal padding inside `frame`, logical; the text is centred vertically
 
     enum class Align { Left, Center, Right } align{Align::Center};
     bool select_all{true};

@@ -1,5 +1,6 @@
 #include <tiny_platform/platform_view.hpp>
 
+#include <algorithm>
 #include <chrono>
 
 #import <Cocoa/Cocoa.h>
@@ -23,20 +24,32 @@ static_assert(false, "This is a non-ARC file");
 
 // MARK: - Text field
 
-// Centres a single line vertically; NSTextFieldCell draws it at the top.
+// Centres a single line vertically (NSTextFieldCell puts it at the top) and pads it `inset` across, for drawing and
+// for editing alike: the field editor gets its frame from edit/selectWithFrame, not from drawing.
 @interface TINY_MAC_TEXT_CELL : NSTextFieldCell
+@property CGFloat inset;
 @end
 
 @implementation TINY_MAC_TEXT_CELL
 
 - (NSRect)drawingRectForBounds:(NSRect)bounds {
-    auto rect = [super drawingRectForBounds:bounds];
+    constexpr auto line_padding = 2.0; // The text container's own, on each side.
+    const auto across = std::max(0.0, self.inset - line_padding);
+    auto rect = NSMakeRect(bounds.origin.x + across, bounds.origin.y, std::max(0.0, bounds.size.width - 2 * across), bounds.size.height);
     const auto height = [self cellSizeForBounds:rect].height;
     if (height < rect.size.height) {
         rect.origin.y += (rect.size.height - height) / 2;
         rect.size.height = height;
     }
     return rect;
+}
+
+- (void)editWithFrame:(NSRect)rect inView:(NSView*)view editor:(NSText*)editor delegate:(id)delegate event:(NSEvent*)event {
+    [super editWithFrame:[self drawingRectForBounds:rect] inView:view editor:editor delegate:delegate event:event];
+}
+
+- (void)selectWithFrame:(NSRect)rect inView:(NSView*)view editor:(NSText*)editor delegate:(id)delegate start:(NSInteger)start length:(NSInteger)length {
+    [super selectWithFrame:[self drawingRectForBounds:rect] inView:view editor:editor delegate:delegate start:start length:length];
 }
 
 @end
@@ -97,11 +110,12 @@ auto ns_font(const tiny::Text_field::Font& font) -> NSFont*
     cell.scrollable = YES;
     cell.wraps = NO;
     cell.usesSingleLineMode = YES;
+    cell.inset = spec.inset;
     self.cell = cell;
 
     self.bezeled = NO;
     self.bordered = NO;
-    self.drawsBackground = YES;
+    self.drawsBackground = (spec.background >> 24) != 0; // Transparent: the editor's drawing shows through.
     self.backgroundColor = ns_color(spec.background);
     self.textColor = ns_color(spec.ink);
     self.font = ns_font(spec.font);

@@ -79,7 +79,7 @@ auto modifiers(int bits) -> Modifier_keys
 // Escape cancels, blur does what the field says; its keys stop at the input, so the page's shortcuts don't fire.
 EM_JS(void, web_text_open, (std::uint32_t id, const char* selector, double x, double y, double w, double h, const char* initial, const char* label,
                             const std::byte* font, std::size_t font_len, float size, float weight, std::uint32_t ink, std::uint32_t background,
-                            int align, int select_all, int blur_commits), {
+                            float inset, int align, int select_all, int blur_commits), {
     const canvas = document.querySelector(UTF8ToString(selector));
     if (!canvas) { _tiny_web_text_done(id, 0, 0); return; }
     const css = (c) => `rgba(${(c >>> 16) & 255},${(c >>> 8) & 255},${c & 255},${((c >>> 24) & 255) / 255})`;
@@ -104,7 +104,7 @@ EM_JS(void, web_text_open, (std::uint32_t id, const char* selector, double x, do
     const rect = canvas.getBoundingClientRect();
     Object.assign(input.style, {
         position: "fixed", left: `${rect.left + x}px`, top: `${rect.top + y}px`, width: `${w}px`, height: `${h}px`,
-        boxSizing: "border-box", margin: "0", padding: "0 4px", border: "none", outline: "none", borderRadius: "0",
+        boxSizing: "border-box", margin: "0", padding: `0 ${inset}px`, border: "none", outline: "none", borderRadius: "0",
         fontFamily: family, fontSize: `${size}px`, fontWeight: String(weight), fontVariationSettings: `"wght" ${weight}, "opsz" ${size}`,
         color: css(ink), background: css(background), caretColor: css(ink), textAlign: ["left", "center", "right"][align], zIndex: "2147483647",
     });
@@ -185,7 +185,7 @@ auto Platform_text::edit(const Text_field& field, std::function<void(Text_result
     fields[id] = {std::move(deliver), ctx.window, field.blur == Text_field::Blur::Commit};
     web_text_open(id, binder->selector.c_str(), field.frame.x, field.frame.y, field.frame.w, field.frame.h, field.initial.c_str(), field.label.c_str(),
                   field.font.data.data(), field.font.data.size(), field.font.size, field.font.weight, field.ink, field.background,
-                  static_cast<int>(field.align), field.select_all ? 1 : 0, field.blur == Text_field::Blur::Commit ? 1 : 0);
+                  field.inset, static_cast<int>(field.align), field.select_all ? 1 : 0, field.blur == Text_field::Blur::Commit ? 1 : 0);
 }
 
 auto Platform_text::cancel(Window_token window) -> void
