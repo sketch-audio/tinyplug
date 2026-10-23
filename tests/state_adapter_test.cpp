@@ -1,5 +1,8 @@
 // Preset JSON and the state record: `State_adapter` carries it as base64 under "state".
+#include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -61,13 +64,13 @@ auto test_round_trip() -> void
 
     const auto doc = Doc{77};
     const auto a = adapter(state::encode_record(doc));
-    const auto json = a.preset_state({});
+    const auto json = a.preset_state();
     expect(json.contains("state") && json["state"].is_string(), "the record is a top-level base64 string");
 
     auto back = Doc{};
     expect(state::decode_record(a.state_record(json), back) && back.swing == 77, "and reads back");
 
-    const auto none = adapter({}).preset_state({});
+    const auto none = adapter({}).preset_state();
     expect(!none.contains("state"), "no document, no key");
     expect(adapter({}).state_record(none).empty(), "a preset without one reads as empty");
 }
@@ -107,6 +110,63 @@ auto test_reserved_keys() -> void
     expect(map.size() == 2, "ordinary keys stay");
 }
 
+// A preset saved by an older build (fixtures/presets/legacy.json, written at 9974496 by this test's
+// since-removed writer): parameters by keypath, an author key and the framework's size keys under
+// "editor", the document as base64.
+const auto legacy_path = std::string{TINY_FIXTURES_DIR} + "/presets/legacy.json";
+
+auto test_preset_and_session() -> void
+{
+    std::printf("presets and sessions\n");
+
+    const auto edit = tiny::Edit_record{.size = tiny::Rect_size{613, 411}, .undoable = {std::byte{7}}, .restored = {}};
+    auto with_edit = tiny::State_adapter{{
+        .load_model = [] { return tiny::State_adapter::Load_model{.param_tree = &tree(), .num_params = 1}; },
+        .save_model = [&] {
+            auto legacy = tiny::State_map{};
+            tiny::framework_keys::write(legacy, tiny::Framework_keys{.size = std::pair{613, 411}});
+            return tiny::State_adapter::Save_model{.version = 1, .param_tree = &tree(), .param_values = {0.5},
+                                                   .edit_record = tiny::encode_edit_record(edit), .legacy_editor = legacy};
+        },
+    }};
+
+    const auto preset = with_edit.preset_state(tiny::Preset_info{.name = "Warm", .id = "factory/warm"});
+    expect(preset.value("name", "") == "Warm" && preset.value("id", "") == "factory/warm", "a preset names itself");
+    expect(!preset.contains("edit") && !preset.contains("editor"), "and carries no editor state");
+    const auto info = with_edit.preset_info(preset);
+    expect(info.name == "Warm" && info.id == "factory/warm", "its name and id read back");
+
+    const auto session = with_edit.session_state();
+    const auto back = with_edit.edit_record(session);
+    expect(back && *back == edit, "a session carries the editor's record");
+    const auto legacy = tiny::editor_size_state::extract(with_edit.editor_state(session));
+    expect(legacy && legacy->first == 613, "and the size keys older builds read");
+    expect(!with_edit.edit_record(preset), "a preset has none");
+}
+
+auto test_legacy_fixture() -> void
+{
+    std::printf("a preset saved by an older build\n");
+    auto file = std::ifstream{legacy_path};
+    expect(static_cast<bool>(file), "the fixture exists");
+    if (!file) return;
+    auto json = nlohmann::ordered_json{};
+    file >> json;
+    const auto a = adapter({});
+
+    const auto values = a.param_values(json);
+    expect(values.size() == 1 && values[0] && std::abs(*values[0] - 0.5) < 1e-6, "parameters read by keypath");
+
+    const auto editor = a.editor_state(json);
+    const auto* name = editor.contains("preset-name") ? std::get_if<std::string>(&editor.at("preset-name")) : nullptr;
+    expect(name && *name == "Fixture preset", "the author's editor key reads back");
+    const auto size = tiny::editor_size_state::extract(editor);
+    expect(size && size->first == 613 && size->second == 411, "the framework's size keys read back");
+
+    auto doc = Doc{};
+    expect(state::decode_record(a.state_record(json), doc) && doc.swing == 77, "the document decodes");
+}
+
 } // namespace
 
 auto main() -> int
@@ -114,6 +174,8 @@ auto main() -> int
     test_round_trip();
     std::printf("\n"); test_hostile();
     std::printf("\n"); test_reserved_keys();
+    std::printf("\n"); test_preset_and_session();
+    std::printf("\n"); test_legacy_fixture();
 
     std::printf("\n%s\n", failures == 0 ? "all tests passed" : "TESTS FAILED");
     return failures == 0 ? 0 : 1;

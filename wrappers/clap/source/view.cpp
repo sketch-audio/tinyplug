@@ -13,8 +13,7 @@ auto View::on_create() noexcept -> void
     // Set up the delegate callbacks.
     auto delegate = std::make_shared<View_delegate>(
         _deps.initial_size,
-        [this](auto& context) { this->on_draw(context); },
-        [this](const auto& notification) { this->on_notify(notification); }
+        [this](auto& context) { this->on_draw(context); }
     );
 
     // Create the platform view and notify the editor.
@@ -34,6 +33,7 @@ auto View::on_show() noexcept -> void
 auto View::on_hide() noexcept -> void
 {
     _deps.editor->on_gui_hide();
+    view_impl::close_session(_deps.receiver, _ui_params, *_deps.actions, *_deps.undo_history);
     _platform_view->on_hide();
 }
 
@@ -106,11 +106,6 @@ auto View::on_draw(View_context& view_context) -> void
             }
         }
     );
-}
-
-auto View::on_notify(const Dark_mode_changed& notification) -> void
-{
-    _deps.editor->notify(notification);
 }
 
 } // namespace tiny::clap

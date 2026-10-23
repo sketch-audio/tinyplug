@@ -2,7 +2,7 @@
 // nothing is installed), then drives a real AudioComponentInstance through the AU API from a main
 // thread and a render thread, so the sanitizers can see the wrapper:
 //
-//     auv2_host <path/to/Plugin.component> [--seed N] [--seconds S]
+//     auv2_host <path/to/Plugin.component> [--seed N] [--seconds S] [--fixtures DIR [--write-fixtures]]
 
 #include <algorithm>
 #include <array>
@@ -1012,19 +1012,85 @@ auto add_scenarios(const Bundle& bundle) -> void
 
 } // namespace
 
+namespace {
+
+// MARK: - session fixtures
+
+auto stepped(const Param& p) -> bool
+{
+    return p.info.unit == kAudioUnitParameterUnit_Boolean || p.info.unit == kAudioUnitParameterUnit_Indexed;
+}
+
+// Sessions saved by an older build must keep loading: parameters and the document record. (AUv2
+// persists a size only when the editor asks for one, which a host can't do, so size isn't checked.)
+// With --write-fixtures, this saves them instead.
+auto add_fixture_scenarios(const Bundle& bundle) -> void
+{
+    const auto base = tiny::hosts::fixture_base(g_options, tiny::hosts::bundle_name(g_options.bundle), "auv2");
+    if (base.empty()) return;
+
+    if (g_options.write_fixtures) {
+        Tests::add("fixtures: write a session", [&bundle, base] {
+            auto instance = Instance{bundle};
+            for (auto k = size_t{}; k < instance.params.size(); ++k) {
+                const auto& p = instance.params[k];
+                if (!(p.info.flags & kAudioUnitParameterFlag_IsWritable)) continue;
+                const auto value = tiny::hosts::fixture_value(k, p.info.minValue, p.info.maxValue, stepped(p));
+                AudioUnitSetParameter(instance.unit, p.id, kAudioUnitScope_Global, 0, static_cast<AudioUnitParameterValue>(value), 0);
+            }
+            auto fixture = tiny::hosts::Session_fixture{.state = instance.save()};
+            for (const auto& p : instance.params) {
+                auto value = AudioUnitParameterValue{};
+                AudioUnitGetParameter(instance.unit, p.id, kAudioUnitScope_Global, 0, &value);
+                fixture.params.emplace_back(p.id, value);
+            }
+            tiny::hosts::write_fixture(base, fixture);
+        });
+        return;
+    }
+
+    const auto fixture = tiny::hosts::read_fixture(base);
+    if (!fixture) return;
+
+    Tests::add("fixtures: a session saved by an older build loads", [&bundle, fixture = *fixture] {
+        {
+            auto instance = Instance{bundle};
+            expect_true(instance.load(fixture.state), "load failed");
+            tiny::hosts::pump_main(150ms); // An off-main-shaped load applies on main.
+            for (const auto& [id, expected] : fixture.params) {
+                auto value = AudioUnitParameterValue{};
+                AudioUnitGetParameter(instance.unit, id, kAudioUnitScope_Global, 0, &value);
+                expect_true(std::abs(value - expected) <= 1e-5 * std::max(1., std::abs(expected)), std::format("param {}: {} after load, saved {}", id, value, expected));
+            }
+            const auto record = tiny::hosts::find_record(fixture.state);
+            const auto saved = instance.save();
+            expect_true(tiny::hosts::find_record(saved) == record, "the document record didn't survive a load and save");
+            for (const auto& text : fixture.texts) expect_true(tiny::hosts::contains_text(saved, text), std::format("'{}' isn't in the view after the load", text));
+        }
+        tiny::hosts::pump_main(20ms);
+    });
+}
+
+} // namespace
+
 auto main(int argc, char** argv) -> int
 {
     g_options = tiny::hosts::parse_options(argc, argv);
     if (g_options.bundle.empty()) {
-        std::printf("usage: auv2_host <Plugin.component> [--seed N] [--seconds S]\n");
+        std::printf("usage: auv2_host <Plugin.component> [--seed N] [--seconds S] [--fixtures DIR [--write-fixtures]]\n");
         return 2;
     }
     std::printf("auv2_host: %s, seed %u\n", g_options.bundle.c_str(), g_options.seed);
     tiny::hosts::gui_init();
     try {
         const auto bundle = Bundle{g_options.bundle};
+        if (g_options.write_fixtures) {
+            add_fixture_scenarios(bundle);
+            return audio_bench::Tests::run_all() == 0 ? 0 : 1;
+        }
         add_scenarios(bundle);
         add_bounce_scenarios(bundle);
+        add_fixture_scenarios(bundle);
         return audio_bench::Tests::run_all() == 0 ? 0 : 1;
     }
     catch (const std::exception& e) {

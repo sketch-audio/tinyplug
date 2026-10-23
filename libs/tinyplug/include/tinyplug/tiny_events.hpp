@@ -3,6 +3,7 @@
 #include <concepts>
 #include <functional>
 #include <limits>
+#include <optional>
 #include <span>
 #include <variant>
 
@@ -19,8 +20,11 @@ namespace tiny {
 // What the editor emits and what the undo history stores. **Values here are KNOB space**
 // (always 0…1). Never handed to a processor without going through `Value_helper`.
 
-struct Action_start { uint32_t address{}; };
-struct Action_end { uint32_t address{}; };
+// A gesture on one parameter, or with no address a transaction: everything until the matching end is
+// one undo step, and each parameter it sets is touched for the host just before its first set.
+// Wrappers only ever see addressed starts and ends (`Action_queue::normalize`).
+struct Action_start { std::optional<uint32_t> address{}; };
+struct Action_end { std::optional<uint32_t> address{}; };
 struct Request_resize { uint32_t width{}; uint32_t height{}; };
 
 using User_action = std::variant<Action_start, Set_param, Action_end, Request_resize>;
@@ -62,6 +66,8 @@ struct Ui_receiver {
     // Once before and once after each draw: take in snapshots, send edits, close a waiting undo step.
     std::function<void()> sync_state = []() {};
 #endif
+    // At the end of each frame, after its actions resolved: the wrapper's `Edit_store::end_frame`.
+    std::function<void()> end_frame = []() {};
 };
 
 } // namespace tiny

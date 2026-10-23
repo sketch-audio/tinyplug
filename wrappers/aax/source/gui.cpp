@@ -14,13 +14,11 @@ auto Gui::CreateViewContents() -> void
     _params = params;
     _actions = params->actions();
 
-    const auto initial_size = _params->get_last_size().value_or(User_editor::preferred_size());
-
     auto delegate = std::make_shared<View_delegate>(
-        initial_size, // Primed from persisted state so the window opens pre-sized.
-        [this](auto& context) { this->on_draw(context); },
-        [this](const auto& notification) { this->on_notify(notification); }
+        _params->edit_store().size(), // The session's size, or the preferred one.
+        [this](auto& context) { this->on_draw(context); }
     );
+    _params->edit_store().set_apply([this](Rect_size size) { _resize(size.w, size.h); });
 
     _platform_view = Platform_views::make_owning(delegate);
     _platform_view->on_create();
@@ -64,8 +62,8 @@ auto Gui::CreateViewContainer() -> void
         .action_handler = [this, view, params](auto& action) {
             std::visit(Inline_visitor{
                 [&](const Action_start& a) {
-                    _gestured.insert(a.address);
-                    if (const auto aax_id = tiny_id_to_aax(a.address)) {
+                    _gestured.insert(*a.address);
+                    if (const auto aax_id = tiny_id_to_aax(*a.address)) {
                         const auto* id_cstr = (*aax_id).c_str();
                         view->HandleParameterMouseDown(id_cstr, 0);
                         AAX_IParameter* param = nullptr;
@@ -89,7 +87,7 @@ auto Gui::CreateViewContainer() -> void
                     }
                 },
                 [&](const Action_end& a) {
-                    if (const auto aax_id = tiny_id_to_aax(a.address)) {
+                    if (const auto aax_id = tiny_id_to_aax(*a.address)) {
                         const auto* id_cstr = (*aax_id).c_str();
                         view->HandleParameterMouseUp(id_cstr, 0);
                         AAX_IParameter* param = nullptr;
@@ -97,7 +95,7 @@ auto Gui::CreateViewContainer() -> void
                             param->Release();
                         };
                     }
-                    _gestured.erase(a.address);
+                    _gestured.erase(*a.address);
                 },
                 [&](const auto&) {}
             }, action);
@@ -107,6 +105,9 @@ auto Gui::CreateViewContainer() -> void
             if (params) params->sync_state();
         },
 #endif
+        .end_frame = [params]() {
+            if (params) params->edit_store().end_frame();
+        },
     };
 
     // Now we have the receiver.
@@ -122,6 +123,10 @@ auto Gui::CreateViewContainer() -> void
 void Gui::DeleteViewContainer()
 {
     _editor->on_gui_hide();
+    if (_params) {
+        view_impl::close_session(_receiver, _ui_params, *_actions, *_params->undo_history());
+        _params->edit_store().set_apply({});
+    }
     _platform_view->on_hide();
 
     _editor->on_gui_destroy();
@@ -131,8 +136,7 @@ void Gui::DeleteViewContainer()
 
 AAX_Result Gui::GetViewSize(AAX_Point* view_size) const
 {
-    const auto fallback = _params ? _params->get_last_size().value_or(User_editor::preferred_size())
-                                  : User_editor::preferred_size();
+    const auto fallback = _params ? _params->edit_store().size() : sizing_of<User_editor>().preferred;
     const auto size = _platform_view ? _platform_view->get_size() : fallback;
     view_size->horz = static_cast<float>(size.w);
     view_size->vert = static_cast<float>(size.h);
@@ -174,21 +178,20 @@ auto Gui::on_draw(View_context& view_context) -> void
         *_params->undo_history(),
         *_tasks,
         [this](auto w, auto h) {
-            auto* view = GetViewContainer();
-            if (!view) return;
-            auto size = AAX_Point{static_cast<float>(h), static_cast<float>(w)}; // vert, horz
-            const auto result = view->SetViewSize(size);
-            if (result != AAX_SUCCESS) return;
-            _platform_view->resize(static_cast<int32_t>(w), static_cast<int32_t>(h));
-            // No host echo on AAX — update the size cache directly so it persists.
-            if (_params) _params->resized({static_cast<int32_t>(w), static_cast<int32_t>(h)});
+            if (_params) _params->edit_store().requested({static_cast<int32_t>(w), static_cast<int32_t>(h)});
+            _resize(static_cast<int32_t>(w), static_cast<int32_t>(h));
         }
     );
 }
 
-auto Gui::on_notify(const Dark_mode_changed& notification) -> void
+auto Gui::_resize(int32_t w, int32_t h) -> void
 {
-    _editor->notify(notification);
+    auto* view = GetViewContainer();
+    if (!view || !_platform_view) return;
+    auto size = AAX_Point{static_cast<float>(h), static_cast<float>(w)}; // vert, horz
+    if (view->SetViewSize(size) != AAX_SUCCESS) return;
+    _platform_view->resize(w, h);
+    if (_params) _params->edit_store().resized({w, h}); // No host echo on AAX: this is the size now.
 }
 
 } // namespace tiny::aax

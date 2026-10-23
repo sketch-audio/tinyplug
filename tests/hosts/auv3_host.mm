@@ -3,7 +3,7 @@
 // view controller (its AUAudioUnitFactory). Then drives the AUAudioUnit API from the main thread and
 // a render thread, so the sanitizers can see the wrapper:
 //
-//     auv3_host <path/to/Plugin.auv3test> <path/to/Plugin.component> [--seed N] [--seconds S]
+//     auv3_host <path/to/Plugin.auv3test> <path/to/Plugin.component> [--seed N] [--seconds S] [--fixtures DIR [--write-fixtures]]
 //
 // The component description comes from the AUv2 bundle's Info.plist: AUv3 derives the same one.
 
@@ -730,6 +730,63 @@ auto add_scenarios(const Bundle& bundle) -> void
     });
 }
 
+// MARK: - session fixtures
+
+auto stepped(AUParameter* p) -> bool
+{
+    return p.unit == kAudioUnitParameterUnit_Boolean || p.unit == kAudioUnitParameterUnit_Indexed;
+}
+
+// Sessions saved by an older build must keep loading: parameters and the document record. (AUv3
+// persists no editor size.) With --write-fixtures, this saves them instead.
+auto add_fixture_scenarios(const Bundle& bundle) -> void
+{
+    const auto base = tiny::hosts::fixture_base(g_options, tiny::hosts::bundle_name(g_options.bundle), "auv3");
+    if (base.empty()) return;
+
+    if (g_options.write_fixtures) {
+        Tests::add("fixtures: write a session", [&bundle, base] {
+            @autoreleasepool {
+                auto instance = Instance{bundle};
+                for (auto k = size_t{}; k < instance.params.size(); ++k) {
+                    AUParameter* p = instance.params[k];
+                    if (!(p.flags & kAudioUnitParameterFlag_IsWritable)) continue;
+                    p.value = static_cast<AUValue>(tiny::hosts::fixture_value(k, p.minValue, p.maxValue, stepped(p)));
+                }
+                tiny::hosts::pump_main(std::chrono::milliseconds{300}); // Let the state image catch up.
+                auto fixture = tiny::hosts::Session_fixture{.state = instance.save()};
+                for (AUParameter* p : instance.params) fixture.params.emplace_back(static_cast<uint32_t>(p.address), p.value);
+                tiny::hosts::write_fixture(base, fixture);
+            }
+        });
+        return;
+    }
+
+    const auto fixture = tiny::hosts::read_fixture(base);
+    if (!fixture) return;
+
+    Tests::add("fixtures: a session saved by an older build loads", [&bundle, fixture = *fixture] {
+        @autoreleasepool {
+            auto instance = Instance{bundle};
+            NSDictionary* state = Instance::decode(fixture.state);
+            expect_true(state != nil, "the fixture isn't a property list");
+            instance.load(state);
+            tiny::hosts::pump_main(std::chrono::milliseconds{300}); // Main's tick applies it.
+            for (const auto& [address, expected] : fixture.params) {
+                AUParameter* p = [instance.au.parameterTree parameterWithAddress:address];
+                expect_true(p != nil, std::format("param {} missing", address));
+                if (p == nil) continue;
+                expect_true(std::abs(p.value - expected) <= 1e-5 * std::max(1., std::abs(expected)), std::format("param {}: {} after load, saved {}", address, p.value, expected));
+            }
+            const auto record = tiny::hosts::find_record(fixture.state);
+            const auto saved = instance.save();
+            expect_true(tiny::hosts::find_record(saved) == record, "the document record didn't survive a load and save");
+            for (const auto& text : fixture.texts) expect_true(tiny::hosts::contains_text(saved, text), std::format("'{}' isn't in the view after the load", text));
+        }
+        tiny::hosts::pump_main(20ms);
+    });
+}
+
 } // namespace
 
 auto main(int argc, char** argv) -> int
@@ -744,15 +801,20 @@ auto main(int argc, char** argv) -> int
         }
         g_options = tiny::hosts::parse_options(static_cast<int>(args.size()), args.data());
         if (g_options.bundle.empty() || component.empty()) {
-            std::printf("usage: auv3_host <Plugin.auv3test> <Plugin.component> [--seed N] [--seconds S]\n");
+            std::printf("usage: auv3_host <Plugin.auv3test> <Plugin.component> [--seed N] [--seconds S] [--fixtures DIR [--write-fixtures]]\n");
             return 2;
         }
         std::printf("auv3_host: %s, seed %u\n", g_options.bundle.c_str(), g_options.seed);
         try {
             g_desc = description_from(component);
             const auto bundle = Bundle{g_options.bundle};
+            if (g_options.write_fixtures) {
+                add_fixture_scenarios(bundle);
+                return audio_bench::Tests::run_all() == 0 ? 0 : 1;
+            }
             add_scenarios(bundle);
             add_bounce_scenarios(bundle);
+            add_fixture_scenarios(bundle);
             return audio_bench::Tests::run_all() == 0 ? 0 : 1;
         }
         catch (const std::exception& e) {

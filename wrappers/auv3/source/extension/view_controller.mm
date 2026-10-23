@@ -27,7 +27,7 @@ static_assert(false, "ARC must be enabled for this file");
 
 // TODO: - Get this into the plist for AUM.
 - (CGSize)preferredContentSize {
-    const auto size = tiny::User_editor::preferred_size();
+    const auto size = tiny::sizing_of<tiny::User_editor>().preferred;
     return CGSizeMake(size.w, size.h);
 }
 
@@ -51,6 +51,7 @@ static_assert(false, "ARC must be enabled for this file");
             .state_adapter = [auv3 stateAdapter]->actor(),
             .undo_redo = [auv3 undoHistory]->actor(),
             .tasks = [auv3 tasks]->actor(), // The AU owns it: the editor lives there too.
+            .view = [auv3 editStore]->handle(),
 #if TINY_HAS_STATE
             .state = [auv3 stateActor],
 #endif

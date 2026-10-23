@@ -33,6 +33,7 @@ struct State_rules {
         static constexpr const char edit_keys[] = "tinyplug-edit-keys";
         static constexpr const char host_bypass[] = "tinyplug-host-bypass";
         static constexpr const char state_record[] = "tinyplug-state"; // Base64 `state::encode_record`.
+        static constexpr const char edit_record[] = "tinyplug-edit"; // Base64 `encode_edit_record`.
     };
 
     /**
@@ -43,6 +44,7 @@ struct State_rules {
         static constexpr const char num_editor_items[] = "tinyplug-num-editor-items";
         static constexpr const char editor_state_map[] = "tinyplug-editor-state-map";
         static constexpr const char state_record[] = "tinyplug-state"; // CFData, `state::encode_record`.
+        static constexpr const char edit_record[] = "tinyplug-edit"; // CFData, `encode_edit_record`.
     };
 
     /**
@@ -54,6 +56,7 @@ struct State_rules {
         static constexpr const char editor_state_map[] = "tinyplug-editor-state-map";
         static constexpr const char values_from_preset[] = "tinyplug-values-from-preset"; // Optional
         static constexpr const char state_record[] = "tinyplug-state"; // NSData, `state::encode_record`.
+        static constexpr const char edit_record[] = "tinyplug-edit"; // NSData, `encode_edit_record`.
     };
 
     /**

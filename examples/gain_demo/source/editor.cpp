@@ -6,16 +6,9 @@
 
 namespace tiny::edit {
 
-auto Editor::notify(const Host_event& notification) -> void
-{
-    std::visit(Inline_visitor{
-        [&](const Dark_mode_changed& n) { _dark = n.new_value; },
-        [](const auto&) {}
-    }, notification);
-}
-
 auto Editor::on_gui_draw(Plugin_state& state) -> void
 {
+    _dark = state.view_context.dark; // The host\'s or system\'s appearance, this frame.
     auto& view = state.view_context;
     auto* canvas = view.canvas;
     if (!canvas) return;
@@ -46,6 +39,9 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     const auto& gain = User_params::param_spec(enum_raw(Address::Gain)).semantics;
     const auto plain = params::Value_helper::knob_to_plain(knobs[enum_raw(Address::Gain)], gain);
     ui::text_in(*canvas, {bounds.x, bounds.y, bounds.w, 16}, (plain > 1 ? "+" : "") + ui::db(plain) + " DB", t.text, 3);
+    if (const auto& name = _edit.view.get().preset_name; !name.empty()) {
+        ui::text_in(*canvas, {bounds.x, bounds.y + 18, bounds.w, 8}, name.view(), t.dim); // The loaded preset's, as the view keeps it.
+    }
 
     ui::draw_controls(*canvas, t, controls, knobs);
     for (auto i = 0; i < 4 && static_cast<size_t>(i) < meters.size(); ++i) {

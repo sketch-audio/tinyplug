@@ -436,11 +436,12 @@ Processor_module* module_instance{};
 extern "C" {
 
 #if defined(__EMSCRIPTEN_SHARED_MEMORY__)
-// The wasm-workers runtime (shared memory, no pthreads) leaves libc++abi's emergency allocator wanting a mutex. This
-// module only ever runs on the worklet's one thread, so there is nothing to exclude. (Natively, for the comparison
-// render in tests/web, the real ones stand.)
+// The wasm-workers runtime (shared memory, no pthreads) leaves libc++abi's emergency allocator, and the document
+// store's reader mutex, wanting a mutex. This module only ever runs on the worklet's one thread, so there is nothing
+// to exclude. (Natively, for the comparison render in tests/web, the real ones stand.)
 auto pthread_mutex_lock(pthread_mutex_t*) -> int { return 0; }
 auto pthread_mutex_unlock(pthread_mutex_t*) -> int { return 0; }
+auto pthread_mutex_destroy(pthread_mutex_t*) -> int { return 0; }
 #endif
 
 __attribute__((used, visibility("default"))) auto tiny_web_create() -> const tiny::web::Wire_table*

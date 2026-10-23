@@ -58,6 +58,7 @@ public:
             .state_adapter = _state_adapter.actor(),
             .undo_redo = _undo_history.actor(),
             .tasks = _tasks.actor(),
+            .view = _edit_store.handle(),
 #if TINY_HAS_STATE
             .state = _state_link.actor(),
 #endif
@@ -65,6 +66,8 @@ public:
             .notes = Note_sender{[this](const midi::Performance& e) { return _to_processor.push_value(Kind::Editor_note, e); }},
 #endif
         });
+        _undo_history.bind_actions(_actions.actor());
+        _edit_store.bind(_undo_history);
 
 #if TINY_HAS_STATE
         state::connect_remote(_state_link, [this](std::span<const std::byte> bytes, std::uint32_t seq) {
@@ -134,10 +137,10 @@ public:
     auto open_view(const char* selector) -> Rect_size
     {
         close_view();
-        const auto size = User_editor::preferred_size();
+        const auto size = _edit_store.size();
         auto delegate = std::make_shared<View_delegate>(size,
-            [this](View_context& context) { this->_draw(context); },
-            [this](const Dark_mode_changed& n) { _editor->notify(n); });
+            [this](View_context& context) { this->_draw(context); });
+        _edit_store.set_apply([this](Rect_size s) { if (_view) _view->resize(s.w, s.h); });
         _view = Platform_views::make_owning(delegate);
         _view->on_create();
         _editor->on_gui_create(Gui_info{.window = _view->token()});
@@ -154,6 +157,8 @@ public:
     {
         if (!_view) return;
         _editor->on_gui_hide();
+        view_impl::close_session(_receiver, _ui_params, _actions, _undo_history);
+        _edit_store.set_apply({});
         _view->on_hide();
         _editor->on_gui_destroy();
         _view->on_destroy();
@@ -227,17 +232,7 @@ public:
 
         for (auto addr = decltype(num_params){}; addr < num_params; ++addr) _ui_params[addr] = param_knob(addr);
         auto state = Processor_state{.params = _ui_params};
-        _undo_history.process_actions(_actions.get_actions(), state);
-        _undo_history.perform_actions(_actions.actor());
-        for (const auto& action : _actions.get_actions()) {
-            this->_handle_action(action);
-            if (const auto* s = std::get_if<Set_param>(&action)) _ui_params[s->address] = s->value;
-        }
-        _actions.process_observers(_ui_params);
-        _actions.clear();
-#if TINY_HAS_STATE
-        _state_link.sync();
-#endif
+        view_impl::resolve_frame(_receiver, _ui_params, _actions, _undo_history, state, [](auto, auto) {});
 #if TINY_HAS_WORKER
         try_drain_worker_to_editor(*_editor, _worker_to_edit);
 #endif
@@ -257,16 +252,17 @@ public:
 
     auto save_state() -> const std::string&
     {
-        _saved = _state_adapter.preset_state({}).dump();
+        _saved = _state_adapter.session_state().dump();
         return _saved;
     }
 
-    // A host load: the page's setState. One undo step, the editor notified, the processor told.
+    // A host load: the page's setState. One undo step, the processor told.
     auto load_state(std::string_view text) -> bool
     {
         const auto doc = nlohmann::ordered_json::parse(text, nullptr, false);
         if (doc.is_discarded()) return false;
-        this->_update_state(_state_adapter.param_values(doc), _state_adapter.editor_state(doc), _state_adapter.state_record(doc));
+        this->_update_state(_state_adapter.param_values(doc), _state_adapter.editor_state(doc), _state_adapter.state_record(doc),
+                            _state_adapter.edit_record(doc));
         return true;
     }
 
@@ -323,6 +319,7 @@ private:
     Task_manager _tasks{};
     Undo_history _undo_history{};
     Action_queue _actions{};
+    Edit_store _edit_store{sizing_of<User_editor>()}; // The editor's view state, window size and load count.
     std::optional<User_editor> _editor{};
 
 #if TINY_HAS_WORKER
@@ -359,6 +356,7 @@ private:
 #if TINY_HAS_STATE
         .sync_state = [this]() { _state_link.sync(); },
 #endif
+        .end_frame = [this]() { _edit_store.end_frame(); },
     };
 
     State_adapter _state_adapter{{
@@ -372,10 +370,11 @@ private:
                 .version = 1,
                 .param_tree = &User_params::param_tree(),
                 .param_values = std::move(knob),
-                .editor_state = _editor ? _editor->save_state() : State_map{},
 #if TINY_HAS_STATE
                 .state_record = state::encode_record(_state_link.view()),
 #endif
+                .edit_record = encode_edit_record(_edit_store.save()),
+                .legacy_editor = legacy_editor_map(_edit_store),
             };
         },
     }};
@@ -437,8 +436,9 @@ private:
         return out;
     }
 
-    // As CLAP's: persistent params land, missing ones go to defaults, one undo step, the editor notified.
-    auto _update_state(const Maybe_values<double>& knob_values, const State_map& editor_state, [[maybe_unused]] std::span<const std::byte> record) -> void
+    // As CLAP's: persistent params land, missing ones go to defaults, one undo step for all of it.
+    auto _update_state(const Maybe_values<double>& knob_values, State_map legacy_editor, [[maybe_unused]] std::span<const std::byte> record,
+                       const std::optional<Edit_record>& edit_record) -> void
     {
         using namespace params;
 #if TINY_HAS_STATE
@@ -450,10 +450,6 @@ private:
             const auto knob = i < knob_values.size() ? knob_values[i] : std::optional<double>{Value_helper::default_value(spec, Space::Knob)};
             if (knob && State_rules::is_persistent(spec)) _load_param(i, *knob);
         }
-        auto editor_only = editor_state;
-        editor_size_state::strip(editor_only);
-        _editor->load_state(editor_only);
-
         const auto after = _knob_snapshot();
         auto changes = std::vector<Set_param>{};
         _undo_history.push_host_load(before, after, changes);
@@ -461,13 +457,7 @@ private:
         _state_load.publish(doc); // The processor's copy, as CLAP's on_session_load: a load is not an edit.
         _state_link.load(doc); // Into the same step.
 #endif
-        auto add_param = [this](std::uint32_t addr, double knob) {
-            if (addr >= num_params) return;
-            const auto from = param_knob(addr);
-            this->_load_param(addr, knob);
-            _undo_history.amend_host_load(addr, from, knob);
-        };
-        _editor->notify(Host_event{Host_preset_loaded{.changes = changes, .params = after, .add_param = add_param}});
+        load_editor_state(_edit_store, std::move(legacy_editor), edit_record, after);
     }
 };
 

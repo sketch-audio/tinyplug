@@ -297,7 +297,7 @@ macro(_tiny_source_dir)
     endif()
 endmacro()
 
-# Generate <tiny_models.hpp> from `<source>/models/{params,meters,blocks,state,work}.hpp`.
+# Generate <tiny_models.hpp> from `<source>/models/{params,meters,blocks,state,work,view}.hpp`.
 # `SOURCE_DIR` defaults to `${CMAKE_CURRENT_SOURCE_DIR}/source`.
 function(configure_models target)
     _tiny_source_dir(${ARGN})
@@ -308,6 +308,7 @@ function(configure_models target)
     _tiny_optional(BLOCKS models/blocks.hpp blocks::None models::Blocks)
     _tiny_optional(STATE  models/state.hpp  state::None  models::State)
     _tiny_optional(WORK   models/work.hpp   work::None   models::Work)
+    _tiny_optional(VIEW   models/view.hpp   view::None   models::View)
     tiny_resolve_capabilities(${target})
     set(TINY_HAS_NOTES_IN ${TINY_NOTES_IN})
     set(TINY_HAS_NOTES_OUT ${TINY_NOTES_OUT})

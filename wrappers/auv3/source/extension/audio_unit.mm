@@ -13,7 +13,7 @@
 #import "DSPKernel.hpp"
 
 #include <tiny_core/relay.hpp>
-#include <tiny_core/state_image.hpp>
+#include <tiny_core/pending_load.hpp>
 #include <tiny_platform/platform_paths.hpp>
 #include "plug_info.hpp"
 #include "preset_list.hpp"
@@ -22,13 +22,11 @@
 static_assert(false, "ARC must be enabled for this file");
 #endif
 
-// What a save off main answers from: `fullState`, and the model a user preset is written from.
-// Both built on main, where the editor and the document live.
-struct Auv3_state_image {
+// A fullState a host set off main, waiting for main to apply it.
+struct Auv3_pending_state {
     NSDictionary<NSString*, id>* full_state{};
-    tiny::State_adapter::Save_model model{};
 };
-using Auv3_image_ptr = std::shared_ptr<const Auv3_state_image>;
+using Auv3_pending_ptr = std::shared_ptr<const Auv3_pending_state>;
 
 static auto presets_path() -> std::filesystem::path
 {
@@ -82,11 +80,12 @@ static auto presets_path() -> std::filesystem::path
     
     std::unique_ptr<tiny::State_adapter> _state_adapter;
 
-    // Hosts save and load fullState (and presets) from any thread, but the editor, undo and
-    // document are main's, so off main only `_state_image` is touched; `_state_tick` keeps it
-    // current on main. See State_image.
-    tiny::State_image<Auv3_image_ptr> _state_image;
-    std::optional<tiny::Relay> _state_tick;
+    // Hosts save and load fullState (and presets) from any thread. A save builds on the calling
+    // thread from what is safe anywhere; a load from off main waits in `_pending` (and is the state
+    // meanwhile) until `_apply_relay` applies it on main, where the editor, undo and document live.
+    tiny::Pending_load<Auv3_pending_ptr> _pending;
+    std::optional<tiny::Relay> _apply_relay;
+    std::optional<tiny::Edit_store> _edit_store; // The editor's view state, window size and load count.
     
     std::unique_ptr<AUProcessHelper> _processHelper;
     std::unordered_map<AUParameterAddress, AUParameterObserverToken> _observerTokens;
@@ -117,6 +116,9 @@ static auto presets_path() -> std::filesystem::path
     tiny::state::connect_in_process(_state_link, _kernel.state());
     _state_link.bind(_undo_history);
 #endif
+    _undo_history.bind_actions(_actions.actor());
+    _edit_store.emplace(tiny::sizing_of<tiny::User_editor>());
+    _edit_store->bind(_undo_history);
     
     _observerTokens = {};
     
@@ -144,29 +146,22 @@ static auto presets_path() -> std::filesystem::path
         },
         .save_model = [self_](){
             auto s = self_;
-            if (!s) return State_adapter::Save_model{};
-            if (![NSThread isMainThread]) {
-                const auto image = s->_state_image.get();
-                return image ? image->model : State_adapter::Save_model{};
-            }
-            return [s liveSaveModel];
+            return s ? [s liveSaveModel] : State_adapter::Save_model{};
         }
     });
 
-    [self refreshStateImage]; // A save may come from any thread before main first ticks.
-    __weak Auv3_AUAudioUnit* tick_self = self;
-    _state_tick.emplace(tiny::Relay::Spec{
-        .execute = [tick_self] {
-            if (auto s = tick_self) [s tickStateImage];
+    __weak Auv3_AUAudioUnit* apply_self = self;
+    _apply_relay.emplace(tiny::Relay::Spec{
+        .execute = [apply_self] {
+            if (auto s = apply_self) [s applyPendingState];
         },
-        .interval = 0.1,
-        .repeating = true,
+        .interval = 0.05,
     });
 
     return self;
 }
 
-// [main] The state-adapter model, from the live parameters, editor and document.
+// [any] The state-adapter model, from the parameter tree and the processor's document.
 - (tiny::State_adapter::Save_model)liveSaveModel {
     using namespace tiny;
     using namespace params;
@@ -183,37 +178,26 @@ static auto presets_path() -> std::filesystem::path
         .version = 1,
         .param_tree = &User_params::param_tree(),
         .param_values = values,
-        .editor_state = _editor ? _editor->save_state() : State_map{},
 #if TINY_HAS_STATE
-        .state_record = state::encode_record(_state_link.view()),
+        .state_record = [&] {
+            auto doc = models::Resolved::State{};
+            _kernel.state().snapshot(doc);
+            return state::encode_record(doc);
+        }(),
 #endif
     };
 }
 
-// [main] Rebuild the image, unless a load from off main is waiting to be applied.
-- (void)refreshStateImage {
-    auto image = std::make_shared<Auv3_state_image>();
-    image->full_state = [self buildFullState];
-    image->model = [self liveSaveModel];
-    _state_image.publish(std::move(image));
-}
-
 // [main] A load that arrived off main.
 - (void)applyPendingState {
-    if (const auto load = _state_image.take_load()) {
+    if (const auto load = _pending.take()) {
         [self applyFullState:(*load)->full_state];
     }
 }
 
-// [main] Every tick of `_state_tick`.
-- (void)tickStateImage {
-    [self applyPendingState];
-    if (_state_image.due()) [self refreshStateImage];
-}
-
 - (void)dealloc {
     _tasks.shutdown(); // First: no task may outlive the editor or worker it captures.
-    _state_tick.reset();
+    _apply_relay.reset();
 #if TINY_HAS_WORKER
     _worker_runner.reset(); // Joins the worker thread before the worker goes.
     _worker.reset();
@@ -364,6 +348,10 @@ static auto presets_path() -> std::filesystem::path
     return _state_adapter.get();
 }
 
+- (tiny::Edit_store*)editStore {
+    return &*_edit_store;
+}
+
 // MARK: - makeReceiver
 
 - (tiny::Ui_receiver)makeReceiver {
@@ -394,8 +382,8 @@ static auto presets_path() -> std::filesystem::path
             if (!s) return;
             std::visit(Inline_visitor{
                 [&](const Action_start& a) {
-                    auto current = s->_kernel.getParameter(a.address);
-                    auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
+                    auto current = s->_kernel.getParameter(*a.address);
+                    auto* auparam = [s->_parameterTree parameterWithAddress:*a.address];
                     auto it = s->_observerTokens.find(auparam.address);
                     auto* token = it != s->_observerTokens.end() ? it->second : nil;
                     [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeTouch];
@@ -409,8 +397,8 @@ static auto presets_path() -> std::filesystem::path
                     [auparam setValue:host_value originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeValue];
                 },
                 [&](const Action_end& a) {
-                    auto current = s->_kernel.getParameter(a.address);
-                    auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
+                    auto current = s->_kernel.getParameter(*a.address);
+                    auto* auparam = [s->_parameterTree parameterWithAddress:*a.address];
                     auto it = s->_observerTokens.find(auparam.address);
                     auto* token = it != s->_observerTokens.end() ? it->second : nil;
                     [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeRelease];
@@ -423,6 +411,9 @@ static auto presets_path() -> std::filesystem::path
             if (auto s = self_) s->_state_link.sync();
         },
 #endif
+        .end_frame = [self_]() {
+            if (auto s = self_) s->_edit_store->end_frame();
+        },
     };
 }
 
@@ -552,10 +543,8 @@ static auto presets_path() -> std::filesystem::path
     __block DSPKernel *kernel = &_kernel;
     
     // implementorValueObserver is called when a parameter changes value.
-    auto* image = &_state_image;
     tree.implementorValueObserver = ^(AUParameter *param, AUValue value) {
         kernel->setParameter(param.address, value);
-        image->mark_dirty(); // One relaxed store, so any thread.
     };
     
     // implementorValueProvider is called when the value needs to be refreshed.
@@ -942,17 +931,12 @@ static auto presets_path() -> std::filesystem::path
 // MARK: - Full State
 
 -(NSDictionary<NSString *,id> *)fullState {
-    // Off main, the image; on main, current, and the image with it.
-    if (![NSThread isMainThread]) {
-        const auto image = _state_image.get();
-        return image ? image->full_state : [super fullState];
-    }
-    [self applyPendingState];
-    [self refreshStateImage];
-    return _state_image.get()->full_state;
+    // A load still waiting for main is the state; otherwise built here, on any thread.
+    if (const auto pending = _pending.peek()) return (*pending)->full_state;
+    return [self buildFullState];
 }
 
-// [main] What fullState holds: the base parameter archive plus ours.
+// [any] What fullState holds: the base parameter archive plus ours.
 - (NSDictionary<NSString *,id> *)buildFullState {
     using namespace tiny;
     
@@ -963,12 +947,10 @@ static auto presets_path() -> std::filesystem::path
     auto numParamsEntry = [NSNumber numberWithInt:static_cast<int32_t>(User_params::num_params)];
     [state setObject:numParamsEntry forKey:@(State_rules::Auv3::num_params)];
     
-    // Store editor state.
-    if (_editor) {
-        auto edit_state = _editor->save_state();
-        drop_reserved_keys(edit_state);
-        [self addEditorState:edit_state toDictionary:state];
-    }
+    // The editor map holds only the framework's keys now, for older builds; the editor's record has its own key.
+    [self addEditorState:legacy_editor_map(*_edit_store) toDictionary:state];
+    const auto edit_record = encode_edit_record(_edit_store->save());
+    [state setObject:[NSData dataWithBytes:edit_record.data() length:edit_record.size()] forKey:@(State_rules::Auv3::edit_record)];
 
 #if TINY_HAS_STATE
     auto doc = models::Resolved::State{};
@@ -982,21 +964,20 @@ static auto presets_path() -> std::filesystem::path
 - (void)setFullState:(NSDictionary<NSString *,id> *)fullState {
     if (fullState == nil) return;
 
-    // Off main, the load becomes the image at once and main applies it at its next tick.
+    // Off main, the load is the state at once and main applies it when the relay delivers.
     if (![NSThread isMainThread]) {
-        auto image = std::make_shared<Auv3_state_image>();
-        image->full_state = [fullState copy];
-        if (const auto current = _state_image.get()) image->model = current->model; // Main replaces it once applied.
-        _state_image.post_load(std::move(image));
+        auto pending = std::make_shared<Auv3_pending_state>();
+        pending->full_state = [fullState copy];
+        _pending.post(std::move(pending));
+        _apply_relay->post();
         return;
     }
 
-    _state_image.drop_load();
+    _pending.drop();
     [self applyFullState:fullState];
-    [self refreshStateImage];
 }
 
-// [main] A load: parameters, document, editor state, one undo step and the notify.
+// [main] A load: parameters, document and the editor's half, one undo step.
 - (void)applyFullState:(NSDictionary<NSString *,id> *)fullState {
     using namespace tiny;
 
@@ -1082,8 +1063,6 @@ static auto presets_path() -> std::filesystem::path
     }
 
     // Record the host load as one coalesced undo step (works editor open or closed).
-    // The editor notify() is dispatched at the end, after the editor state loads, so
-    // a preset's name/marker can fold into this step. Stash the snapshot until then.
     const auto host_after = snapshot_knob_params();
     auto host_changes = std::vector<Set_param>{};
     _undo_history.push_host_load(before, host_after, host_changes);
@@ -1102,6 +1081,7 @@ static auto presets_path() -> std::filesystem::path
     }
 #endif
 
+    auto legacy_editor = tiny::State_map{};
     id numEditItems = [fullState objectForKey:@(State_rules::Auv3::num_editor_items)];
     if ([numEditItems isKindOfClass:[NSNumber class]]) {
         const auto num_edit_items = [numEditItems intValue];
@@ -1178,30 +1158,19 @@ static auto presets_path() -> std::filesystem::path
                     edit_state.emplace(std::move(key), std::move(value));
                 }
 
-                if (ok) _editor->load_state(edit_state);
+                if (ok) legacy_editor = std::move(edit_state);
             }
         }
     }
 
-    // Notify the editor of the host load synchronously (works editor open or closed),
-    // letting it fold its marker params into the load's single undo step via add_param.
-    if (_editor) {
-        auto add_param = [self](uint32_t addr, double knob) {
-            using namespace params;
-            auto* auparam = [self->_parameterTree parameterWithAddress:addr];
-            if (!auparam) return;
-            const auto& spec = User_params::param_spec(addr);
-            const auto from = Value_helper::host_to_knob(auparam.value, spec.semantics);
-            const auto host = Value_helper::knob_to_host(knob, spec.semantics);
-            [auparam setValue:static_cast<AUValue>(host)];
-            self->_undo_history.amend_host_load(addr, from, knob);
-        };
-        _editor->notify(Host_event{Host_preset_loaded{
-            .changes = host_changes,
-            .params = host_after,
-            .add_param = add_param,
-        }});
+    // The editor's half, into the same step: a newer state's record, or an older one's map. A preset's
+    // dictionary carries its name as a framework key in that map (presetDictFor).
+    auto edit_record = std::optional<Edit_record>{};
+    id edit_data = [fullState objectForKey:@(State_rules::Auv3::edit_record)];
+    if ([edit_data isKindOfClass:[NSData class]]) {
+        edit_record = decode_edit_record({static_cast<const std::byte*>([edit_data bytes]), static_cast<size_t>([edit_data length])});
     }
+    load_editor_state(*_edit_store, std::move(legacy_editor), edit_record, host_after);
 }
 
 // MARK: - Presets
@@ -1214,7 +1183,9 @@ static auto presets_path() -> std::filesystem::path
     return self.preset;
 }
 
-- (NSDictionary<NSString *,id> *)presetDictFor:(const std::string&)path {
+// A preset file as a fullState: its values, document and editor map, with its name and id as the
+// framework's keys in that map so the load reports itself as a preset's.
+- (NSDictionary<NSString *,id> *)presetDictFor:(const std::filesystem::path&)path {
     using namespace tiny;
     
     auto file = std::ifstream{path};
@@ -1226,7 +1197,12 @@ static auto presets_path() -> std::filesystem::path
             file >> json;
             
             const auto param_values = _state_adapter->param_values(json);
-            const auto editor_state = _state_adapter->editor_state(json);
+            auto editor_state = _state_adapter->editor_state(json);
+            const auto info = _state_adapter->preset_info(json);
+            framework_keys::write(editor_state, Framework_keys{
+                .preset_name = info.name.empty() ? path.stem().string() : info.name,
+                .preset_id = info.id,
+            });
             
             auto dict = [[NSMutableDictionary alloc] init];
             
@@ -1342,7 +1318,7 @@ static auto presets_path() -> std::filesystem::path
     }
     
     const auto name = std::string{[userPreset.name UTF8String]};
-    const auto preset_json = _state_adapter->preset_state({{"preset-name", name}});
+    const auto preset_json = _state_adapter->preset_state(Preset_info{.name = name});
     
     // 4. Write to file
     auto file = std::ofstream{path};

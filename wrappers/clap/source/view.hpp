@@ -21,7 +21,7 @@ public:
         Task_manager* tasks{};
         Undo_history* undo_history{}; // Owned by the plug-in (survives the view).
         Action_queue* actions{};      // Owned by the plug-in (survives the view).
-        Rect_size initial_size{User_editor::preferred_size()}; // Size to open at (primed from persisted state).
+        Rect_size initial_size{}; // Size to open at: the session's, or the editor's preferred one.
         std::function<void(uint32_t, uint32_t)> request_resize{}; // Editor-initiated resize → ask host.
 #if TINY_HAS_WORKER
         std::function<void()> drain_worker_to_editor{};
@@ -49,7 +49,6 @@ public:
 private:
 
     auto on_draw(View_context& view_context) -> void;
-    auto on_notify(const Dark_mode_changed& notification) -> void;
 
 
     static constexpr auto num_params = User_params::num_params;

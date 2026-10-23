@@ -161,6 +161,20 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   on draw, emits `User_action` events (Action_start/Set_param/Action_end/
   Request_resize). Wrappers translate gestures into host-native begin/edit/end
   notifications. Editor never shares memory with the processor.
+- **Edits and undo** ([edit_stream.hpp](libs/tinyplug/include/tinyplug/edit_stream.hpp),
+  [undo_history.hpp](libs/tinyplug/include/tinyplug/undo_history.hpp)). `Action_start`/`Action_end` take an
+  **optional** address: with one it's a gesture on that parameter, without one a transaction
+  (`undo_redo.begin()`/`end()`/`transaction(fn)`). `Action_queue::normalize` (the `Edit_stream`) gives every
+  set a gesture — a bare set its own, a set inside another gesture or a transaction is touched before its
+  first set and released when all close — so **wrappers only ever see addressed, balanced starts and ends**,
+  one touch per parameter. One undo step is everything inside the outermost start/end, across frames, and
+  **a step stays open until the end of the frame it closed in**: an edit appended later that frame (a linked
+  control's follower set after a click) joins it. That's what replaced `Action_queue::sort()`; don't
+  reorder the stream. A step holds parameter changes and up to one change per state source (`Document`,
+  `View`, `Size`); a transaction commits every source as it closes, and one still on the wire (a document
+  the processor also writes) holds the step (`can_undo` false) while that source keeps new edits local
+  until it confirms. `undo_redo.begin()` is a direct call too: it records earlier uncommitted state as its
+  own step before queueing its start. View teardown (`view_impl::close_session`) ends anything left open.
 - **Process events and edit events are different types, and the difference is the value
   space.** `process::Event::{Set, Ramp}` carry **plain** values to the kernel;
   `Set_param` carries **knob** values from the editor / undo history. They used to be one
@@ -221,6 +235,21 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   loads the processor copy (`on_session_load`) and calls `Editor_link::load`, which folds the
   change into the host-load undo step. AAX's algorithm doesn't see the load, so its data model
   loads with `Resend::Yes` and flushes. Optional.
+- **`view::Model`** ([view_model.hpp](libs/tiny_core/include/tiny_core/view_model.hpp)) — what
+  the editor wants back with the session, `models::View` in `models/view.hpp`: `Undoable` (follows
+  undo: a displayed preset name, an A/B selection) and `Restored` (never an undo step: a tab),
+  both trivially copyable, each optionally versioned with a record's `save`/`load`; strings are
+  `Fixed_string<N>`. Optional pure `on_host_load(View&, params, const Load_info&)`. The wrapper's
+  `Edit_store` ([edit_store.hpp](libs/tinyplug/include/tinyplug/edit_store.hpp)) holds it and the
+  window size; the editor's handle is `Edit_context::view` (`get`, `edit(fn)`, `restored()`,
+  `generation`, `loads`). An undoable edit becomes a step at the frame's end, or joins the gesture
+  or transaction that's open. **Features on top (preset names, `*`, A/B, linked controls) are
+  the plug-in's**; the framework stores, restores, undoes and reports. GainDemo has one.
+- **Sizing** — the editor declares `static constexpr auto sizing() -> Sizing` (`preferred`, `min`,
+  `max`, `undoable`; `preferred_size()` still works through `sizing_of<E>()`). The `Edit_store`
+  keeps the size with the session, clamps in each format's size check, and with `undoable`
+  records a resize the editor brackets with `undo_redo.begin()`/`end()` as a step (`Source::Size`);
+  a host-driven resize is never a step.
 - **Notes** ([tiny_midi.hpp](libs/tiny_core/include/tiny_core/tiny_midi.hpp)) — not a model:
   `TINY_PLUGIN_WANTS_AUDIO` / `TINY_PLUGIN_WANTS_NOTES` in CMake declare what the plug-in
   carries, `tiny_resolve_capabilities` ([helpers.cmake](cmake/helpers.cmake)) derives the kind
@@ -247,7 +276,7 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
 
 ## Model layer
 
-A plug-in declares models in `source/models/{params,meters,blocks,state,work}.hpp` and classes in
+A plug-in declares models in `source/models/{params,meters,blocks,state,work,view}.hpp` and classes in
 `source/{processor,editor,worker}.hpp`. Discovery is **file presence, resolved by CMake**:
 `configure_models()` / `configure_plugin()` ([helpers.cmake](cmake/helpers.cmake)) generate
 `<tiny_models.hpp>` (`models::Resolved`, `User_params`/`User_meters`/`User_work`,
@@ -368,9 +397,11 @@ a detemplated farbot port). Common topology:
   Anything with a frame offset, a ramp or an order (automation, gestures) stays on a queue.
 
 The `view_impl::run_frame` template in [tiny_view.hpp](libs/tinyplug/include/tinyplug/tiny_view.hpp)
-is the canonical UI loop: read meters → call user's `on_gui_draw` → observe
-actions for undo → dispatch actions. All wrappers route
-through it; if you change frame semantics, change them here.
+is the canonical UI loop: read meters → call user's `on_gui_draw` → `resolve_frame` (normalize →
+record undo → run a deferred undo/redo → dispatch → keep the frame as `last_frame()` → sync state →
+`Undo_history::end_frame`). All wrappers route through it (web's tick calls `resolve_frame` itself);
+if you change frame semantics, change them here. Every wrapper calls `view_impl::close_session` right
+after the editor's `on_gui_hide`, and binds its history to its queue (`bind_actions`).
 
 ## Worker channel
 
@@ -414,11 +445,13 @@ the editor; the processor hosts the DSP. Two UIDs (`controller_uid`,
 This has knock-on effects throughout the wrapper:
 
 - **State is split.** `Audio_effect::getState`/`setState` persists
-  param values; `Controller::getState`/`setState` persists editor
-  `State_map`; `Controller::setComponentState` re-receives the
-  processor's values so the controller's mirror stays in sync. A 4-word
-  header (framework_code, manufacturer_code, plugin_code, count) prefixes
-  each chunk; assertions verify the framework/mfr/plugin words on load.
+  param values, bypass and document; `Controller::getState`/`setState` persists the
+  editor's half (the legacy map's framework keys, then the edit record);
+  `Controller::setComponentState` re-receives the processor's values so the controller's
+  mirror stays in sync, and opens the load's undo step that `setState` completes. A 4-word
+  header (framework_code, manufacturer_code, plugin_code, count) prefixes each chunk; both
+  layouts are written by [chunks.hpp](wrappers/vst3/source/chunks.hpp), which the
+  `.vstpreset` exporter shares.
 - **Latency changes hop through the host, and the two paths are different.**
   A *configure-time* change (`setupProcessing`) is sent **directly** over
   `IMessage` (`tiny/latency/changed`) — no render is in flight there, and
@@ -554,14 +587,20 @@ undo, and state chunks). The GUI hangs off the data model.
   [parameters.cpp](wrappers/aax/source/parameters.cpp) clamps to 2048 for every
   semantic, even `Real`/`Fixed`. There's a forum-link comment by every clamp.
 - **State chunk** uses `State_rules::Aax::chunk_id = 'tiny'` with named string
-  keys (`tinyplug-num-params`, `tinyplug-edit-keys`, `tinyplug-host-bypass`).
+  keys (`tinyplug-num-params`, `tinyplug-edit-keys`, `tinyplug-host-bypass`,
+  `tinyplug-state`, `tinyplug-edit`), written by
+  [chunk_writer.hpp](wrappers/aax/source/chunk_writer.hpp), which the `.tfx` exporter shares.
   Pure data model — untouched by the two-component split. `CompareActiveChunk`
   is required for Pro Tools' compare light; it compares params and the state record.
 - **Chunk calls arrive on any thread, concurrently** (the SDK default; don't set
-  `AAX_eProperty_RequiresChunkCallsOnMainThread`). Off main the chunk methods touch only
-  `_chunk_image`, a `State_image` (see "State / preset model") that `TimerWakeup` keeps
-  current; a main-thread `GetChunkSize` rebuilds it fresh. A `GetChunkSize`/`GetChunk`
-  pair keeps the image it sized, per thread. Every call uses a local
+  `AAX_eProperty_RequiresChunkCallsOnMainThread`). Each builds its chunk on the calling
+  thread from what is safe anywhere: `_knob_mirror` (every parameter in knob space, written
+  on main wherever one changes, since `AAX_CParameter` values aren't atomic), the editor link's
+  published copy of the document (`Editor_link::published`, refreshed at each sync and load), the
+  `Edit_store`. The built chunk is cached under a key of cheap revisions (parameters, store, document),
+  so `CompareActiveChunk` and `GetChunkSize` rebuild only when something moved. A load from off main waits in a `Pending_load`, and is
+  the state, until `TimerWakeup` applies it. A `GetChunkSize`/`GetChunk` pair keeps the
+  chunk it sized, per thread. Every call uses a local
   `AAX_CChunkDataParser`; never the SDK's shared `mChunkParser`. The SDK's `LoadChunk`
   over-reads truncated chunks — an SDK bug (to report to Avid), exempted from ASan in
   the root `CMakeLists.txt` and `tests/sanitizers/asan.supp`.
@@ -706,29 +745,34 @@ measurements: [plans/web-format.md](plans/web-format.md).
 
 ## State / preset model
 
-- **Persistence surfaces**: per-param scalar (host-managed),
-  editor `State_map` (string→variant<bool,int32_t,double,string>), the
-  `state::Model` record (see "Core abstractions"), and the optional buffer-source persistence from
-  [plans/buffer-system.md](plans/buffer-system.md) for large audio buffers
-  (not yet implemented).
-- **Saves and loads off main** (AAX chunks, AUv2 ClassInfo and factory presets, AUv3
-  `fullState`, presets and `saveUserPreset`): the state they cover is main's (editor,
-  undo, document), so each of those wrappers keeps a `State_image`
-  ([state_image.hpp](libs/tiny_core/include/tiny_core/state_image.hpp)). Off main a save
-  answers from the image and a load becomes the image at once, then main applies it.
-  Main rebuilds when a parameter or load marked it dirty (at most every 250 ms, so
-  automation can't rebuild every tick) and otherwise once a second: editor state and the
-  document have no change signal, so they are polled. AUv2 and AUv3 tick on a repeating
-  `Relay` (whose stop waits out a delivery in flight); AAX in `TimerWakeup`. CLAP and VST3
-  need none — their specs put state calls on the main/UI thread. Known, by design: a load
-  from off main returns before it applies, so parameter reads lag it by one tick (≈100 ms,
-  one `TimerWakeup` on AAX); an AUv2 factory preset set off main doesn't update the image
-  until then either.
+- **Persistence surfaces**: per-param scalar (host-managed), the `state::Model` record (the
+  document), the **edit record** ([edit_record.hpp](libs/tiny_core/include/tiny_core/edit_record.hpp):
+  the view model's two parts and the window size, from the wrapper's `Edit_store`), and the
+  optional buffer-source persistence from [plans/buffer-system.md](plans/buffer-system.md)
+  (not yet implemented). The edit record sits beside the document's: appended to the CLAP
+  stream and the VST3 controller chunk (`read_trailing_records` reads either order), under
+  `tinyplug-edit` in the AU and AAX containers, `"edit"` in a web session.
+- **The legacy editor map** (string→variant, the author's `save_state` before the view model)
+  is read forever, since shipped sessions hold it. Its framework keys (`editor-width`/`-height`;
+  `tinyplug-preset-name`/`-id`, which the native exporters write and which make a load a
+  preset's) come out (`framework_keys::take`); the rest reaches the view model as
+  `Load_info::legacy`. Saves write only the framework's size keys there, for older builds.
+  Old sessions are pinned by [tests/fixtures](tests/fixtures/README.md).
+- **Saves from any thread** (AAX chunks, AUv2 ClassInfo, AUv3 `fullState` and user presets)
+  build on the calling thread from what is safe anywhere: parameters (AU `Globals()` and the
+  parameter tree are atomic; AAX reads `_knob_mirror`), the document (the processor's copy in
+  AUv2/AUv3, through `Processor_side::snapshot`, whose non-audio readers share a mutex; the editor
+  link's published copy in AAX, whose processor lives in the algorithm), the `Edit_store`'s
+  published copy. AUv2 guards the base class's current preset (`_base_mutex`, recursive: the base
+  notifies PresentPreset listeners with it held). A load from off main waits in a
+  `Pending_load` ([pending_load.hpp](libs/tiny_core/include/tiny_core/pending_load.hpp)) and is
+  the state meanwhile, so a save straight after it returns what was loaded; main applies it
+  when a one-shot `Relay` delivers (AUv2, AUv3) or at `TimerWakeup` (AAX). No polling.
+  CLAP and VST3 need none of this — their specs put state calls on the main/UI thread.
 - `State_adapter` ([state_adapter.hpp](libs/tiny_core/include/tiny_core/state_adapter.hpp))
-  is the format-agnostic glue: a JSON document with `version`, `params`,
-  `editor` and (with a state model) `state` keys. Editor keys beginning `tinyplug-` are
-  the framework's (`drop_reserved_keys`). The same adapter serves both bundle presets and the
-  user-facing save/load.
+  is the format-agnostic glue: a preset is `version`, `params`, `state` (the document, base64),
+  `name` and `id` (`preset_state(Preset_info)`); a web session adds `edit` and the framework's
+  `editor` keys (`session_state()`). `editor` from older files is still read.
 - Per-format chunk layouts in [state_rules.hpp](libs/tiny_core/include/tiny_core/state_rules.hpp).
   Each format embeds a (framework/manufacturer/plugin) sentinel; mismatch
   asserts.
@@ -739,41 +783,25 @@ measurements: [plans/web-format.md](plans/web-format.md).
   AAX uses `.tfx` placed in the bundle; VST3 uses `.vstpreset` placed by
   the installer.
 
-### Host-initiated preset/state loads → undo + `notify`
+### Host-initiated loads → one undo step, reported to the view model
 
 When the host loads a preset / full state, each format's restore entry point
 (VST3 `setComponentState`+`setState`, CLAP `_update_state`, AUv2 `RestoreState`,
 AUv3 `setFullState`, AAX `SetChunk`, web `load_state`) snapshots all param values in **knob space**
 before and after applying the load, then calls
 `Undo_history::push_host_load(before, after, out_changes)` to record **one
-coalesced undo step**. The `Undo_history` lives on the long-lived wrapper class
-(`Controller`/`Plugin`/`Effect`/`Auv3_AUAudioUnit`/`Parameters`/web `Controller`), **not** the
-view — the view borrows it via a `Undo_history*` in its `Deps` — so a host load
-is captured into undo **even when the editor window is closed**. The undo replay
-path is unchanged (`apply<>` pushes `Action_start`/`Set_param`/`Action_end` back
-through the editor's action handler to the host).
-
-The load is then surfaced to the editor by the wrapper calling
-`Editor::notify(Host_event{Host_preset_loaded{...}})` **synchronously** from the
-restore path — *not* deferred to the view loop. Because the `Editor` also lives at
-wrapper lifetime, this fires whether or not the GUI is open, **once per load**, so
-multiple closed-editor loads each notify on their own undo step (no dropped
-intermediates). The event carries `changes` (the diff), `params` (full post-load
-values, knob space), and `add_param(addr, knob)`, which applies an editor-owned
-marker param through the normal host/processor/UI path **and** folds it into the
-same undo step via `amend_host_load` — so a preset's name/index marker undoes
-together with its values. VST3 splits the load across two calls: the step is
-pushed in `setComponentState` and the `notify` is dispatched at the end of
-`setState` (guarded by a pending flag), where the editor state has also arrived
-and the step is still open. `notify` also delivers window events
-(`Dark_mode_changed`) — it is the editor's single notification entry point
-([tiny_notifications.hpp](libs/tiny_core/include/tiny_core/tiny_notifications.hpp):
-`Host_event = variant<Host_preset_loaded, Dark_mode_changed>`). Limitations:
-**params only** (not the editor `State_map`); a host single-param edit /
-automation is **not** surfaced (only full-state loads — source attribution is a
-planned follow-up); `notify` may arrive with the window closed, so authors must
-only mutate editor state in it, not touch live view resources. Assumes all
-restore entry points run on the UI/main thread (they do in every format).
+coalesced undo step**. The document joins it (`Editor_link::load`, `amend_host_state`), then
+the editor's half: `load_editor_state(store, legacy_map, edit_record, params, info)`
+([edit_store.hpp](libs/tinyplug/include/tinyplug/edit_store.hpp)) restores the view and the
+size, and calls the view model's optional pure `on_host_load(View&, params, Load_info)`, all
+inside the same step. `Load_info` says what happened, never what it means: session or preset,
+the preset's name and id when the path knows them (JSON `name`, the file name, the factory
+list, the exporter's key), the legacy map. A session without an edit record loads the view's
+defaults; a preset keeps the view. The `Undo_history` and `Edit_store` live on the long-lived
+wrapper class, so all of this happens **with the window closed too**. VST3 splits the load:
+the step opens in `setComponentState` and the editor's half lands at the end of `setState`.
+There is no `notify`, `save_state` or `load_state` on the editor: dark mode is
+`View_context::dark` each frame, a load's edge is `edit.view.loads()`.
 
 ## Latency change protocol (consistent across formats)
 
@@ -959,9 +987,12 @@ From the README, enforced informally:
 Read the relevant plan in [plans/](plans/) before non-trivial changes there. Landed work has no plan;
 its rules are in this file and its history in git.
 
-- **[unified-edit-model.md](plans/unified-edit-model.md)** — exploratory, next. The framework owns all
-  state: editor state behind a handle, one undo step across params and state, no
-  `save_state`/`load_state`/`notify`, and on-demand saves from any thread that retire `State_image` polling.
+- **[unified-edit-model.md](plans/unified-edit-model.md)** — design, next. The framework owns state and its
+  mechanics, the client owns features (preset names, `*`, A/B, linked controls): `Action_start`/`Action_end`
+  with an optional address as the one transaction vocabulary, a frame amend window instead of `sort()`, view
+  state behind a handle, every load reported as `Load_info` to a pure `on_host_load`, declared `sizing()`, no
+  `save_state`/`load_state`/`notify`/observers, shared chunk writers for the preset exporters, and on-demand
+  saves that retire `State_image` polling. Sessions stay backward compatible.
 - **[web-format.md](plans/web-format.md)** — landed; what remains is by-hand checks (a real page, Safari,
   hidden tabs, iOS), processor-written state tests, Graphite on WebGPU and CI.
 - **[buffer-system.md](plans/buffer-system.md)** — design. Managed large audio buffers (looper, granular,
@@ -983,8 +1014,10 @@ its rules are in this file and its history in git.
 
 - **Don't break the VST3 split-state contract.** `setComponentState` on
   the controller is *not* the same as `setState`. Param chunk lives on the
-  processor; editor chunk lives on the controller; the controller mirror
+  processor; the editor's half (edit record) lives on the controller; the controller mirror
   of param values is established only via `setComponentState`.
+- **Don't regenerate a fixture to make a test pass** ([tests/fixtures](tests/fixtures/README.md)):
+  an old session that no longer loads is the bug.
 - **Don't break event ordering.** The `_events` vector inside each
   wrapper's `process` is reserved at a specific capacity calibrated from
   `num_params`. Asserts fire when it's full. Increase the capacity rather

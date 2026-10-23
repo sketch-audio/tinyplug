@@ -5,9 +5,8 @@ namespace tiny::auv3 {
 auto View::create_view() -> void*
 {
     auto delegate = std::make_shared<View_delegate>(
-        User_editor::preferred_size(),
-        [this](auto& context) { this->on_draw(context); },
-        [this](const auto& notification) { this->on_notify(notification); } 
+        sizing_of<User_editor>().preferred,
+        [this](auto& context) { this->on_draw(context); }
     );
     _platform_view = Platform_views::make_owning(delegate); // TODO: - revisit
 
@@ -42,11 +41,6 @@ auto View::on_draw(View_context& view_context) -> void
         *_deps.tasks,
         [](auto, auto) {}
     );
-}
-
-auto View::on_notify(const Dark_mode_changed& notification) -> void
-{
-    _deps.editor->notify(notification);
 }
 
 } // namespace tiny::auv3

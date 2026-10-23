@@ -5,13 +5,15 @@ namespace tiny::auv2 {
 auto View::create_view() -> void*
 {
     auto delegate = std::make_shared<View_delegate>(
-        _deps.initial_size(),
-        [this](auto& context) { this->on_draw(context); },
-        [this](const auto& notification) { this->on_notify(notification); }
+        _deps.edit_store->size(),
+        [this](auto& context) { this->on_draw(context); }
     );
+    _deps.edit_store->set_apply([this](Rect_size size) { resize(size); });
 
     auto on_autorelease = [this]() {
         _deps.editor->on_gui_hide();
+        view_impl::close_session(_deps.receiver, _ui_params, *_deps.actions, *_deps.undo_history);
+        _deps.edit_store->set_apply({});
         _platform_view->on_hide();
         _deps.editor->on_gui_destroy();
         _platform_view->on_destroy();
@@ -32,6 +34,7 @@ auto View::create_view() -> void*
 // editor's GUI lifecycle as the view's dealloc would have; ~Platform_view then leaves the view inert.
 View::~View()
 {
+    _deps.edit_store->set_apply({});
     if (_platform_view && _platform_view->native_handle()) {
         _deps.editor->on_gui_hide();
         _deps.editor->on_gui_destroy();
@@ -60,16 +63,17 @@ auto View::on_draw(View_context& view_context) -> void
         *_deps.undo_history,
         *_deps.tasks,
         [this](auto w, auto h) {
-            _platform_view->resize(static_cast<int32_t>(w), static_cast<int32_t>(h));
-            // No host echo on AUv2 — update the size cache directly so it persists.
-            if (_deps.on_resized) _deps.on_resized(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+            _deps.edit_store->requested({static_cast<int32_t>(w), static_cast<int32_t>(h)});
+            resize(_deps.edit_store->size());
         }
     );
 }
 
-auto View::on_notify(const Dark_mode_changed& notification) -> void
+auto View::resize(Rect_size size) -> void
 {
-    _deps.editor->notify(notification);
+    if (!_platform_view) return;
+    _platform_view->resize(size.w, size.h);
+    _deps.edit_store->resized(size); // No host echo on AUv2: this is the size now.
 }
 
 } // namespace tiny::auv2

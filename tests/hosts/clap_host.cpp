@@ -1,7 +1,7 @@
 // A fake CLAP host. Loads a real .clap and drives it through the host-facing API from the threads a
 // real host uses (main, audio), so the sanitizers can see the wrapper. One process per bundle:
 //
-//     clap_host <path/to/Plugin.clap> [--seed N] [--seconds S]
+//     clap_host <path/to/Plugin.clap> [--seed N] [--seconds S] [--fixtures DIR [--write-fixtures]]
 //
 // The host answers thread_check honestly and fails a test on any misbehaving or error log, so the
 // CLAP helpers' own contract checks (maximal in debug builds) count as assertions here.
@@ -1064,6 +1064,85 @@ auto add_scenarios(const Bundle& bundle) -> void
     });
 }
 
+// MARK: - session fixtures
+
+// Sessions saved by an older build must keep loading: parameters, the document record and the
+// editor size. With --write-fixtures, this saves them instead.
+auto add_fixture_scenarios(const Bundle& bundle) -> void
+{
+    const auto base = tiny::hosts::fixture_base(g_options, tiny::hosts::bundle_name(g_options.bundle), "clap");
+    if (base.empty()) return;
+
+    auto editor_size = [](Instance& instance, tiny::hosts::Window& window, int32_t w, int32_t h) {
+        auto editor = Editor_session{instance, window};
+        if (w > 0) instance.gui->set_size(instance.plugin, static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+        auto width = uint32_t{}, height = uint32_t{};
+        instance.gui->get_size(instance.plugin, &width, &height);
+        return std::pair{static_cast<int32_t>(width), static_cast<int32_t>(height)};
+    };
+
+    if (g_options.write_fixtures) {
+        Tests::add("fixtures: write a session", [&bundle, base, editor_size] {
+            auto host = std::make_unique<Fake_host>();
+            auto window = tiny::hosts::Window{};
+            auto instance = Instance{bundle, *host};
+            auto random = Random{g_options.seed};
+            auto events = Event_list{};
+            for (auto k = size_t{}; k < instance.param_infos.size(); ++k) {
+                const auto& info = instance.param_infos[k];
+                if (info.flags & CLAP_PARAM_IS_READONLY) continue;
+                events.param(0, info, tiny::hosts::fixture_value(k, info.min_value, info.max_value, info.flags & CLAP_PARAM_IS_STEPPED));
+            }
+            events.seal();
+            auto out = Out_events{};
+            instance.params->flush(instance.plugin, &events.clap, &out.clap);
+
+            auto fixture = tiny::hosts::Session_fixture{};
+            if (instance.gui) {
+                const auto [w, h] = editor_size(instance, window, tiny::hosts::fixture_width, tiny::hosts::fixture_height);
+                fixture.width = w;
+                fixture.height = h;
+            }
+            fixture.state = instance.save(random);
+            for (const auto& info : instance.param_infos) {
+                auto value = 0.;
+                instance.params->get_value(instance.plugin, info.id, &value);
+                fixture.params.emplace_back(info.id, value);
+            }
+            tiny::hosts::write_fixture(base, fixture);
+        });
+        return;
+    }
+
+    const auto fixture = tiny::hosts::read_fixture(base);
+    if (!fixture) return;
+
+    Tests::add("fixtures: a session saved by an older build loads", [&bundle, fixture = *fixture, editor_size] {
+        auto host = std::make_unique<Fake_host>();
+        {
+            auto window = tiny::hosts::Window{};
+            auto instance = Instance{bundle, *host};
+            auto random = Random{g_options.seed};
+            expect_true(instance.load(fixture.state, random), "load failed");
+            for (const auto& [id, expected] : fixture.params) {
+                auto value = 0.;
+                expect_true(instance.params->get_value(instance.plugin, id, &value), std::format("param {} missing", id));
+                expect_true(std::abs(value - expected) <= 1e-6 * std::max(1., std::abs(expected)), std::format("param {}: {} after load, saved {}", id, value, expected));
+            }
+            const auto record = tiny::hosts::find_record(fixture.state);
+            const auto saved = instance.save(random);
+            expect_true(tiny::hosts::find_record(saved) == record, "the document record didn't survive a load and save");
+            for (const auto& text : fixture.texts) expect_true(tiny::hosts::contains_text(saved, text), std::format("'{}' isn't in the view after the load", text));
+            if (fixture.width > 0 && instance.gui) {
+                const auto [w, h] = editor_size(instance, window, 0, 0);
+                expect_true(w == fixture.width && h == fixture.height, std::format("editor opened at {}x{}, saved at {}x{}", w, h, fixture.width, fixture.height));
+            }
+        }
+        tiny::hosts::pump_main(20ms);
+        check_clean(*host, "fixtures");
+    });
+}
+
 } // namespace
 
 auto main(int argc, char** argv) -> int
@@ -1077,8 +1156,13 @@ auto main(int argc, char** argv) -> int
     tiny::hosts::gui_init();
     try {
         const auto bundle = Bundle{g_options.bundle};
+        if (g_options.write_fixtures) {
+            add_fixture_scenarios(bundle);
+            return audio_bench::Tests::run_all() == 0 ? 0 : 1;
+        }
         add_scenarios(bundle);
         add_bounce_scenarios(bundle);
+        add_fixture_scenarios(bundle);
         return audio_bench::Tests::run_all() == 0 ? 0 : 1;
     }
     catch (const std::exception& e) {

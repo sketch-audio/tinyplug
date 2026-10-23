@@ -294,6 +294,61 @@ auto test_upgrade() -> void
     expect(state::decode_record<Upgraded_doc>(new_bytes, again) && again.c == 9, "then round-trips through functions");
 }
 
+// Sessions an older build reads: a newer build's payload, longer than its `load` reads; and a raw struct
+// whose tail padding a later `load` reading field by field leaves behind. Both must load, not reset.
+struct Reads_notes_only {
+    std::array<std::uint8_t, 8> notes{};
+
+    static auto save(state::Writer out, const Reads_notes_only& value) -> bool
+    {
+        return out.write(std::uint32_t{1}) && out.write(value.notes);
+    }
+
+    static auto load(state::Reader in, Reads_notes_only& value) -> bool
+    {
+        auto version = std::uint32_t{};
+        return in.read(version) && in.read(value.notes); // Any version: later fields come after.
+    }
+};
+
+struct Padded_raw {
+    float level{};
+    bool on{};
+};
+static_assert(sizeof(Padded_raw) > sizeof(float) + sizeof(bool), "the case needs tail padding");
+
+struct Padded_upgraded {
+    float level{};
+    bool on{};
+
+    static auto save(state::Writer out, const Padded_upgraded& value) -> bool
+    {
+        return out.write(value.level) && out.write(value.on);
+    }
+
+    static auto load(state::Reader in, Padded_upgraded& value) -> bool
+    {
+        return in.read(value.level) && in.read(value.on);
+    }
+};
+
+auto test_leftovers() -> void
+{
+    std::printf("payload bytes left unread\n");
+
+    auto v2 = Doc_v2{};
+    v2.notes[3] = 9;
+    auto older = Reads_notes_only{};
+    expect(state::decode_record(state::encode_record(v2), older) && older.notes[3] == 9, "a newer payload loads in an older build");
+
+    auto raw = Padded_raw{};
+    raw.level = 0.25f;
+    raw.on = true;
+    auto upgraded = Padded_upgraded{};
+    expect(state::decode_record(state::encode_record(raw), upgraded) && upgraded.level == 0.25f && upgraded.on,
+           "a raw struct's tail padding loads through a later load()");
+}
+
 // A stream that hands out `bytes`, the way CLAP's and VST3's readers do.
 auto stream_of(std::span<const std::byte> bytes)
 {
@@ -364,6 +419,7 @@ auto main() -> int
     test_reader();
     test_raw();
     test_upgrade();
+    test_leftovers();
     test_stream();
     test_base64();
 

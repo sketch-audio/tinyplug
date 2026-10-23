@@ -16,6 +16,7 @@
 
 #include "adapters.hpp"
 #include "controller.hpp"
+#include "chunks.hpp"
 #include "messaging.hpp"
 
 namespace tiny::vst3 {
@@ -490,13 +491,12 @@ Steinberg::tresult PLUGIN_API Controller::setComponentState(Steinberg::IBStream*
     }
 #endif
 
-    // Record the host load as one coalesced undo step (works editor open or closed).
-    // The editor notify() fires at the end of setState (the second of VST3's two
-    // restore calls), where the editor state has also arrived and this step is still
-    // open for marker folding. Stash the load so setState can dispatch it.
+    // Record the host load as one coalesced undo step (works editor open or closed). The
+    // editor half lands at the end of setState (the second of VST3's two restore calls),
+    // into the same step.
     _host_load_after = _snapshot_knob_params();
-    _host_load_changes.clear();
-    _undo_history.push_host_load(before, _host_load_after, _host_load_changes);
+    auto changes = std::vector<Set_param>{};
+    _undo_history.push_host_load(before, _host_load_after, changes);
 #if TINY_HAS_STATE
     _state_link.load(state::decode_record_or_default<models::Resolved::State>(record)); // Into the same step.
 #endif
@@ -618,32 +618,17 @@ Steinberg::tresult PLUGIN_API Controller::setState(Steinberg::IBStream* state)
         edit_state.emplace(std::move(key), std::move(value));
     }
 
-    // Prime the size cache from the framework-owned keys so the view opens pre-sized
-    // (no preferred→saved flash), then strip them so the app editor never sees them.
-    if (const auto size = editor_size_state::extract(edit_state)) {
-        resized({size->first, size->second});
-    }
-    editor_size_state::strip(edit_state);
+    // The editor's record follows the pairs; an older chunk ends with them.
+    const auto trailing = read_trailing_records([&](std::byte* out, size_t size) {
+        auto got = Steinberg::int32{};
+        return state->read(out, static_cast<Steinberg::int32>(size), &got) == Steinberg::kResultOk && static_cast<size_t>(got) == size;
+    });
+    const auto edit_record = trailing.edit.empty() ? std::nullopt : decode_edit_record(trailing.edit);
 
-    _editor->load_state(edit_state);
-
-    // Notify the editor of the host load synchronously, now that both restore calls
-    // have landed. add_param folds any editor-owned marker into the load's single
-    // undo step (still open from setComponentState).
-    if (_host_load_pending) {
-        auto add_param = [this](uint32_t addr, double knob) {
-            if (addr >= num_params) return;
-            const auto from = getParamNormalized(addr);
-            setParamNormalized(addr, knob); // VST3 normalized == knob space.
-            _undo_history.amend_host_load(addr, from, knob);
-        };
-        _editor->notify(Host_event{Host_preset_loaded{
-            .changes = _host_load_changes,
-            .params = _host_load_after,
-            .add_param = add_param,
-        }});
-        _host_load_pending = false;
-    }
+    // The editor half of the load, into the step setComponentState opened (or one of its own).
+    const auto params = _host_load_pending ? _host_load_after : _snapshot_knob_params();
+    load_editor_state(_edit_store, std::move(edit_state), edit_record, params);
+    _host_load_pending = false;
 
     return Steinberg::kResultTrue;
 }
@@ -651,102 +636,13 @@ Steinberg::tresult PLUGIN_API Controller::setState(Steinberg::IBStream* state)
 //------------------------------------------------------------------------
 Steinberg::tresult PLUGIN_API Controller::getState(Steinberg::IBStream* state)
 {
-    // Here you are asked to deliver the state of the controller (if needed).
-    // Note: the real state of your plug-in is saved in the processor.
+    // The controller's half: the framework's keys, for older builds, then the editor's record.
+    // The real state of the plug-in is the processor's.
     if (!state) {
         return Steinberg::kResultFalse;
     }
-
-    // Streamer convenience wrapper.
-    auto streamer = Steinberg::IBStreamer{state};
-
-    auto edit_state = _editor->save_state();
-    drop_reserved_keys(edit_state);
-
-    // Inject the framework-owned editor window size (from our own cache) so the
-    // window reopens pre-sized. The app editor never emits these keys.
-    if (_last_size) {
-        editor_size_state::inject(edit_state, _last_size->w, _last_size->h);
-    }
-
-    const auto num_editor_items = static_cast<uint32_t>(edit_state.size());
-
-    const auto header = State_rules::Vst3::Header{
-        Plug_info::framework_code, // Reserved
-        Plug_info::manufacturer_code,
-        Plug_info::plugin_code,
-        num_editor_items
-    };
-
-    if (!streamer.writeInt32uArray(header.data(), static_cast<int32_t>(header.size()))) {
-        return Steinberg::kResultFalse;
-    }
-
-    // Helper
-    auto write_container = [&](const auto& container) {
-        const auto num = static_cast<uint32_t>(container.size());
-        if (!streamer.writeInt32u(num)) {
-            return false;
-        }
-        if (num > 0) {
-            if (!streamer.writeRaw(container.data(), sizeof(container[0]) * num)) {
-                return false;
-            }
-        }
-        return true;
-    };
-
-    // Write editor state.
-    for (const auto& [key, val] : edit_state) {
-        // Write key.
-        if (!write_container(key)) {
-            return Steinberg::kResultFalse;
-        }
-
-        // Write the type tag.
-        const auto tag = tag_for(val);
-        if (!streamer.writeInt32u(enum_raw(tag))) {
-            return Steinberg::kResultFalse;
-        }
-
-        // Write the value according to the tag.
-        switch (tag) {
-            case State_tag::Bool: {
-               const auto value = std::get_if<bool>(&val);
-               if (value && streamer.writeBool(*value)) {
-                   break;
-               }
-               return Steinberg::kResultFalse;
-            }
-            case State_tag::Int: {
-                const auto value = std::get_if<int32_t>(&val);
-                if (value && streamer.writeInt32(*value)) {
-                    break;
-                }
-                return Steinberg::kResultFalse;
-            }
-            case State_tag::Double: {
-                const auto value = std::get_if<double>(&val);
-                if (value && streamer.writeDouble(*value)) {
-                    break;
-                }
-                return Steinberg::kResultFalse;
-            }
-            case State_tag::String: {
-                const auto value = std::get_if<std::string>(&val);
-                if (value && write_container(*value)) {
-                    break;
-                }
-                return Steinberg::kResultFalse;
-            }
-            default: {
-                assert(false && "Unknown editor state type.");
-                return Steinberg::kResultFalse;
-            }
-        }
-    }
-
-    return Steinberg::kResultTrue;
+    const auto edit_record = encode_edit_record(_edit_store.save());
+    return write_controller_chunk(state, legacy_editor_map(_edit_store), edit_record) ? Steinberg::kResultTrue : Steinberg::kResultFalse;
 }
 
 //------------------------------------------------------------------------
@@ -881,8 +777,8 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
             .action_handler = [this](auto& a) {
                 std::visit(Inline_visitor{
                     [this](const Action_start& s) {
-                        beginEdit(s.address);
-                        _gestured.insert(s.address);
+                        beginEdit(*s.address);
+                        _gestured.insert(*s.address);
                     },
                     [this](const Set_param& s) {
                         if (setParamNormalized(s.address, s.value) == Steinberg::kResultTrue) {
@@ -890,8 +786,8 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
                         }
                     },
                     [this](const Action_end& s) {
-                        endEdit(s.address);
-                        _gestured.erase(s.address);
+                        endEdit(*s.address);
+                        _gestured.erase(*s.address);
                     },
                     [](const auto&) {}
             }, a);
@@ -899,6 +795,7 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
 #if TINY_HAS_STATE
             .sync_state = [this]() { _state_link.sync(); },
 #endif
+            .end_frame = [this]() { _edit_store.end_frame(); },
         };
 
         return new View{{

@@ -21,6 +21,9 @@
 @TINY_WORK_INCLUDE@
 #define TINY_HAS_WORK @TINY_HAS_WORK@
 
+@TINY_VIEW_INCLUDE@
+#define TINY_HAS_VIEW @TINY_HAS_VIEW@
+
 // What the plug-in carries, from TINY_PLUGIN_WANTS_NOTES. Not models: CMake declarations.
 #define TINY_HAS_NOTES_IN @TINY_HAS_NOTES_IN@
 #define TINY_HAS_NOTES_OUT @TINY_HAS_NOTES_OUT@
@@ -34,6 +37,7 @@ struct Resolved {
     using Blocks = @TINY_BLOCKS_TYPE@;
     using State = @TINY_STATE_TYPE@;
     using Work = @TINY_WORK_TYPE@;
+    using View = @TINY_VIEW_TYPE@;
 };
 
 } // namespace tiny::models
@@ -45,18 +49,21 @@ static_assert(meters::Model<models::Resolved::Meters>, "models::Meters must sati
 static_assert(blocks::Model<models::Resolved::Blocks>, "models::Blocks must satisfy blocks::Model.");
 static_assert(state::Model<models::Resolved::State>, "models::State must satisfy state::Model.");
 static_assert(work::Model<models::Resolved::Work>, "models::Work must satisfy work::Model.");
+static_assert(view::Model<models::Resolved::View>, "models::View must satisfy view::Model.");
 
 using User_params = params::Infos<models::Resolved::Params>;
 using User_meters = meters::Infos<models::Resolved::Meters>;
 using User_blocks = blocks::Infos<models::Resolved::Blocks>;
 using User_state = models::Resolved::State;
 using User_work = models::Resolved::Work;
+using User_view = models::Resolved::View;
 
 inline constexpr bool has_params = TINY_HAS_PARAMS;
 inline constexpr bool has_meters = TINY_HAS_METERS;
 inline constexpr bool has_blocks = TINY_HAS_BLOCKS;
 inline constexpr bool has_state = TINY_HAS_STATE;
 inline constexpr bool has_work = TINY_HAS_WORK;
+inline constexpr bool has_view = TINY_HAS_VIEW;
 inline constexpr bool has_notes_in = TINY_HAS_NOTES_IN;
 inline constexpr bool has_notes_out = TINY_HAS_NOTES_OUT;
 inline constexpr bool has_note_expression = TINY_HAS_NOTE_EXPRESSION;

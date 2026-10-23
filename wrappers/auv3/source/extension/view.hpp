@@ -37,6 +37,7 @@ public:
     auto on_hide() -> void
     {
         _deps.editor->on_gui_hide();
+        view_impl::close_session(_deps.receiver, _ui_params, *_deps.actions, *_deps.undo_history);
         _platform_view->on_hide();
     }
 
@@ -54,7 +55,6 @@ public:
 private:
 
     auto on_draw(View_context& view_context) -> void;
-    auto on_notify(const Dark_mode_changed& notification) -> void;
 
 
     static constexpr auto num_params = User_params::num_params;

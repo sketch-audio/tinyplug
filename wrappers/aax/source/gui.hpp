@@ -31,7 +31,7 @@ protected:
 private:
 
     auto on_draw(View_context& view_context) -> void;
-    auto on_notify(const Dark_mode_changed& notification) -> void;
+    auto _resize(int32_t w, int32_t h) -> void; // The container, the platform view and the stored size.
 
 
     static constexpr auto num_params = User_params::num_params;

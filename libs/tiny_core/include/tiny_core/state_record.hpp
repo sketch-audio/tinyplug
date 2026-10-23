@@ -149,14 +149,16 @@ auto save_payload(const T& value, Payload_out& out) -> bool
     return T::save(out.writer(), value);
 }
 
-// Load into a default `T`; only a clean, complete load is returned.
+// Load into a default `T`; only a clean load is returned. Bytes left unread are accepted: a newer build's
+// payload read by an older `load`, or a raw struct's tail padding. `unread` reports them, for
+// encode_record's check that save and load agree.
 template<typename T>
-auto load_payload(std::span<const std::byte> payload, bool raw, T& out) -> bool
+auto load_payload(std::span<const std::byte> payload, bool raw, T& out, std::size_t* unread = nullptr) -> bool
 {
     auto scratch = T{};
     auto in = Payload_in{payload, raw};
     if (!T::load(in.reader(), scratch) || in.failed()) return false;
-    assert(in.remaining() == 0 && "state load left payload bytes unread; save and load disagree.");
+    if (unread) *unread = in.remaining();
     out = scratch;
     return true;
 }
@@ -182,8 +184,10 @@ auto encode_record(const T& value) -> std::vector<std::byte>
         // Round trip: a field saved but not loaded, or loaded out of order, shows up here.
         const auto written = payload.bytes().subspan(sizeof(Record_header));
         auto reloaded = T{};
-        const auto loaded = detail::load_payload(written, false, reloaded);
+        auto unread = std::size_t{};
+        const auto loaded = detail::load_payload(written, false, reloaded, &unread);
         assert(loaded && "state load refused what save just wrote.");
+        assert(unread == 0 && "state load left payload bytes unread; save and load disagree.");
         auto again = Payload_out{};
         detail::save_payload(reloaded, again);
         assert(std::ranges::equal(written, again.bytes())

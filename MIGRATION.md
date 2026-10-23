@@ -888,3 +888,87 @@ Among its checks: configure with one set of values, play a history of noise and 
 another, and compare with a processor freshly configured with the second set, bit for bit; then a second
 restart must change nothing. A product's state that survives a restart (an oscillator's phase, a one-shot
 `timeline_started()`) shows up there and nowhere else.
+
+## Transactions and normalized edits
+
+New on `main`. Step 1 of [plans/unified-edit-model.md](plans/unified-edit-model.md): one vocabulary for
+gestures and transactions, and the framework, not the editor, makes the action stream well formed.
+
+### Breaks
+
+- **`Action_start` / `Action_end` take an optional address.** Code that pushes them is unchanged
+  (`Action_start{addr}` still compiles). Code that reads `.address` gets a `std::optional<uint32_t>`:
+  `Action_start{}` with no address is a transaction's start. An observer or a link pass that mirrored
+  gestures handles the empty case, e.g. `if (!start.address) return;`.
+- **`Action_queue::sort()` is gone.** A linked control (auto gain, a follower) appends its follower's
+  `Set_param` and nothing else: inside the lead's gesture it joins it, and after a click's end in the same
+  frame it joins the step that just closed. Delete the copied `Action_start`/`Action_end` and the `sort()`
+  call; the copied form still groups correctly if you keep it.
+- **A wrapper's action handler only sees addressed actions** (a framework concern; for a custom wrapper,
+  call `view_impl::resolve_frame` and `view_impl::close_session` as the built-in ones do).
+
+### New
+
+- **Transactions.** `edit.undo_redo.transaction([&] { ... })` for one frame, or `begin()` / `end()` across
+  frames. Everything inside — parameter sets with no gesture of their own, document edits — is one undo
+  step, and the host gets a touch and release per parameter. Replaces bracketing a batch with a marker
+  parameter's `Action_start`/`Action_end` (the A/B swap, a preset load).
+- **A bare `Set_param`** (no gesture around it) is now a gesture and an undo step of its own. It used to be
+  sent to hosts without a begin/end and not recorded at all. A drag that pushes only sets still wants
+  `Action_start`/`Action_end` around it, or it records a step per frame.
+- **`edit.actions.last_frame()`**: the previous frame's actions as they resolved, undo replay included.
+
+
+## The editor owns no state: view model, load reports, sizing
+
+New on `main`. Steps 2–6 of [plans/unified-edit-model.md](plans/unified-edit-model.md): everything the
+editor wants back with a session is framework state, and the editor has no save, load or notify hooks.
+
+### Breaks
+
+- **`save_state`, `load_state` and `notify` are gone from the editor.** Delete them. Dark mode is
+  `state.view_context.dark` in `on_gui_draw`, every frame. A host load's edge is `edit.view.loads()` changing.
+- **`Host_event`, `Host_preset_loaded` and `add_param` are gone**, and with them `Undo_history::amend_host_load`.
+  What a load means to the editor goes in the view model's `on_host_load` (below).
+- **`State_adapter::preset_state(extras)` → `preset_state(Preset_info{.name, .id})`.** A preset file holds
+  `version`, `params`, `state`, `name`, `id`; no `editor` map. `Save_model::editor_state` is gone.
+- **Action-queue observers are gone** (`install_observer`, `clear_observers`). Read `edit.actions.last_frame()`, the
+  previous frame's actions as they resolved, undo replay included. A modified-preset marker compares parameters with
+  values the view keeps instead.
+- **`State_image` is gone** (`Pending_load` replaces its load half), and so is the `tinyplug-` reserved-key
+  check's purpose for authors: nothing writes author keys any more.
+- **`preferred_size()` → `sizing()`** (optional: `preferred_size()` still works):
+  ```cpp
+  static constexpr auto sizing() -> Sizing { return {.preferred = {640, 300}, .min = {320, 200}}; }
+  ```
+
+### Moving editor state into a view model
+
+What an editor saved in `save_state` goes in `source/models/view.hpp`, split by whether undo should touch it:
+
+```cpp
+struct View {
+    struct Undoable { Fixed_string<64> preset_name{}; std::uint8_t b_selected{}; } undoable{};
+    struct Restored { std::uint8_t tab{}; } restored{};
+
+    // Every host load, window open or closed, inside the load's undo step.
+    static auto on_host_load(View& v, std::span<const double> params, const Load_info& info) -> void
+    {
+        if (info.kind == Load_info::Kind::Preset) v.undoable.preset_name = info.name;
+        else if (info.legacy) { /* your old save_state keys, from sessions saved before this */ }
+    }
+};
+```
+
+- Read it with `_edit.view.get()`, change it with `_edit.view.edit([](View& v) { ... })` (a step at the end of
+  the frame, or part of the open gesture or transaction), and the restored part in place with
+  `_edit.view.restored()`.
+- **Old sessions keep loading.** Their editor map arrives once, as `Load_info::legacy`, with the framework's
+  keys (window size) already taken out. Map what you used to write; nothing else reads it.
+- **Undo carriers go.** A marker parameter that existed only to make a name or an A/B selection follow undo
+  (a preset counter, an A/B flag) becomes view state. Keep its address and leave it `Interface`: don't make it
+  `Hidden`, which would start saving it.
+- **Loading a preset from the editor**: `edit.undo_redo.transaction([&] { edit.apply_preset(json); edit.view.edit(...); })`
+  is one undo step, as a host load is.
+- **Factory presets for native hosts**: the exporters write the preset's name (`"name"`, else the file name) as a
+  framework key, so a host loading a `.tfx` or `.vstpreset` reports `Load_info::Kind::Preset` with that name.

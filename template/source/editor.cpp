@@ -66,6 +66,7 @@ auto Editor::on_gui_show() -> void
 
 auto Editor::on_gui_draw(Plugin_state& state) -> void
 {
+    _dark = state.view_context.dark; // The host\'s or system\'s appearance, this frame.
     // Update (Send actions).
     auto& view_context = state.view_context;
     const auto lsize = view_context.logical_size;
@@ -103,14 +104,6 @@ auto Editor::on_gui_draw(Plugin_state& state) -> void
     const auto g_h = static_cast<float>(_value * rsize.h);
     const auto g_y = static_cast<float>(rsize.h - g_h);
     canvas->drawRect(SkRect::MakeXYWH(0, g_y, static_cast<float>(rsize.w), g_h), paint);
-}
-
-auto Editor::notify(const Host_event& notification) -> void
-{
-    std::visit(Inline_visitor{
-        [&](const Dark_mode_changed& n) { _dark = n.new_value; },
-        [](const auto&) {}
-    }, notification);
 }
 
 auto Editor::on_gui_hide() -> void

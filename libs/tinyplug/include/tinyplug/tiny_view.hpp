@@ -41,6 +41,56 @@ struct Plugin_state {
 
 namespace view_impl {
 
+// MARK: - resolve_frame
+
+// The frame's actions are queued: give every set a gesture, record undo, run a deferred undo or redo,
+// hand each action to the wrapper, and keep them as the frame's resolved edits. Wrappers never see a
+// transaction's own start and end: those are the undo history's.
+template<typename S, typename P, typename A, typename U, typename F>
+inline auto resolve_frame(const S& _receiver, P& _ui_params, A& _actions, U& _undo_history, Processor_state& state, F _resize_policy) -> void
+{
+    _actions.normalize();
+    _undo_history.process_actions(_actions.get_actions(), state);
+    _undo_history.perform_actions(_actions.actor()); // Pushes the replay of an undo or redo.
+    _actions.normalize();
+
+    const auto actions = _actions.get_actions(); // A copy: a handler may push.
+    for (const auto& action : actions) {
+        if (const auto* s = std::get_if<Action_start>(&action); s && !s->address) continue;
+        if (const auto* e = std::get_if<Action_end>(&action); e && !e->address) continue;
+        _receiver.action_handler(action);
+        if (const auto* s = std::get_if<Set_param>(&action)) {
+            _ui_params[s->address] = s->value; // Update the local copy.
+        }
+        else if (const auto* r = std::get_if<Request_resize>(&action)) {
+            _resize_policy(r->width, r->height);
+        }
+    }
+
+    _actions.finish_frame();
+    _actions.clear();
+
+#if TINY_HAS_STATE
+    _receiver.sync_state(); // Send this frame's edits and any undo/redo replay.
+#endif
+    _receiver.end_frame();
+    _undo_history.end_frame();
+}
+
+// MARK: - close_session
+
+// The editor's view is going away. What it pushed since its last frame (a hide that cancels a drag)
+// resolves now, and whatever is still open ends: no parameter stays touched for the host, and the
+// undo history never stays mid-gesture.
+template<typename S, typename P, typename A, typename U>
+inline auto close_session(const S& _receiver, P& _ui_params, A& _actions, U& _undo_history) -> void
+{
+    _actions.close_all();
+    auto state = Processor_state{};
+    state.params = _ui_params;
+    resolve_frame(_receiver, _ui_params, _actions, _undo_history, state, [](auto, auto) {});
+}
+
 // MARK: - run_frame
 
 template<typename S, typename A0, typename A1, typename B, typename C, typename V, typename A, typename U, typename T, typename F>
@@ -87,31 +137,7 @@ inline auto run_frame(
     _tasks.run_main();
     _custom_view->on_gui_draw(state);
 
-    // Observe actions for undo/redo.
-    _undo_history.process_actions(_actions.get_actions(), state.processor_state);
-
-    // Process deferred undo/redo actions (does the actual undo/redo and pushes into actions).
-    _undo_history.perform_actions(_actions.actor());
-
-    // Handle actions and update local state.
-
-    // Grab value.
-    const auto actions = _actions.get_actions();
-    for (const auto& action : actions) {
-        _receiver.action_handler(action);
-        if (const auto* s = std::get_if<Set_param>(&action)) {
-            _ui_params[s->address] = s->value; // Update the local copy.
-        }
-        else if (const auto* r = std::get_if<Request_resize>(&action)) {
-            _resize_policy(r->width, r->height);
-        }
-    }
-
-    _actions.process_observers(_ui_params); // Use manifested state.
-
-#if TINY_HAS_STATE
-    _receiver.sync_state(); // Send this frame's edits and any undo/redo replay.
-#endif
+    resolve_frame(_receiver, _ui_params, _actions, _undo_history, state.processor_state, _resize_policy);
 }
 
 } // namespace view_impl

@@ -49,7 +49,7 @@ protected:
 
     // This is where we resolve the app state and tell the user's custom view to draw.
     auto on_draw(View_context& view_context) -> void;
-    auto on_notify(const Dark_mode_changed& notification) -> void;
+    auto _request_size(int32_t w, int32_t h) -> void; // Ask the host, which echoes through onSize.
 
 
     static constexpr auto num_params = User_params::num_params;

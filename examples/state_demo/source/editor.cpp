@@ -133,14 +133,6 @@ auto Editor::_set_depth(const Frame& strip, Coords pos) -> void
     _edit.actions.push(Set_param{enum_raw(Address::Depth), _depth});
 }
 
-auto Editor::notify(const Host_event& notification) -> void
-{
-    std::visit(Inline_visitor{
-        [&](const Dark_mode_changed& n) { _dark = n.new_value; },
-        [](const auto&) {}
-    }, notification);
-}
-
 auto Editor::on_gui_hide() -> void
 {
     _end_stroke(); // A stroke cut off by the window closing still becomes a step.
@@ -152,6 +144,7 @@ auto Editor::on_gui_hide() -> void
 
 auto Editor::on_gui_draw(Plugin_state& state) -> void
 {
+    _dark = state.view_context.dark; // The host\'s or system\'s appearance, this frame.
     auto& view_context = state.view_context;
     auto* canvas = view_context.canvas;
     if (!canvas) return;

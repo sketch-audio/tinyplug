@@ -1,5 +1,6 @@
 # Preset exporters — build a per-plugin executable that writes factory preset
-# files (AAX .tfx / VST3 .vstpreset) from the plug-in's parameter defaults.
+# files (AAX .tfx / VST3 .vstpreset) from the plug-in's JSON presets, with the
+# wrappers' own chunk writers.
 # Opt-in: a plug-in's CMakeLists calls these explicitly.
 
 # AAX SDK required.
@@ -20,7 +21,7 @@ function(make_tfx_exporter USER_TARGET PRESET_DIR)
         PRESET_DIR="${PRESET_DIR_ABS}"
     )
 
-    # The .tfx writer reuses the AAX wrapper's param-ID adapters.
+    # The .tfx writer reuses the AAX wrapper's chunk writer.
     target_include_directories(${PRESETS_TARGET} PRIVATE ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../wrappers/aax/source)
     target_link_libraries(${PRESETS_TARGET} PRIVATE ${USER_TARGET} tiny::aaxsdk)
 endfunction()
@@ -43,5 +44,7 @@ function(make_vstpreset_exporter USER_TARGET PRESET_DIR)
         PRESET_DIR="${PRESET_DIR_ABS}"
     )
 
+    # The .vstpreset writer reuses the VST3 wrapper's chunk writers.
+    target_include_directories(${PRESETS_TARGET} PRIVATE ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../wrappers/vst3/source)
     target_link_libraries(${PRESETS_TARGET} PRIVATE ${USER_TARGET} tiny::vst3sdk)
 endfunction()

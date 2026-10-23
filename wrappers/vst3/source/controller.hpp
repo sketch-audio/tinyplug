@@ -39,6 +39,7 @@ public:
             .state_adapter = _state_adapter.actor(),
             .undo_redo = _undo_history.actor(),
             .tasks = _tasks.actor(),
+            .view = _edit_store.handle(),
 #if TINY_HAS_STATE
             .state = _state_link.actor(),
 #endif
@@ -47,6 +48,8 @@ public:
             .notes = Note_sender{[this](const midi::Performance& e) { return _to_proc.send_pod(k_notes_id, e); }},
 #endif
         });
+        _undo_history.bind_actions(_actions.actor());
+        _edit_store.bind(_undo_history);
         _setup_router();
 #if TINY_HAS_STATE
         _setup_state();
@@ -113,15 +116,7 @@ public:
     END_DEFINE_INTERFACES(Steinberg::Vst::EditControllerEx1)
     DELEGATE_REFCOUNT(Steinberg::Vst::EditControllerEx1)
 
-    auto resized(Rect_size size) -> void
-    {
-        _last_size = size;
-    }
-
-    auto get_last_size() const -> std::optional<Rect_size>
-    {
-        return _last_size;
-    }
+    auto edit_store() -> Edit_store& { return _edit_store; }
 
     template<typename F>
     auto consume_changes(F&& f) -> void
@@ -142,6 +137,7 @@ protected:
     // across window open/close and host preset loads are captured with the window closed.
     Undo_history _undo_history{};
     Action_queue _actions{};
+    Edit_store _edit_store{sizing_of<User_editor>()}; // The editor's view state, window size and load count.
 
     // Snapshot all current param values in knob space. VST3 normalized values are
     // already knob space (0…1), so this mirrors the view's get_param.
@@ -169,7 +165,6 @@ protected:
                 .version = 1,
                 .param_tree = &User_params::param_tree(),
                 .param_values = std::vector<double>(knob.begin(), knob.end()),
-                .editor_state = _editor ? _editor->save_state() : State_map{},
 #if TINY_HAS_STATE
                 .state_record = state::encode_record(_state_link.view()),
 #endif
@@ -188,14 +183,10 @@ protected:
     Change_set<Set_param, User_params::num_params> _state_queue{}; // Knob space, to the editor.
 
     std::unordered_set<uint32_t> _gestured{};
-    std::optional<Rect_size> _last_size{};
 
-    // VST3 delivers a preset as two calls: setComponentState (params + undo step)
-    // then setState (editor state). We stash the load here so the editor notify()
-    // can fire at the end of setState, with both halves present and the undo step
-    // still open for marker folding.
+    // VST3 delivers a load as two calls: setComponentState (params, document, the undo step)
+    // then setState (the editor's half), which lands in the same step.
     bool _host_load_pending{};
-    std::vector<Set_param> _host_load_changes{};
     std::array<double, num_params> _host_load_after{};
 
     // Peer link. Not worker-gated: the processor's latency notification arrives through
