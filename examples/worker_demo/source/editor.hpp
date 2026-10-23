@@ -24,7 +24,7 @@ public:
     auto on_hide() -> void { _controls.cancel(_edit.params); }
     auto on_destroy() -> void {}
 
-    auto bind_worker(Worker_editor_actor worker) -> void { _worker = worker; }
+    auto bind_worker(work::Editor_actor worker) -> void { _worker = worker; }
     auto on_worker_reply(const User_work::To_editor& reply) -> void;
 
 private:
@@ -41,7 +41,7 @@ private:
     edit::Context _edit{};
     bool _dark{true};
     ui::Controls _controls{};
-    Worker_editor_actor _worker{};
+    work::Editor_actor _worker{};
 
     std::array<Leg, 4> _legs{}; // Editor -> worker, worker -> editor, processor -> worker, worker -> processor.
     uint32_t _ping_seq{};

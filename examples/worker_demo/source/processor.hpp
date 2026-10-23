@@ -18,7 +18,7 @@ public:
     auto latency_samps() const -> uint32_t { return 0; }
     auto tail_samps() const -> uint32_t { return 0; }
 
-    auto bind_worker(Worker_processor_actor worker) -> void { _worker = worker; }
+    auto bind_worker(work::Processor_actor worker) -> void { _worker = worker; }
     auto handle_worker_reply(const User_work::To_processor& reply) -> void;
 
 private:
@@ -26,7 +26,7 @@ private:
     using Address = models::Params::Address;
     using Block = models::Blocks::Address;
 
-    Worker_processor_actor _worker{};
+    work::Processor_actor _worker{};
     models::Channel_frame _frame{}; // Also what the processor shapes with.
     double _drive{};
     bool _design{};       // Drive moved and no request has gone out yet.

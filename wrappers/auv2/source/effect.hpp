@@ -316,7 +316,7 @@ private:
     Worker_to_edit_q   _worker_to_edit{};
 
     User_worker _worker{
-        Worker_replies{
+        work::Replies{
             [this](const auto& m) { return _worker_to_proc.push(m); },
             [this](const auto& m) { return _worker_to_edit.push(m); }
         },
@@ -420,7 +420,7 @@ private:
 
 #if TINY_HAS_WORKER
     // Last so its destructor (which joins the worker thread) runs first.
-    Worker_runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
+    work::Runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
 #endif
 };
 

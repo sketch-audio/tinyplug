@@ -82,7 +82,7 @@ public:
 #endif
 
 #if TINY_HAS_WORKER
-        try_bind_worker(*_editor, Worker_editor_actor{[this](const auto& m) { return _worker_from_edit.push(m); }});
+        try_bind_worker(*_editor, work::Editor_actor{[this](const auto& m) { return _worker_from_edit.push(m); }});
         // On the worker's thread, after each cycle: the processor's messages in, the worker's replies out.
         _worker_runner.set_post_cycle([this] {
             _to_worker.drain([this](Kind kind, const void* payload, std::uint32_t bytes) {
@@ -332,13 +332,13 @@ private:
     Worker_to_proc_q   _worker_to_proc{};
     Worker_to_edit_q   _worker_to_edit{};
     User_worker _worker{
-        Worker_replies{
+        work::Replies{
             [this](const auto& m) { return _worker_to_proc.push(m); },
             [this](const auto& m) { return _worker_to_edit.push(m); }
         },
         _tasks.actor()
     };
-    Worker_runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
+    work::Runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
 #endif
 
     edit::Connection _receiver{

@@ -45,7 +45,7 @@ auto Audio_effect::_setup_worker() -> void
 {
     // Realtime-safe push from the audio thread: lock-free SPSC push, no allocation. The
     // worker relay forwards over IMessage (`_send_worker_messages`).
-    try_bind_worker(*_processor, Worker_processor_actor{
+    try_bind_worker(*_processor, work::Processor_actor{
         [this](const auto& m) -> bool { return _worker_outbound.push(m); }
     });
 

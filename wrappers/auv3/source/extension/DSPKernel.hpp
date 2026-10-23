@@ -571,7 +571,7 @@ private:
     auto bind_worker_to_kernel_classes() -> void
     {
         auto* from_proc = _worker_from_proc;
-        tiny::try_bind_worker(*_processor, tiny::Worker_processor_actor{
+        tiny::try_bind_worker(*_processor, tiny::work::Processor_actor{
             [from_proc](const auto& m) { return from_proc->push(m); }
         });
     }

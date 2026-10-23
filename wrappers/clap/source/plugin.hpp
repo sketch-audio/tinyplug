@@ -60,10 +60,10 @@ public:
 #endif
 
 #if TINY_HAS_WORKER
-        try_bind_worker(*_processor, Worker_processor_actor{
+        try_bind_worker(*_processor, work::Processor_actor{
             [this](const auto& m) { return _worker_from_proc.push(m); }
         });
-        try_bind_worker(*_editor, Worker_editor_actor{
+        try_bind_worker(*_editor, work::Editor_actor{
             [this](const auto& m) { return _worker_from_edit.push(m); }
         });
 #endif
@@ -298,13 +298,13 @@ private:
     Worker_to_edit_q   _worker_to_edit{};
 
     User_worker _worker{
-        Worker_replies{
+        work::Replies{
             [this](const auto& m) { return _worker_to_proc.push(m); },
             [this](const auto& m) { return _worker_to_edit.push(m); }
         },
         _tasks.actor()
     };
-    Worker_runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
+    work::Runner<User_worker> _worker_runner{&_worker, &_worker_from_proc, &_worker_from_edit};
 #endif
 
     auto _drain_worker_to_processor() -> void

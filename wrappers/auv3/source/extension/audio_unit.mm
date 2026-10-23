@@ -65,7 +65,7 @@ static auto presets_path() -> std::filesystem::path
     DSPKernel::Worker_to_proc_q _worker_to_proc;
     DSPKernel::Worker_to_edit_q _worker_to_edit;
     std::optional<tiny::User_worker> _worker;
-    std::optional<tiny::Worker_runner<tiny::User_worker>> _worker_runner;
+    std::optional<tiny::work::Runner<tiny::User_worker>> _worker_runner;
 #endif
 #if TINY_HAS_STATE
     tiny::state::Editor_link<tiny::models::Resolved::State> _state_link; // The kernel holds the processor's copy.
@@ -104,7 +104,7 @@ static auto presets_path() -> std::filesystem::path
 #if TINY_HAS_WORKER
     auto* to_proc = &_worker_to_proc;
     auto* to_edit = &_worker_to_edit;
-    _worker.emplace(tiny::Worker_replies{
+    _worker.emplace(tiny::work::Replies{
         [to_proc](const auto& m) { return to_proc->push(m); },
         [to_edit](const auto& m) { return to_edit->push(m); }
     }, _tasks.actor());
@@ -425,7 +425,7 @@ static auto presets_path() -> std::filesystem::path
 - (void)bindEditorToWorker {
     if (!_editor) return;
     auto* from_edit = &_worker_from_edit;
-    tiny::try_bind_worker(*_editor, tiny::Worker_editor_actor{
+    tiny::try_bind_worker(*_editor, tiny::work::Editor_actor{
         [from_edit](const auto& m) { return from_edit->push(m); }
     });
 }

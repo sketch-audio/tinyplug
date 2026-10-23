@@ -14,27 +14,31 @@
 
 namespace tiny {
 
-// MARK: - convenience aliases
+namespace work {
 
-using Worker_processor_actor = Worker_actor<User_work::From_processor>;
-using Worker_editor_actor    = Worker_actor<User_work::From_editor>;
-using Worker_replies         = Worker_reply_actor<User_work>;
+// MARK: - the plug-in's handles
+
+using Processor_actor = Actor<User_work::From_processor>; // the processor, to the worker
+using Editor_actor    = Actor<User_work::From_editor>;    // the editor, to the worker
+using Replies         = Reply_actor<User_work>;           // the worker, back to both
 
 // MARK: - concepts
 
 // process::Processor opts in to worker-reply handling by defining
 // `handle_worker_reply(const User_work::To_processor&)`.
 template <typename P>
-concept Receives_worker_reply_to_processor = requires (P p, const User_work::To_processor& r) {
+concept Replies_to_processor = requires (P p, const User_work::To_processor& r) {
     { p.handle_worker_reply(r) } -> std::same_as<void>;
 };
 
 // edit::Editor opts in by defining
 // `on_worker_reply(const User_work::To_editor&)`.
 template <typename E>
-concept Receives_worker_reply_to_editor = requires (E e, const User_work::To_editor& r) {
+concept Replies_to_editor = requires (E e, const User_work::To_editor& r) {
     { e.on_worker_reply(r) } -> std::same_as<void>;
 };
+
+} // namespace work
 
 // MARK: - helpers
 //
@@ -58,7 +62,7 @@ inline auto try_bind_worker(T& obj, const A& a) -> void
 template <typename P, typename Q>
 inline auto try_drain_worker_to_processor(P& processor, Q& queue) -> void
 {
-    if constexpr (has_work && Receives_worker_reply_to_processor<P>) {
+    if constexpr (has_work && work::Replies_to_processor<P>) {
         if constexpr (!std::is_same_v<User_work::To_processor, std::monostate>) {
             auto reply = User_work::To_processor{};
             while (queue.pop(reply)) {
@@ -71,7 +75,7 @@ inline auto try_drain_worker_to_processor(P& processor, Q& queue) -> void
 template <typename E, typename Q>
 inline auto try_drain_worker_to_editor(E& editor, Q& queue) -> void
 {
-    if constexpr (has_work && Receives_worker_reply_to_editor<E>) {
+    if constexpr (has_work && work::Replies_to_editor<E>) {
         if constexpr (!std::is_same_v<User_work::To_editor, std::monostate>) {
             auto reply = User_work::To_editor{};
             while (queue.pop(reply)) {
@@ -88,8 +92,10 @@ inline auto try_drain_worker_to_editor(E& editor, Q& queue) -> void
 // An optional `Post_cycle` callback runs on the worker thread at the end of
 // each poll cycle — used (e.g. by VST3) to drain a worker → processor reply
 // queue and forward over IPC without spawning a separate thread.
+namespace work {
+
 template <typename Worker>
-class Worker_runner {
+class Runner {
 public:
 
     using From_processor = User_work::From_processor;
@@ -102,15 +108,15 @@ public:
 
     using Post_cycle = std::function<void()>;
 
-    Worker_runner(Worker* worker, From_proc_queue* from_proc, From_edit_queue* from_edit)
+    Runner(Worker* worker, From_proc_queue* from_proc, From_edit_queue* from_edit)
         : _worker{worker}, _from_proc{from_proc}, _from_edit{from_edit} {}
 
-    Worker_runner(const Worker_runner&) = delete;
-    auto operator=(const Worker_runner&) -> Worker_runner& = delete;
-    Worker_runner(Worker_runner&&) = delete;
-    auto operator=(Worker_runner&&) -> Worker_runner& = delete;
+    Runner(const Runner&) = delete;
+    auto operator=(const Runner&) -> Runner& = delete;
+    Runner(Runner&&) = delete;
+    auto operator=(Runner&&) -> Runner& = delete;
 
-    ~Worker_runner() { stop(); }
+    ~Runner() { stop(); }
 
     auto set_post_cycle(Post_cycle fn) -> void { _post_cycle = std::move(fn); }
 
@@ -181,5 +187,7 @@ private:
     std::thread _thread{};
 
 };
+
+} // namespace work
 
 } // namespace tiny

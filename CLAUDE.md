@@ -420,7 +420,7 @@ after the editor's `on_hide`, and binds its history to its queue (`bind_actions`
 
 ## Worker channel
 
-`User_worker` runs on its own thread (`Worker_runner` in
+`User_worker` runs on its own thread (`work::Runner` in
 [tiny_worker.hpp](libs/tinyplug/include/tinyplug/tiny_worker.hpp)), polled at
 `User_work::update_period`. The four typed channels — `From_processor`,
 `From_editor`, `To_processor`, `To_editor` — are independent variants of
@@ -437,7 +437,7 @@ If `worker.hpp` is absent the channel types collapse to `std::monostate`
 (`work::None`), every worker queue member is `#if TINY_HAS_WORKER`-gated
 out, and `if constexpr (has_work)` skips runtime work. Reply handlers on
 the user's processor/editor are detected by concept
-(`Receives_worker_reply_to_processor` / `Receives_worker_reply_to_editor`)
+(`work::Replies_to_processor` / `work::Replies_to_editor`)
 inside `try_drain_worker_to_*` *templates* — they have to be templates so
 `if constexpr` can discard the branch in a dependent context.
 
@@ -735,7 +735,7 @@ history; follow-ups are item 4 of [roadmap-misc.md](plans/roadmap-misc.md).
   mirrored in [wire.js](wrappers/web/js/wire.js). **One writer per ring.** The
   [pump](wrappers/web/js/pump.js) is a dedicated worker holding both memories: it moves frames between them,
   routing processor messages by kind so each controller ring has one reader, and keeps moving in a hidden tab.
-  Worker traffic moves in `Worker_runner`'s post-cycle, on the worker's thread.
+  Worker traffic moves in `work::Runner`'s post-cycle, on the worker's thread.
 - **A host load is a session load, not an edit**: its own store, pumped before edits, landing in the processor's
   `on_session_load`, as CLAP's.
 - **Seqlocks need atomic data in wasm.** Binaryen strips `atomic.fence` at -O2, so `Block_store` copies slots

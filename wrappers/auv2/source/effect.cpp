@@ -40,10 +40,10 @@ Effect::Effect(AudioUnit component) : Super{component, num_inputs, num_outputs}
 #endif
 
 #if TINY_HAS_WORKER
-    try_bind_worker(*_processor, Worker_processor_actor{
+    try_bind_worker(*_processor, work::Processor_actor{
         [this](const auto& m) { return _worker_from_proc.push(m); }
     });
-    try_bind_worker(*_editor, Worker_editor_actor{
+    try_bind_worker(*_editor, work::Editor_actor{
         [this](const auto& m) { return _worker_from_edit.push(m); }
     });
 #endif

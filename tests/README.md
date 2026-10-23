@@ -145,7 +145,7 @@ coalesce onto main, nothing fires after destruction. The test pumps the main run
 
 ## worker_runner_test.cpp
 
-`Worker_runner`: both inbound channels in order on the worker thread, the post-cycle and update
+`work::Runner`: both inbound channels in order on the worker thread, the post-cycle and update
 hooks, idempotent start/stop, and 100 start/stop cycles with traffic in flight losing nothing.
 
 ## aax_transport_test.cpp

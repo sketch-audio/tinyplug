@@ -24,7 +24,7 @@ namespace {
 template<typename P, typename Msg>
 auto try_handle_worker_reply([[maybe_unused]] P& processor, [[maybe_unused]] const Msg& msg) -> void
 {
-    if constexpr (has_worker && Receives_worker_reply_to_processor<P>) {
+    if constexpr (has_worker && work::Replies_to_processor<P>) {
         processor.handle_worker_reply(msg);
     }
 }
@@ -271,7 +271,7 @@ auto construct_instance(const Alg_context* context, Alg_state* st, double sample
 
 #if TINY_HAS_WORKER
     if (auto* returns = context->returns) {
-        try_bind_worker(st->processor, Worker_processor_actor{
+        try_bind_worker(st->processor, work::Processor_actor{
             [returns](const auto& m) {
                 return returns->push(Ring_kind::Worker_from_processor, &m, static_cast<uint32_t>(sizeof(m)));
             }

@@ -15,7 +15,7 @@ public:
     using From_processor = User_work::From_processor;
     using From_editor = User_work::From_editor;
 
-    explicit Worker(Worker_replies reply, Task_manager::Actor) : _reply{reply} {}
+    explicit Worker(work::Replies reply, Task_manager::Actor) : _reply{reply} {}
 
     auto on_start(double) -> void {}
     auto on_stop() -> void {}
@@ -46,7 +46,7 @@ public:
 
 private:
 
-    Worker_replies _reply{};
+    work::Replies _reply{};
     uint32_t _designs{};
 
 };

@@ -37,7 +37,7 @@ auto Controller::_setup_worker() -> void
     });
 
     // Editor → worker: direct in-process push.
-    try_bind_worker(*_editor, Worker_editor_actor{
+    try_bind_worker(*_editor, work::Editor_actor{
         [this](const auto& m) { return _worker_from_edit.push(m); }
     });
 

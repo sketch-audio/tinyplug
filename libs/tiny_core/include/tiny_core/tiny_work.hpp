@@ -26,7 +26,7 @@ concept Model = requires {
 
 } // namespace tiny::work
 
-namespace tiny {
+namespace tiny::work {
 
 // MARK: - actors
 
@@ -35,13 +35,13 @@ namespace tiny {
 // (or forwards across an IPC boundary in the VST3 case). Default-constructed
 // actor is a no-op (push returns false).
 template <typename Msg>
-class Worker_actor {
+class Actor {
 public:
 
     using Push_fn = std::function<bool(const Msg&)>;
 
-    Worker_actor() = default;
-    explicit Worker_actor(Push_fn fn) : _fn{std::move(fn)} {}
+    Actor() = default;
+    explicit Actor(Push_fn fn) : _fn{std::move(fn)} {}
 
     auto push(const Msg& msg) const -> bool
     {
@@ -57,7 +57,7 @@ private:
 // Sends replies from the worker back to the processor and editor.
 // Default-constructed → no-op. Unconstrained so `work::None` can name it while incomplete.
 template <typename Work>
-class Worker_reply_actor {
+class Reply_actor {
 public:
 
     using To_processor = typename Work::To_processor;
@@ -66,8 +66,8 @@ public:
     using To_processor_fn = std::function<bool(const To_processor&)>;
     using To_editor_fn = std::function<bool(const To_editor&)>;
 
-    Worker_reply_actor() = default;
-    Worker_reply_actor(To_processor_fn tp, To_editor_fn te)
+    Reply_actor() = default;
+    Reply_actor(To_processor_fn tp, To_editor_fn te)
         : _to_proc{std::move(tp)}, _to_edit{std::move(te)} {}
 
     auto to_processor(const To_processor& m) const -> bool
@@ -87,7 +87,7 @@ private:
 
 };
 
-} // namespace tiny
+} // namespace tiny::work
 
 namespace tiny::work {
 
@@ -103,7 +103,7 @@ struct None {
     static constexpr auto outbound_capacity = std::size_t{16};
     static constexpr auto update_period = std::chrono::milliseconds{16};
 
-    explicit None(Worker_reply_actor<None> = {}, Task_manager::Actor = Task_manager::Actor{nullptr}) {}
+    explicit None(work::Reply_actor<None> = {}, Task_manager::Actor = Task_manager::Actor{nullptr}) {}
 
     auto on_start(double /*sample_rate*/) -> void {}
     auto on_stop() -> void {}

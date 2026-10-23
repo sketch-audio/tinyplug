@@ -121,7 +121,7 @@ struct Processor_module {
         processor->configure(process::Config{.sr = sr, .params = params});
         sync.configured(sr);
 #if TINY_HAS_WORKER
-        try_bind_worker(*processor, Worker_processor_actor{
+        try_bind_worker(*processor, work::Processor_actor{
             [this](const auto& m) { return outbound.push(Kind::Worker_message, &m, static_cast<std::uint32_t>(sizeof(m))); }
         });
 #endif

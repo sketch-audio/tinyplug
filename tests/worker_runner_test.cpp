@@ -1,4 +1,4 @@
-// Worker_runner: delivery from both inbound queues on the worker thread, the post-cycle and update
+// work::Runner: delivery from both inbound queues on the worker thread, the post-cycle and update
 // hooks, and start/stop cycles with traffic in flight. Run under TSan too (the `tsan` preset).
 
 #include <atomic>
@@ -62,7 +62,7 @@ private:
     }
 };
 
-using Runner = tiny::Worker_runner<Probe_worker>;
+using Runner = tiny::work::Runner<Probe_worker>;
 
 template<typename Fn>
 auto wait_until(Fn done, std::chrono::milliseconds limit = 5000ms) -> bool
