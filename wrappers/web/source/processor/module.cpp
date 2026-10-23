@@ -260,7 +260,7 @@ struct Processor_module {
         drain_inbound(pending);
         const auto plan = sync.next({
             .host_reset = std::exchange(host_reset, false),
-            .render_mode = process::Render_mode::Realtime,
+            .mode = process::Mode::Realtime,
             .skipping = bypass.can_skip_effect(),
             .frames = static_cast<std::uint32_t>(frames),
         }, [] { return false; });

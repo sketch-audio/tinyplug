@@ -475,7 +475,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     // `data.processMode` at 0, so either one saying offline is enough.
     const auto is_offline_bounce = (data.processMode == Steinberg::Vst::kOffline)
                                 || (processSetup.processMode == Steinberg::Vst::kOffline);
-    const auto render_mode = is_offline_bounce ? Render_mode::Offline : Render_mode::Realtime;
+    const auto render_mode = is_offline_bounce ? Mode::Offline : Mode::Realtime;
     const auto host_pos = data.processContext ? std::optional<std::int64_t>{data.processContext->projectTimeSamples} : std::nullopt;
 
     // Restart wherever the processor's input is discontinuous (setProcessing, the render-mode edge
@@ -484,7 +484,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     // note is named: a restart forgets the names, and a note-on named first would lose its off.
     const auto plan = _sync.next({
         .host_reset = _needs_clear.exchange(false, std::memory_order_relaxed),
-        .render_mode = render_mode,
+        .mode = render_mode,
         .skipping = _bypass.can_skip_effect(),
         .position = host_pos,
         .frames = static_cast<uint32_t>(std::max(data.numSamples, 0)),
@@ -543,7 +543,7 @@ Steinberg::tresult PLUGIN_API Audio_effect::process(Steinberg::Vst::ProcessData&
     context.blocks = blocks::Writer{&_blocks};
 #endif
 
-    context.render_mode = render_mode;
+    context.mode = render_mode;
 
     // Copy main input to internal buffers in case of in-place processing.
     if (renders_audio) {

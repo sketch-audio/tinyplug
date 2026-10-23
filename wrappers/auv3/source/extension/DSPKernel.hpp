@@ -109,7 +109,7 @@ public:
         // events set at its start folded in. The events still arrive after it, as events.
         const auto plan = _sync.next({
             .host_reset = _needs_clear.exchange(false, std::memory_order_relaxed),
-            .render_mode = _offline.load(std::memory_order_relaxed) ? tiny::process::Render_mode::Offline : tiny::process::Render_mode::Realtime,
+            .mode = _offline.load(std::memory_order_relaxed) ? tiny::process::Mode::Offline : tiny::process::Mode::Realtime,
             .skipping = _bypass.can_skip_effect(),
             .frames = frameCount,
         }, [] { return false; });
@@ -247,8 +247,8 @@ public:
 #endif
 
         const auto render_mode = _offline.load(std::memory_order_relaxed)
-            ? tiny::process::Render_mode::Offline
-            : tiny::process::Render_mode::Realtime;
+            ? tiny::process::Mode::Offline
+            : tiny::process::Mode::Realtime;
         const auto can_skip = _bypass.can_skip_effect();
 
         auto context = tiny::process::Context{.propose_latency = {}};
@@ -265,7 +265,7 @@ public:
         // Event-split slices share the render's timeline, offset to where they start.
         const auto slice_offset = std::max<AUEventSampleTime>(bufferStartTime - _block_start, 0);
         context.timeline = tiny::process::Timeline_resolver::at_offset(_block_timeline, static_cast<size_t>(slice_offset), mSampleRate);
-        context.render_mode = render_mode;
+        context.mode = render_mode;
         
         assert(inputBuffers.size() == static_cast<size_t>(mInputChannelCount));
         assert(outputBuffers.size() == static_cast<size_t>(mOutputChannelCount));
@@ -300,7 +300,7 @@ public:
         
         // Send exports. Suppressed during an offline bounce; the publisher still
         // resets peaks so a bounce cannot hoard a spike.
-        const auto offline = (context.render_mode == tiny::process::Render_mode::Offline);
+        const auto offline = (context.mode == tiny::process::Mode::Offline);
 #if TINY_HAS_METERS
         _meters.publish(offline, [this](uint32_t address, float value) {
             _mailbox.post(address, value);

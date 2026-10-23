@@ -226,7 +226,7 @@ Has_prepare_or_raw<Plug_processor>` (a slot with `prepare` declared needs
 ## Bindings
 
 ```cpp
-// Processor: read + capture, through Dsp_context (tiny_processor.h).
+// Processor: read + capture, through process::Context (tiny_process.hpp).
 struct Buffer_io {
     std::function<const Prepared*(uint32_t /*addr*/, uint32_t /*key*/)> current = /*…*/;
     std::function<std::span<float>(uint32_t /*addr*/)>                  capture = /*…*/;

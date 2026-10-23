@@ -760,7 +760,7 @@ are the reference: both treat "moving without beats" as stopped, since there is 
 
 ## Processor vocabulary
 
-Breaks from `release/0.4`. Renames in `<tinyplug/tiny_processor.hpp>`, now that everything there
+Breaks from `release/0.4`. Renames in `<tinyplug/tiny_process.hpp>`, now that everything there
 lives in `tiny::process`, plus a field reorder in the parameter events.
 
 ### Breaks

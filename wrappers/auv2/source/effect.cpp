@@ -1221,7 +1221,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 
     // Computed early (pure query): `_sync` needs it before the _events array is finalized and sorted.
     const auto can_skip = _bypass.can_skip_effect();
-    const auto render_mode = _offline.load(std::memory_order_relaxed) ? process::Render_mode::Offline : process::Render_mode::Realtime;
+    const auto render_mode = _offline.load(std::memory_order_relaxed) ? process::Mode::Offline : process::Mode::Realtime;
 
     // Set only when a param couldn't be pushed to the queue: "the queue lost something,
     // restate from Globals()". The values go as plain `Set`s, realized as any edit is.
@@ -1361,7 +1361,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
     // Logic sends no automation for its pre-roll, and `Globals()` is the last locate's until it does.
     const auto plan = _sync.next({
         .host_reset = _needs_clear.exchange(false, std::memory_order_relaxed),
-        .render_mode = render_mode,
+        .mode = render_mode,
         .skipping = can_skip,
         .position = host_pos,
         .frames = nFrames,
@@ -1445,7 +1445,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 #if TINY_HAS_BLOCKS
     context.blocks = blocks::Writer{&_blocks};
 #endif
-    context.render_mode = render_mode; // Resolved above, where the transition is detected.
+    context.mode = render_mode; // Resolved above, where the transition is detected.
 
     // A bypassed note effect forwards its input instead of running; an edge releases what was sounding.
 #if TINY_HAS_NOTES_OUT
@@ -1590,7 +1590,7 @@ OSStatus Effect::Render(AudioUnitRenderActionFlags& ioActionFlags, const AudioTi
 
     // Send exports. Suppressed during an offline bounce (Live corrupts its heap
     // ingesting them); the publisher still resets peaks so nothing hoards a spike.
-    const auto offline = (context.render_mode == process::Render_mode::Offline);
+    const auto offline = (context.mode == process::Mode::Offline);
 #if TINY_HAS_METERS
     _meters.publish(offline, [this](uint32_t address, float value) {
         _mailbox.post(address, value);

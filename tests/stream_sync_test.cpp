@@ -17,14 +17,14 @@ using namespace tiny::process;
 using Restart = Stream_sync::Restart;
 
 constexpr auto sr = 48000.;
-constexpr auto offline = Render_mode::Offline;
-constexpr auto realtime = Render_mode::Realtime;
+constexpr auto offline = Mode::Offline;
+constexpr auto realtime = Mode::Realtime;
 
 auto no_content = [] { return false; };
 
-auto block(Render_mode mode, std::optional<std::int64_t> position, std::uint32_t frames = 384) -> Stream_sync::Facts
+auto block(Mode mode, std::optional<std::int64_t> position, std::uint32_t frames = 384) -> Stream_sync::Facts
 {
-    return {.render_mode = mode, .position = position, .frames = frames};
+    return {.mode = mode, .position = position, .frames = frames};
 }
 
 auto add_tests() -> void

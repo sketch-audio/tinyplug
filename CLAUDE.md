@@ -115,7 +115,7 @@ implementation.` or `... version 3 ...` (the AUv3 also prints `Loaded AudioUnit 
 The plug-in author implements two classes plus a few static models. Concepts
 live alongside each interface: `process::Interface`, and a `concept Model` per model.
 
-- **`Processor`** ([tiny_processor.hpp](libs/tinyplug/include/tinyplug/tiny_processor.hpp))
+- **`Processor`** ([tiny_process.hpp](libs/tinyplug/include/tinyplug/tiny_process.hpp))
   — the whole process side lives in **`tiny::process`**, *including the user's class*, so
   a processor file writes the vocabulary unqualified:
   `configure(const Config&)`, `reset(const Reset::Any&)`, `handle(const Event::Param&)`,

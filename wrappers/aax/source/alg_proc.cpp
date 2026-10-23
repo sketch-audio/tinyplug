@@ -109,7 +109,7 @@ auto adopt_reset_state(const Alg_context* context, Alg_state& st, std::span<doub
     const auto* reset = context->reset_state;
     if (reset == nullptr) return;
 
-    st.render_mode = reset->runtime.offline != 0 ? process::Render_mode::Offline : process::Render_mode::Realtime;
+    st.mode = reset->runtime.offline != 0 ? process::Mode::Offline : process::Mode::Realtime;
 
     // The latency the host has already accepted. `latency_seq == 0` is the documented
     // sentinel for "the host has not accepted anything yet", so a zero-initialised packet
@@ -459,7 +459,7 @@ auto render_instance(Alg_context* ctx) -> void
     // Latched at the last reset, never mid-render. The kernel therefore only ever sees
     // this change across a reset — a point at which it has already been cleared and
     // snapped — so a late-arriving flag can no longer wipe history under flowing audio.
-    context.render_mode = st->render_mode;
+    context.mode = st->mode;
 
     const auto can_skip = st->bypass.can_skip_effect();
 
@@ -586,7 +586,7 @@ auto render_instance(Alg_context* ctx) -> void
     // peaks so a bounce cannot hoard a spike. A ring that refuses the value leaves
     // the shadow alone, so the update is retried rather than lost until the meter
     // happens to move again.
-    const auto offline = (context.render_mode == process::Render_mode::Offline);
+    const auto offline = (context.mode == process::Mode::Offline);
     st->meters.publish(offline, [ctx](uint32_t address, float value) {
         if (ctx->returns == nullptr) return false;
         return ctx->returns->push_value(Ring_kind::Meter, Ring_meter{
@@ -599,7 +599,7 @@ auto render_instance(Alg_context* ctx) -> void
 
 #if TINY_HAS_BLOCKS
     // Blocks out, each into its own store. Latest wins; Direct Data reads whatever is newest.
-    st->blocks.transmit(context.render_mode == process::Render_mode::Offline, [ctx](auto i, const auto& frame) {
+    st->blocks.transmit(context.mode == process::Mode::Offline, [ctx](auto i, const auto& frame) {
         auto* store = static_cast<Block_store_at<decltype(i)::value>*>(ctx->blocks[i]);
         if (store == nullptr) return false;
         store->publish(frame);

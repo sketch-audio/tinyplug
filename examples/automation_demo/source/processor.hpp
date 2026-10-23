@@ -67,7 +67,7 @@ private:
     double _sr{48000.};
 
     int64_t _clock{}; // Frames since `configure`.
-    std::optional<Render_mode> _render{}; // Logged on the first block and at every change.
+    std::optional<Mode> _render{}; // Logged on the first block and at every change.
     models::Log_frame _log{};
     models::Trace_frame _trace{};
     float _lo{1.f};

@@ -7,7 +7,7 @@
 #include "tiny_edit.hpp"
 #include "tiny_events.hpp"
 #include "tiny_note_io.hpp"
-#include "tiny_processor.hpp"
+#include "tiny_process.hpp"
 #include "stream_sync.hpp"
 #include "timeline_resolver.hpp"
 #include "tiny_state_link.hpp"

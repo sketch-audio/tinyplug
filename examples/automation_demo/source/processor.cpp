@@ -69,9 +69,9 @@ auto Processor::handle(const Event::Param& event) -> void
 
 auto Processor::process(Context& context) -> void
 {
-    if (_render != context.render_mode) {
-        _render = context.render_mode;
-        _record(Kind::Render, 0, context.render_mode == Render_mode::Offline ? 1. : 0.);
+    if (_render != context.mode) {
+        _render = context.mode;
+        _record(Kind::Render, 0, context.mode == Mode::Offline ? 1. : 0.);
     }
 
     const auto dc = _values[enum_raw(Address::Dc_out)] >= 0.5f;

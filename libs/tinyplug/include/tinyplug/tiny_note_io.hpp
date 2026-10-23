@@ -13,7 +13,7 @@
 
 #include <tiny_models.hpp>
 
-#include "tiny_processor.hpp"
+#include "tiny_process.hpp"
 
 namespace tiny {
 

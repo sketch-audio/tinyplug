@@ -367,7 +367,7 @@ struct Alg_state {
     process::Timeline_resolver timeline{}; // Fills what the transport leaves out.
     // Latched at reset from Reset_state, never from the per-block Runtime_packet — see
     // Reset_state. The kernel only ever observes this change across a reset.
-    process::Render_mode render_mode{process::Render_mode::Realtime};
+    process::Mode mode{process::Mode::Realtime};
     bool constructed{};
 };
 

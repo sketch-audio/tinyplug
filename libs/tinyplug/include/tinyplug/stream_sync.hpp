@@ -8,7 +8,7 @@
 #include <utility>
 #include <variant>
 
-#include "tiny_processor.hpp"
+#include "tiny_process.hpp"
 
 namespace tiny::process {
 
@@ -41,7 +41,7 @@ public:
 
     struct Facts {
         bool host_reset{};                      // The host asked for a reset since the last block.
-        Render_mode render_mode{};
+        Mode mode{};
         bool skipping{};                        // `Host_bypass::can_skip_effect()`, before any restart. Ask again after one: it snaps the bypass.
         std::optional<std::int64_t> position{}; // The host's timeline position at the block's first frame, if it gave one.
         std::uint32_t frames{};
@@ -66,9 +66,9 @@ public:
     template<typename Has_content>
     auto next(const Facts& facts, Has_content&& has_content) -> Plan
     {
-        const auto mode_changed = _mode.has_value() && *_mode != facts.render_mode;
-        _mode = facts.render_mode;
-        const auto offline = facts.render_mode == Render_mode::Offline;
+        const auto mode_changed = _mode.has_value() && *_mode != facts.mode;
+        _mode = facts.mode;
+        const auto offline = facts.mode == Mode::Offline;
 
         if (std::exchange(_edge, false) || facts.host_reset || mode_changed) {
             _pending = true;
@@ -105,7 +105,7 @@ private:
     bool _pending{};
     bool _holding{};
     bool _was_skipped{};
-    std::optional<Render_mode> _mode{};
+    std::optional<Mode> _mode{};
     std::int64_t _held{};
     std::int64_t _max_hold{48000};
 

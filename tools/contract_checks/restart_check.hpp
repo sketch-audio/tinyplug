@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include <tinyplug/tiny_processor.hpp>
+#include <tinyplug/tiny_process.hpp>
 
 namespace tiny::process {
 
@@ -74,7 +74,7 @@ public:
 #if TINY_HAS_BLOCKS
         context.blocks = blocks::Writer{&_blocks};
 #endif
-        context.render_mode = Render_mode::Offline;
+        context.mode = Mode::Offline;
         context.timeline = Timeline{
             .sample_pos = position,
             .beat_pos = static_cast<double>(position) * 2. / _sr,

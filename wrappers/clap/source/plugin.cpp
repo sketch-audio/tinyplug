@@ -116,10 +116,10 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // Restart wherever the processor's input is discontinuous (`reset`, the render-mode edge, a
     // fresh activate, resuming after the skip), with the host's values at the top of this block.
     // Before anything this block delivers, so flushed values and editor edits land after it as events.
-    const auto render_mode = _offline.load(std::memory_order_relaxed) ? process::Render_mode::Offline : process::Render_mode::Realtime;
+    const auto render_mode = _offline.load(std::memory_order_relaxed) ? process::Mode::Offline : process::Mode::Realtime;
     const auto plan = _sync.next({
         .host_reset = _needs_clear.exchange(false, std::memory_order_relaxed),
-        .render_mode = render_mode,
+        .mode = render_mode,
         .skipping = _bypass.can_skip_effect(),
         .frames = process->frames_count,
     }, [] { return false; });
@@ -188,7 +188,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
 #if TINY_HAS_BLOCKS
     context.blocks = blocks::Writer{&_blocks};
 #endif
-    context.render_mode = render_mode;
+    context.mode = render_mode;
 
     // Resolve transport.
     const auto block_timeline = this->_resolve_transport(process);
@@ -330,7 +330,7 @@ clap_process_status Plugin::process(const clap_process* process) noexcept
     // Send exports. Quiet during an offline bounce, and quiet on a flush block
     // (frames_count == 0) which ran no audio and so has measured nothing — the
     // publisher still resets peaks either way, so neither can hoard a spike.
-    const auto offline = (context.render_mode == process::Render_mode::Offline);
+    const auto offline = (context.mode == process::Mode::Offline);
 #if TINY_HAS_METERS
     _meters.publish(offline || !renders_audio, [this](uint32_t address, float value) {
         _mailbox.post(address, value);

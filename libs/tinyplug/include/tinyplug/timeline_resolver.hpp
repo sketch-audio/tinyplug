@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <optional>
 
-#include "tiny_processor.hpp"
+#include "tiny_process.hpp"
 
 namespace tiny::process {
 

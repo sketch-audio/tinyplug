@@ -79,7 +79,7 @@ struct Timeline {
 // in real time. Lets a kernel switch to a higher-quality / non-realtime-safe
 // path during a bounce. Best-effort: a host that never signals offline stays
 // realtime.
-enum class Render_mode { Realtime, Offline };
+enum class Mode { Realtime, Offline };
 
 struct Context {
     Timeline timeline{};
@@ -97,7 +97,7 @@ struct Context {
     state::Access<models::Resolved::State, state::writers_of<models::Resolved::State>> state{}; // This block only.
 #endif
     std::optional<std::uint32_t> propose_latency{}; // samples.
-    Render_mode render_mode{Render_mode::Realtime};
+    Mode mode{Mode::Realtime};
 #if TINY_HAS_NOTES_OUT
     Note_outbox::Writer notes{}; // Frames count from the start of this `process` call.
 #endif
