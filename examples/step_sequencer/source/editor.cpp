@@ -160,8 +160,8 @@ auto Editor::on_draw(Plugin_state& state) -> void
 
     for (const auto& event : view_context.interaction.events.events) {
         std::visit(Inline_visitor{
-            [&](const Pointer_down& down) {
-                if (down.button != Pointer_button::left) return;
+            [&](const Pointer::Down& down) {
+                if (down.button != Pointer::Button::left) return;
                 if (layout.grid.contains(down.pos)) {
                     _drawing = true;
                     _draw(layout.grid, down.pos, true);
@@ -177,15 +177,15 @@ auto Editor::on_draw(Plugin_state& state) -> void
                 if (layout.undo.contains(down.pos)) _edit.undo_redo.undo();
                 else if (layout.redo.contains(down.pos)) _edit.undo_redo.redo();
             },
-            [&](const Pointer_move& move) {
+            [&](const Pointer::Move& move) {
                 if (_drawing && layout.grid.contains(move.pos)) _draw(layout.grid, move.pos, false);
                 if (_dragging >= 0) _set(_dragging, layout.strips[static_cast<size_t>(_dragging)], move.pos);
             },
-            [&](const Pointer_up&) {
+            [&](const Pointer::Up&) {
                 _end_stroke();
                 _end_drag();
             },
-            [&](const Pointer_cancel&) {
+            [&](const Pointer::Cancel&) {
                 _end_stroke();
                 _end_drag();
             },

@@ -590,7 +590,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             const auto pos = Coords{x, y};
 
             binder->events.push(Event{
-                .event = Pointer_down{Pointer_button::left, pos}
+                .event = Pointer::Down{Pointer::Button::left, pos}
             });
             binder->left_down = pos;
 
@@ -603,7 +603,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             const auto pos = Coords{x, y};
 
             binder->events.push(Event{
-                .event = Pointer_up{Pointer_button::left, pos}
+                .event = Pointer::Up{Pointer::Button::left, pos}
             });
             if (binder->left_down) {
                 // Compute movement
@@ -620,7 +620,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
                 if (withinThreshold) {
                     const auto count = binder->double_click ? 2u : 1u;
                     binder->events.push(Event{
-                        .event = Pointer_click{Pointer_button::left, count, pos}
+                        .event = Pointer::Click{Pointer::Button::left, count, pos}
                     });
                 }
                 binder->left_down = std::nullopt;
@@ -638,7 +638,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
 
             // This is second down click in a double click
             binder->events.push(Event{
-                .event = Pointer_down{Pointer_button::left, pos}
+                .event = Pointer::Down{Pointer::Button::left, pos}
             });
             binder->left_down = pos; // According to Windows we get DOWN UP DBLCLK UP
             binder->double_click = true;
@@ -653,12 +653,12 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
 
             if (!binder->mouse_in) {
                 binder->events.push(Event{
-                    .event = Pointer_enter{pos}
+                    .event = Pointer::Enter{pos}
                 });
                 binder->mouse_in = true;
             }
             binder->events.push(Event{
-                .event = Pointer_move{pos}
+                .event = Pointer::Move{pos}
             });
             binder->last_pos = pos;
 
@@ -673,7 +673,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             const auto pos = Coords{x, y};
 
             binder->events.push(Event{
-                .event = Pointer_down{Pointer_button::right, pos}
+                .event = Pointer::Down{Pointer::Button::right, pos}
             });
             binder->right_down = pos;
 
@@ -686,7 +686,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             const auto pos = Coords{x, y};
 
             binder->events.push(Event{
-                .event = Pointer_up{Pointer_button::right, pos}
+                .event = Pointer::Up{Pointer::Button::right, pos}
             });
             if (binder->right_down) {
                 // Compute movement
@@ -702,7 +702,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
 
                 if (withinThreshold) {
                     binder->events.push(Event{
-                        .event = Pointer_click{Pointer_button::right, 1, pos}
+                        .event = Pointer::Click{Pointer::Button::right, 1, pos}
                     });
                 }
                 binder->right_down = std::nullopt;
@@ -732,7 +732,7 @@ LRESULT CALLBACK window_callback(HWND window, UINT message, WPARAM wparam, LPARA
             binder->interaction.modifier_keys = {};
 
             binder->events.push(Event{
-                .event = Pointer_exit{binder->last_pos}
+                .event = Pointer::Exit{binder->last_pos}
             });
             binder->mouse_in = false;
 

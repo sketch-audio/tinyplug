@@ -404,7 +404,7 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
     UITouch* closest_touch = [self findClosest:loc];
 
     _events.push(Event{
-        .event = Pointer_click{.count = 1, .pos = loc},
+        .event = Pointer::Click{.count = 1, .pos = loc},
         .pointer_tag = (uintptr_t)closest_touch
     });
 }
@@ -419,7 +419,7 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
     UITouch* closest_touch = [self findClosest:loc];
 
     _events.push(Event{
-        .event = Pointer_click{.count = 2, .pos = loc},
+        .event = Pointer::Click{.count = 2, .pos = loc},
         .pointer_tag = (uintptr_t)closest_touch
     });
 }
@@ -437,7 +437,7 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
     UITouch* closest_touch = [self findClosest:loc];
 
     _events.push(Event{
-        .event = Pointer_down{.button = Pointer_button::right, .pos = loc},
+        .event = Pointer::Down{.button = Pointer::Button::right, .pos = loc},
         .pointer_tag = (uintptr_t)closest_touch
     });
 }
@@ -464,7 +464,7 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
         _activeTouches[touch] = location;
         
         _events.push(Event{
-            .event = Pointer_down{.pos = pos},
+            .event = Pointer::Down{.pos = pos},
             .pointer_tag = tag
         });
     }
@@ -492,7 +492,7 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
 
         const auto tag = (uintptr_t)touch;
         _events.push(Event{
-            .event = Pointer_move{.pos = pos},
+            .event = Pointer::Move{.pos = pos},
             .pointer_tag = tag
         });
     }
@@ -514,7 +514,7 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
         
         const auto tag = (uintptr_t)touch;
         _events.push(Event{
-            .event = Pointer_up{.pos = pos},
+            .event = Pointer::Up{.pos = pos},
             .pointer_tag = tag
         });
     }
@@ -536,7 +536,7 @@ auto ui_font(const tiny::Text_field::Font& font) -> UIFont*
         const auto pos = Coords{location.x, location.y};
         const auto tag = (uintptr_t)touch;
         _events.push(Event{
-            .event = Pointer_cancel{.pos = pos}, // ???
+            .event = Pointer::Cancel{.pos = pos}, // ???
             .pointer_tag = tag
         });
     }

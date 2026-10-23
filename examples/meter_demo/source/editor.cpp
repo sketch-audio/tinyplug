@@ -140,8 +140,8 @@ auto Editor::on_draw(Plugin_state& state) -> void
         .h = row_h_l
     };
     for (const auto& event : view_context.interaction.events.events) {
-        if (const auto* down = std::get_if<Pointer_down>(&event.event)) {
-            if (down->button == Pointer_button::left && peak_strip.contains(down->pos)) {
+        if (const auto* down = std::get_if<Pointer::Down>(&event.event)) {
+            if (down->button == Pointer::Button::left && peak_strip.contains(down->pos)) {
                 _peak_hold = 0.;
             }
         }

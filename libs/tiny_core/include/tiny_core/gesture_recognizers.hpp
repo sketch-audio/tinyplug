@@ -132,7 +132,7 @@ class Click_recognizer : public Gesture_recognizer {
 public:
 
     struct Desc {
-        Pointer_button button{};
+        Pointer::Button button{};
         uint32_t count{1};
         bool greedy{};
     };

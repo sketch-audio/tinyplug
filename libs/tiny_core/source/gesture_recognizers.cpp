@@ -37,29 +37,29 @@ auto Over_recognizer::process_events(Event_list& events) -> void
     for (const auto& event : events.events) {
         if (event.consumed) continue;
         std::visit(Inline_visitor{
-            [&](const Pointer_move& move) {
+            [&](const Pointer::Move& move) {
                 if (has_touches && !touch_is_ours(event.pointer_tag)) return;
                 const auto was_over = _over;
                 const auto now_over = _frame.contains(move.pos);
                 resolve_events(move.pos, was_over, now_over, event.pointer_tag);
             },
-            [&](const Pointer_enter& enter) {
+            [&](const Pointer::Enter& enter) {
                 if (has_touches && !touch_is_ours(event.pointer_tag)) return;
                 const auto was_over = _over;
                 const auto now_over = _frame.contains(enter.pos);
                 resolve_events(enter.pos, was_over, now_over, event.pointer_tag);
             },
-            [&](const Pointer_exit& exit) {
+            [&](const Pointer::Exit& exit) {
                 if (has_touches && !touch_is_ours(event.pointer_tag)) return;
                 resolve_events(exit.pos, _over, false, event.pointer_tag);
             },
 #if TINY_PLATFORM_IOS
-            [&](const Pointer_up& up) {
+            [&](const Pointer::Up& up) {
                 if (_tag && *_tag != event.pointer_tag) return; // Some other finger let go.
                 resolve_events(up.pos, _over, false, event.pointer_tag);
             },
 #endif
-            [&](const Pointer_cancel& cancel) {
+            [&](const Pointer::Cancel& cancel) {
                 if (_tag && *_tag != event.pointer_tag) return;
                 resolve_events(cancel.pos, _over, false, event.pointer_tag);
             },
@@ -100,8 +100,8 @@ auto Down_recognizer::process_events(Event_list& events) -> void
     for (const auto& event : events.events) {
         if (event.consumed) continue;
         std::visit(Inline_visitor{
-            [&](const Pointer_down& down) {
-                if (down.button != Pointer_button::left) return;
+            [&](const Pointer::Down& down) {
+                if (down.button != Pointer::Button::left) return;
                 if (_down) return; // Already bound; a second finger must not re-press us.
                 if (_frame.contains(down.pos)) {
                     _callbacks.on_started({down.pos, true});
@@ -109,14 +109,14 @@ auto Down_recognizer::process_events(Event_list& events) -> void
                     _tag = event.pointer_tag;
                 }
             },
-            [&](const Pointer_up& up) {
+            [&](const Pointer::Up& up) {
                 if (!_down) return;
                 if (_tag && *_tag != event.pointer_tag) return; // Some other finger let go.
                 _callbacks.on_ended({up.pos, false}); // Pointer could have left our frame.
                 _down = false;
                 _tag = std::nullopt;
             },
-            [&](const Pointer_cancel&) {
+            [&](const Pointer::Cancel&) {
                 if (!_down) return;
                 if (_tag && *_tag != event.pointer_tag) return;
                 _callbacks.on_cancelled();
@@ -157,13 +157,13 @@ auto Dwell_recognizer::process_events(Event_list& events) -> void
         if (event.consumed) continue;
 
         std::visit(Inline_visitor{
-            [&](const Pointer_down& down) {
+            [&](const Pointer::Down& down) {
                 if (_dwelling) {
                     end_dwell(down.pos);
                     _over_t = std::nullopt;
                 }
             },
-            [&](const Pointer_up&) {
+            [&](const Pointer::Up&) {
 #if TINY_PLATFORM_IOS
                 // On touch there is no pointer once the finger lifts, so nothing can be
                 // hovering. `pointer_origins` is erased when the up is pushed but the list
@@ -173,7 +173,7 @@ auto Dwell_recognizer::process_events(Event_list& events) -> void
                 _over_t = std::nullopt;
 #endif
             },
-            [&](const Pointer_move& move) {
+            [&](const Pointer::Move& move) {
                 if (pointer_is_down(event.pointer_tag)) { // Held pointer: dragging, not hovering.
                     _over_t = std::nullopt;
                     return;
@@ -193,7 +193,7 @@ auto Dwell_recognizer::process_events(Event_list& events) -> void
                 _over_t = events.timestamp;
                 _pos = move.pos;
             },
-            [&](const Pointer_cancel&) {
+            [&](const Pointer::Cancel&) {
                 if (_dwelling) {
                     _callbacks.on_cancelled();
                     _dwelling = false;
@@ -243,9 +243,9 @@ auto Click_recognizer::process_events(Event_list& events) -> void
         if (event.consumed) continue;
         std::visit(Inline_visitor{
 #if TINY_PLATFORM_APPLE
-            [&](const Pointer_down& down) {
+            [&](const Pointer::Down& down) {
                 // Right click executes on pointer down on macOS.
-                if (_frame.contains(down.pos) && down.button == Pointer_button::right) {
+                if (_frame.contains(down.pos) && down.button == Pointer::Button::right) {
                     const auto match = (_desc.button == down.button && _desc.count == 1);
                     if (match) _callbacks.on_started({down.pos});
 
@@ -255,7 +255,7 @@ auto Click_recognizer::process_events(Event_list& events) -> void
                 }
             },
 #endif
-            [&](const Pointer_click& click) {
+            [&](const Pointer::Click& click) {
                 if (_frame.contains(click.pos)) {
                     const auto single = (_desc.button == click.button && _desc.count == 1 && click.count >= 1); // Allow multiple clicks to trigger single-click handlers.
                     const auto dbl = (_desc.button == click.button && _desc.count == 2 && click.count == 2);
@@ -292,8 +292,8 @@ auto Drag_recognizer::process_events(Event_list& events) -> void
         if (_tag && *_tag != event.pointer_tag) continue; // Skip events for unbound pointers
 
         std::visit(Inline_visitor{
-            [&](const Pointer_down& down) {
-                if (down.button != Pointer_button::left) return; // Only primary button drags.
+            [&](const Pointer::Down& down) {
+                if (down.button != Pointer::Button::left) return; // Only primary button drags.
                 if (_frame.contains(down.pos)) {
                     // set
                     _fpos = down.pos;
@@ -303,14 +303,14 @@ auto Drag_recognizer::process_events(Event_list& events) -> void
                     event.consumed = _greedy ? true : event.consumed;
                 }
             },
-            [&](const Pointer_up& up) {
+            [&](const Pointer::Up& up) {
                 if (_fpos && _initiated) {
                     _callbacks.on_ended({*_fpos, up.pos});
                     event.consumed = _greedy ? true : event.consumed;
                 }
                 reset();
             },
-            [&](const Pointer_move& move) {
+            [&](const Pointer::Move& move) {
                 if (_fpos) {
                     if (!_initiated) {
                         // Below the slop this is still a click's wobble, not a drag —
@@ -325,7 +325,7 @@ auto Drag_recognizer::process_events(Event_list& events) -> void
                     event.consumed = _greedy ? true : event.consumed;
                 }
             },
-            [&](const Pointer_cancel&) {
+            [&](const Pointer::Cancel&) {
                 if (_initiated) {
                     _callbacks.on_cancelled();
                 }

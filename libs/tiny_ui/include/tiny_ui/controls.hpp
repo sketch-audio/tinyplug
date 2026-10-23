@@ -38,8 +38,8 @@ public:
     {
         for (auto& event : interaction.events.events) {
             std::visit(Inline_visitor{
-                [&](const Pointer_down& down) {
-                    if (down.button != Pointer_button::left || _active) return;
+                [&](const Pointer::Down& down) {
+                    if (down.button != Pointer::Button::left || _active) return;
                     for (const auto& c : controls) {
                         if (!c.frame.contains(down.pos)) continue;
                         event.consumed = true;
@@ -55,13 +55,13 @@ public:
                         return;
                     }
                 },
-                [&](const Pointer_move& move) {
+                [&](const Pointer::Move& move) {
                     if (!_active || event.pointer_tag != _active->tag) return;
                     event.consumed = true;
                     params.set(_active->address, _active->knob_at(move.pos));
                 },
                 [&](const auto& e) {
-                    if constexpr (std::is_same_v<std::decay_t<decltype(e)>, Pointer_up> || std::is_same_v<std::decay_t<decltype(e)>, Pointer_cancel>) {
+                    if constexpr (std::is_same_v<std::decay_t<decltype(e)>, Pointer::Up> || std::is_same_v<std::decay_t<decltype(e)>, Pointer::Cancel>) {
                         if (!_active || event.pointer_tag != _active->tag) return;
                         event.consumed = true;
                         params.end(_active->address);

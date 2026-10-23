@@ -66,44 +66,33 @@ struct Modifier_keys {
 using Steady_clock = std::chrono::steady_clock;
 using Steady_time = std::chrono::time_point<Steady_clock>;
 
-enum class Pointer_button : uint32_t { left, right }; // Maybe add middle some day.
+// One pointer's events, in logical coordinates: a mouse, a pen, or a touch (each touch its own tag).
+struct Pointer {
+    enum class Button : uint32_t { left, right }; // Maybe add middle some day.
 
-struct Pointer_down {
-    Pointer_button button{};
-    Coords pos{};
+    struct Down {
+        Button button{};
+        Coords pos{};
+    };
+    struct Up {
+        Button button{};
+        Coords pos{};
+    };
+    struct Move { Coords pos{}; };
+    struct Click {
+        Button button{};
+        uint32_t count{}; // Up to 2 for now.
+        Coords pos{};
+    };
+    struct Enter { Coords pos{}; };
+    struct Exit { Coords pos{}; };
+    struct Cancel { Coords pos{}; };
+
+    using Any = std::variant<Down, Up, Move, Click, Enter, Exit, Cancel>;
 };
-
-struct Pointer_up {
-    Pointer_button button{};
-    Coords pos{};
-};
-
-struct Pointer_move {
-    Coords pos{};
-};
-
-struct Pointer_click {
-    Pointer_button button{};
-    uint32_t count{}; // Up to 2 for now.
-    Coords pos{};
-};
-
-struct Pointer_enter {
-    Coords pos{};
-};
-
-struct Pointer_exit {
-    Coords pos{};
-};
-
-struct Pointer_cancel {
-    Coords pos{};
-};
-
-using Pointer_event = std::variant<Pointer_down, Pointer_up, Pointer_move, Pointer_click, Pointer_enter, Pointer_exit, Pointer_cancel>;
 
 struct Event {
-    Pointer_event event{};
+    Pointer::Any event{};
     uintptr_t pointer_tag{};
     bool consumed{};
 };
@@ -149,10 +138,10 @@ struct Event_stream {
     {
         events.push_back(event);
 
-        if (const auto* down = std::get_if<Pointer_down>(&event.event)) {
+        if (const auto* down = std::get_if<Pointer::Down>(&event.event)) {
             pointer_origins.insert({down->pos, event.pointer_tag});
         }
-        else if (std::holds_alternative<Pointer_up>(event.event) || std::holds_alternative<Pointer_cancel>(event.event)) {
+        else if (std::holds_alternative<Pointer::Up>(event.event) || std::holds_alternative<Pointer::Cancel>(event.event)) {
             erase_origin(event.pointer_tag);
         }
     }
@@ -175,7 +164,7 @@ private:
         auto seen = std::unordered_set<uintptr_t>{};
         for (const auto& e : std::ranges::reverse_view(es)) {
             std::visit(Inline_visitor{
-                [&](const Pointer_move&) {
+                [&](const Pointer::Move&) {
                     if (seen.find(e.pointer_tag) == seen.end()) {
                         out_rev.push_back(e);
                         seen.insert(e.pointer_tag);

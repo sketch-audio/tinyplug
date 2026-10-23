@@ -102,14 +102,14 @@ auto Editor::on_draw(Plugin_state& state) -> void
 
     // Typing: a right-click (or Ctrl-click) on a slider types its value; a click on the specimen types new text.
     for (auto& event : view.interaction.events.events) {
-        if (const auto* down = std::get_if<Pointer_down>(&event.event); down && down->button == Pointer_button::right) {
+        if (const auto* down = std::get_if<Pointer::Down>(&event.event); down && down->button == Pointer::Button::right) {
             for (auto i = 0; i < 2; ++i) {
                 if (!controls[static_cast<size_t>(i)].frame.contains(down->pos)) continue;
                 event.consumed = true;
                 _type_value(i == 0 ? Address::Weight : Address::Size, controls[static_cast<size_t>(i)].frame, knobs, view.dark);
             }
         }
-        if (const auto* click = std::get_if<Pointer_click>(&event.event); click && click->button == Pointer_button::left && specimen.contains(click->pos)) {
+        if (const auto* click = std::get_if<Pointer::Click>(&event.event); click && click->button == Pointer::Button::left && specimen.contains(click->pos)) {
             event.consumed = true;
             _type_specimen(specimen, size, weight, view.dark);
         }

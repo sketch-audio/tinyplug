@@ -177,8 +177,8 @@ auto Editor::on_draw(Plugin_state& state) -> void
     // Input first, so this frame draws what it just did.
     for (const auto& event : view_context.interaction.events.events) {
         std::visit(Inline_visitor{
-            [&](const Pointer_down& down) {
-                if (down.button != Pointer_button::left) return;
+            [&](const Pointer::Down& down) {
+                if (down.button != Pointer::Button::left) return;
                 if (layout.grid.contains(down.pos)) {
                     _painting = true;
                     _paint(layout.grid, down.pos, true);
@@ -200,11 +200,11 @@ auto Editor::on_draw(Plugin_state& state) -> void
                     }
                 }
             },
-            [&](const Pointer_move& move) {
+            [&](const Pointer::Move& move) {
                 if (_painting) _paint(layout.grid, move.pos, false);
                 if (_dragging_depth) _set_depth(layout.depth, move.pos);
             },
-            [&](const Pointer_up& up) {
+            [&](const Pointer::Up& up) {
                 if (_painting) _paint(layout.grid, up.pos, false);
                 _end_stroke();
                 if (_dragging_depth) {
@@ -213,7 +213,7 @@ auto Editor::on_draw(Plugin_state& state) -> void
                     _dragging_depth = false;
                 }
             },
-            [&](const Pointer_cancel&) {
+            [&](const Pointer::Cancel&) {
                 _end_stroke();
                 if (_dragging_depth) {
                     _edit.params.end(depth_addr);

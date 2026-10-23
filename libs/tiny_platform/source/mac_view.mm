@@ -445,10 +445,10 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     const auto y = self.bounds.size.height - locationInView.y;
     const auto pos = tiny::Coords{locationInView.x, y};
     const auto ctrl = (event.modifierFlags & NSEventModifierFlagControl) != 0;
-    const auto button = ctrl ? Pointer_button::right : Pointer_button::left;
+    const auto button = ctrl ? Pointer::Button::right : Pointer::Button::left;
 
     _events.push(Event{
-        .event = Pointer_down{button, pos}
+        .event = Pointer::Down{button, pos}
     });
 
     //[super mouseDown:event]; // REAPER was resizing window on double-click.
@@ -460,17 +460,17 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     const auto y = self.bounds.size.height - locationInView.y;
     const auto pos = tiny::Coords{locationInView.x, y};
     const auto ctrl = (event.modifierFlags & NSEventModifierFlagControl) != 0;
-    const auto button = ctrl ? Pointer_button::right : Pointer_button::left;
+    const auto button = ctrl ? Pointer::Button::right : Pointer::Button::left;
     
     _events.push(Event{
-        .event = Pointer_up{button, pos}
+        .event = Pointer::Up{button, pos}
     });
 
     const auto click_count = event.clickCount;
 
     if (click_count > 0) {
         _events.push(Event{
-            .event = Pointer_click{button, static_cast<uint32_t>(click_count), pos}
+            .event = Pointer::Click{button, static_cast<uint32_t>(click_count), pos}
         });
     }
 
@@ -485,7 +485,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     [[maybe_unused]] const auto t = std::chrono::steady_clock::now();
 
     _events.push(Event{
-        .event = Pointer_move{pos}
+        .event = Pointer::Move{pos}
     });
 
     //[super mouseMoved:event];
@@ -498,7 +498,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     const auto pos = tiny::Coords{locationInView.x, y};
 
     _events.push(Event{
-        .event = Pointer_move{pos}
+        .event = Pointer::Move{pos}
     });
 
     //[super mouseDragged:event];
@@ -512,7 +512,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     const auto pos = tiny::Coords{locationInView.x, y};
 
     _events.push(Event{
-        .event = Pointer_down{Pointer_button::right, pos}
+        .event = Pointer::Down{Pointer::Button::right, pos}
     });
 
     //[super rightMouseDown:event];
@@ -525,7 +525,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     const auto pos = tiny::Coords{locationInView.x, y};
 
     _events.push(Event{
-        .event = Pointer_up{Pointer_button::right, pos}
+        .event = Pointer::Up{Pointer::Button::right, pos}
     });
 
     //[super rightMouseUp:event];
@@ -538,7 +538,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     const auto pos = tiny::Coords{locationInView.x, y};
 
     _events.push(Event{
-        .event = Pointer_move{pos}
+        .event = Pointer::Move{pos}
     });
 
     //[super rightMouseDragged:event];
@@ -561,7 +561,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     const auto pos = tiny::Coords{locationInView.x, y};
 
     _events.push(Event{
-        .event = Pointer_enter{pos}
+        .event = Pointer::Enter{pos}
     });
 
     //[super mouseEntered:event];
@@ -574,7 +574,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     const auto pos = tiny::Coords{locationInView.x, y};
 
     _events.push(Event{
-        .event = Pointer_exit{pos}
+        .event = Pointer::Exit{pos}
     });
 
     //[super mouseExited:event];

@@ -20,19 +20,19 @@ constexpr auto dialog_rows = 5;
 
 auto point(Coords p) -> std::string { return std::to_string(static_cast<int>(p.x)) + "," + std::to_string(static_cast<int>(p.y)); }
 
-auto button_name(Pointer_button b) -> std::string { return b == Pointer_button::left ? "L" : "R"; }
+auto button_name(Pointer::Button b) -> std::string { return b == Pointer::Button::left ? "L" : "R"; }
 
 auto describe(const Event& event) -> std::string
 {
     const auto tag = " #" + std::to_string(event.pointer_tag % 1000);
     return std::visit(Inline_visitor{
-        [&](const Pointer_down& e) { return "DOWN " + button_name(e.button) + " " + point(e.pos) + tag; },
-        [&](const Pointer_up& e) { return "UP " + button_name(e.button) + " " + point(e.pos) + tag; },
-        [&](const Pointer_move& e) { return "MOVE " + point(e.pos) + tag; },
-        [&](const Pointer_click& e) { return "CLICK " + button_name(e.button) + " X" + std::to_string(e.count) + " " + point(e.pos) + tag; },
-        [&](const Pointer_enter& e) { return "ENTER " + point(e.pos) + tag; },
-        [&](const Pointer_exit& e) { return "EXIT " + point(e.pos) + tag; },
-        [&](const Pointer_cancel& e) { return "CANCEL " + point(e.pos) + tag; },
+        [&](const Pointer::Down& e) { return "DOWN " + button_name(e.button) + " " + point(e.pos) + tag; },
+        [&](const Pointer::Up& e) { return "UP " + button_name(e.button) + " " + point(e.pos) + tag; },
+        [&](const Pointer::Move& e) { return "MOVE " + point(e.pos) + tag; },
+        [&](const Pointer::Click& e) { return "CLICK " + button_name(e.button) + " X" + std::to_string(e.count) + " " + point(e.pos) + tag; },
+        [&](const Pointer::Enter& e) { return "ENTER " + point(e.pos) + tag; },
+        [&](const Pointer::Exit& e) { return "EXIT " + point(e.pos) + tag; },
+        [&](const Pointer::Cancel& e) { return "CANCEL " + point(e.pos) + tag; },
     }, event.event);
 }
 
@@ -87,7 +87,7 @@ auto Editor::_make_probes() -> void
     _probes[2] = {"DWELL 2S", std::make_unique<Dwell_recognizer>(callbacks.template operator()<Dwell_info>(2))};
     _probes[3] = {"CLICK L", std::make_unique<Click_recognizer>(callbacks.template operator()<Click_info>(3), Click_recognizer::Desc{})};
     _probes[4] = {"DOUBLE L", std::make_unique<Click_recognizer>(callbacks.template operator()<Click_info>(4), Click_recognizer::Desc{.count = 2})};
-    _probes[5] = {"CLICK R", std::make_unique<Click_recognizer>(callbacks.template operator()<Click_info>(5), Click_recognizer::Desc{.button = Pointer_button::right})};
+    _probes[5] = {"CLICK R", std::make_unique<Click_recognizer>(callbacks.template operator()<Click_info>(5), Click_recognizer::Desc{.button = Pointer::Button::right})};
     _probes[6] = {"DRAG", std::make_unique<Drag_recognizer>(callbacks.template operator()<Drag_info>(6, [this](const Drag_info& d) { _drag = d; }), false, true, 3.)};
 }
 
@@ -197,7 +197,7 @@ auto Editor::on_draw(Plugin_state& state) -> void
 
     // Raw events first, before anything consumes them.
     for (const auto& event : interaction.events.events) {
-        if (std::holds_alternative<Pointer_move>(event.event) && !_raw.empty() && _raw.back().starts_with("MOVE")) _raw.pop_back(); // One line per run of moves.
+        if (std::holds_alternative<Pointer::Move>(event.event) && !_raw.empty() && _raw.back().starts_with("MOVE")) _raw.pop_back(); // One line per run of moves.
         _raw.push_back(describe(event));
         if (_raw.size() > raw_lines) _raw.pop_front();
     }
@@ -207,8 +207,8 @@ auto Editor::on_draw(Plugin_state& state) -> void
     const auto controls = std::array<ui::Control, 1>{{{gain, enum_raw(Address::Gain), ui::Control::Kind::Slider, "GAIN", ui::blue}}};
     _controls.interact(interaction, _edit.params, controls, knobs);
     for (auto& event : interaction.events.events) {
-        const auto* down = std::get_if<Pointer_down>(&event.event);
-        if (!down || event.consumed || down->button != Pointer_button::left) continue;
+        const auto* down = std::get_if<Pointer::Down>(&event.event);
+        if (!down || event.consumed || down->button != Pointer::Button::left) continue;
         for (auto i = 0; i < static_cast<int>(dialog_names.size()); ++i) {
             if (ui::row(ui::column(buttons, i % 2, 2, 8), i / 2, dialog_rows, 8).contains(down->pos)) { event.consumed = true; _dialog(i, gain, {info.x + 4, info.y + 2, info.w - 8, 18}, knobs[enum_raw(Address::Gain)]); }
         }

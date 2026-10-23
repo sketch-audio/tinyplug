@@ -28,7 +28,7 @@ auto Editor::on_draw(Plugin_state& state) -> void
     }};
     _controls.interact(view.interaction, _edit.params, controls, knobs);
     for (const auto& event : view.interaction.events.events) {
-        if (const auto* down = std::get_if<Pointer_down>(&event.event); down && !event.consumed && clear_area.contains(down->pos)) _holds.fill(0.);
+        if (const auto* down = std::get_if<Pointer::Down>(&event.event); down && !event.consumed && clear_area.contains(down->pos)) _holds.fill(0.);
     }
     for (auto i = size_t{}; i < _holds.size() && i < meters.size(); ++i) _holds[i] = std::max(_holds[i], meters[i]);
 

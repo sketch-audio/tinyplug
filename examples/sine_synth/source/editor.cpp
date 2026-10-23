@@ -182,8 +182,8 @@ auto Editor::on_draw(Plugin_state& state) -> void
 
     for (const auto& event : view_context.interaction.events.events) {
         std::visit(Inline_visitor{
-            [&](const Pointer_down& down) {
-                if (down.button != Pointer_button::left) return;
+            [&](const Pointer::Down& down) {
+                if (down.button != Pointer::Button::left) return;
                 for (auto i = size_t{}; i < num_params; ++i) {
                     if (!layout.strips[i].contains(down.pos)) continue;
                     if (i == enum_raw(Address::Mpe)) { // A switch: a click flips it.
@@ -200,15 +200,15 @@ auto Editor::on_draw(Plugin_state& state) -> void
                 }
                 _press(event.pointer_tag, layout.keys, down.pos);
             },
-            [&](const Pointer_move& move) {
+            [&](const Pointer::Move& move) {
                 if (_dragging >= 0) _set(_dragging, layout.strips[static_cast<size_t>(_dragging)], move.pos);
                 _slide(event.pointer_tag, layout.keys, move.pos);
             },
-            [&](const Pointer_up&) {
+            [&](const Pointer::Up&) {
                 _end_drag();
                 _lift(event.pointer_tag);
             },
-            [&](const Pointer_cancel&) {
+            [&](const Pointer::Cancel&) {
                 _end_drag();
                 _lift(event.pointer_tag);
             },

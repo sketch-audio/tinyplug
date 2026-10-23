@@ -263,46 +263,46 @@ EMSCRIPTEN_KEEPALIVE auto tiny_web_pointer(int kind, double x, double y, int but
     auto* b = current;
     if (!b) return;
     const auto pos = Coords{x, y};
-    const auto which = button == 2 ? Pointer_button::right : Pointer_button::left;
+    const auto which = button == 2 ? Pointer::Button::right : Pointer::Button::left;
     const auto pointer_tag = static_cast<uintptr_t>(tag);
     b->interaction.modifier_keys = modifiers(mods);
     b->interaction.pointer_abs = pos;
     switch (kind) {
         case 0:
-            b->events.push(Event{.event = Pointer_down{which, pos}, .pointer_tag = pointer_tag});
-            if (which == Pointer_button::left) b->left_down = pos;
+            b->events.push(Event{.event = Pointer::Down{which, pos}, .pointer_tag = pointer_tag});
+            if (which == Pointer::Button::left) b->left_down = pos;
             break;
         case 1: {
-            b->events.push(Event{.event = Pointer_up{which, pos}, .pointer_tag = pointer_tag});
-            const auto start = which == Pointer_button::left ? b->left_down : std::optional<Coords>{pos};
+            b->events.push(Event{.event = Pointer::Up{which, pos}, .pointer_tag = pointer_tag});
+            const auto start = which == Pointer::Button::left ? b->left_down : std::optional<Coords>{pos};
             if (start && std::abs(pos.x - start->x) < click_slop && std::abs(pos.y - start->y) < click_slop) {
                 const auto now = Steady_clock::now();
                 const auto near = std::abs(pos.x - b->last_click_pos.x) < click_slop && std::abs(pos.y - b->last_click_pos.y) < click_slop;
-                const auto count = (which == Pointer_button::left && near && now - b->last_click < double_click_time) ? 2u : 1u;
-                b->events.push(Event{.event = Pointer_click{which, count, pos}, .pointer_tag = pointer_tag});
+                const auto count = (which == Pointer::Button::left && near && now - b->last_click < double_click_time) ? 2u : 1u;
+                b->events.push(Event{.event = Pointer::Click{which, count, pos}, .pointer_tag = pointer_tag});
                 b->last_click = count == 2 ? Steady_time{} : now;
                 b->last_click_pos = pos;
             }
-            if (which == Pointer_button::left) b->left_down.reset();
+            if (which == Pointer::Button::left) b->left_down.reset();
             break;
         }
         case 2:
             if (!b->mouse_in) {
-                b->events.push(Event{.event = Pointer_enter{pos}, .pointer_tag = pointer_tag});
+                b->events.push(Event{.event = Pointer::Enter{pos}, .pointer_tag = pointer_tag});
                 b->mouse_in = true;
             }
-            b->events.push(Event{.event = Pointer_move{pos}, .pointer_tag = pointer_tag});
+            b->events.push(Event{.event = Pointer::Move{pos}, .pointer_tag = pointer_tag});
             break;
         case 3:
-            b->events.push(Event{.event = Pointer_enter{pos}, .pointer_tag = pointer_tag});
+            b->events.push(Event{.event = Pointer::Enter{pos}, .pointer_tag = pointer_tag});
             b->mouse_in = true;
             break;
         case 4:
-            b->events.push(Event{.event = Pointer_exit{pos}, .pointer_tag = pointer_tag});
+            b->events.push(Event{.event = Pointer::Exit{pos}, .pointer_tag = pointer_tag});
             b->mouse_in = false;
             break;
         case 5:
-            b->events.push(Event{.event = Pointer_cancel{pos}, .pointer_tag = pointer_tag});
+            b->events.push(Event{.event = Pointer::Cancel{pos}, .pointer_tag = pointer_tag});
             b->left_down.reset();
             break;
         default: break;
