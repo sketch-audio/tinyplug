@@ -94,6 +94,13 @@ target_compile_definitions(state_adapter_test PRIVATE TINY_FIXTURES_DIR="${CMAKE
 tiny_add_test(state_link_test LIBS ${TINY_PLUG_LIB} INCLUDES ${_standin})
 tiny_add_test(edit_undo_test LIBS ${TINY_PLUG_LIB} INCLUDES ${_standin})
 tiny_add_test(edit_store_test LIBS ${TINY_PLUG_LIB} INCLUDES ${_view_standin})
+
+# Text.
+tiny_add_test(tiny_text_test LIBS ${TINY_TEXT_LIB} tiny::skia)
+tiny_embed(tiny_text_test NAME fonts FILES
+    ${PROJECT_SOURCE_DIR}/examples/text_demo/fonts/InterVariable.ttf
+    ${PROJECT_SOURCE_DIR}/examples/text_demo/fonts/InterVariable-Italic.ttf
+)
 endif()
 
 # The web format's JS: wire.js against <tiny_core/wire.hpp>, across two module instances under Node.

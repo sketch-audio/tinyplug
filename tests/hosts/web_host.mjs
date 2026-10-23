@@ -98,6 +98,7 @@ const scenarios = {
         expect(out.some((m) => m.kind === "meter"), "meters arrive");
     },
     PlatformDemo: () => { basics(load()); },
+    TextDemo: () => { basics(load()); },
     StateDemo: () => {
         const p = load();
         basics(p);

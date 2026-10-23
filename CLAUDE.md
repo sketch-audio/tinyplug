@@ -27,6 +27,13 @@ translate the host's API into framework events and back.
   - [libs/tiny_ui/](libs/tiny_ui/) — header-only editor helpers the demos draw with
     (`Controls`, `Theme`, Skia rects and a pixel font), `<tiny_ui/...>`, namespace `tiny::ui`.
     INTERFACE on top of tinyplug; Skia stays the consumer's PRIVATE link.
+  - [libs/tiny_text/](libs/tiny_text/) — editor text, `<tiny_text/fonts.hpp>`, namespace `tiny::text`: embedded
+    fonts (static or variable, never registered with the OS), HarfBuzz shaping and layout through SkParagraph,
+    libgrapheme for unicode (no ICU), the platform's rasteriser. STATIC, model-free, Skia PRIVATE; one `Fonts` per
+    editor. Single lines are placed by tiny_text, not SkParagraph: anchors (cap, x, ink, box, baseline), designer
+    tracking (none trailing), optical alignment, overflow, from the painted (rounded) baseline. Spans, case
+    transforms, outline metrics. [text_demo](examples/text_demo/) is its demo; the other demos keep tiny_ui's
+    pixel font.
   - [wrappers/](wrappers/) — one wrapper per format: `aax`, `auv2`, `auv3`, `clap`, `vst3`, `web`.
   - [examples/](examples/) — demo plug-ins consumed by CI.
   - [cmake/](cmake/) — `helpers.cmake`, `plug_info.hpp.in`, etc.
@@ -971,6 +978,9 @@ mode this protocol has.
 - Plug-in codes: `TINY_MANUFACTURER_CODE` and `TINY_PLUGIN_CODE` are
   four-character codes embedded in AAX/AU/VST3 IDs. Manufacturer code
   needs at least one capital letter (AU convention).
+- **Embedded files**: `tiny_embed(<target> NAME <name> FILES ...)` ([embed.cmake](cmake/embed.cmake)) compiles
+  each file into the target at build time and generates `<embedded/<name>.hpp>`, one
+  `embedded::<name>::<file>() -> std::span<const std::byte>` per file (`InterVariable.ttf` → `intervariable_ttf`).
 - `mac_view.mm` is compiled once **per wrapper target** (not per plug-in)
   with a unique ObjC class name so multiple plug-ins coexist in a host
   process — see `configure_mac_view` in [helpers.cmake](cmake/helpers.cmake).
@@ -994,9 +1004,8 @@ its rules are in this file and its history in git.
 - **[client-port.md](plans/client-port.md)** — next (0.5). Bring all_plugins up on main: the `Restart` port and
   contract checks per product, and the editor features (preset names, `*`, A/B, linked controls, layout) rebuilt
   on the view model and transactions. Holds the 0.4 client defects the port should fix.
-- **[fonts-and-text.md](plans/fonts-and-text.md)** — design. A model-free `tiny_text`: embedded fonts, static or
-  variable (no OS registration), HarfBuzz shaping through SkShaper on every platform, platform rasterisers,
-  `tiny_embed` for assets. tiny_deps doesn't ship `libharfbuzz.a` yet, so SkShaper's HarfBuzz path can't link.
+- **[fonts-and-text.md](plans/fonts-and-text.md)** — in progress. `tiny_text`, `tiny_embed` and text_demo are in
+  (macOS and web); remaining: Windows and iOS builds, the clients.
 - **[keyboard-input.md](plans/keyboard-input.md)** — design. Inline native text fields first, then key events
   for shortcuts under per-frame claims; no hooks or event monitors, unclaimed keys go back to the host.
 - **[buffer-system.md](plans/buffer-system.md)** — design. Managed large audio buffers (looper, granular,

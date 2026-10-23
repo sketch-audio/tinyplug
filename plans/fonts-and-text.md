@@ -1,188 +1,129 @@
 # Plan: Fonts and text — embedded fonts, HarfBuzz shaping, one result on every platform
 
-> Status: **design.** tinyplug draws no real text: `tiny_ui` has a 3×5 pixel font, and products bring their own
-> stack (all_plugins' `text_helpers`: a Skia `Font_manager` plus a CoreText / DirectWrite `Typesetter`). This plan
-> adds a model-free `tiny_text` library: fonts embedded in the binary, static or variable, shaped with HarfBuzz
-> through SkShaper, rasterised by each platform's Skia font manager. Same glyph positions on macOS, iOS, Windows
-> and web.
+> Status: **in progress (2026-10-23), ready for clients.** `tiny_text` ([fonts.hpp](../libs/tiny_text/include/tiny_text/fonts.hpp)) and
+> `tiny_embed` ([embed.cmake](../cmake/embed.cmake)) are in, with [text_demo](../examples/text_demo/) (Inter,
+> variable) and `tiny_text_test`. Built and run on macOS (VST3, tests) and web (both modules, the web tests and a
+> headless-Chrome screenshot of the editor). Not yet built on Windows or iOS. Remaining: "Next" below.
+>
+> Fonts embedded in the binary, static or variable, shaped with HarfBuzz and laid out by SkParagraph, rasterised by
+> each platform's Skia font manager. Same glyph positions on macOS, iOS, Windows and web. `tiny_ui` and the other
+> demos keep the 3×5 pixel font.
 
 ## Why the earlier Skia text looked wrong
 
 Most likely not Skia's quality, but no shaper in the path:
 
 - **`SkFont` + `drawString` / `drawSimpleText` doesn't kern.** It maps characters to glyphs one by one and advances
-  by each glyph's width. Kerning (`kern`, GPOS) and ligatures come only from a shaper. Spacing that "looks wrong
-  next to CoreText" is unshaped text. `SkShapers::Primitive` has the same limit; only the HarfBuzz shaper kerns.
-- **Hinted advances.** With hinting on and linear metrics off, advances round to whole pixels at the font's size,
-  so small UI text gets uneven gaps. Wanted: `setSubpixel(true)`, `setLinearMetrics(true)`, hinting `kNone` or
-  `kSlight`, edging `kAntiAlias`.
-- **HarfBuzz doesn't link today.** tiny_deps builds it (`build/tmp/skia/<arch>/libharfbuzz.a`) but ships only
-  `libskshaper.a`, which has 734 unresolved `hb_` symbols. Only the primitive shaper could ever have linked.
+  by each glyph's width. Kerning (`kern`, GPOS) and ligatures come only from a shaper; `SkShapers::Primitive` has
+  the same limit. Only HarfBuzz kerns.
+- **Hinted advances.** With hinting on and subpixel positioning off, advances round to whole pixels at the font's
+  size. SkParagraph sets subpixel, slight hinting and antialiased edging.
+- **SkParagraph's rounding hack** (`ParagraphStyle::setApplyRoundingHack`, on by default, a Flutter legacy) rounds
+  widths. `tiny_text` turns it off.
 
-HarfBuzz is what Chrome and Android shape with on every platform, Chrome on macOS included. The A/B tool (step 3)
-checks the claim against CoreText for our fonts before anything depends on it.
-
-## What exists
-
-| | Where | Notes |
-|---|---|---|
-| Pixel font | [tiny_ui/draw.hpp](../libs/tiny_ui/include/tiny_ui/draw.hpp) | `text`, `text_in`, `text_width`; demos only |
-| `Font_manager` | `all_plugins/shared/text_helpers` | `SkFontMgr_New_CoreText` / `_DirectWrite`, `makeFromData`, string keys; no web |
-| `Typesetter` | same | CoreText / DirectWrite glyphs + positions; fonts registered **process-wide** (`CTFontManagerRegisterGraphicsFont`) by a singleton |
-| Font data | same | 5,000-line `.h` byte arrays, all included by one header; brand fonts, some commercial (GT Maru) |
-| `Painter` | `all_plugins/shared/monorobot` | the newest client text code; uses only `Font_manager::make_font`, measures with `SkFont` |
-| Skia modules | tiny_deps, every platform | `skshaper`, `skparagraph`, `skunicode_core` + `libgrapheme` (no ICU), `svg`, built and unused |
+HarfBuzz is already in tiny_deps: the official build compiles it into `libskshaper.a`, and libgrapheme plus the bidi
+code into `libskunicode_libgrapheme.a` (no ICU tables, kept small on purpose). Read a universal archive one slice
+at a time (`nm -arch arm64`) or its cross-object references look unresolved.
 
 ## Decisions
 
 | Decision | Choice | Why |
 |---|---|---|
-| Shaper | **HarfBuzz via SkShaper, every platform** | Kerning and features; identical positions everywhere, web included |
-| Rasteriser | The platform `SkFontMgr`: CoreText (Apple), DirectWrite (Windows), FreeType custom-empty (web) | Glyphs render the way the OS renders them. Positions match across platforms; pixels differ by rasteriser, as native apps do |
-| Font source | **Embedded data only**, `makeFromData`; nothing registered with the OS | No process-global state shared with other plug-ins or other versions of ours in one host (the ObjC class-name problem again) |
-| Native typesetter | Kept as a **test oracle** (step 3), macOS only | A backend only if the A/B shows a gap HarfBuzz can't close |
-| Fallback | Declared families in order; then, natively, the system manager's per-character fallback | A user-typed preset name in another script still draws. Web has no system fonts: a product that needs it embeds a fallback |
-| Lines | **Single-line runs first** (labels, values, names); multi-line through `skparagraph` later | Almost all plug-in text is one line |
-| Variable fonts | **Supported**: one embedded file, axes chosen per `Style`, live changes allowed | One file instead of cut instances (monorobot embeds Google Sans Flex instances); every backend supports it (below) |
-| Units | Shaped in **logical** units; the editor's canvas scale does the rest | Shaping doesn't depend on the scale factor, so a cached run survives a move between displays |
-| Fonts in the repo | One **OFL** family for `tiny_ui` and the demos, in tiny_deps with its licence | The demos stop drawing pixel text. Products embed their own; commercial fonts never land in tinyplug |
+| Engine | **SkParagraph** for single lines and paragraphs alike: HarfBuzz shaping, line breaking, ellipsis, letter spacing, OpenType features, variation arguments | One engine; single lines are paragraphs held to one line |
+| Unicode | libgrapheme (`SkUnicodes::Libgrapheme`), no ICU | Binary size; also what a Linux build would use |
+| Rasteriser | The platform `SkFontMgr`: CoreText (Apple), DirectWrite (Windows, loaded at runtime by Skia), FreeType custom-empty (web) | Glyphs render the way the OS renders them. Positions match across platforms; pixels differ by rasteriser |
+| Font source | **Embedded data only**, `makeFromData` into a `TypefaceFontProvider`; nothing registered with the OS | No process-global state shared with other plug-ins or other versions of ours in one host |
+| Fallback | Declared families; then, natively, the platform manager's per-character fallback | A user-typed name in another script still draws. Web has no system fonts |
+| Variable fonts | One file per family, `wght` from `Style::weight`, `opsz` from `Style::size`, other axes in `Style::axes`, live changes allowed | Below |
+| Colour | Not part of a layout: a painter supplies it at draw time | A hover colour change never costs a layout |
+| Units | Logical; the editor's canvas scale does the rest | A cached layout survives a move between displays |
+| Ownership | **One `Fonts` per editor**, main thread | Simple and private; typeface creation is cheap |
+| Demo font | **Inter 4.1** (SIL OFL 1.1), variable, upright and italic, in `examples/text_demo/fonts` with its licence | `wght` 100-900 and `opsz` 14-32; only text_demo uses it |
 
 ## Shape
 
 ```
-tiny_deps/
-  build-skia-{mac,ios,win,web}.sh   also ship libharfbuzz.a, libgrapheme.a (+ whatever skunicode / skshaper
-                                    leave unresolved); setup_skia.cmake imports them
-  fonts/<family>/                   the OFL family and its licence
+tiny_deps/cmake/setup_skia.cmake      tiny::skparagraph (-> skshaper -> skunicode, skia)
 tinyplug/
-  cmake/embed.cmake                 tiny_embed(<target> NAME <ns> FILES ...): byte arrays in a generated .cpp
-  libs/tiny_text/                   STATIC, model-free; Skia + skshaper + harfbuzz + skunicode PRIVATE
-    include/tiny_text/fonts.hpp     font registry
-    include/tiny_text/text.hpp      shaping, measuring, drawing a run
-    source/
-  libs/tiny_ui/                     draw.hpp's text helpers move onto tiny_text; the pixel font goes
-  tools/text_ab/                    macOS: CoreText against HarfBuzz, positions and pixels
+  cmake/embed.cmake, embed_file.cmake tiny_embed(<target> NAME <name> FILES ...)
+  libs/tiny_text/                     STATIC, model-free; Skia PRIVATE (the header forward-declares SkCanvas)
+  examples/text_demo/                 single line and multiline, live weight, frame rate and cache counts
+  tests/tiny_text_test.cpp            TINY_TEXT_PNG=<path> also renders a specimen
 ```
 
-**Embedding** (`tiny_embed`) is general: fonts first, then SVG and images. A `cmake -P` script at build time writes
-`alignas(16) const unsigned char[]` arrays and a header of `std::span<const std::byte>` accessors, one `.cpp` per
-file so a change rebuilds one object. Replaces all_plugins' string-escaped `embed_file`, which only works for text.
-C23 `#embed` later, when MSVC has it.
+**`tiny_embed`** writes, at build time, one `.cpp` per file (an `alignas(16)` array) and `<embedded/<name>.hpp>`
+declaring `embedded::<name>::<file>() -> std::span<const std::byte>`. ~1 s for an 880 KB font. For fonts now, SVG
+and images later. C23 `#embed` when MSVC has it.
 
-## API sketch
+**API** (`tiny::text`, [fonts.hpp](../libs/tiny_text/include/tiny_text/fonts.hpp)):
 
-```cpp
-namespace tiny::text {
+- `Style{family, size, weight, italic, tracking, line_height, transform, hinted, features, axes}`; `Span{utf8,
+  style, color}` for runs of several styles on one baseline or in one paragraph.
+- `Fonts::text` (one line at a point), `Fonts::line` (one line in a frame), `Fonts::paragraph` (wrapped, optional
+  line limit), `Fonts::measure`, each for a string or spans, returning `Metrics{width, height, baseline, lines,
+  truncated, size}`.
+- `Place{align, anchor, overflow, min_size, optical}` positions a single line. `Anchor`: `Cap` (default: capitals
+  centred on the line, as labels are placed), `X`, `Ink`, `Box`, `Baseline`. `Overflow` in a frame: `Ellipsis`
+  (character-level), `Shrink` (down to `min_size`, then ellipsis), `Clip` (across only), `Visible`. `optical`
+  aligns on the outlines' edges instead of the advances, so no side bearing shows at a margin.
+- `Fonts::metrics(style)`: ascent, descent, leading, line height, the tables' cap and x height, and the `H` and
+  `x` outline heights (what a designer measures). `Fonts::ink(utf8, style)`: a line's outline bounds.
+- **Tracking is a designer's**: em/1000 between letters, none after the last, so a tracked label centres on its
+  letters. SkParagraph adds spacing after every glyph and shifts a left line by half a space; single lines are
+  laid out left-aligned and placed by tiny_text, which takes both out.
+- **The painted baseline**: SkParagraph rounds a line's baseline to a whole logical pixel; placement works from
+  the rounded one, so an anchor lands where it says (pixel-tested to 1 px).
+- `Case::Upper` / `Lower` transform with full Unicode (libgrapheme's, already linked: `ß` → `SS`); `Upper` also
+  turns on `case`, the font's case-sensitive forms. `hinted = false` draws unhinted outlines.
+- `tag("tnum")` builds OpenType tags.
 
-struct Face {
-    std::string_view family{};
-    int weight{400};       // a static face's weight; a variable face matches any weight its `wght` axis covers
-    bool italic{};
-    std::span<const std::byte> data{};
-};
-
-struct Axis {
-    std::uint32_t tag{};   // OpenType tag: 'wdth', 'slnt', 'GRAD', ...
-    double value{};
-};
-
-// Owns the typefaces and the shaped-run cache. One per editor; main thread.
-class Fonts {
-public:
-    explicit Fonts(std::span<const Face> faces);
-
-    class Handle; // what the editor draws with
-    auto handle() -> Handle;
-};
-
-struct Style {
-    std::string_view family{};
-    double weight{400};    // a variable face's `wght`; a static face picks the nearest weight
-    bool italic{};
-    double size{12};       // logical; also sets `opsz` on a face that has it
-    double tracking{};     // em/1000, as designers specify it
-    Features features{};   // tnum, case, ss01, ... (OpenType tags)
-    Axes axes{};           // other axes, a small fixed array of `Axis`; ignored by static faces
-};
-
-struct Metrics { double width{}, ascent{}, descent{}, cap_height{}, x_height{}; };
-
-class Fonts::Handle {
-public:
-    auto measure(std::string_view utf8, const Style&) const -> Metrics;
-    auto draw(SkCanvas&, std::string_view utf8, const Style&, double x, double baseline, SkColor) const -> void;
-    auto draw_in(SkCanvas&, std::string_view utf8, const Style&, const Frame&, Align, SkColor) const -> void;
-    auto fit(std::string_view utf8, const Style&, double max_width) const -> std::string; // ellipsis
-};
-
-}
-```
-
-**Tabular figures** (`tnum`) are the reason `features` is in v1: a value readout in proportional figures jitters
-sideways as it changes. Most UI fonts have them; only a shaper applies them.
+**Tabular figures** are why `features` is in v1: a readout in proportional figures shifts sideways as it changes.
 
 ## Variable fonts
 
-Checked in the m139 source tiny_deps pins: every backend makes a typeface at a variation position
-(`onMakeClone(SkFontArguments)` in `SkTypeface_mac_ct.cpp`, `SkTypeface_win_dw.cpp`, `SkFontHost_FreeType.cpp`),
-Skia's bundled FreeType defines `TT_CONFIG_OPTION_GX_VAR_SUPPORT`, so web has them too, and
-`SkShaper_harfbuzz.cpp` hands the typeface's `getVariationDesignPosition` to HarfBuzz, so advances and kerning
-follow the axes, not the default instance.
+Every backend in the m139 source makes a typeface at a variation position (`onMakeClone(SkFontArguments)` in the
+CoreText, DirectWrite and FreeType ports; Skia's FreeType defines `TT_CONFIG_OPTION_GX_VAR_SUPPORT`).
+SkParagraph clones through `FontCollection::findTypefaces(…, fontArgs)`, and the HarfBuzz shaper reads the clone's
+position, so advances and kerning follow the axes.
 
-- **An instance is a typeface.** A `Style` resolves to the face's typeface cloned at its axis position, cached by
-  (face, position). Natively it's the same: in CoreText a variation is a distinct `CTFont`, glyphs at a new
-  position are new outlines and rasterise again, and a `CTLine` is rebuilt as the advances change.
-- **`opsz` is always set explicitly**, from `Style::size` unless `axes` overrides it. CoreText applies optical size
-  from the point size on its own, DirectWrite and FreeType don't (Skia's Mac port works around the CoreText
-  behaviour, `OpszVariation`); setting it ourselves gives one result everywhere.
-- **Live axes** (an animated weight, a hover emphasis) are allowed. Each new position costs a clone, a cold glyph
-  cache and a HarfBuzz face; reshaping every frame is microseconds. So positions are **quantized** (an axis step
-  per axis, `wght` 1 unit by default: invisible, and a 400→700 sweep is at most 300 instances) and kept in an LRU
-  with the shaped runs, so a sweep back and forth reuses warm instances. Large text is drawn from paths by Skia
-  and barely touches the glyph cache. Chrome animates `font-variation-settings` the same way, on Skia.
-- **Windows needs 10 1709 or later** for DirectWrite variations (`IDWriteFontFace5`). The documented minimum.
-- Named instances (`Bold`, `Condensed`) aren't in the API: a `Style` names axis values. A product wanting names
-  keeps its own constants.
+- **An instance is a typeface**, as natively: a CoreText variation is its own `CTFont`, glyphs at a new position
+  rasterise again, a `CTLine` is rebuilt.
+- **`opsz` is set explicitly** from `Style::size` unless `axes` overrides it. CoreText applies optical size on its
+  own, the other ports don't.
+- **Live axes**: positions are quantized (`wght` to 1 unit, others to ¼) so a sweep reuses instances. The
+  collection's typeface cache is dropped past 128 distinct positions (built layouts keep theirs) and layouts are an
+  LRU of 256, so a sweep stays bounded (tested). text_demo's editor redraws its whole page each frame at 59 fps in
+  headless Chrome with the sweep off; the sweep's frame time is unmeasured (text_demo's header shows it live).
+- **Windows needs 10 1709 or later** for DirectWrite variations.
 
-**The cache.** An immediate-mode editor redraws every frame, so it shapes the same strings every frame. Shaped
-runs are cached as `SkTextBlob`s keyed by (face, size, tracking, features, string), a small LRU per `Fonts`,
-evicting what a frame didn't touch. Variation instances live beside them, keyed by quantized position. Shaping allocates; this is main-thread editor code, which may.
+## Measured (2026-10-23)
 
-## Order of work
+| Web controller, brotli | GainDemo | TextDemo |
+|---|---|---|
+| total | 751 KB | 1,959 KB |
+| of which Inter, upright + italic | — | 693 KB |
+| text engine (SkParagraph, HarfBuzz, FreeType, libgrapheme) | — | ~515 KB |
 
-0. **tiny_deps.** Ship HarfBuzz and the unicode deps for all four platforms; import them in `setup_skia.cmake`. A
-   probe that shapes one string with `SkShapers::HB` links on each. Record the size cost, above all the web
-   controller's (739-755 KB brotli now).
-1. **`tiny_embed`**, with a test that round-trips a binary file.
-2. **`tiny_text`**: `Fonts`, shaping, measure, draw, fit, the cache, variation instances. Unit tests: kerning
-   applied (`AV` narrower than `A` + `V`), `tnum` applied, identical positions across rasterisers for one face, a
-   heavier `wght` measuring wider, `opsz` set on every backend.
-3. **The A/B tool**, before migrating anything: our fonts × sizes 9-24 × strings (pairs, numbers, all caps,
-   tracking), CoreText (the old `Typesetter`, moved in as a test oracle) against HarfBuzz; diff positions and
-   render both. Decides whether an Apple backend is ever needed. Includes a variable face at several `wght` and
-   `opsz` positions, against a `CTFont` at the same variation.
-3b. **Live-axis probe** in `platform_demo`: a label sweeping `wght` at 60 fps, frame time on macOS (Metal),
-   Windows (CPU) and web (CPU). Sets the default quantization step and LRU size.
-4. **`tiny_ui` and the demos** on the OFL family; the pixel font goes. Web demos get real text.
-5. **Clients** (after [client-port.md](client-port.md)): `Font_manager` and `Typesetter` replaced by `tiny_text`,
-   `Painter` ported, font data through `tiny_embed`. Products then build for web with their own fonts.
-6. Later: multi-line text through `skparagraph` (tooltips, about pages, licence text); SVG icons through `svg` and
-   `tiny_embed`.
+A product embedding one weight-limited static font pays much less than the two full variable files.
 
-## Open questions
+## Next
 
-- **Which OFL family?** Inter, IBM Plex Sans or Source Sans 3: tabular figures, a medium weight, a compact size.
-  Prefer its variable release (Inter and Source Sans 3 have one, with `opsz` in Inter 4), so the demos exercise
-  variation.
-- **Fonts per editor or per process?** Per editor is simplest and private; typeface creation is a few ms. A
-  process-wide registry (still unregistered with the OS) only if several open editors measure badly.
-- **LCD (subpixel) antialiasing on Windows?** Off at first: it needs an opaque background under the text and is
-  wrong on layers. Revisit if Windows text looks soft at 100 % scale.
+1. **Windows and iOS builds** of `tiny_text` and text_demo; check DirectWrite's rasterisation and the variable
+   clone on Windows.
+2. ~~The CoreText A/B tool~~: dropped. text_demo's spacing reads natural by eye in a DAW (2026-10-23); build one
+   (all_plugins' `Typesetter` as the oracle, diffing positions) only if a product's font shows a difference.
+3. **Paragraph tracking**: a tracked paragraph's lines still carry SkParagraph's trailing space and half-space shift
+   (single lines don't); a paragraph's last-line ellipsis breaks at a word (`drawn …`). Fix if a product needs it.
+4. **Clients** (after [client-port.md](client-port.md)): `Font_manager` and `Typesetter` replaced by `tiny_text`,
+   monorobot's `Painter` ported, font data through `tiny_embed`. Products then build for web with their own fonts.
+5. Later: SVG icons through Skia's `svg` module and `tiny_embed`; rich runs (several styles in one paragraph) if a
+   product needs them; LCD antialiasing on Windows only if text looks soft at 100 %.
 
 ## Rejected
 
 - **Native typesetters as the path** (CoreText, DirectWrite): three implementations, none on web, positions that
   differ by platform, and process-wide font registration on Apple.
 - **System fonts**: no web equivalent, and a product's look would depend on the user's machine.
-- **A shaped-text cache shared with the view loop**: text is editor drawing; the framework's view loop stays
-  ignorant of it.
+- **SkShaper + `SkTextBlob` directly for single lines**: SkParagraph already does it, plus ellipsis, alignment and
+  wrapping, with one cache.
+- **Replacing the pixel font**: the demos keep it; it's part of their look.

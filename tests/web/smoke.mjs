@@ -1,5 +1,6 @@
 // Headless Chrome over CDP: a demo's smoke page, offline-rendered and muted. No dependencies (Node's WebSocket).
 // usage: node tests/web/smoke.mjs <Base> [--build build-web] [--page smoke.html] [--result tiny_smoke] [--shot out.png]
+//        [--viewport 900x700] (CSS pixels, at 2x)
 //        [--no-isolation] (serve without COOP / COEP, as a nonisolated build's page)
 import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -12,6 +13,7 @@ const build = arg("--build", "build-web");
 const page = arg("--page", "smoke.html");
 const result_name = arg("--result", "tiny_smoke");
 const shot = arg("--shot", null);
+const [view_w, view_h] = arg("--viewport", "900x700").split("x").map(Number);
 const drag = arg("--drag", null)?.split(",").map(Number); // x0,y0,x1,y1 in page CSS pixels.
 const probe = arg("--eval", null); // An expression to report after the drag.
 const root = resolve(new URL("../..", import.meta.url).pathname);
@@ -50,7 +52,7 @@ try {
 
     await send("Runtime.enable");
     await send("Page.enable");
-    await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 700, deviceScaleFactor: 2, mobile: false });
+    await send("Emulation.setDeviceMetricsOverride", { width: view_w, height: view_h, deviceScaleFactor: 2, mobile: false });
     await send("Page.navigate", { url: `http://localhost:${http_port}/${page}?plugin=${base}&auto${arg("--query", "")}` });
     let result;
     for (let i = 0; i < 100 && !result; ++i) {

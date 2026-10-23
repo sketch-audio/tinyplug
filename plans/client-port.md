@@ -4,7 +4,8 @@
 > makes it 0.5. Collects what the landed plans left for the clients: step 7 of the unified edit model (its
 > framework steps 0–6 are in the tree, its rules in CLAUDE.md) and step 6 of
 > [bounce-param-authority.md](bounce-param-authority.md). Products: Doctor Vibe, Fuzz Droid, Galaxy Brain, Hyper
-> Boost, Scissor Hands; the nuggets after. Port one product end to end (Doctor Vibe) before the rest.
+> Boost, Scissor Hands; the nuggets after. Port one product end to end (Doctor Vibe) before the rest. Text moves to
+> `tiny_text` here too ("Text" below; [fonts-and-text.md](fonts-and-text.md)).
 
 ## Before starting
 
@@ -49,6 +50,50 @@ The five products share one editor; their `notify`, `save_state` and `load_state
 4. A/B doesn't persist, and copy to the other slot isn't undoable.
 5. Layout tabs don't persist across project reloads.
 6. Deep undo can show the wrong name: the counter wraps after 256 loads.
+
+## Text: `text_helpers` → `tiny_text`
+
+Optional for 0.5 (`text_helpers` keeps working natively), required for a product's web build: CoreText and
+DirectWrite have no wasm equivalent. Two client paths draw text today.
+
+**SUI's `Text` element** ([sui/ui_elements/text.cpp](../../all_plugins/shared/sui/ui_elements/text.cpp)), every
+product and nugget on SUI. A direct swap, and most of the element goes:
+
+| 0.4 | tiny_text |
+|---|---|
+| `sui::Environment::fonts` (`Font_manager{make_all_fonts()}`), one per editor | `text::Fonts{faces}`, one per editor |
+| `Font_keys::host_grotesk_medium` (a key per file) | a `text::Style` per key: `{.family = "Host Grotesk", .weight = 500}` |
+| `Typesetter::set` per line, then `wrap_line`'s greedy wrap | `Fonts::paragraph` / `Fonts::measure(text, style, wrap_width)`: wrapping, `\n`, ellipsis |
+| `layout_size()` from the widest setting | `Metrics::width` (longest line) and `height` |
+| `Render_cache`: glyph ids and positions scaled by `ctx.scale * layout_scale`, `make_font(key, size, scale)` | `canvas->scale(combined)` around the draw, logical sizes: tiny_text caches the layout itself |
+| `Style::tracking`, logical points per glyph | `Style::tracking` in em/1000: `points / size * 1000` |
+
+**monorobot's `Painter`** ([monorobot/source/paint.cpp](../../all_plugins/shared/monorobot/source/paint.cpp)),
+VS Comp and OK Channel, likely the first to move. It draws `SkFont` text directly, so it doesn't kern today;
+tiny_text does. Every call has a direct replacement:
+
+| 0.4 `Painter` | tiny_text |
+|---|---|
+| `font(key, size)`: an `SkFont`, unhinted, subpixel, linear metrics | a `text::Style` per key, `.hinted = false` to keep the unhinted look |
+| `text(s, font, x, baseline, color)` | `fonts.text(canvas, s, style, {x, baseline}, color, {.anchor = Anchor::Baseline})` |
+| `label(s, font, x, cy, align, color, tracking)`: capitals centred on `cy`, none trailing | `fonts.text(canvas, s, style, {x, cy}, color, {.align = align})` (`Anchor::Cap` is the default), tracking in the style |
+| `measure`, `tracked_width` (no trailing tracking) | `fonts.measure(s, style).width` |
+| `cap_height`, `x_height` (the `H` / `x` outlines, ceiled to match FreeType's whole pixels) | `fonts.metrics(style).ink_cap_height` / `ink_x_height`; ceil at the call site to keep the design's numbers |
+| `outline_height(font, c)` | `-fonts.ink(c, style).top` |
+| `name()` uppercasing through `Upper` (ASCII) | `.transform = Case::Upper` (full Unicode, plus case-sensitive forms) |
+| tracking in em (`0.06`) | em/1000 (`60`) |
+
+`Value_text` keeps its slot logic (digits right-aligned in the widest extent, sign and unit off either end); its
+pieces become `fonts.text` calls at a baseline, or one `Span` array when a readout doesn't hold its slots. Tabular
+figures (`tnum`) may make the widest-digits sampling unnecessary for fonts that have them.
+
+**Fonts.** `tiny_embed` replaces both `text_helpers/data/*.h` (xxd arrays; recover the `.ttf` / `.otf` from them,
+or from the foundry files) and monorobot's `font_data.cpp` (`tools/embed_fonts.py` goes too). Licensed faces (GT
+Maru) stay in all_plugins: `tiny_embed` runs in the product's target. Google Sans Flex can come in as its variable
+file instead of the cut instances, if its licence allows embedding it.
+
+**Order.** Monorobot's `Painter` and SUI's `Text` are independent; either can go first. Then delete
+`text_helpers`. Check each product's labels by eye at 1x and 2x, as text_demo was.
 
 ## Sketches
 
