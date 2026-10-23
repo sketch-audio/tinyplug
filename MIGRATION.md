@@ -1021,3 +1021,51 @@ takes `.size = store.size_handle()`.
   `static_assert(Interface<Editor>);` inside `tiny::edit`, as every demo and the template do.
 - **`edit.size.get()`**: the size the session holds. A request through `edit.size.request` is held as the size at
   once (so it joins an open undo step) and applied at the frame's end.
+
+---
+
+## Shorter names: `params::`, `Pointer::`, `gesture::`, `platform::`, `work::`, `on_draw`
+
+New on `main`, before 0.5, after "Edit vocabulary". Families nest under one name instead of sharing a prefix. Every
+break is a compile error, except one: `params::to_text` takes a **plain** value where `Host_formatter::to_string`
+took a host one (see below).
+
+### Breaks
+
+| Was | Now |
+|---|---|
+| `params::Value_helper::knob_to_plain(k, s)` (and every other static) | `params::knob_to_plain(k, s)`: free functions |
+| `Host_formatter::to_string(host, s)` | `params::to_text(plain, s)`: **plain**, so `params::to_text(params::host_to_plain(h, s), s)` where you held a host value |
+| `Host_formatter::to_value(text, s)` | `params::from_text(text, s)` (plain, as before) |
+| `<tiny_core/host_formatter.hpp>` | `<tiny_core/param_text.hpp>` |
+| `on_gui_create` / `on_gui_show` / `on_gui_draw` / `on_gui_hide` / `on_gui_destroy` | `on_create` / `on_show` / `on_draw` / `on_hide` / `on_destroy` |
+| `Pointer_down`, `Pointer_up`, `Pointer_move`, `Pointer_click`, `Pointer_enter`, `Pointer_exit`, `Pointer_cancel`, `Pointer_event`, `Pointer_button` | `Pointer::Down`, `Up`, `Move`, `Click`, `Enter`, `Exit`, `Cancel`, `Any`, `Button` |
+| `Drag_recognizer`, `Drag_info` (and `Over`, `Down`, `Dwell`, `Click`) | `gesture::Drag`, `gesture::Drag::Info` |
+| `Gesture_recognizer`, `Gesture_callbacks<T>`, `make_recognizer<R>`, `On_started<T>` … | `gesture::Recognizer`, `gesture::Callbacks<T>`, `gesture::make<R>`, `std::function` |
+| `Platform_dialogs`, `Platform_paths`, `Platform_text`, `Text_field`, `Text_result`, `Dialog_context` | `platform::Dialogs`, `platform::Paths`, `platform::Text`, `platform::Text::Field`, `platform::Text::Result`, `platform::Context` |
+| `Platform_view`, `Platform_views::make_owning` | `platform::View`, `platform::View::make_owning` |
+| `Worker_processor_actor`, `Worker_editor_actor`, `Worker_replies` | `work::Processor_actor`, `work::Editor_actor`, `work::Replies` |
+| `Worker_actor<T>`, `Worker_reply_actor<W>`, `Worker_runner<W>`, `Receives_worker_reply_to_*` | `work::Actor<T>`, `work::Reply_actor<W>`, `work::Runner<W>`, `work::Replies_to_*` |
+| `Scroll_data`, tiny's `Draw_context`, `Dark_mode_changed`, `<tiny_core/tiny_notifications.hpp>` | gone (dark mode is `View_context::dark`) |
+
+The `Host_formatter::to_string` sites need a look by hand (which space you held); the rest is mechanical (perl):
+
+```
+s/\btiny::params::Value_helper::/tiny::params::/g; s/\bparams::Value_helper::/params::/g; s/(?<![:\w])Value_helper::/params::/g
+s/\bHost_formatter::to_value\(/params::from_text(/g
+s/\bon_gui_(create|show|draw|hide|destroy)\b/on_$1/g
+s/\bPointer_button\b/Pointer::Button/g; s/\bPointer_event\b/Pointer::Any/g
+s/\bPointer_(down|up|move|click|enter|exit|cancel)\b/"Pointer::".ucfirst($1)/ge
+s/\b(Over|Down|Dwell|Click|Drag)_recognizer\b/gesture::$1/g; s/\b(Over|Down|Dwell|Click|Drag)_info\b/gesture::$1::Info/g
+s/\bGesture_callbacks\b/gesture::Callbacks/g; s/\bGesture_recognizer\b/gesture::Recognizer/g; s/\bmake_recognizer\b/gesture::make/g
+s/\bPlatform_views::make_/platform::View::make_/g; s/\bPlatform_dialogs\b/platform::Dialogs/g; s/\bPlatform_paths\b/platform::Paths/g
+s/\bText_field\b/platform::Text::Field/g; s/\bText_result\b/platform::Text::Result/g; s/\bPlatform_text\b/platform::Text/g
+s/\bDialog_context\b/platform::Context/g; s/\bPlatform_view\b/platform::View/g
+s/\bWorker_processor_actor\b/work::Processor_actor/g; s/\bWorker_editor_actor\b/work::Editor_actor/g; s/\bWorker_replies\b/work::Replies/g
+s/\bWorker_reply_actor\b/work::Reply_actor/g; s/\bWorker_actor\b/work::Actor/g; s/\bWorker_runner\b/work::Runner/g
+s/\bReceives_worker_reply_to_(processor|editor)\b/work::Replies_to_$1/g
+```
+
+Inside the user's own namespaces the prefixes still resolve: `params::`, `gesture::`, `platform::` and `work::` are all
+in `tiny`, so a `tiny::edit::Editor` writes `gesture::Drag` unqualified by `tiny::`, and a `tiny::work::Worker` can
+drop `work::` altogether.

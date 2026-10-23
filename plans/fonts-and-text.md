@@ -5,7 +5,7 @@
 > are in, with [text_demo](../examples/text_demo/) (Inter, variable) and `tiny_text_test` (18 tests, native and wasm).
 > Built and checked by eye on macOS (VST3, AU, CLAP in a DAW), Windows, iOS (a device, in an AUv3 host) and web
 > (headless Chrome). What remains is the client port ([client-port.md](client-port.md), "Text") and the items under
-> "Next". Text fields that type in the same fonts are [keyboard-input.md](keyboard-input.md)'s `Platform_text`.
+> "Next". Text fields that type in the same fonts are [keyboard-input.md](keyboard-input.md)'s `platform::Text`.
 >
 > Fonts embedded in the binary, static or variable, shaped with HarfBuzz and laid out by SkParagraph, rasterised by
 > each platform's Skia font manager. Same glyph positions on every platform. `tiny_ui` and the other demos keep the

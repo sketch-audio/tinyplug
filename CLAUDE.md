@@ -192,7 +192,7 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   space.** `process::Event::{Set, Ramp}` carry **plain** values to the kernel;
   `edit::Action::Set` carries **knob** values from the editor / undo history (same layout, value first). They used to be one
   type, which made a wrong-space assignment — the bug shape this codebase is most prone to
-  (see "Three spaces") — compile silently. `Value_helper` is the bridge, at the wrapper
+  (see "Three spaces") — compile silently. The `params::` conversions are the bridge, at the wrapper
   boundary where it always was. `Change_set` is the one genuinely two-sided container and
   is templated on the event type so each instance declares its space.
   *Everything in `process::Event::Any` (params, notes, controls) carries a frame offset*, which
@@ -351,7 +351,8 @@ those are cosmetic.
 
 ## Three spaces, one parameter
 
-Conversions are everywhere; the central type is `params::Value_helper` in
+Conversions are everywhere; they are free functions in `params` (`params::knob_to_plain(k, s)`, `plain_to_host`,
+`clamp`, `default_value`, …) in
 [value_helper.hpp](libs/tiny_core/include/tiny_core/value_helper.hpp) /
 [value_helper.cpp](libs/tiny_core/source/value_helper.cpp) (the declarative model lives
 in [tiny_params.hpp](libs/tiny_core/include/tiny_core/tiny_params.hpp)):
@@ -367,7 +368,7 @@ in [tiny_params.hpp](libs/tiny_core/include/tiny_core/tiny_params.hpp)):
 The DSP kernel sees **plain** values. The host sees **host** values. The UI
 draws in **knob** (always 0…1) values. Wrappers shuttle between them — a
 common bug shape is converting in the wrong space, so always check
-`Value_helper::knob_to_plain` vs `host_to_plain` etc. (Knob space and the old
+`params::knob_to_plain` vs `params::host_to_plain` etc. (Knob space and the old
 "norm" space are the same thing; `plain_to_knob`/`knob_to_plain` replace the
 former `plain_to_norm`/`norm_to_plain`.)
 
@@ -378,7 +379,8 @@ log requires `min_val > 0`, taper requires `0 < taper < 1`, etc.
 Text is `Bool`/`Int`/`Fixed`/`Real`'s `display` (`Display::Boolean` / `Display::Numeric`:
 `Default`, `Percent`, `Decibels`, `Hertz`, `Gain`, ..., and `Custom` with author functions in
 plain space, called from any thread). It is formatting only — no host sees a unit — and
-`Host_formatter` is its one reader, so the host and the editor show the same string. `List`'s
+`params::to_text` / `params::from_text` ([param_text.hpp](libs/tiny_core/include/tiny_core/param_text.hpp)), both
+plain space, are its one reader, so the host and the editor show the same string. `List`'s
 items are its display. `Spec::description` reaches no host; it is for tooltips, the web
 manifest and manuals.
 
@@ -626,7 +628,7 @@ undo, and state chunks). The GUI hangs off the data model.
   [taper_delegate.hpp](wrappers/aax/source/taper_delegate.hpp)) exist so AAX's
   normalized-to-plain transform respects our `Knob_adapter`. Likewise
   `Semantics_display_delegate` ([display_delegate.hpp](wrappers/aax/source/display_delegate.hpp))
-  routes every user parameter's text through `Host_formatter`, so AAX shows the same strings as
+  routes every user parameter's text through `params::to_text`, so AAX shows the same strings as
   the other formats; only the master bypass keeps an SDK delegate.
 - Latency change protocol: kernel proposes → algorithm pushes onto the return
   ring → Direct Data calls `SetSignalLatency` → AAX delivers
@@ -1007,7 +1009,10 @@ From the README, enforced informally:
 - Herb Sutter "AAA"/left-to-right: most lines start with `const auto`;
   functions use trailing return types (`-> ReturnType`).
 - Stroustrup naming with snake_case for multi-word names; types and
-  scoped-enum members capitalized (`Value_helper`, `Reset::Restart`).
+  scoped-enum members capitalized (`Edit_store`, `Reset::Restart`).
+- Nest a family under one name rather than prefixing it: `process::Event::Set`, `edit::Action::Start`,
+  `Pointer::Down`, `gesture::Drag::Info`, `platform::Text::Field`; a namespace when the family is a library's
+  (`params::`, `gesture::`, `platform::`, `work::`).
 - Opening brace on a new line only for function definitions.
 - Private members prefixed with `_`.
 

@@ -172,7 +172,7 @@ browser pages served without COOP / COEP.
 
 ## value_helper_test.cpp
 
-`Value_helper` and `Host_formatter` as properties over a spread of parameter shapes: exact
+The `params::` value functions and `params::to_text` / `from_text` as properties over a spread of parameter shapes: exact
 endpoints, round trips between every pair of spaces, monotonic knob curves, step grids,
 `knob_next`/`knob_prev`, and displayed text that re-parses to the same text.
 

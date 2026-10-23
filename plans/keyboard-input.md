@@ -1,6 +1,6 @@
 # Plan: Keyboard input — native text fields, then best-effort shortcuts, never stolen keys
 
-> Status: **part 1 landed (2026-10-23); part 2 is design.** `Platform_text`
+> Status: **part 1 landed (2026-10-23); part 2 is design.** `platform::Text`
 > ([platform_text.hpp](../libs/tiny_platform/include/tiny_platform/platform_text.hpp)) opens a native single-line field
 > over the editor, in the editor's embedded font (registered nowhere outside the process), and works on every
 > platform:
@@ -17,7 +17,7 @@
 > GAIN and INLINE NOTE. Remaining: the host matrix (below), and part 2.
 >
 > Before: no platform view delivered a key, and modifiers worked only because they're polled each frame
-> (`[NSEvent modifierFlags]`, `GetKeyState`). Text entry was `Platform_dialogs::text_input`, a modal dialog.
+> (`[NSEvent modifierFlags]`, `GetKeyState`). Text entry was `platform::Dialogs::text_input`, a modal dialog.
 
 ## Principles
 
@@ -47,28 +47,18 @@ hosts honour a focused native field because it's the standard mechanism. It cove
 and search, without a general key model.
 
 ```cpp
-struct Text_field {
-    Frame frame{};               // logical, in the view
-    std::string initial{};
-    text::Style style{};         // the editor's font, see fonts-and-text.md
-    SkColor ink{}, background{};
-    Align align{Align::Center};
-    bool select_all{true};
-    enum class Commit { Enter_or_blur, Enter_only } commit{};
+// libs/tiny_platform/include/tiny_platform/platform_text.hpp, as built
+struct platform::Text {
+    struct Field { Frame frame; std::string initial, label; Font font; std::uint32_t ink, background; float inset;
+                   Align align; bool select_all; Blur blur; };   // Blur: Commit or Cancel on clicking away
+    struct Result { Kind kind; std::string text; };              // Committed or Cancelled
+    static auto edit(const Field&, std::function<void(Result)> on_done, Context ctx) -> void;
+    static auto cancel(Window_token window) -> void;
 };
-
-struct Text_result {
-    enum class Kind { Committed, Cancelled } kind{};
-    std::string text{};
-};
-
-// Main thread. One field per view at a time; a second call commits the first. `on_done` fires exactly once,
-// like the dialogs, cancelled if the view closes or the field couldn't be shown.
-static auto Platform_text::edit(const Text_field&, std::function<void(Text_result)> on_done, Dialog_context) -> void;
 ```
 
-The window comes from `Dialog_context::window` as for dialogs. A typed value goes back through
-`Host_formatter::to_value`, so the field parses what the host displays.
+The window comes from `platform::Context::window` as for dialogs. A typed value goes back through
+`params::from_text`, so the field parses what the host displays.
 
 **The field uses the editor's font, still without OS registration**: `CTFontManagerCreateFontDescriptorFromData`
 (macOS, iOS), `AddFontMemResourceEx` (Windows: private to the process, not to us: acceptable for one field),
@@ -86,7 +76,7 @@ Per platform:
 - **Web**: an absolutely positioned `<input>` over the canvas from `editor.js`, removed on commit.
 
 **Fallback.** Where a host eats keys before a focused child field (to be found by the matrix below; Windows hosts
-that translate accelerators are the suspects), `Platform_text::edit` uses `text_input`'s modal dialog for that
+that translate accelerators are the suspects), `platform::Text::edit` uses `text_input`'s modal dialog for that
 host. Chosen per host by name (VST3 `IHostApplication`, CLAP `clap_host::name`, the AU host bundle id), on
 evidence only. A list of known hosts is the one host-specific concession; it only ever picks between two
 legitimate paths.
@@ -139,7 +129,7 @@ key mapping and the claims answer.
 
 1. ~~Part 1 on macOS and web~~, in the demos. A value-entry control in `tiny_ui` is left out: tiny_ui is header-only
    over tinyplug and doesn't link `tiny_platform`; the demos show the pattern (a right-click opens a field, the
-   result goes through `Host_formatter::to_value` as one gesture).
+   result goes through `params::from_text` as one gesture).
 2. ~~Part 1 on Windows (`EDIT`) and iOS (`UITextField`)~~. Both work on their devices. A transparent background
    can't show our pixels through a native Win32 control: Windows paints the RGB opaque.
 3. The matrix for part 1 (Logic, Live, Reaper, Cubase, Bitwig, Pro Tools, FL Studio, Studio One); the per-host modal
@@ -149,7 +139,7 @@ key mapping and the claims answer.
 ## Linux
 
 No native field is toolkit-neutral there: GTK or Qt in a plug-in collides with whichever the host loaded (the dialog
-note in [linux-feasibility.md](linux-feasibility.md)). So Linux's `Platform_text` would be our own field, drawn with
+note in [linux-feasibility.md](linux-feasibility.md)). So Linux's `platform::Text` would be our own field, drawn with
 `tiny_text` on the editor's X11 child window: SkParagraph's `getGlyphPositionAtCoordinate` and `getRectsForRange`
 give caret placement and selection, keys arrive by X11 focus on our window (or VST3's `onKeyDown`), IME through XIM
 (`XOpenIM` / `XCreateIC`), the clipboard through X11 selections. The same API, more work than the native fields: it
@@ -161,8 +151,8 @@ dialogs plan) keeps the API whole.
 - **The web processor module includes the editor's header** (through `<tiny_plugin.hpp>`) without linking
   `tiny_platform`: an editor includes `platform_text.hpp` in its `.cpp`, as platform_demo always did for dialogs.
 - **`??=` and friends are trigraphs** to the C preprocessor inside `EM_JS`; write the JS without them.
-- **`Host_formatter::to_value` returns plain**, while `to_string` takes host. Easy to get wrong (text_demo did,
-  first): convert with `plain_to_knob`.
+- **The formatter's spaces didn't match**: `Host_formatter::to_string` took host, `to_value` returned plain, and
+  text_demo got it wrong first. Now `params::to_text` / `from_text`, both plain.
 - **Web's `text_input` never answers a cancel** ([web_dialogs.cpp](../libs/tiny_platform/source/web_dialogs.cpp)),
   against the header's contract (an empty string on cancel). Not fixed here.
 - **A double-click to type moves the slider first** (the first press sets the value), so Escape couldn't restore it;
