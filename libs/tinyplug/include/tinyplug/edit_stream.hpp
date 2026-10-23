@@ -72,7 +72,6 @@ public:
                         out.push_back(e);
                     }
                 },
-                [&](const auto& other) { out.push_back(other); }
             }, action);
         }
     }

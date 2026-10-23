@@ -65,12 +65,14 @@ inline auto resolve_frame(const S& _receiver, P& _ui_params, A& _actions, U& _un
 
     const auto actions = _actions.get_actions(); // A copy: a handler may push.
     for (const auto& action : actions) {
-        if (const auto* s = std::get_if<edit::Action::Start>(&action); s && !s->address) continue;
-        if (const auto* e = std::get_if<edit::Action::End>(&action); e && !e->address) continue;
-        _receiver.action_handler(action);
-        if (const auto* s = std::get_if<edit::Action::Set>(&action)) {
-            _ui_params[s->address] = s->value; // Update the local copy.
-        }
+        std::visit(Inline_visitor{
+            [&](const edit::Action::Start& s) { if (s.address) _receiver.begin(*s.address); },
+            [&](const edit::Action::Set& s) {
+                _receiver.set(s.address, s.value);
+                _ui_params[s.address] = s.value; // Update the local copy.
+            },
+            [&](const edit::Action::End& e) { if (e.address) _receiver.end(*e.address); },
+        }, action);
     }
 
     _actions.finish_frame();

@@ -1216,21 +1216,22 @@ bool Plugin::guiCreate(const char* /*api*/, bool /*isFloating*/) noexcept
             _block_mailbox.read(out);
         },
 #endif
-        .action_handler = [this](auto& action) {
-            this->_handle_user_action(action);
+        .begin = [this](std::uint32_t address) { this->_queue_user_action(edit::Action::Start{address}); },
+        .set = [this](std::uint32_t address, double knob) {
+            // Host values at once; the audio thread tells the host and the processor.
+            _hostvalues[address].store(params::knob_to_host(knob, User_params::param_spec(address).semantics), std::memory_order_relaxed);
+            this->_queue_user_action(edit::Action::Set{.value = knob, .address = address});
         },
+        .end = [this](std::uint32_t address) { this->_queue_user_action(edit::Action::End{address}); },
 #if TINY_HAS_STATE
         .sync_state = [this]() { _state_link.sync(); },
 #endif
         .end_frame = [this]() { _edit_store.end_frame(); },
     };
 
-    auto request_resize = [this](uint32_t w, uint32_t h) {
+    _edit_store.set_apply([this](Rect_size size) {
         auto* gui_ext = static_cast<const clap_host_gui_t*>(_host->get_extension(_host, CLAP_EXT_GUI));
-        if (gui_ext && gui_ext->request_resize) gui_ext->request_resize(_host, w, h);
-    };
-    _edit_store.set_apply([request_resize](Rect_size size) {
-        request_resize(static_cast<uint32_t>(size.w), static_cast<uint32_t>(size.h));
+        if (gui_ext && gui_ext->request_resize) gui_ext->request_resize(_host, static_cast<uint32_t>(size.w), static_cast<uint32_t>(size.h));
     });
 
     _view = std::make_unique<View>(View::Deps{
@@ -1374,79 +1375,39 @@ auto Plugin::_handle_user_actions(const clap_output_events_t* out_events, bool n
         return policy == Automation || policy == Control;
     };
     
+    const auto gesture = [&](std::uint32_t address, std::uint16_t type) {
+        if (!wants_host_notify(User_params::param_spec(address).policy)) return;
+        const auto e = clap_event_param_gesture{
+            .header = {.size = sizeof(clap_event_param_gesture), .time = {}, .space_id = CLAP_CORE_EVENT_SPACE_ID, .type = type, .flags = {}},
+            .param_id = address,
+        };
+        out_events->try_push(out_events, &e.header);
+    };
+
+    // Addressed starts and ends only: the view loop queues what `edit::Connection` hands it.
     auto user_action = edit::Action::Any{};
     while (_from_ui.pop(user_action)) {
         std::visit(Inline_visitor{
-            [&](const edit::Action::Start& a) {
-                const auto& param = User_params::param_spec(*a.address);
-                if (wants_host_notify(param.policy)) {
-                    const auto e = clap_event_param_gesture{
-                        .header = {
-                            .size = sizeof(clap_event_param_gesture),
-                            .time = {},
-                            .space_id = CLAP_CORE_EVENT_SPACE_ID,
-                            .type = CLAP_EVENT_PARAM_GESTURE_BEGIN,
-                            .flags = {},
-                        },
-                        .param_id = param.identity.address
-                    };
-                    out_events->try_push(out_events, &e.header);
-                }
-            },
+            [&](const edit::Action::Start& a) { gesture(*a.address, CLAP_EVENT_PARAM_GESTURE_BEGIN); },
             [&](const edit::Action::Set& a) {
-                using namespace params;
-
                 const auto& param = User_params::param_spec(a.address);
-
                 if (wants_host_notify(param.policy)) {
-                    const auto host_value = params::knob_to_host(a.value, param.semantics);
                     const auto e = clap_event_param_value{
-                        .header = {
-                            .size = sizeof(clap_event_param_value),
-                            .time = {},
-                            .space_id = CLAP_CORE_EVENT_SPACE_ID,
-                            .type = CLAP_EVENT_PARAM_VALUE,
-                            .flags = {},
-                        },
-                        .param_id = param.identity.address,
-                        .value = host_value,
+                        .header = {.size = sizeof(clap_event_param_value), .time = {}, .space_id = CLAP_CORE_EVENT_SPACE_ID, .type = CLAP_EVENT_PARAM_VALUE, .flags = {}},
+                        .param_id = a.address,
+                        .value = params::knob_to_host(a.value, param.semantics),
                     };
                     out_events->try_push(out_events, &e.header);
                 }
-
-                const auto plain_value = params::knob_to_plain(a.value, param.semantics);
-                _processor->handle(process::Event::Set{.value = plain_value, .address = param.identity.address});
+                _processor->handle(process::Event::Set{.value = params::knob_to_plain(a.value, param.semantics), .address = a.address});
             },
-            [&](const edit::Action::End& a) {
-                const auto& param = User_params::param_spec(*a.address);
-                if (wants_host_notify(param.policy)) {
-                    const auto e = clap_event_param_gesture{
-                        .header = {
-                            .size = sizeof(clap_event_param_gesture),
-                            .time = {},
-                            .space_id = CLAP_CORE_EVENT_SPACE_ID,
-                            .type = CLAP_EVENT_PARAM_GESTURE_END,
-                            .flags = {},
-                        },
-                        .param_id = param.identity.address
-                    };
-                    out_events->try_push(out_events, &e.header);
-                }
-            },
-            [](const auto&) {}
+            [&](const edit::Action::End& a) { gesture(*a.address, CLAP_EVENT_PARAM_GESTURE_END); },
         }, user_action);
     }
 }
 
-auto Plugin::_handle_user_action(const edit::Action::Any& action) -> void
+auto Plugin::_queue_user_action(const edit::Action::Any& action) -> void
 {
-    using namespace params;
-    // Maintain host values immediately.
-    if (const auto* a = std::get_if<edit::Action::Set>(&action)) {
-        const auto& param = User_params::param_spec(a->address);
-        const auto host_value = params::knob_to_host(a->value, param.semantics);
-        _hostvalues[param.identity.address].store(host_value, std::memory_order_relaxed);
-    }
     // Full while the host isn't processing (deactivated, asleep) and the editor keeps going. Not an
     // error: the next process restates everything from _hostvalues.
     if (!_from_ui.push(action)) _needs_resync.store(true, std::memory_order_relaxed);

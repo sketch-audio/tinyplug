@@ -170,8 +170,9 @@ live alongside each interface: `process::Interface`, and a `concept Model` per m
   document), `view` (the view model), `size` (the window: `request(w, h)`), joined into undo steps by
   `undo_redo`; plus `notes`, `tasks`, `format`. Receives `Plugin_state` (read-only params, meters, blocks) on
   draw. Only the parameter handle queues (`Action_queue`, as `edit::Action::Any`: `Start` / `Set` / `End`),
-  because parameter edits must become ordered host gestures, which wrappers translate into host-native
-  begin/edit/end. A size request is held in the `Edit_store` and applied at the frame's end through the
+  because parameter edits must become ordered host gestures. `resolve_frame` hands them to the wrapper as
+  `edit::Connection`'s `begin(address)` / `set(address, knob)` / `end(address)`, balanced and addressed, which
+  each wrapper maps onto its host's begin/edit/end; transaction brackets never reach it. A size request is held in the `Edit_store` and applied at the frame's end through the
   wrapper's `set_apply` hook, the same path an undo of a resize takes. Editor never shares memory with the
   processor.
 - **Edits and undo** ([edit_stream.hpp](libs/tinyplug/include/tinyplug/edit_stream.hpp),

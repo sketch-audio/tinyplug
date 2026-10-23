@@ -94,7 +94,9 @@ struct Rig {
     Rig()
     {
         history.bind_actions(actions.actor());
-        receiver.action_handler = [this](const edit::Action::Any& a) { host.push_back(a); };
+        receiver.begin = [this](std::uint32_t a) { host.push_back(edit::Action::Start{a}); };
+        receiver.set = [this](std::uint32_t a, double v) { host.push_back(edit::Action::Set{.value = v, .address = a}); };
+        receiver.end = [this](std::uint32_t a) { host.push_back(edit::Action::End{a}); };
     }
 
     // One frame: the editor's draw, then run_frame's tail.

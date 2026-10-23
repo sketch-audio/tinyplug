@@ -254,7 +254,6 @@ inline auto Undo_history::process_actions(std::span<const edit::Action::Any> act
                 if (_active == 0) return;
                 if (--_active == 0) close_step();
             },
-            [&](const auto&) {}
         }, action);
     }
 }

@@ -358,6 +358,15 @@ static auto presets_path() -> std::filesystem::path
     using namespace tiny;
     using namespace params;
     __weak typeof(self) self_ = self;
+    // A gesture edge or value, to the host through the parameter tree, as from this AU (its observer token).
+    const auto post = [self_](std::uint32_t address, AUValue value, AUParameterAutomationEventType type) {
+        auto s = self_;
+        if (!s) return;
+        auto* auparam = [s->_parameterTree parameterWithAddress:address];
+        auto it = s->_observerTokens.find(auparam.address);
+        auto* token = it != s->_observerTokens.end() ? it->second : nil;
+        [auparam setValue:value originator:token atHostTime:0 eventType:type];
+    };
     return edit::Connection{
         .get_param = [self_](uint32_t addr) {
             auto s = self_;
@@ -377,34 +386,15 @@ static auto presets_path() -> std::filesystem::path
             if (auto s = self_) s->_kernel.read_blocks(out);
         },
 #endif
-        .action_handler = [self_](const edit::Action::Any& action) {
-            auto s = self_;
-            if (!s) return;
-            std::visit(Inline_visitor{
-                [&](const edit::Action::Start& a) {
-                    auto current = s->_kernel.getParameter(*a.address);
-                    auto* auparam = [s->_parameterTree parameterWithAddress:*a.address];
-                    auto it = s->_observerTokens.find(auparam.address);
-                    auto* token = it != s->_observerTokens.end() ? it->second : nil;
-                    [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeTouch];
-                },
-                [&](const edit::Action::Set& a) {
-                    const auto& param = User_params::param_spec(a.address);
-                    const auto host_value = params::knob_to_host(a.value, param.semantics);
-                    auto* auparam = [s->_parameterTree parameterWithAddress:a.address];
-                    auto it = s->_observerTokens.find(auparam.address);
-                    auto* token = it != s->_observerTokens.end() ? it->second : nil;
-                    [auparam setValue:host_value originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeValue];
-                },
-                [&](const edit::Action::End& a) {
-                    auto current = s->_kernel.getParameter(*a.address);
-                    auto* auparam = [s->_parameterTree parameterWithAddress:*a.address];
-                    auto it = s->_observerTokens.find(auparam.address);
-                    auto* token = it != s->_observerTokens.end() ? it->second : nil;
-                    [auparam setValue:current originator:token atHostTime:0 eventType:AUParameterAutomationEventTypeRelease];
-                },
-                [](const auto&) {}
-            }, action);
+        .begin = [self_, post](std::uint32_t address) {
+            if (auto s = self_) post(address, s->_kernel.getParameter(address), AUParameterAutomationEventTypeTouch);
+        },
+        .set = [post](std::uint32_t address, double knob) {
+            const auto host = params::knob_to_host(knob, User_params::param_spec(address).semantics);
+            post(address, static_cast<AUValue>(host), AUParameterAutomationEventTypeValue);
+        },
+        .end = [self_, post](std::uint32_t address) {
+            if (auto s = self_) post(address, s->_kernel.getParameter(address), AUParameterAutomationEventTypeRelease);
         },
 #if TINY_HAS_STATE
         .sync_state = [self_]() {

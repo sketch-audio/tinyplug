@@ -59,46 +59,35 @@ auto Gui::CreateViewContainer() -> void
             if (params) params->read_blocks(out);
         },
 #endif
-        .action_handler = [this, view, params](auto& action) {
-            std::visit(Inline_visitor{
-                [&](const edit::Action::Start& a) {
-                    _gestured.insert(*a.address);
-                    if (const auto aax_id = tiny_id_to_aax(*a.address)) {
-                        const auto* id_cstr = (*aax_id).c_str();
-                        view->HandleParameterMouseDown(id_cstr, 0);
-                        AAX_IParameter* param = nullptr;
-                        if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS && param->Automatable()) {
-                            param->Touch();
-                        };
-                    }
-                },
-                [&](const edit::Action::Set& a) {
-                    if (const auto aax_id = tiny_id_to_aax(a.address)) {
-                        const auto* id_cstr = (*aax_id).c_str();
-                        view->HandleParameterMouseDrag(id_cstr, 0);
-                        AAX_IParameter* param = nullptr;
-                        if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS) {
-                            // Reaches the algorithm as a coefficient packet, automatable
-                            // or not: AAX_CParameter::SetValue always routes through the
-                            // automation delegate, so UpdateParameterNormalizedValue fires
-                            // either way.
-                            param->SetNormalizedValue(a.value);
-                        }
-                    }
-                },
-                [&](const edit::Action::End& a) {
-                    if (const auto aax_id = tiny_id_to_aax(*a.address)) {
-                        const auto* id_cstr = (*aax_id).c_str();
-                        view->HandleParameterMouseUp(id_cstr, 0);
-                        AAX_IParameter* param = nullptr;
-                        if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS && param->Automatable()) {
-                            param->Release();
-                        };
-                    }
-                    _gestured.erase(*a.address);
-                },
-                [&](const auto&) {}
-            }, action);
+        .begin = [this, view, params](std::uint32_t address) {
+            _gestured.insert(address);
+            if (const auto aax_id = tiny_id_to_aax(address)) {
+                const auto* id_cstr = (*aax_id).c_str();
+                view->HandleParameterMouseDown(id_cstr, 0);
+                AAX_IParameter* param = nullptr;
+                if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS && param->Automatable()) param->Touch();
+            }
+        },
+        .set = [view, params](std::uint32_t address, double knob) {
+            if (const auto aax_id = tiny_id_to_aax(address)) {
+                const auto* id_cstr = (*aax_id).c_str();
+                view->HandleParameterMouseDrag(id_cstr, 0);
+                AAX_IParameter* param = nullptr;
+                if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS) {
+                    // Reaches the algorithm as a coefficient packet, automatable or not: AAX_CParameter::SetValue
+                    // always routes through the automation delegate, so UpdateParameterNormalizedValue fires either way.
+                    param->SetNormalizedValue(knob);
+                }
+            }
+        },
+        .end = [this, view, params](std::uint32_t address) {
+            if (const auto aax_id = tiny_id_to_aax(address)) {
+                const auto* id_cstr = (*aax_id).c_str();
+                view->HandleParameterMouseUp(id_cstr, 0);
+                AAX_IParameter* param = nullptr;
+                if (params->GetParameter(id_cstr, &param) == AAX_SUCCESS && param->Automatable()) param->Release();
+            }
+            _gestured.erase(address);
         },
 #if TINY_HAS_STATE
         .sync_state = [params]() {

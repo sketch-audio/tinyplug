@@ -338,6 +338,18 @@ private:
 #endif
     }
 
+    // A gesture or value change, to the host's listeners.
+    auto _notify(AudioUnitEventType type, AudioUnitParameterID address) -> void
+    {
+        auto event = AudioUnitEvent{};
+        event.mEventType = type;
+        event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
+        event.mArgument.mParameter.mParameterID = address;
+        event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
+        event.mArgument.mParameter.mElement = 0;
+        AUEventListenerNotify(NULL, NULL, &event);
+    }
+
     // AUv2 view adapter. Made in the constructor body, once `_editor` holds a value.
     std::unique_ptr<View> _view{};
     auto _make_view() -> std::unique_ptr<View>
@@ -362,47 +374,14 @@ private:
                     _block_mailbox.read(out);
                 },
 #endif
-                .action_handler = [this](auto& action) {
-                    std::visit(Inline_visitor{
-                        [&](const edit::Action::Start& a) {
-                            auto event = AudioUnitEvent{};
-                            event.mEventType = kAudioUnitEvent_BeginParameterChangeGesture;
-                            event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                            event.mArgument.mParameter.mParameterID = *a.address;
-                            event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
-                            event.mArgument.mParameter.mElement = 0;
-                            AUEventListenerNotify(NULL, NULL, &event);
-                        },
-                        [&](const edit::Action::Set& a) {
-                            using namespace params;
-
-                            // Notify host
-                            const auto& param = User_params::param_spec(a.address);
-                            const auto plain_value = params::knob_to_plain(a.value, param.semantics);
-                            const auto host_value = params::knob_to_host(a.value, param.semantics);
-
-                            Globals()->SetParameter(a.address, static_cast<float>(host_value));
-                            auto event = AudioUnitEvent{};
-                            event.mEventType = kAudioUnitEvent_ParameterValueChange;
-                            event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                            event.mArgument.mParameter.mParameterID = a.address;
-                            event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
-                            event.mArgument.mParameter.mElement = 0;
-                            AUEventListenerNotify(NULL, NULL, &event);
-                            _changes.push(process::Event::Set{.value = plain_value, .address = a.address});
-                        },
-                        [&](const edit::Action::End& a) {
-                            auto event = AudioUnitEvent{};
-                            event.mEventType = kAudioUnitEvent_EndParameterChangeGesture;
-                            event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-                            event.mArgument.mParameter.mParameterID = *a.address;
-                            event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
-                            event.mArgument.mParameter.mElement = 0;
-                            AUEventListenerNotify(NULL, NULL, &event);
-                        },
-                        [](const auto&) {}
-                    }, action);
+                .begin = [this](std::uint32_t address) { _notify(kAudioUnitEvent_BeginParameterChangeGesture, address); },
+                .set = [this](std::uint32_t address, double knob) {
+                    const auto& param = User_params::param_spec(address);
+                    Globals()->SetParameter(address, static_cast<float>(params::knob_to_host(knob, param.semantics)));
+                    _notify(kAudioUnitEvent_ParameterValueChange, address);
+                    _changes.push(process::Event::Set{.value = params::knob_to_plain(knob, param.semantics), .address = address});
                 },
+                .end = [this](std::uint32_t address) { _notify(kAudioUnitEvent_EndParameterChangeGesture, address); },
 #if TINY_HAS_STATE
                 .sync_state = [this]() { _state_link.sync(); },
 #endif

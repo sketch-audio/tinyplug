@@ -70,8 +70,11 @@ struct Connection {
     // Refreshes the editor's retained frames, marking this draw's arrivals fresh.
     std::function<void(blocks::Frames<models::Resolved::Blocks>&)> read_blocks = [](auto&) {};
 #endif
-    // Each resolved action, normalized: wrappers see only addressed starts and ends.
-    std::function<void(const Action::Any&)> action_handler = [](auto&) {};
+    // The frame's parameter edits, normalized, as the host's protocol: begin and end are balanced, one touch per
+    // parameter, and every set sits inside them. Transaction brackets never get here (they're the undo history's).
+    std::function<void(std::uint32_t address)> begin = [](auto) {};
+    std::function<void(std::uint32_t address, double knob)> set = [](auto, auto) {};
+    std::function<void(std::uint32_t address)> end = [](auto) {};
 #if TINY_HAS_STATE
     // Once before and once after each draw: take in snapshots, send edits, close a waiting undo step.
     std::function<void()> sync_state = []() {};

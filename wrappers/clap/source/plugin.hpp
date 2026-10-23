@@ -357,7 +357,7 @@ private:
     auto _handle_note_event(const clap_event_header* event) -> void;
     auto _send_notes(const clap_output_events* out) -> void;
     auto _handle_user_actions(const clap_output_events_t* out_events, bool needs_resync) -> void;
-    auto _handle_user_action(const edit::Action::Any& action) -> void;
+    auto _queue_user_action(const edit::Action::Any& action) -> void;
     auto _load_param(uint32_t address, double knob) -> void;
 
     // This is where we handle host events from automation or flush.

@@ -352,7 +352,7 @@ private:
 #if TINY_HAS_BLOCKS
         .read_blocks = [this](blocks::Frames<models::Resolved::Blocks>& out) { _block_mailbox.read(out); },
 #endif
-        .action_handler = [this](const edit::Action::Any& action) { this->_handle_action(action); },
+        .set = [this](std::uint32_t address, double knob) { this->_editor_set(address, knob); }, // The page is the host: no gestures.
 #if TINY_HAS_STATE
         .sync_state = [this]() { _state_link.sync(); },
 #endif
@@ -410,16 +410,11 @@ private:
 #endif
 
     // An editor action. The page's own host has no gesture API, so a gesture only brackets undo.
-    auto _handle_action(const edit::Action::Any& action) -> void
+    auto _editor_set(std::uint32_t address, double knob) -> void
     {
-        if (const auto* a = std::get_if<edit::Action::Set>(&action)) {
-            const auto& spec = User_params::param_spec(a->address);
-            _host[a->address] = params::knob_to_host(a->value, spec.semantics);
-            _to_processor.push_value(Kind::Param_set, Param_set{
-                .value = params::knob_to_plain(a->value, spec.semantics),
-                .address = a->address,
-            });
-        }
+        const auto& spec = User_params::param_spec(address);
+        _host[address] = params::knob_to_host(knob, spec.semantics);
+        _to_processor.push_value(Kind::Param_set, Param_set{.value = params::knob_to_plain(knob, spec.semantics), .address = address});
     }
 
     auto _load_param(std::uint32_t address, double knob) -> void

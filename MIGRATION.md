@@ -1011,7 +1011,8 @@ s/\bAction_end\b/edit::Action::End/g; s/\bSet_param\b/edit::Action::Set/g
 s/\bRender_mode\b/Mode/g; s/\.render_mode\b/.mode/g
 ```
 
-Wrappers only: `Ui_receiver` is `edit::Connection` (its nested `using`s are gone); `run_frame`, `resolve_frame` and
+Wrappers only: `Ui_receiver` is `edit::Connection` (its nested `using`s are gone), and its `action_handler` (a
+variant) is three callbacks, `begin(address)`, `set(address, knob)`, `end(address)`, always addressed; `run_frame`, `resolve_frame` and
 `close_session` take no resize policy; `Edit_store::requested` is `size_handle().request`, and the editor's context
 takes `.size = store.size_handle()`.
 

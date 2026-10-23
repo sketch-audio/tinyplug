@@ -773,23 +773,16 @@ Steinberg::IPlugView* PLUGIN_API Controller::createView(Steinberg::FIDString nam
                 _block_mailbox.read(out);
             },
 #endif
-            .action_handler = [this](auto& a) {
-                std::visit(Inline_visitor{
-                    [this](const edit::Action::Start& s) {
-                        beginEdit(*s.address);
-                        _gestured.insert(*s.address);
-                    },
-                    [this](const edit::Action::Set& s) {
-                        if (setParamNormalized(s.address, s.value) == Steinberg::kResultTrue) {
-                            performEdit(s.address, getParamNormalized(s.address));
-                        }
-                    },
-                    [this](const edit::Action::End& s) {
-                        endEdit(*s.address);
-                        _gestured.erase(*s.address);
-                    },
-                    [](const auto&) {}
-            }, a);
+            .begin = [this](std::uint32_t address) {
+                beginEdit(address);
+                _gestured.insert(address);
+            },
+            .set = [this](std::uint32_t address, double knob) {
+                if (setParamNormalized(address, knob) == Steinberg::kResultTrue) performEdit(address, getParamNormalized(address));
+            },
+            .end = [this](std::uint32_t address) {
+                endEdit(address);
+                _gestured.erase(address);
             },
 #if TINY_HAS_STATE
             .sync_state = [this]() { _state_link.sync(); },
