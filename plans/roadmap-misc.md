@@ -1,6 +1,7 @@
-# Plan: Roadmap miscellany — Windows multitouch, macOS CPU backend, Windows GPU sync
+# Plan: Roadmap miscellany — Windows multitouch, macOS CPU backend, Windows GPU sync, web follow-ups
 
-> Status: **design.** Three independent items in `tiny_platform`. Two touch the `Window_context` graphics seam.
+> Status: **design.** Three independent items in `tiny_platform`, two of them on the `Window_context` graphics seam,
+> and what the web format left when it landed (item 4).
 
 ## The graphics seam
 
@@ -14,7 +15,7 @@ compile-time, one `Impl` per `#if`:
 | Windows | CPU raster, `StretchDIBits` (`WIN_GRAPHICS_GPU` 0) | D3D12 Ganesh, disabled: see item 3 |
 | macOS | Metal | **none**: item 2 |
 | iOS | Metal (`IOS_GRAPHICS_GPU` 1) | CPU raster composited by CoreAnimation (`layer.contents`), the escape hatch from `CAMetalDisplayLink` GPU timeouts |
-| Web | CPU raster, `putImageData` | Graphite on WebGPU, later ([web-format.md](web-format.md)) |
+| Web | CPU raster, `putImageData` | Graphite on WebGPU, later (item 4) |
 
 Keep the switch compile-time. A runtime `Graphics_backend { gpu, cpu, auto }` would need both impls linked and a
 unified interface; revisit only once the Windows GPU path is trustworthy.
@@ -79,6 +80,41 @@ Fix, in order:
 Flip `WIN_GRAPHICS_GPU` to 1 only after Reaper, Cubase, FL and Live on Windows, across several GPUs and a
 software-adapter VM: no UI-thread stalls, no tearing, correct live resize.
 
+## Item 4 — Web follow-ups
+
+The web format landed 2026-10-22, checked by hand in Chrome and Safari on macOS. Measured then (Apple Silicon,
+Chrome headless, 2x): processor module 39-49 KB brotli, controller 739-755 KB; main thread 8-11 % with an editor
+open at 60 fps, mostly Skia rasterising the whole editor.
+
+By hand:
+- **The real page.** A `build-web-nonisolated` bundle on a sketch_site test page, next to the Moonbase storefront
+  and a YouTube embed, under `astro dev` with no headers. The check the variant exists for.
+- **Every demo in Safari (macOS)**, nonisolated: `node tools/web/serve.mjs --build build-web-nonisolated --no-isolation`,
+  then `editor.html?plugin=<Base>`.
+- **Hidden tab**, both variants: audio keeps playing; the editor and meters catch up on return; no stuck notes.
+  Confirm no browser throttles the pump's `Atomics.wait` timeout in a background tab; if one does, block on a
+  futex the worklet signals each quantum.
+- **iOS Safari** over HTTPS (`cloudflared tunnel --url http://localhost:8040`): crackle, and editor feel with
+  background tasks on main.
+
+In code:
+- **Processor-written state is untested in both variants**: no demo declares `Writers::Processor` or `Both`. A
+  small one (or a test model) and a `web_split` scenario for the snapshot path.
+- The nonisolated tree runs no tiny_core tests besides `tasks_nothreads_test`; a no-threads build of the threadless
+  ones would be cheap.
+- Windows: the wire move (AAX through `wire.hpp`) hasn't been built on MSVC; `windows-asan-hosts` before the next
+  Windows release from main.
+
+Later:
+- **Graphite on WebGPU** (`skia_use_dawn`, `skia_use_webgpu`); removes most of the main-thread cost. Ganesh on
+  WebGL2 only as a fallback.
+- **Size.** A product that decodes no images could build Skia without its codecs.
+- **Scheduled page automation.** Page `setParam` lands at the next quantum; an API mapping `AudioContext` time to a
+  frame offset can follow.
+- **CI.** The `web` preset in the release CI (`all_plugins/plans/ci-build-system.md`); spk, vsl, sketch_dsp get a
+  job there so a native-only assumption fails in CI, not in a product.
+
 ## Order
 
 Windows multitouch (isolated, small), then the macOS CPU backend (a port of iOS's), then Windows GPU sync (hardest).
+The web by-hand checks are independent of all three.

@@ -245,7 +245,7 @@ and the effect can be bypassed but still crossfading, so values changed then are
    the AUv2 and VST3 hosts check it. A discontinuity inside a hold no longer restarts the hold's cap.
 4. ~~The hold, AUv2 only.~~ Done.
 5. Real Logic measurements; widen the hold per format on evidence.
-6. Port all_plugins: 129 `Reset::` sites in 63 files, most behind its shared adapter. Add `make_contract_checks` for
+6. Port all_plugins ([client-port.md](client-port.md)): 129 `Reset::` sites in 63 files, most behind its shared adapter. Add `make_contract_checks` for
    every product; Galaxy Brain's carrier and Doctor Vibe's unidentified state should show there.
 
 ## Considerations

@@ -705,8 +705,8 @@ undo, and state chunks). The GUI hangs off the data model.
 ### Web (wrappers/web/) — TWO MODULES, AAX-SHAPED
 
 The browser splits the plug-in across the AudioWorklet and the page's main thread, and the wrapper keeps the split:
-two wasm modules joined by rings in shared memory, like AAX's algorithm and data model. Design, decisions and
-measurements: [plans/web-format.md](plans/web-format.md).
+two wasm modules joined by rings in shared memory, like AAX's algorithm and data model. The design plan is in git
+history; follow-ups are item 4 of [roadmap-misc.md](plans/roadmap-misc.md).
 
 - **Processor module** (`<Base>_processor.wasm`, [module.cpp](wrappers/web/source/processor/module.cpp)): the
   processor alone, standalone wasm with no Emscripten JS, on an imported, fixed-size shared memory. Our own
@@ -727,6 +727,8 @@ measurements: [plans/web-format.md](plans/web-format.md).
 - **Seqlocks need atomic data in wasm.** Binaryen strips `atomic.fence` at -O2, so `Block_store` copies slots
   as relaxed atomic words; `publish_with`'s in-place fill is native-only. Don't "simplify" the word copies to
   `memcpy` — the Release wasm build accepts torn frames if you do.
+- **Never block main on a task that proxies to main.** `Task_manager::shutdown` waits by spinning in Emscripten,
+  and a task calling back into main deadlocks the tab. Natively the same rule, but there it only stalls.
 - **Latency** needs no negotiation: a proposal is accepted at once and lands as `Reset::Latency` next block.
 - **Two variants, one tree each** (`TINY_WEB_VARIANT`, presets `web` / `web-nonisolated`). `isolated` needs a page sent
   with COOP / COEP; `nonisolated` runs on any page: no shared memory, so no threads (`TINY_PLATFORM_THREADS` 0:
@@ -989,14 +991,9 @@ From the README, enforced informally:
 Read the relevant plan in [plans/](plans/) before non-trivial changes there. Landed work has no plan;
 its rules are in this file and its history in git.
 
-- **[unified-edit-model.md](plans/unified-edit-model.md)** — design, next. The framework owns state and its
-  mechanics, the client owns features (preset names, `*`, A/B, linked controls): `Action_start`/`Action_end`
-  with an optional address as the one transaction vocabulary, a frame amend window instead of `sort()`, view
-  state behind a handle, every load reported as `Load_info` to a pure `on_host_load`, declared `sizing()`, no
-  `save_state`/`load_state`/`notify`/observers, shared chunk writers for the preset exporters, and on-demand
-  saves that retire `State_image` polling. Sessions stay backward compatible.
-- **[web-format.md](plans/web-format.md)** — landed; what remains is by-hand checks (a real page, Safari,
-  hidden tabs, iOS), processor-written state tests, Graphite on WebGPU and CI.
+- **[client-port.md](plans/client-port.md)** — next (0.5). Bring all_plugins up on main: the `Restart` port and
+  contract checks per product, and the editor features (preset names, `*`, A/B, linked controls, layout) rebuilt
+  on the view model and transactions. Holds the 0.4 client defects the port should fix.
 - **[buffer-system.md](plans/buffer-system.md)** — design. Managed large audio buffers (looper, granular,
   sampler, drum machine): a processor-owned canonical source, off-thread prepare, pointer-swap install,
   persisted in the session.
@@ -1006,11 +1003,11 @@ its rules are in this file and its history in git.
 - **[param-lockfile.md](plans/param-lockfile.md)** — deferred. A checked-in `params.lock` per plug-in so the
   permanence rules above become build-time enforcement.
 - **[bounce-param-authority.md](plans/bounce-param-authority.md)** — in the tree, unmeasured in a real DAW.
-  `Restart{params}`, `Stream_sync` and the AUv2 hold are in; real Logic measurements and the all_plugins port
-  remain. Holds the Logic diagnosis and evidence.
+  `Restart{params}`, `Stream_sync` and the AUv2 hold are in; real Logic measurements remain (the all_plugins port
+  is in client-port.md). Holds the Logic diagnosis and evidence.
 - **[linux-feasibility.md](plans/linux-feasibility.md)** — feasibility. CLAP and VST3 on Linux.
 - **[roadmap-misc.md](plans/roadmap-misc.md)** — design. Windows multitouch, a macOS CPU backend, Windows
-  GPU sync.
+  GPU sync, and the web format's follow-ups (by-hand checks, test gaps, Graphite on WebGPU, CI).
 
 ## Things to be careful about
 

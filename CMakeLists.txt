@@ -38,7 +38,7 @@ if (APPLE)
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer")
     set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "") # You will need to set your team ID.
 elseif(EMSCRIPTEN)
-    # What the page must provide (plans/web-format.md). The variant is the whole tree's compile flavor, Skia included.
+    # What the page must provide (CLAUDE.md, "Web"). The variant is the whole tree's compile flavor, Skia included.
     #   isolated:    the page sends COOP / COEP; shared memory and threads, workers allowed.
     #   nonisolated: any page; no shared memory, so no threads and no worker.
     set(TINY_WEB_VARIANT "isolated" CACHE STRING "The web format's variant: isolated or nonisolated.")

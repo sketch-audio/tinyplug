@@ -794,8 +794,8 @@ In handlers, `e.target` becomes `e.value`, so a `Set` and a `Ramp` read the same
 ## Web format
 
 New on `main`: a sixth format, `make_web_plugin(<target>)`, beside the other `make_*_plugin` calls. It does nothing
-outside an Emscripten build, so adding it to a plug-in's CMakeLists is safe everywhere. The design is in
-[plans/web-format.md](plans/web-format.md).
+outside an Emscripten build, so adding it to a plug-in's CMakeLists is safe everywhere. Follow-ups are item 4 of
+[plans/roadmap-misc.md](plans/roadmap-misc.md).
 
 ### Breaks
 
@@ -891,7 +891,7 @@ restart must change nothing. A product's state that survives a restart (an oscil
 
 ## Transactions and normalized edits
 
-New on `main`. Step 1 of [plans/unified-edit-model.md](plans/unified-edit-model.md): one vocabulary for
+New on `main`. Step 1 of the unified edit model (CLAUDE.md, "Edits and undo"): one vocabulary for
 gestures and transactions, and the framework, not the editor, makes the action stream well formed.
 
 ### Breaks
@@ -921,7 +921,7 @@ gestures and transactions, and the framework, not the editor, makes the action s
 
 ## The editor owns no state: view model, load reports, sizing
 
-New on `main`. Steps 2–6 of [plans/unified-edit-model.md](plans/unified-edit-model.md): everything the
+New on `main`. Steps 2–6 of the unified edit model (CLAUDE.md, "State / preset model"): everything the
 editor wants back with a session is framework state, and the editor has no save, load or notify hooks.
 
 ### Breaks
