@@ -36,11 +36,13 @@ const mount = async (m) => {
     return { flush, stop: () => clearInterval(timer) };
 };
 
-export const load_controller = async (url) => {
+// `storage`: false keeps platform::Paths in memory only, nothing read or saved across visits: for a page that shows a
+// plug-in rather than hosts a user's work (a demo), and never waits on IndexedDB.
+export const load_controller = async (url, { storage: persistent = true } = {}) => {
     console.debug("[tinyplug] load: controller module");
     const m = await (await import(url)).default();
-    console.debug("[tinyplug] load: storage (IndexedDB)");
-    const storage = await mount(m);
+    console.debug(`[tinyplug] load: storage (${persistent ? "IndexedDB" : "memory only"})`);
+    const storage = persistent ? await mount(m) : null;
     const table_at = m._tiny_ctl_create();
     const string = (ptr) => m.UTF8ToString(ptr);
     const with_string = (text, f) => { const p = m.stringToNewUTF8(text); try { return f(p); } finally { m._free(p); } };

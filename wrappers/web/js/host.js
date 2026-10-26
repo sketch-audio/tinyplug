@@ -133,10 +133,11 @@ const start_link = (node, ctl, receive) => {
 };
 
 // `base_url`: the bundle directory (".../GainDemo.web/"). `name`: its base name. `canvas`: where the editor draws.
+// `storage`: false keeps the editor's files (prefs, user presets) in memory for this page only (see load_controller).
 // The node's input 0 is the main input, input 1 the sidechain (when the manifest declares one); output 0 is stereo.
-export const load_plugin = async ({ base_url, name, context = new AudioContext(), canvas = null }) => {
+export const load_plugin = async ({ base_url, name, context = new AudioContext(), canvas = null, storage = true }) => {
     linked_for(await read_manifest(new URL("manifest.json", base_url))); // Before the controller needs threads.
-    const ctl = await load_controller(new URL(`${name}_controller.mjs`, base_url).href);
+    const ctl = await load_controller(new URL(`${name}_controller.mjs`, base_url).href, { storage });
     const linked = linked_for(ctl.manifest);
     ctl.start(context.sampleRate);
     console.debug(`[tinyplug] load: processor module (AudioContext ${context.state})`);

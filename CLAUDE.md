@@ -755,7 +755,7 @@ history; follow-ups are item 4 of [roadmap-misc.md](plans/roadmap-misc.md).
 - **Platform**: [web_view.cpp](libs/tiny_platform/source/web_view.cpp) draws from requestAnimationFrame, input
   arrives through exports the page's listeners call ([editor.js](wrappers/web/js/editor.js)); CPU raster with
   `putImageData` ([web_context.cpp](libs/tiny_platform/source/web_context.cpp)); `platform::Paths` under an
-  IndexedDB mount; browser dialogs. Skia for wasm comes from tiny_deps' `build-skia-web.sh` with its pinned emsdk,
+  IndexedDB mount (`load_plugin({ storage: false })`: memory only, for a demo page; a mount that doesn't open in 3 s is skipped, as Safari can hold it behind its back/forward cache); browser dialogs. Skia for wasm comes from tiny_deps' `build-skia-web.sh` with its pinned emsdk,
   which the `web` presets also use — one toolchain for every object in a module.
 - **Build and test**: `cmake --preset web && cmake --build --preset web && ctest --preset web`. Labels:
   `web_host` (processor module under Node), `web_split` (all three threads under Node), `browser` (headless
