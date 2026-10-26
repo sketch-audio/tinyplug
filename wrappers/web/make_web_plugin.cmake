@@ -1,12 +1,13 @@
-set(TINY_WEB_DIR ${CMAKE_CURRENT_LIST_DIR})
-
 # The web format: `<Base>.web/` with the processor module (and, later, the controller module).
 function(make_web_plugin USER_TARGET)
+    # From the function's own file, not the project's: a plug-in outside tinyplug calls it too.
+    set(TINY_WEB_DIR ${CMAKE_CURRENT_FUNCTION_LIST_DIR})
+    set(TINY_ROOT_DIR ${TINY_WEB_DIR}/../..)
     if(NOT EMSCRIPTEN)
         # Natively: the processor module as a renderer, for tests/web/compare.mjs. Built on demand only.
         read_property(${USER_TARGET} TINY_BASE_FILENAME)
         set(NATIVE ${TINY_BASE_FILENAME}_web_native)
-        add_executable(${NATIVE} EXCLUDE_FROM_ALL ${PROJECT_SOURCE_DIR}/tests/web/native_render.cpp)
+        add_executable(${NATIVE} EXCLUDE_FROM_ALL ${TINY_ROOT_DIR}/tests/web/native_render.cpp)
         target_link_libraries(${NATIVE} PRIVATE ${USER_TARGET} ${TINY_DSP_LIB})
         target_compile_options(${NATIVE} PRIVATE -ffp-contract=off)
         return()
@@ -63,7 +64,7 @@ function(make_web_plugin USER_TARGET)
     add_custom_command(TARGET ${CTL} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory ${OUT_DIR}/js
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TINY_WEB_JS} ${OUT_DIR}/js
-        COMMAND ${TINY_NODE} ${PROJECT_SOURCE_DIR}/tools/web/manifest.mjs $<TARGET_FILE:${PROC}> ${OUT_DIR}/manifest.json
+        COMMAND ${TINY_NODE} ${TINY_ROOT_DIR}/tools/web/manifest.mjs $<TARGET_FILE:${PROC}> ${OUT_DIR}/manifest.json
         VERBATIM)
     add_dependencies(${CTL} ${PROC})
 
@@ -75,11 +76,11 @@ function(make_web_plugin USER_TARGET)
             set(SPLIT_ARGS --link)
             set(PAGE_ARGS --no-isolation)
         endif()
-        add_test(NAME web_host_${TINY_BASE_FILENAME} COMMAND node ${PROJECT_SOURCE_DIR}/tests/hosts/web_host.mjs ${OUT_DIR})
+        add_test(NAME web_host_${TINY_BASE_FILENAME} COMMAND node ${TINY_ROOT_DIR}/tests/hosts/web_host.mjs ${OUT_DIR})
         set_tests_properties(web_host_${TINY_BASE_FILENAME} PROPERTIES LABELS web_host)
-        add_test(NAME web_split_${TINY_BASE_FILENAME} COMMAND node ${PROJECT_SOURCE_DIR}/tests/hosts/web_split_host.mjs ${OUT_DIR} ${SPLIT_ARGS})
+        add_test(NAME web_split_${TINY_BASE_FILENAME} COMMAND node ${TINY_ROOT_DIR}/tests/hosts/web_split_host.mjs ${OUT_DIR} ${SPLIT_ARGS})
         set_tests_properties(web_split_${TINY_BASE_FILENAME} PROPERTIES LABELS web_split TIMEOUT 60)
-        add_test(NAME web_editor_${TINY_BASE_FILENAME} COMMAND node ${PROJECT_SOURCE_DIR}/tests/web/smoke.mjs ${TINY_BASE_FILENAME}
+        add_test(NAME web_editor_${TINY_BASE_FILENAME} COMMAND node ${TINY_ROOT_DIR}/tests/web/smoke.mjs ${TINY_BASE_FILENAME}
                  --build ${PROJECT_BINARY_DIR} --page editor.html --result tiny_editor ${PAGE_ARGS})
         set_tests_properties(web_editor_${TINY_BASE_FILENAME} PROPERTIES LABELS browser TIMEOUT 60 RUN_SERIAL TRUE)
         # Against the native build of the same module: configure with -DTINY_WEB_NATIVE_DIR=<a native build tree>
@@ -91,7 +92,7 @@ function(make_web_plugin USER_TARGET)
             if(TOLERANCE)
                 set(TOLERANCE_ARGS --tolerance ${TOLERANCE})
             endif()
-            add_test(NAME web_native_${TINY_BASE_FILENAME} COMMAND node ${PROJECT_SOURCE_DIR}/tests/web/compare.mjs $<TARGET_FILE:${PROC}>
+            add_test(NAME web_native_${TINY_BASE_FILENAME} COMMAND node ${TINY_ROOT_DIR}/tests/web/compare.mjs $<TARGET_FILE:${PROC}>
                      --native-exe ${TINY_WEB_NATIVE_DIR}/${REL}/${TINY_BASE_FILENAME}_web_native ${TOLERANCE_ARGS})
             set_tests_properties(web_native_${TINY_BASE_FILENAME} PROPERTIES LABELS web_native)
         endif()

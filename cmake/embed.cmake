@@ -4,9 +4,9 @@
 # file in namespace `embedded::<name>`: `auto <stem>() -> std::span<const std::byte>`, the stem being the file name
 # made an identifier ("InterVariable.ttf" -> `intervariable_ttf`). One .cpp per file, so a change rebuilds one object.
 
-set(_TINY_EMBED_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/embed_file.cmake)
-
 function(tiny_embed TARGET)
+    # From the function's own file: a variable set beside it isn't seen by a project that includes tinyplug.
+    set(_TINY_EMBED_SCRIPT ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/embed_file.cmake)
     cmake_parse_arguments(ARG "" "NAME" "FILES" ${ARGN})
     if(NOT ARG_NAME OR NOT ARG_FILES)
         message(FATAL_ERROR "tiny_embed: NAME and FILES are required.")
