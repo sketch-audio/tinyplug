@@ -59,14 +59,17 @@ function(make_web_plugin USER_TARGET)
     # A self-contained bundle: the two modules, manifest.json, the JS package and a page, deployable as one folder.
     read_property(${USER_TARGET} TINY_PLUGIN_NAME)
     configure_file(${TINY_WEB_DIR}/bundle/index.html.in ${OUT_DIR}/index.html @ONLY)
-    file(GLOB TINY_WEB_JS ${TINY_WEB_DIR}/js/*.js)
+    file(GLOB TINY_WEB_JS CONFIGURE_DEPENDS ${TINY_WEB_DIR}/js/*.js)
     find_program(TINY_NODE node REQUIRED)
     add_custom_command(TARGET ${CTL} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${OUT_DIR}/js
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TINY_WEB_JS} ${OUT_DIR}/js
         COMMAND ${TINY_NODE} ${TINY_ROOT_DIR}/tools/web/manifest.mjs $<TARGET_FILE:${PROC}> ${OUT_DIR}/manifest.json
         VERBATIM)
     add_dependencies(${CTL} ${PROC})
+    # The JS package on every build (copy_if_different), so a change to it alone reaches the bundle.
+    add_custom_target(${TINY_BASE_FILENAME}_web_js ALL
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${OUT_DIR}/js
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TINY_WEB_JS} ${OUT_DIR}/js
+        VERBATIM)
 
     if(TINY_BUILD_TESTS)
         # Nonisolated: the split host over the link, and browser pages served without COOP / COEP.
