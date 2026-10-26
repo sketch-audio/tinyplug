@@ -46,6 +46,7 @@ const start_processor = async (context, processor_url, params, linked) => {
         if (data.ready) ready(data);
         if (data.link) inbox.handler ? inbox.handler(data.link) : inbox.early.push(data.link);
     };
+    console.debug("[tinyplug] load: waiting for the worklet's processor");
     const { manifest, table } = await ready_promise; // The rings' offsets come from the processor's own table.
     const receive = (handler) => { inbox.handler = handler; inbox.early.splice(0).forEach(handler); };
     return { node, memory, manifest, table, receive };
@@ -138,7 +139,9 @@ export const load_plugin = async ({ base_url, name, context = new AudioContext()
     const ctl = await load_controller(new URL(`${name}_controller.mjs`, base_url).href);
     const linked = linked_for(ctl.manifest);
     ctl.start(context.sampleRate);
+    console.debug(`[tinyplug] load: processor module (AudioContext ${context.state})`);
     const { node, memory, table, receive } = await start_processor(context, new URL(`${name}_processor.wasm`, base_url), ctl.plain_params(), linked);
+    console.debug("[tinyplug] load: wire");
     const wire = linked ? start_link(node, ctl, receive) : await start_pump(memory, table, ctl);
 
     const by_id = new Map(ctl.manifest.params.map((p) => [p.identifier, p]));

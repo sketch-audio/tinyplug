@@ -22,7 +22,9 @@ const mount = async (m) => {
 };
 
 export const load_controller = async (url) => {
+    console.debug("[tinyplug] load: controller module");
     const m = await (await import(url)).default();
+    console.debug("[tinyplug] load: storage (IndexedDB)");
     const storage = await mount(m);
     const table_at = m._tiny_ctl_create();
     const string = (ptr) => m.UTF8ToString(ptr);
