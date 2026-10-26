@@ -298,7 +298,12 @@ struct Fonts::Impl {
         if (!lines.empty()) {
             layout.trailing = letter_spacing(spans.back().style);
             layout.left = lines.front().fLeft;
-            layout.baseline = std::floor(lines.front().fBaseline + 0.5); // As TextLine paints it.
+            // As TextLine paints it: the line's top, then its ascent rounded (the run's corrected ascent, which already
+            // holds the font's leading and any line height). LineMetrics::fBaseline is Flutter's, from a line height
+            // SkParagraph rounds, so rounding it misplaced some sizes by a unit (9 pt Google Sans Flex drew one low).
+            const auto& m = lines.front();
+            const auto top = m.fBaseline - m.fHeight + m.fDescent;
+            layout.baseline = top + std::floor(m.fAscent + 0.5);
             layout.width = std::max(0., lines.front().fWidth - layout.trailing);
         }
         layout.paragraph = std::move(paragraph);
