@@ -8,7 +8,16 @@ const mount = async (m) => {
     if (typeof indexedDB === "undefined" || !m.IDBFS) return null; // Node: plain memory.
     m.FS.mkdirTree(persist);
     m.FS.mount(m.IDBFS, { autoPersist: false }, persist);
-    await new Promise((resolve) => m.FS.syncfs(true, resolve));
+    // Safari can leave the open waiting behind a page in its back/forward cache that still holds the database. Past a
+    // few seconds the editor starts without what was saved, and never writes, so it can't overwrite it.
+    const loaded = await Promise.race([
+        new Promise((resolve) => m.FS.syncfs(true, (error) => resolve(!error))),
+        new Promise((resolve) => setTimeout(() => resolve(false), 3000)),
+    ]);
+    if (!loaded) {
+        console.warn("[tinyplug] storage: IndexedDB didn't open; this page's prefs and presets won't be saved.");
+        return null;
+    }
     let syncing = false;
     const flush = () => {
         if (syncing) return;
@@ -16,7 +25,13 @@ const mount = async (m) => {
         m.FS.syncfs(false, () => { syncing = false; });
     };
     const timer = setInterval(flush, 2000);
-    addEventListener("pagehide", flush);
+    // Leaving: a last write, then let go of the database (close lets that write finish), so a page kept in the
+    // back/forward cache doesn't hold it while the next page opens it.
+    addEventListener("pagehide", () => {
+        flush();
+        for (const db of Object.values(m.IDBFS.dbs ?? {})) db.close();
+        m.IDBFS.dbs = {};
+    });
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flush(); });
     return { flush, stop: () => clearInterval(timer) };
 };
