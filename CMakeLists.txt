@@ -5,7 +5,7 @@ option(TINY_INSTALL_PLUGINS "Copy plug-ins to system folders after build (may pr
 option(TINY_BUILD_TESTS "Build the tests under tests/." OFF)
 set(TINY_SANITIZE "" CACHE STRING "Sanitizers for the whole configure, e.g. thread or address,undefined. Empty for none.")
 
-project(tinyplug VERSION 0.1.0) # Version code is used to generate names for Obj-C classes.
+project(tinyplug VERSION 0.5.0) # Version code is used to generate names for Obj-C classes.
 
 # Logging / lifecycle probing. On for Debug, off otherwise — the macros and every
 # `log::Probe` method compile away entirely when it is off.
