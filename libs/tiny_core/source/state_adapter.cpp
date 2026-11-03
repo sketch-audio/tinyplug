@@ -3,6 +3,8 @@
 #include "tiny_core/base64.hpp"
 #include "tiny_core/value_helper.hpp"
 
+#include <optional>
+
 namespace tiny {
 
 namespace {
@@ -90,36 +92,40 @@ auto State_adapter::param_values(const nlohmann::ordered_json& preset_state) con
 
     auto values = Maybe_values<double>(model.num_params, std::nullopt);
     if (!model.param_tree) return values;
+    // Not a preset at all (an array, a number: a hand-edited file): nothing to apply.
+    if (!preset_state.is_object()) return values;
 
-    auto visit_group = [](const params::Group& group, const Json& json, Maybe_values<double>& values, auto&& self) -> void {
+    // A preset from another version of the plug-in recalls what it can and never more than the range: a value it
+    // has (by identifier) lands clamped to the param's range; one it lacks, or whose group it lacks, or that isn't a
+    // number, takes the default. Identifiers it has that the plug-in doesn't are ignored.
+    const auto empty = Json::object();
+    // The preset's value for `spec`, in knob space and clamped to it; none when it has no number there. A JSON
+    // number is always finite (nlohmann refuses 1e999 at parse), but an adapter can still make a NaN of one outside
+    // its domain (a log scale given a negative): the three comparisons don't catch it, so it takes the default.
+    const auto knob_of = [](const params::Spec& spec, const Json& json) -> std::optional<double> {
+        const auto it = json.find(spec.identity.identifier);
+        if (it == json.end() || !it->is_number()) return std::nullopt;
+        const auto knob = params::plain_to_knob(it->get<double>(), spec.semantics);
+        if (knob >= 0.0 && knob <= 1.0) return knob;
+        if (knob > 1.0) return 1.0;
+        if (knob < 0.0) return 0.0;
+        return std::nullopt;
+    };
+    auto visit_group = [&empty, &knob_of](const params::Group& group, const Json& json, Maybe_values<double>& values, auto&& self) -> void {
         for (const auto& node : group.nodes) {
             if (const auto* spec = std::get_if<params::Spec>(&node); spec) {
-                // Do we have a json number for this param?
-                const auto has_value = json.contains(spec->identity.identifier) && json[spec->identity.identifier].is_number();
-                if (has_value) {
-                    const auto plain = json[spec->identity.identifier].get<double>();
-                    const auto knob = params::plain_to_knob(plain, spec->semantics);
-                    values[spec->identity.address] = knob;
-                }
-                else {
-                    const auto def_val = params::default_value(*spec, Space::Knob);
-                    values[spec->identity.address] = def_val;
-                }
+                values[spec->identity.address] = knob_of(*spec, json).value_or(params::default_value(*spec, Space::Knob));
             }
             else if (const auto* subgroup = std::get_if<params::Group>(&node); subgroup) {
-                // Do we have a json object for this param group?
-                const auto has_subjson = json.contains(subgroup->identifier) && json[subgroup->identifier].is_object();
-                if (has_subjson) {
-                    const auto& subjson = json[subgroup->identifier];
-                    self(*subgroup, subjson, values, self);
-                }
+                const auto it = json.find(subgroup->identifier);
+                self(*subgroup, it != json.end() && it->is_object() ? *it : empty, values, self);
             }
         }
     };
 
     if (const auto* tree = std::get_if<params::Group>(model.param_tree); tree) {
-        const auto params_json = preset_state.value(Keys::params, Json{}); // Value or default.
-        visit_group(*tree, params_json, values, visit_group);
+        const auto it = preset_state.find(Keys::params);
+        visit_group(*tree, it != preset_state.end() && it->is_object() ? *it : empty, values, visit_group);
     }
 
     return values;
@@ -127,10 +133,11 @@ auto State_adapter::param_values(const nlohmann::ordered_json& preset_state) con
 
 auto State_adapter::editor_state(const nlohmann::ordered_json& preset_state) const -> State_map
 {
-    using Json = nlohmann::ordered_json;
-    const auto editor_json = preset_state.value(Keys::editor, Json{});
-
     auto state = State_map{};
+    const auto found = preset_state.find(Keys::editor); // find, not value(): value() throws on a non-object
+    if (found == preset_state.end() || !found->is_object()) return state;
+    const auto& editor_json = *found;
+
     for (auto it = editor_json.begin(); it != editor_json.end(); ++it) {
         const auto& key = it.key();
         const auto& value = it.value();

@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <optional>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -9,6 +10,7 @@
 #include <tiny_core/base64.hpp>
 #include <tiny_core/state_adapter.hpp>
 #include <tiny_core/state_record.hpp>
+#include <tiny_core/value_helper.hpp>
 
 namespace {
 
@@ -167,6 +169,68 @@ auto test_legacy_fixture() -> void
     expect(state::decode_record(a.state_record(json), doc) && doc.swing == 77, "the document decodes");
 }
 
+// A preset from another version of the plug-in: by identifier, clamped, defaults for what it lacks, nothing thrown.
+auto test_other_versions() -> void
+{
+    std::printf("a preset from another version\n");
+    using namespace tiny::params;
+    static const auto node = Node{Group{.nodes = {
+        Group{.name = "Main", .identifier = "main", .nodes = {
+            Spec{.identity = {.address = 0, .identifier = "depth"}, .name = "Depth",
+                 .semantics = Semantics::Real{.min_val = 0, .def_val = 0.25, .max_val = 1}},
+            Spec{.identity = {.address = 1, .identifier = "mode"}, .name = "Mode",
+                 .semantics = Semantics::List{.items = {"A", "B", "C"}, .def_val = 1}},
+        }},
+        Spec{.identity = {.address = 2, .identifier = "on"}, .name = "On", .semantics = Semantics::Bool{.def_val = true}},
+    }}};
+    // Added to Main after the fact: a log-scaled one.
+    static const auto rate = Spec{.identity = {.address = 3, .identifier = "rate"}, .name = "Rate",
+        .semantics = Semantics::Real{.min_val = 0.25, .def_val = 1, .max_val = 4, .knob_adapter = Adapter::Log{}}};
+    const auto* rate_spec = &rate;
+    static const auto tree = [] {
+        auto t = node;
+        std::get<Group>(std::get<Group>(t).nodes[0]).nodes.push_back(rate);
+        return t;
+    }();
+    const auto a = tiny::State_adapter{{
+        .load_model = [] { return tiny::State_adapter::Load_model{.param_tree = &tree, .num_params = 4}; },
+    }};
+    using Json = nlohmann::ordered_json;
+    const auto near = [](const std::optional<double>& v, double x) { return v && std::abs(*v - x) < 1e-9; };
+
+    auto values = a.param_values(Json::parse(R"({"params": {"main": {"depth": 7, "mode": 9, "gone": 1}, "on": 0}})"));
+    expect(near(values[0], 1) && near(values[1], 1), "values past the range land clamped");
+    expect(near(values[2], 0), "a value in range lands as it is");
+
+    values = a.param_values(Json::parse(R"({"params": {"main": {"depth": -3, "mode": "B"}}})"));
+    expect(near(values[0], 0), "below the range, clamped");
+    expect(near(values[1], 0.5) && near(values[2], 1), "a non-number, or a missing one: the default");
+
+    values = a.param_values(Json::parse(R"({"params": {"main": {"rate": -2}}})"));
+    expect(near(values[3], tiny::params::default_value(*rate_spec, tiny::params::Space::Knob)), "a value its adapter can't map (a log of a negative): the default");
+
+    values = a.param_values(Json::parse(R"({"params": {"renamed": {"depth": 0.5}}})"));
+    expect(near(values[0], 0.25) && near(values[1], 0.5), "a group the preset lacks: its params take their defaults");
+
+    values = a.param_values(Json::parse(R"({"params": {"main": [1, 2]}})"));
+    expect(near(values[0], 0.25), "a group that isn't an object: defaults");
+
+    auto threw = false;
+    try {
+        for (const auto* text : {"[1, 2]", "3", "null", R"({"params": 4, "editor": [1]})"}) {
+            const auto json = Json::parse(text);
+            values = a.param_values(json);
+            (void)a.editor_state(json);
+            (void)a.state_record(json);
+        }
+    } catch (...) {
+        threw = true;
+    }
+    expect(!threw, "a file that isn't a preset throws nothing");
+    values = a.param_values(Json::parse("[1, 2]"));
+    expect(!values[0] && !values[1] && !values[2] && !values[3], "and applies nothing");
+}
+
 } // namespace
 
 auto main() -> int
@@ -176,6 +240,7 @@ auto main() -> int
     std::printf("\n"); test_reserved_keys();
     std::printf("\n"); test_preset_and_session();
     std::printf("\n"); test_legacy_fixture();
+    std::printf("\n"); test_other_versions();
 
     std::printf("\n%s\n", failures == 0 ? "all tests passed" : "TESTS FAILED");
     return failures == 0 ? 0 : 1;
