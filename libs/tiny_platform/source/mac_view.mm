@@ -410,11 +410,27 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     [self addTrackingArea:area];
 }
 
-// Cursor rects are per-window, and ours is the host's: contributing none leaves the host's
-// own rects (Live's timeline magnifier, its splitters) showing through our view. Claim the
-// cursor for our whole area instead. Author-settable cursors would cache a value here.
-- (void)cursorUpdate:(NSEvent *)event {
+// The arrow over our whole area, whatever the host last set. Cursor rects are per-window and only
+// apply in the key window, and cursor updates come only on entering: a plug-in window that isn't key
+// (Live's floating ones, mostly) kept the host's last cursor (its timeline magnifier, its splitters)
+// for as long as the pointer stayed. So the arrow is set on entering and on every move too, as the
+// tracking area (NSTrackingActiveAlways) delivers those to an inactive window. Not over a subview
+// (a native text field keeps its I-beam). Author-settable cursors would cache a value here.
+- (void)claimCursor:(NSEvent *)event {
+    const auto location = [self convertPoint:event.locationInWindow fromView:nil];
+    for (NSView *subview in self.subviews) {
+        if (!subview.hidden && NSPointInRect(location, subview.frame)) return;
+    }
     [[NSCursor arrowCursor] set];
+}
+
+- (void)resetCursorRects {
+    [super resetCursorRects];
+    [self addCursorRect:self.bounds cursor:[NSCursor arrowCursor]];
+}
+
+- (void)cursorUpdate:(NSEvent *)event {
+    [self claimCursor:event];
 }
 
 - (void)viewDidChangeBackingProperties {
@@ -487,6 +503,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     _events.push(Event{
         .event = Pointer::Move{pos}
     });
+    [self claimCursor:event];
 
     //[super mouseMoved:event];
 }
@@ -563,6 +580,7 @@ static auto on_display_link(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeSt
     _events.push(Event{
         .event = Pointer::Enter{pos}
     });
+    [self claimCursor:event];
 
     //[super mouseEntered:event];
 }
