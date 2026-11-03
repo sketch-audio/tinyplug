@@ -162,12 +162,13 @@ public:
             _staged.seen = UINT32_MAX; // Carries the whole view, refused gestures included: never stale.
         }
         else if (was == Stage::Staged && (_staged.is_replace() || seen_rejected <= _staged.seen)) {
-            if (_staged.is_replace()) {
-                merge(as_writable_bytes(_staged.desired), expected, desired, sizeof(T));
-            }
-            else {
-                std::memcpy(&_staged.desired, desired, sizeof(T));
-            }
+            // Coalesce: this patch's moves onto what's staged, keeping the staged base. Not its whole
+            // `desired`: if a snapshot reached the requester between the two, this patch was diffed from
+            // a newer base, and its `desired` holds what the processor had written by then; taken
+            // whole against the older base, those bytes would read as moves and write stale values
+            // over the processor's since. With no snapshot between, `expected` is the staged
+            // `desired` and the merge is the copy.
+            merge(as_writable_bytes(_staged.desired), expected, desired, sizeof(T));
             _staged.seq = seq;
             _staged.apply = stricter(_staged.apply, apply);
             _staged.seen = std::min(_staged.seen, seen_rejected);
